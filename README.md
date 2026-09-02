@@ -65,6 +65,30 @@ Check it: <http://localhost:3000/healthz> and <http://localhost:3000/readyz>.
 curl "http://localhost:3000/v1/search?q=piranesi"
 ```
 
+#### Prove the whole backend path — `scripts\smoke.ps1`
+
+With the API running, in a second terminal:
+
+```powershell
+cd D:\Bookmarked\flyleaf
+.\scripts\smoke.ps1
+```
+
+36 assertions covering the full loop *and* the decisions that are supposed to be locked:
+
+- guest search and book pages work with **no token**; `/v1/reads` returns 401
+- register rejects a short password and a bad username; a duplicate email is **409 with `field: email`**; wrong password is 401
+- **posting the same `client_event_id` three times leaves progress unchanged** — the offline idempotency guarantee
+- a *new* event id does advance progress
+- finishing works with **no rating**; a quarter-star (4.25) is rejected; 4.5 is accepted
+- the heart is independent of the rating
+- re-reading creates **attempt_no 2** as a new row, not an overwrite
+- another user gets **404, not 403**, on your read — and sees none of your data
+
+Run this before every phase closes. It is the cheapest regression check in the project.
+
+> Written with `Invoke-WebRequest`, deliberately. Shelling out to `curl.exe` from PowerShell mangles the quotes inside a JSON `-d` payload — every GET keeps working and every POST silently fails, which looks exactly like a broken API.
+
 ### 4. Mobile app — a development build, not Expo Go
 
 > **Expo Go will not run this project, and that is not fixable.** Expo Go supports **exactly one SDK version** at a time — whatever the Play Store build on your device happens to be. If it reports "Supported SDK: 54" and the project is SDK 57, the only ways out are to downgrade the project (no) or stop using Expo Go (yes).
@@ -101,7 +125,15 @@ git commit -m "EAS: configure expo-updates"
 npx eas-cli@latest build --profile development --platform android
 ```
 
-The second run builds. You get a QR code and a URL; install that APK on your phone once.
+The second run builds.
+
+**Then it queues.** Free-tier builds wait behind paid ones — anywhere from a few minutes to an hour. `Ctrl+C` is safe: it stops the log tail, not the build. Check progress with:
+
+```powershell
+npx eas-cli@latest build:list
+```
+
+When it finishes you get a QR code and a URL. Install that APK on your phone once. Good use of the wait: run `scripts\smoke.ps1` above and prove the backend before the phone is involved.
 
 #### Path B — local build (one big install, then unlimited and faster)
 
@@ -217,9 +249,10 @@ These are not prototype shortcuts. Changing them costs far more later.
 | Check | Result |
 |---|---|
 | `tsc --noEmit` (API) | pass — TypeScript **7.0.2** strict, `noUncheckedIndexedAccess` |
-| `vitest run` | pass — **17 tests**: argon2id round-trip and salting, password and username rules, cache TTL and eviction |
+| `vitest run` | pass — **23 tests**: argon2id round-trip and salting, password and username rules, cache TTL and eviction, unique-violation detection through a wrapped cause chain |
 | Client typecheck | pass — verified against real React 19 types |
 | Mobile dependency resolution | pass — lockfile resolves 624 packages, no peer conflicts |
+| `scripts\smoke.ps1` | **36/36** against a real Postgres |
 | End-to-end on a device | **SK-07 — yours to run** |
 
 ---

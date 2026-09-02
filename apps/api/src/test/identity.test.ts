@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { hash, verify } from '@node-rs/argon2';
-import { passwordSchema, usernameSchema } from '../identity/index.js';
+import { passwordSchema, usernameSchema, uniqueViolationField } from '../identity/index.js';
 import { MemoryCache } from '../platform/index.js';
 
 // Password hashing and the validation rules are the parts of Phase -1 that
@@ -67,5 +67,46 @@ describe('MemoryCache', () => {
     await c.set('k', 'v', 60);
     await c.del('k');
     expect(await c.get('k')).toBeUndefined();
+  });
+});
+
+// Regression: the smoke test caught a duplicate email returning 500 instead
+// of 409. Cause was matching on the error *message*, which Drizzle hides
+// behind its own wrapper error. SQLSTATE 23505 is the stable contract.
+describe('uniqueViolationField', () => {
+  it('reads a bare postgres.js error', () => {
+    expect(uniqueViolationField({ code: '23505', constraint_name: 'users_email_key' })).toBe('email');
+    expect(uniqueViolationField({ code: '23505', constraint_name: 'users_username_key' })).toBe('username');
+  });
+
+  it('walks the cause chain when Drizzle wraps the driver error', () => {
+    const wrapped = new Error('Failed query: insert into "users" ...');
+    (wrapped as unknown as { cause: unknown }).cause = {
+      code: '23505',
+      constraint_name: 'users_email_unique',
+    };
+    expect(uniqueViolationField(wrapped)).toBe('email');
+  });
+
+  it('walks more than one level', () => {
+    const outer = { cause: { cause: { code: '23505', constraint: 'users_username_unique' } } };
+    expect(uniqueViolationField(outer)).toBe('username');
+  });
+
+  it('reports an unknown constraint rather than guessing', () => {
+    expect(uniqueViolationField({ code: '23505', constraint_name: 'sessions_pkey' })).toBe('other');
+  });
+
+  it('returns null for anything that is not a unique violation', () => {
+    expect(uniqueViolationField(null)).toBeNull();
+    expect(uniqueViolationField(new Error('boom'))).toBeNull();
+    expect(uniqueViolationField({ code: '23503' })).toBeNull();   // FK violation
+    expect(uniqueViolationField({ code: '42P01' })).toBeNull();   // undefined table
+  });
+
+  it('does not loop forever on a cyclic cause chain', () => {
+    const a: Record<string, unknown> = {};
+    a.cause = a;
+    expect(uniqueViolationField(a)).toBeNull();
   });
 });

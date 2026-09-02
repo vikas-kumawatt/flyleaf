@@ -22,6 +22,9 @@ seed:          ## load the 102-book CSV
 test:
 	cd apps/api && npm test
 
+smoke:         ## walk the whole API path and assert the locked decisions
+	pwsh -File scripts/smoke.ps1
+
 typecheck:
 	cd apps/api && npm run typecheck
 	cd apps/mobile && npm run typecheck

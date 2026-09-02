@@ -33,6 +33,41 @@ const loginBody = z.object({
   password: z.string(),
 });
 
+// ---------------------------------------------------------------- pg errors
+
+/**
+ * Which unique constraint a failed insert violated, or null if it was not a
+ * unique violation at all.
+ *
+ * Two things make the naive `String(err).includes('duplicate key')` check
+ * wrong, and the smoke test caught it as a 500 where a 409 belonged:
+ *
+ *  1. Drizzle wraps driver errors in its own error type, so the Postgres
+ *     message is down the `cause` chain rather than in the top-level string.
+ *  2. Matching on a human-readable message is fragile across driver and
+ *     Postgres versions. SQLSTATE 23505 is the stable contract.
+ *
+ * Reading the constraint name lets the 409 name the offending field, which
+ * matters: PRD 6.3 wants a taken email to offer sign-in and password reset,
+ * and a taken username to suggest alternatives. Those are different screens.
+ */
+export function uniqueViolationField(err: unknown): 'email' | 'username' | 'other' | null {
+  let node: unknown = err;
+
+  for (let depth = 0; depth < 5 && node; depth++) {
+    const e = node as { code?: unknown; constraint_name?: unknown; constraint?: unknown; cause?: unknown };
+
+    if (e.code === '23505') {
+      const constraint = String(e.constraint_name ?? e.constraint ?? '').toLowerCase();
+      if (constraint.includes('email')) return 'email';
+      if (constraint.includes('username')) return 'username';
+      return 'other';
+    }
+    node = e.cause;
+  }
+  return null;
+}
+
 // ---------------------------------------------------------------- service
 
 export type User = { id: string; email: string; username: string };
@@ -49,8 +84,15 @@ export class IdentityService {
         .values({ email: email.trim(), username: username.trim().toLowerCase(), passwordHash })
         .returning({ id: users.id, email: users.email, username: users.username });
     } catch (err) {
-      if (String(err).includes('duplicate key')) {
-        throw ApiError.conflict('already_taken', 'That email or username is already in use.');
+      const field = uniqueViolationField(err);
+      if (field === 'email') {
+        throw new ApiError(409, 'email_taken', 'That email already has an account.', 'email');
+      }
+      if (field === 'username') {
+        throw new ApiError(409, 'username_taken', 'That username is taken.', 'username');
+      }
+      if (field === 'other') {
+        throw ApiError.conflict('already_taken', 'That already exists.');
       }
       throw err;
     }
