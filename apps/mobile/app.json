@@ -1,0 +1,51 @@
+{
+  "expo": {
+    "name": "Flyleaf",
+    "slug": "flyleaf",
+    "scheme": "flyleaf",
+    "version": "0.0.1",
+    "orientation": "portrait",
+    "userInterfaceStyle": "automatic",
+    "newArchEnabled": true,
+    "android": {
+      "package": "app.flyleaf.skeleton",
+      "edgeToEdgeEnabled": true,
+      "permissions": [
+        "android.permission.CAMERA",
+        "android.permission.RECORD_AUDIO"
+      ]
+    },
+    "ios": {
+      "bundleIdentifier": "app.flyleaf.skeleton",
+      "supportsTablet": false
+    },
+    "plugins": [
+      "expo-dev-client",
+      "expo-router",
+      "expo-secure-store",
+      "expo-font",
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "Flyleaf uses the camera to scan book barcodes."
+        }
+      ]
+    ],
+    "experiments": {
+      "typedRoutes": true
+    },
+    "extra": {
+      "_apiUrlNote": "Optional override. Leave unset \u2014 src/lib/api.ts derives the host from Expo's dev server.",
+      "router": {},
+      "eas": {
+        "projectId": "1458ebc2-9f8c-461d-8c77-777a72b0b7e9"
+      }
+    },
+    "runtimeVersion": {
+      "policy": "appVersion"
+    },
+    "updates": {
+      "url": "https://u.expo.dev/1458ebc2-9f8c-461d-8c77-777a72b0b7e9"
+    }
+  }
+}

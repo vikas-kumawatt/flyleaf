@@ -1,0 +1,42 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: flyleaf-pg
+    environment:
+      POSTGRES_USER: flyleaf
+      POSTGRES_PASSWORD: flyleaf
+      POSTGRES_DB: flyleaf
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./db/skeleton:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U flyleaf -d flyleaf"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  # Present from day one so the storage interface is real, not imagined.
+  # Phase -1 does not use it. Console at http://localhost:9001 (flyleaf/flyleaf123).
+  minio:
+    image: minio/minio:latest
+    container_name: flyleaf-minio
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: flyleaf
+      MINIO_ROOT_PASSWORD: flyleaf123
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - miniodata:/data
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+volumes:
+  pgdata:
+  miniodata:
