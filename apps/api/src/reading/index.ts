@@ -160,11 +160,25 @@ export class ReadingService {
     const rows = await this.db.execute<{
       id: string; work_id: string; status: string; attempt_no: number;
       rating: string | null; hearted: boolean;
-      title: string; author_name: string; ol_cover_id: number | null;
+      title: string; author_name: string | null; cover_id: number | null;
       page: number | null; percent: string | null; page_count: number | null;
     }>(sql`
       SELECT r.id, r.work_id, r.status, r.attempt_no, r.rating, r.hearted,
-             w.title, w.author_name, w.ol_cover_id,
+             w.title,
+             -- Authorship is a join table and covers live on editions now
+             -- (FN-10). Same response shape, different storage.
+             (SELECT a.name
+                FROM work_authors wa JOIN authors a ON a.id = wa.author_id
+               WHERE wa.work_id = w.id
+               ORDER BY wa.position, a.name
+               LIMIT 1) AS author_name,
+             (SELECT e.ol_cover_id
+                FROM editions e
+               WHERE e.work_id = w.id AND e.ol_cover_id IS NOT NULL
+               -- Prefer the cover of the edition this person is actually
+               -- reading, if they chose one.
+               ORDER BY (e.id = r.edition_id) DESC, e.publish_year DESC NULLS LAST
+               LIMIT 1) AS cover_id,
              pe.page, pe.percent,
              (SELECT page_count FROM editions e
                WHERE e.id = r.edition_id
@@ -189,8 +203,8 @@ export class ReadingService {
       rating: r.rating === null ? null : Number(r.rating),
       hearted: r.hearted,
       title: r.title,
-      author_name: r.author_name,
-      cover_id: r.ol_cover_id,
+      author_name: r.author_name ?? 'Unknown',
+      cover_id: r.cover_id,
       page: r.page,
       percent: r.percent === null ? null : Number(r.percent),
       page_count: r.page_count,

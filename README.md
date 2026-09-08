@@ -1,6 +1,6 @@
 # Flyleaf — Phase −1 Walking Skeleton
 
-**Stack:** TypeScript · Node 22 · Fastify 5 · Drizzle · Postgres 17 · Expo SDK 57. Full locked stack in `architecture.md` §0.
+**Stack:** TypeScript · Node 22 · Fastify 5 · Drizzle · Postgres 18 · Expo SDK 57. Full locked stack in `architecture.md` §0.
 
 One crude path through every layer, working end to end. This is **SK-01 → SK-06** from `tasks.md`.
 
@@ -11,7 +11,7 @@ One crude path through every layer, working end to end. This is **SK-01 → SK-0
 ## What works
 
 ```
-sign up  →  search 100 books  →  book detail  →  mark reading
+sign up  →  search 3.2M books →  book detail  →  mark reading
          →  update progress   →  finish       →  rate
          →  see it on a profile
 ```
@@ -40,18 +40,75 @@ cd D:\Bookmarked\flyleaf
 docker compose up -d
 ```
 
-The schema in `db/skeleton/001_skeleton.sql` runs automatically on first boot.
-To start over: `docker compose down -v` then `docker compose up -d`.
+Postgres 18. **Nothing is applied automatically any more** — see the next step.
 
-### 2. Seed the catalog
+> If you ran the Phase −1 stack, the old volume holds a Postgres 16 data directory and the skeleton schema. Start clean once: `docker compose down -v` then `docker compose up -d`.
+
+Check it actually came up before moving on — a container can report `Started` and then exit:
+
+```powershell
+docker compose ps
+docker compose logs postgres --tail 30
+```
+
+You want `database system is ready to accept connections`.
+
+> **Postgres 18 moved its data directory.** `PGDATA` is now version-specific (`/var/lib/postgresql/18/docker`) and the image's volume is `/var/lib/postgresql`, one level up from the `≤17` convention. The compose file mounts the new path. Mounting the old `/var/lib/postgresql/data` on 18 is worse than an error: the server writes inside the container layer instead, **with no warning**, so data survives restarts and disappears on `docker compose down`.
+
+### 2. Migrate, then seed
 
 ```powershell
 cd apps\api
 npm install
+npm run migrate
 npm run seed -- ..\..\db\skeleton\books.csv
 ```
 
-Expect `seed complete — inserted=102 skipped=0`.
+Expect `migrations applied`, then `seed complete — inserted=102 skipped=0`.
+
+`migrate` creates the extensions and the `flyleaf_unaccent` function first, then runs the drizzle journal in `apps/api/drizzle/`. Both steps are idempotent, so re-running is safe.
+
+**Changing the schema:** edit `src/db/schema.ts` — it is the source of truth — then `npm run db:generate` and `npm run migrate`. Never hand-write SQL against the database. The Phase −1 arrangement (a `.sql` file mounted into the container's init directory) is gone: it only ran on a brand-new volume, so every schema change cost you all your local data.
+
+### 2b. A real catalog — Open Library ingest
+
+The CSV above is 102 books, enough to develop against. This replaces it with the actual Open Library.
+
+```powershell
+npm run ingest:fetch -- authors works reading-log ratings
+```
+
+~3.5 GB into `data/` (gitignored). **Resumable** — Ctrl+C and re-run the same command; it continues with a Range request. It also checks the gzip magic bytes, because a saved HTML error page is still a file and otherwise fails three commands later in the middle of `gunzip`.
+
+| File | Size | Why |
+|---|---|---|
+| `ol_dump_authors_latest.txt.gz` | 0.5 GB | Must be ingested first — works link to authors by key |
+| `ol_dump_works_latest.txt.gz` | 2.9 GB | Titles, covers, subjects |
+| `ol_dump_reading-log_latest.txt.gz` | 65 MB | Popularity slice |
+| `ol_dump_ratings_latest.txt.gz` | 9 MB | Popularity slice — **701,043 distinct works on its own** |
+
+Over a slow connection, [the torrents](https://archive.org/details/ol_exports?sort=-publicdate) are faster.
+
+```powershell
+npm run ingest -- --type authors --file ..\..\data\ol_dump_authors_latest.txt.gz
+npm run ingest -- --type works   --file ..\..\data\ol_dump_works_latest.txt.gz --seed ..\..\data\ol_dump_reading-log_latest.txt.gz ..\..\data\ol_dump_ratings_latest.txt.gz
+npm run ingest -- --finalise
+```
+
+**Order matters.** Works link to authors by OL key and the merge joins on it rather than inventing placeholder rows, so a work ingested before its author simply loses its authorship.
+
+**`--seed` is the point.** It keeps only works that somebody has shelved or rated — the accelerator's layer 1 from `phases.md`. That turns a multi-day ingest into an evening, and the popularity signal costs 65 MB instead of parsing the 9.2 GB editions dump.
+
+Editions add ISBNs, page counts and formats. They're a separate 9.2 GB pass and the app works without them, so leave it until you want them:
+
+```powershell
+npm run ingest -- --type editions --file ..\..\data\ol_dump_editions_latest.txt.gz
+npm run ingest -- --finalise
+```
+
+Useful flags: `--limit 5000` for a trial run, `--no-raw` to skip raw-payload retention, `--restart` to ignore the checkpoint.
+
+**It is resumable.** Ctrl+C is safe — it finishes the current batch, writes a checkpoint and stops. Re-run the identical command to continue. The checkpoint is a line count, not a byte offset, because you cannot seek into the middle of a gzip member; resuming re-decompresses from the start and skips without parsing, which is far cheaper than the work it skips.
 
 ### 3. API
 
@@ -135,17 +192,73 @@ npx eas-cli@latest build:list
 
 When it finishes you get a QR code and a URL. Install that APK on your phone once. Good use of the wait: run `scripts\smoke.ps1` above and prove the backend before the phone is involved.
 
-#### Path B — local build (one big install, then unlimited and faster)
+#### Path B — local build (no Android Studio needed)
 
-Needs **Android Studio** and **JDK 17** (both free, ~10 GB total).
+**You do not need Android Studio.** `expo run:android` needs the SDK *underneath* it, not the IDE — roughly 3–4 GB instead of ~10 GB, and nothing to configure.
 
 ```powershell
-cd D:\Bookmarked\flyleaf\apps\mobile
-npm ci
-npx expo run:android              # phone connected over USB with debugging enabled
+cd D:\Bookmarked\flyleaf
+.\scripts\setup-android.ps1
 ```
 
-Long-term this is the better path — no build quotas, no upload wait.
+That installs JDK 17, the Android command-line tools, platform 36, build-tools, and NDK 27 (needed because Reanimated compiles C++). It sets `ANDROID_HOME` and `PATH` permanently and is safe to re-run.
+
+Then, in a **new** terminal so the environment variables are live:
+
+```powershell
+cd apps\mobile
+npx expo run:android
+```
+
+Phone connected by USB with Developer options and USB debugging on. Check it's visible with `adb devices`.
+
+##### If the Gradle download times out
+
+```
+Downloading https://services.gradle.org/distributions/gradle-9.3.1-bin.zip
+java.io.IOException: ... failed: timeout (10000ms)
+Caused by: java.net.SocketTimeoutException: Connect timed out
+```
+
+This is not a broken setup. React Native's generated `gradle-wrapper.properties` ships `networkTimeout=10000`, and ten seconds is not enough to open a TLS connection to `services.gradle.org` on many connections — before the ~130 MB transfer even starts.
+
+```powershell
+cd D:\Bookmarked\flyleaf
+.\scripts\fix-gradle.ps1
+```
+
+Raises the timeout to 120 s, then downloads the distribution itself, verifies its **SHA-256 against the official checksum**, and drops it into the wrapper cache under the exact hashed name the wrapper looks for. `expo run:android` then finds it already cached and never fetches Gradle again.
+
+Re-run it after `expo prebuild --clean` — that regenerates `gradle-wrapper.properties` with the 10-second timeout back in place.
+
+First build is 10–20 minutes (35 on a laptop). After that it's 1–2 minutes, and **you only rebuild when a native dependency changes** — JS and TS stream over Metro.
+
+##### If the build succeeds but the install fails
+
+```
+CommandError: Failed to get properties for device (RZCW92KY1TN)
+adb.exe: device 'RZCW92KY1TN' not found
+```
+
+`adb` had the phone when the build started and lost it during the build — a locked screen or USB power management. The APK is fine; only the install step failed. Don't rebuild:
+
+```powershell
+adb devices
+adb install -r android\app\build\outputs\apk\debug\app-debug.apk
+```
+
+`adb devices` empty means the USB mode is charging-only — set it to **File transfer**. `unauthorized` means the *Allow USB debugging* prompt is waiting on the phone.
+
+Turn on **Stay awake** in Developer options so a long build doesn't drop the device again.
+
+| | Cloud (Path A) | Local (Path B) |
+|---|---|---|
+| To install | nothing | ~3–4 GB, one time |
+| Per build | free-tier queue, 15 min to 75+ | 1–2 min after the first |
+| Build limits | free-tier quota | none |
+| Works offline | no | yes |
+
+For a six-month project, Path B pays for itself within about a week.
 
 #### Then, every day after
 
@@ -249,25 +362,24 @@ These are not prototype shortcuts. Changing them costs far more later.
 | Check | Result |
 |---|---|
 | `tsc --noEmit` (API) | pass — TypeScript **7.0.2** strict, `noUncheckedIndexedAccess` |
-| `vitest run` | pass — **23 tests**: argon2id round-trip and salting, password and username rules, cache TTL and eviction, unique-violation detection through a wrapped cause chain |
+| `vitest run` | **157 tests** — identity/platform, schema, search, ingest, outbound. Every suite that touches SQL runs against **PGlite** (Postgres compiled to WASM), so migrations, CHECK constraints, generated columns, GIN and trigram are exercised for real, with no Docker and no services in CI |
+| Catalog | **3,203,575 works · 15,409,896 authors · 3,791,016 authorship links · 2.18M covers**, ingested from the Open Library dumps |
+| Popularity | **3,203,476 works scored** from the reading-log and ratings dumps. Most-logged: Atomic Habits, 64,006 |
+| Search latency | **47–68 ms warm** on the full catalog (was 40 s). Cold, after a restart, 430–660 ms |
 | Client typecheck | pass — verified against real React 19 types |
 | Mobile dependency resolution | pass — lockfile resolves 624 packages, no peer conflicts |
 | `scripts\smoke.ps1` | **36/36** against a real Postgres |
-| End-to-end on a device | **SK-07 — yours to run** |
+| End-to-end on a device | **pass** — Android 14, dev build of SDK 57, 3 Sep 2026 |
+| 20-second finish budget | **pass** — under 15 seconds, unstyled |
+| Surprises list | written — `surprises.md` |
+| Second person walks it unaided | **SK-09 — still open** |
 
 ---
 
-## What to do next (SK-07 → SK-09)
+## What to do next — SK-09, the last open item
 
-1. **Run the whole path on your own phone.** Not an emulator.
-2. **Write the surprises list.** Anything that felt wrong, slow, or awkward. That list is the real output of this phase.
-3. **Have one other person complete it unaided**, without you explaining anything.
+**Have one other person complete the path unaided.** Hand them the phone, say nothing, and watch. Where they hesitate is the finding.
 
-Then answer the four questions in `phases.md`:
+Everything else in Phase −1 is closed. The four questions are answered in `phases.md`, and the full account is in **`surprises.md`** — including the entry that matters most:
 
-- Does the Expo → Node → Postgres round trip actually work on a physical device?
-- Is the work/edition split workable in a real UI, or does it force an edition picker into every flow?
-- Does an append-only progress stream feel right, or over-engineered for what the screen needs?
-- Is the 20-second finish budget achievable, or a fantasy?
-
-Anything the skeleton reveals is cheap to change now. The same discovery in Phase 3 is a rewrite.
+> Two of the bugs that reached the device passed `tsc` strict, 23 unit tests and 36/36 smoke assertions. One produced no runtime error at all. Green checks are not a device pass.

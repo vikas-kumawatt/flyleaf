@@ -143,13 +143,20 @@ export function Cover({
   );
 }
 
+// Centring the glyph in a box exactly `size` wide is what makes the half
+// star work: whatever the font's actual advance width, the glyph's centre
+// lands on the box's centre, so clipping at size/2 always cuts it in half.
+const starGlyph: TextStyle = { textAlign: 'center', includeFontPadding: false };
+
 // Half-star control. The most-repeated interaction in the product, so it gets
 // the extra hit area and the numeral beside it from day one (design.md §5).
 export function Stars({
-  value, onChange, size = 22,
+  value, onChange, size = 32,
 }: { value: number | null; onChange?: (v: number) => void; size?: number }) {
   const c = useTheme();
   const readOnly = !onChange;
+  const v = value ?? 0;
+
   return (
     <View
       style={{ flexDirection: 'row', alignItems: 'center', gap: space[2] }}
@@ -159,37 +166,42 @@ export function Stars({
     >
       <View style={{ flexDirection: 'row' }}>
         {[1, 2, 3, 4, 5].map((n) => {
-          const filled = (value ?? 0) >= n;
-          const half = !filled && (value ?? 0) >= n - 0.5;
+          // How much of THIS star is gold: all of it, half, or none.
+          const fill = v >= n ? size : v >= n - 0.5 ? size / 2 : 0;
           return (
-            <View key={n} style={{ flexDirection: 'row' }}>
-              {[n - 0.5, n].map((v) => (
+            <View key={n} style={{ width: size, height: 44, justifyContent: 'center' }}>
+              {/* ONE glyph, drawn twice: grey underneath, gold on top and
+                  clipped. The previous version stacked a '★' layer and a
+                  '☆'/'⯨' layer, which showed through each other, and '⯨'
+                  is not in the Android system font anyway. */}
+              <Text style={[starGlyph, { fontSize: size, width: size, color: c.lineStrong }]}>★</Text>
+              {fill > 0 && (
+                <View
+                  pointerEvents="none"
+                  style={{
+                    position: 'absolute', left: 0, top: 0, bottom: 0,
+                    width: fill, overflow: 'hidden', justifyContent: 'center',
+                  }}
+                >
+                  <Text style={[starGlyph, { fontSize: size, width: size, color: c.star }]}>★</Text>
+                </View>
+              )}
+              {/* Left half sets n-0.5, right half sets n. Full 44pt height,
+                  so the target is comfortable even though the glyph is not. */}
+              {!readOnly && [n - 0.5, n].map((target, i) => (
                 <Pressable
-                  key={v}
-                  disabled={readOnly}
+                  key={target}
                   onPress={() => {
                     void Haptics.selectionAsync();
-                    onChange?.(v);
+                    onChange?.(target);
                   }}
-                  hitSlop={{ top: 12, bottom: 12 }}
-                  style={{ width: size / 2, height: 44, justifyContent: 'center' }}
-                >
-                  <Text style={{
-                    fontSize: size,
-                    color: (v <= (value ?? 0)) ? c.star : c.lineStrong,
-                    marginLeft: v === n ? -size / 2 : 0,
-                    width: size,
-                  }}>
-                    {v === n - 0.5 ? '★' : ''}
-                  </Text>
-                </Pressable>
+                  accessibilityLabel={`Rate ${target} ${target === 1 ? 'star' : 'stars'}`}
+                  style={{
+                    position: 'absolute', top: 0, bottom: 0,
+                    left: i === 0 ? 0 : size / 2, width: size / 2,
+                  }}
+                />
               ))}
-              <Text
-                style={{ position: 'absolute', fontSize: size, color: filled ? c.star : half ? c.star : c.lineStrong }}
-                pointerEvents="none"
-              >
-                {filled ? '★' : half ? '⯨' : '☆'}
-              </Text>
             </View>
           );
         })}
@@ -244,4 +256,10 @@ export function Empty({ title, action }: { title: string; action?: React.ReactNo
 export const sheet = StyleSheet.create({
   pad: { padding: space[4], gap: space[4] },
   row: { flexDirection: 'row', alignItems: 'center', gap: space[3] },
+  // Top-aligned row, registered as its own style rather than composed
+  // inline. `<Link asChild>` clones its child and merges props into it, and
+  // it rejects a child whose `style` is an ARRAY — so `[sheet.row, {...}]`
+  // throws inside renderItem and takes the whole list down with it.
+  // Being a single style also stops FlatList allocating a new array per row.
+  rowTop: { flexDirection: 'row', alignItems: 'flex-start', gap: space[3] },
 });

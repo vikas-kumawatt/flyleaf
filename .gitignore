@@ -28,3 +28,7 @@ Thumbs.db
 
 # generated
 apps/api/drizzle/meta/_journal.json.bak
+
+# Open Library dumps (gigabytes)
+data/
+*.txt.gz

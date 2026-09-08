@@ -4,7 +4,7 @@
 // point: the person who installed because a shared card looked good sees the
 // content that convinced them, not a signup wall (PRD §4.2).
 
-import { useCallback, useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { FlatList, Pressable, View } from 'react-native';
 import { Link, useRouter } from 'expo-router';
 import { api, Work } from '@/lib/api';
@@ -33,39 +33,47 @@ export default function SearchScreen() {
     return () => clearTimeout(id);
   }, [q]);
 
-  const header = useCallback(() => (
-    <View style={{ gap: space[3], paddingBottom: space[3] }}>
-      <View style={[sheet.row, { justifyContent: 'space-between' }]}>
-        <Txt variant="displayM">Search</Txt>
-        {ready && (
-          <Pressable onPress={() => router.push(user ? '/profile' : '/auth')}>
-            <Txt variant="body" color="accent">{user ? `@${user.username}` : 'Sign in'}</Txt>
-          </Pressable>
-        )}
-      </View>
-      <TextInput
-        value={q}
-        onChangeText={setQ}
-        placeholder="Search books or authors"
-        placeholderTextColor={c.muted}
-        autoCorrect={false}
-        accessibilityLabel="Search books or authors"
-        style={{
-          minHeight: 48, paddingHorizontal: space[3], borderRadius: 12,
-          borderWidth: 1, borderColor: c.line, backgroundColor: c.surface,
-          color: c.ink, fontSize: 15,
-        }}
-      />
-    </View>
-  ), [q, c, user, ready, router]);
-
+  // The search field is a SIBLING of the list, not its ListHeaderComponent.
+  //
+  // As a header it lost focus after every single keystroke: FlatList treats
+  // ListHeaderComponent as a component TYPE, so a new function identity on
+  // each render (and `q` is in the deps, so every keystroke is one) unmounts
+  // the old header and mounts a new one. The TextInput is remounted, focus
+  // goes with it, and the keyboard closes.
+  //
+  // Keeping it outside also stops it scrolling away, which is what a search
+  // field should do regardless.
   return (
     <Screen>
+      <View style={{ padding: space[4], paddingBottom: space[3], gap: space[3] }}>
+        <View style={[sheet.row, { justifyContent: 'space-between' }]}>
+          <Txt variant="displayM">Search</Txt>
+          {ready && (
+            <Pressable onPress={() => router.push(user ? '/profile' : '/auth')}>
+              <Txt variant="body" color="accent">{user ? `@${user.username}` : 'Sign in'}</Txt>
+            </Pressable>
+          )}
+        </View>
+        <TextInput
+          value={q}
+          onChangeText={setQ}
+          placeholder="Search books or authors"
+          placeholderTextColor={c.muted}
+          autoCorrect={false}
+          autoCapitalize="none"
+          returnKeyType="search"
+          accessibilityLabel="Search books or authors"
+          style={{
+            minHeight: 48, paddingHorizontal: space[3], borderRadius: 12,
+            borderWidth: 1, borderColor: c.line, backgroundColor: c.surface,
+            color: c.ink, fontSize: 15,
+          }}
+        />
+      </View>
       <FlatList
-        contentContainerStyle={{ padding: space[4] }}
+        contentContainerStyle={{ paddingHorizontal: space[4], paddingBottom: space[4] }}
         data={results}
         keyExtractor={(w) => w.id}
-        ListHeaderComponent={header}
         keyboardShouldPersistTaps="handled"
         ListEmptyComponent={
           loading ? null : q.trim().length < 2
@@ -75,7 +83,7 @@ export default function SearchScreen() {
         ItemSeparatorComponent={() => <View style={{ height: space[3] }} />}
         renderItem={({ item }) => (
           <Link href={`/work/${item.id}`} asChild>
-            <Pressable style={[sheet.row, { alignItems: 'flex-start' }]}>
+            <Pressable style={sheet.rowTop}>
               <Cover coverId={item.cover_id} size="s" />
               <View style={{ flex: 1, gap: 2 }}>
                 <Txt variant="title" numberOfLines={2}>{item.title}</Txt>

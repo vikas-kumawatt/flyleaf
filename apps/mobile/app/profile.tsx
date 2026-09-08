@@ -67,7 +67,7 @@ export default function ProfileScreen() {
             : item.percent ?? null;
           return (
             <Link href={`/work/${item.work_id}`} asChild>
-              <Pressable style={[sheet.row, { alignItems: 'flex-start' }]}>
+              <Pressable style={sheet.rowTop}>
                 <Cover coverId={item.cover_id} size="s" />
                 <View style={{ flex: 1, gap: space[1] }}>
                   <Txt variant="title" numberOfLines={2}>{item.title}</Txt>

@@ -22,6 +22,9 @@ const STATUSES: { key: string; label: string }[] = [
   { key: 'dnf',      label: 'Stopped' },
 ];
 
+const formatLabel = (f?: string | null) =>
+  f ? f.charAt(0).toUpperCase() + f.slice(1) : null;
+
 export default function WorkScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const { user } = useSession();
@@ -84,8 +87,11 @@ export default function WorkScreen() {
           <Cover coverId={work.cover_id} size="xl" />
           <Txt variant="displayM" style={{ textAlign: 'center' }}>{work.title}</Txt>
           <Txt variant="body" color="ink2">{work.author_name}</Txt>
+          {/* "1975 · Paperback · 368 pages". The format sat last and
+              lowercase, which read as a stray word rather than a fact
+              about the edition. */}
           <Txt variant="caption" color="muted">
-            {[work.first_publish_year, total ? `${total} pages` : null, edition?.format]
+            {[work.first_publish_year, formatLabel(edition?.format), total ? `${total} pages` : null]
               .filter(Boolean).join(' · ')}
           </Txt>
         </View>

@@ -11,13 +11,34 @@ export const config = {
   databaseUrl:
     process.env.DATABASE_URL ?? 'postgres://flyleaf:flyleaf@localhost:5432/flyleaf',
   env: process.env.NODE_ENV ?? 'development',
+  logLevel: process.env.LOG_LEVEL ?? (process.env.NODE_ENV === 'production' ? 'info' : 'debug'),
 } as const;
 
 export type Db = ReturnType<typeof makeDb>;
 
-export function makeDb(url: string = config.databaseUrl) {
-  const client = postgres(url, { max: 10, idle_timeout: 30 });
+export function makeDb(
+  url: string = config.databaseUrl,
+  opts: { max?: number; quiet?: boolean } = {},
+) {
+  const client = postgres(url, {
+    max: opts.max ?? 10,
+    idle_timeout: 30,
+    // Batch jobs run `CREATE TABLE IF NOT EXISTS` on every start, and the
+    // resulting NOTICE for each one buries the actual progress output.
+    ...(opts.quiet ? { onnotice: () => {} } : {}),
+  });
   return drizzle(client, { schema });
+}
+
+/**
+ * Close the connection pool.
+ *
+ * `timeout: 5` gives in-flight queries five seconds to finish before the
+ * sockets are destroyed; without it, `end()` waits indefinitely on a query
+ * that will never return and the process hangs until it is killed.
+ */
+export async function closeDb(db: Db): Promise<void> {
+  await db.$client.end({ timeout: 5 });
 }
 
 /** Retry loop, because in `docker compose up` the API wins the race against Postgres. */
