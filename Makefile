@@ -1,4 +1,4 @@
-.PHONY: up down reset dev seed test typecheck mobile ci
+.PHONY: up down reset dev worker ping seed test typecheck mobile ci
 
 up:            ## start postgres + minio
 	docker compose up -d
@@ -15,6 +15,12 @@ reset:         ## destroy the volume and re-run the schema
 
 dev:
 	cd apps/api && npm run dev
+
+worker:        ## the pg-boss job runner (same codebase as the API)
+	cd apps/api && npm run worker
+
+ping:          ## enqueue one smoke.ping — proves the queue end to end
+	cd apps/api && npm run ping
 
 seed:          ## load the 102-book CSV
 	cd apps/api && npm run seed -- ../../db/skeleton/books.csv
