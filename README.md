@@ -1,10 +1,25 @@
-# Flyleaf — Phase −1 Walking Skeleton
+# Flyleaf
 
-**Stack:** TypeScript · Node 22 · Fastify 5 · Drizzle · Postgres 18 · Expo SDK 57. Full locked stack in `architecture.md` §0.
+A reading tracker. Log what you read, rate it in half-stars, see it on a profile.
 
-One crude path through every layer, working end to end. This is **SK-01 → SK-06** from `tasks.md`.
+**Stack:** TypeScript · Node 22 · Fastify 5 · Drizzle · Postgres 18 · pg-boss · Expo SDK 57. Full locked stack in [`docs/architecture.md`](docs/architecture.md) §0.
 
-> **It is ugly on purpose.** No email verification, no refresh-token rotation, no Open Library ingest, no offline queue, no styling beyond the design tokens. What survives this phase is the *shape* — module boundaries, the viewer-in-context pattern, the error envelope, the schema — not this wiring.
+**Where it is:** Phase −1 (walking skeleton) is closed. **Phase 0** has its foundation, catalog schema, Open Library ingest, outbound/gap-fill, search and CI done — 3.2M works in the catalog and search at 47–85 ms. Open: ISBN lookup (`FN-42`), dedupe (`FN-5x`), the editions pass, and auth (`FN-6x`). Live state is always [`docs/tasks.md`](docs/tasks.md).
+
+## The documents
+
+They live in `docs/`, in this repo, so a decision and the code implementing it land in the same history. They are the project's memory and are worth more than the code — the code is reconstructable from them.
+
+| Document | What it is |
+|---|---|
+| [`docs/PRD.md`](docs/PRD.md) | Product requirements. The what and the why |
+| [`docs/architecture.md`](docs/architecture.md) | The locked stack, schema, and system design |
+| [`docs/design.md`](docs/design.md) | Design system — tokens, motion, the interaction vocabulary |
+| [`docs/phases.md`](docs/phases.md) | Phase plan and the exit criteria for each |
+| [`docs/tasks.md`](docs/tasks.md) | Task breakdown with stable IDs, and the running record of what each one actually cost |
+| [`docs/surprises.md`](docs/surprises.md) | What was not true in the plan. Read this one first |
+
+> **Parts of it are still deliberately crude.** No email verification, no refresh-token rotation, no offline queue, no styling beyond the design tokens — see [Things that are deliberately wrong](#things-that-are-deliberately-wrong). What the walking skeleton was for was the *shape*: module boundaries, the viewer-in-context pattern, the error envelope, the schema. Those survived; the wiring around them is being replaced phase by phase.
 
 ---
 
@@ -17,6 +32,8 @@ sign up  →  search 3.2M books →  book detail  →  mark reading
 ```
 
 Plus **guest mode**: search and book pages work with no account, and the signup prompt appears at the action, naming what you were trying to do.
+
+Behind it: the full Open Library catalog, a background worker, and CI that runs everything below on every push.
 
 ---
 
@@ -95,9 +112,25 @@ npm run ingest -- --type works   --file ..\..\data\ol_dump_works_latest.txt.gz -
 npm run ingest -- --finalise
 ```
 
-**Order matters.** Works link to authors by OL key and the merge joins on it rather than inventing placeholder rows, so a work ingested before its author simply loses its authorship.
+**Order no longer matters.** An authorship link whose author has not been ingested yet is parked in `pending_work_authors`, and `--finalise` resolves whatever has since arrived. Authors-first is still marginally more efficient, but nothing is lost by not doing it — so you can load the books you want to look at without first waiting out 15.4 million author records. (Before that table existed, a work ingested ahead of its author silently lost its authorship.)
 
-**`--seed` is the point.** It keeps only works that somebody has shelved or rated — the accelerator's layer 1 from `phases.md`. That turns a multi-day ingest into an evening, and the popularity signal costs 65 MB instead of parsing the 9.2 GB editions dump.
+**`--seed` is the point.** It keeps only works that somebody has shelved or rated — the accelerator's layer 1 from [`docs/phases.md`](docs/phases.md). That turns a multi-day ingest into an evening, and the popularity signal costs 65 MB instead of parsing the 9.2 GB editions dump.
+
+### 2c. Popularity, and the author aliases
+
+Ranking is materially worse without both of these; neither is optional if you want search to behave.
+
+```powershell
+npm run ingest -- --popularity --seed ..\..\data\ol_dump_reading-log_latest.txt.gz ..\..\data\ol_dump_ratings_latest.txt.gz
+npm run ingest -- --type authors --file ..\..\data\ol_dump_authors_latest.txt.gz --only-referenced
+npm run ingest -- --finalise
+```
+
+**`--popularity`** fills `works.log_count`. Without it the popularity term in the ranking contributes nothing and a 1910 monograph on Giovanni Battista Piranesi outranks the Susanna Clarke novel. ~3.2M works scored.
+
+**`--only-referenced`** re-runs the authors pass over just the ~1.66M authors some work actually credits, rather than all 15.4M — 26 minutes instead of hours. It is what populates `authors.alternate_names`, and that is the only reason searching `murakami` finds *Norwegian Wood*, whose author record is named 村上春樹.
+
+`npm run ingest -- --status` shows where every run got to and what is in the catalog. A run interrupted with Ctrl+C is recorded as `INTERRUPTED` and resumes from its checkpoint when you re-run the identical command — **without** `--restart`, which throws the checkpoint away.
 
 Editions add ISBNs, page counts and formats. They're a separate 9.2 GB pass and the app works without them, so leave it until you want them:
 
@@ -106,7 +139,7 @@ npm run ingest -- --type editions --file ..\..\data\ol_dump_editions_latest.txt.
 npm run ingest -- --finalise
 ```
 
-Useful flags: `--limit 5000` for a trial run, `--no-raw` to skip raw-payload retention, `--restart` to ignore the checkpoint.
+Useful flags: `--limit 5000` for a trial run, `--no-raw` to skip raw-payload retention, `--status` for where every run got to, `--restart` to ignore the checkpoint (rarely what you want — it starts from line 1).
 
 **It is resumable.** Ctrl+C is safe — it finishes the current batch, writes a checkpoint and stops. Re-run the identical command to continue. The checkpoint is a line count, not a byte offset, because you cannot seek into the middle of a gzip member; resuming re-decompresses from the start and skips without parsing, which is far cheaper than the work it skips.
 
@@ -146,6 +179,31 @@ Run this before every phase closes. It is the cheapest regression check in the p
 
 > Written with `Invoke-WebRequest`, deliberately. Shelling out to `curl.exe` from PowerShell mangles the quotes inside a JSON `-d` payload — every GET keeps working and every POST silently fails, which looks exactly like a broken API.
 
+### 3b. The worker
+
+Background jobs run in a second process from the **same codebase** — one artifact deployed twice, so a job's code can never be a different version from the API that enqueued it.
+
+```powershell
+cd apps\api
+npm run worker
+```
+
+To prove the queue end to end, from anywhere in the repo:
+
+```powershell
+make ping          # or: cd apps\api ; npm run ping
+```
+
+The worker logs `job handled` with the job id within a couple of seconds. pg-boss owns its own `pgboss` schema and migrates it itself — a deliberate exception to "drizzle is the source of truth", because those tables are library internals and hand-managing them makes every pg-boss upgrade a migration you have to get right.
+
+### 3c. CI — run it before you push
+
+```powershell
+node scripts/ci.mjs      # or: make ci
+```
+
+Typecheck, 190 tests, build, `npm audit`, the mobile typecheck, and migrations against the real Postgres — about 60 seconds. **This is the same script GitHub Actions runs**; `.github/workflows/ci.yml` builds the environment and calls it rather than restating the steps, so the two cannot drift. The migration step is skipped locally when no database is up and is mandatory in CI (`--strict`).
+
 ### 4. Mobile app — a development build, not Expo Go
 
 > **Expo Go will not run this project, and that is not fixable.** Expo Go supports **exactly one SDK version** at a time — whatever the Play Store build on your device happens to be. If it reports "Supported SDK: 54" and the project is SDK 57, the only ways out are to downgrade the project (no) or stop using Expo Go (yes).
@@ -156,16 +214,7 @@ Pick whichever path suits your machine. Both produce the same thing.
 
 #### Path A — cloud build (nothing to install, ~15 min)
 
-**First, initialise git at the repo root** — not inside `apps/mobile`. EAS requires a git repo and will offer to create one wherever you happen to be standing; the wrong answer leaves your API and docs outside version control.
-
-```powershell
-cd D:\Bookmarked\flyleaf
-git init
-git add -A
-git commit -m "Phase -1 walking skeleton"
-```
-
-Then:
+EAS requires a git repository and will offer to create one wherever you happen to be standing — the repo root is already one, so run this from `apps/mobile` inside it and take no offer to `git init`.
 
 ```powershell
 cd apps\mobile
@@ -282,20 +331,29 @@ For anything in `apps/mobile`, use **`npx expo install <pkg>`**, never `npm inst
 
 ```
 flyleaf/
-├── docker-compose.yml
-├── db/skeleton/
-│   ├── 001_skeleton.sql        six tables, by hand
-│   └── books.csv               102 books
-├── apps/api/                   TypeScript — typechecks clean, 17 tests pass
-│   ├── src/server.ts           Fastify app
-│   ├── src/seed.ts             CSV loader
+├── .github/workflows/ci.yml    builds the environment, calls scripts/ci.mjs
+├── docker-compose.yml          Postgres 18 (tuned for the ingest) + MinIO
+├── Makefile                    up · dev · worker · ping · test · ci
+├── scripts/ci.mjs              the checks — one definition, shared with CI
+├── docs/                       PRD, architecture, design, phases, tasks, surprises
+├── db/skeleton/books.csv       102 books, for developing without the full ingest
+├── apps/api/                   TypeScript 7 strict — 190 tests
+│   ├── drizzle/                generated migrations (two hand-edited, and they say so)
 │   └── src/
-│       ├── db/schema.ts        Drizzle schema
+│       ├── server.ts           Fastify app
+│       ├── worker.ts           pg-boss job runner — same codebase
+│       ├── migrate.ts          prerequisites, then the drizzle journal
+│       ├── ingest.ts           Open Library ingest CLI
+│       ├── fetch-dumps.ts      resumable dump downloader
+│       ├── db/schema.ts        Drizzle schema — the source of truth
 │       ├── platform/           config, pool, Cache + RateLimiter interfaces
 │       ├── http.ts             error shape, viewer, conventions
-│       ├── identity/           argon2id, sessions  (+ tests)
-│       ├── catalog/            search, works, editions
-│       └── reading/            reads, progress events
+│       ├── identity/           argon2id, sessions
+│       ├── jobs/               queue names, handlers, transactional enqueue
+│       ├── catalog/            search, works, gap-fill
+│       │   └── ingest/         dump reader, normaliser, COPY writer
+│       ├── reading/            reads, progress events
+│       └── test/               every SQL suite runs on PGlite
 └── apps/mobile/                Expo SDK 57
     ├── app/                    4 screens, expo-router
     ├── eas.json                development · preview · production profiles
@@ -326,7 +384,10 @@ These are not prototype shortcuts. Changing them costs far more later.
 
 | Decision | Where | Why |
 |---|---|---|
-| **Work / edition split** | `001_skeleton.sql` | Hardest thing to retrofit. Ratings attach to the work, page counts to the edition |
+| **Work / edition split** | `db/schema.ts` | Hardest thing to retrofit. Ratings attach to the work, page counts to the edition |
+| **Jobs commit with the data that caused them** | `jobs/sendInTx` | The reason pg-boss is in the stack rather than Redis. A test asserts a rolled-back transaction leaves no job — nothing else would notice if that stopped holding |
+| **`field_provenance` cannot name `google_books`** | schema CHECK | Licensing, enforced structurally rather than by remembering |
+| **`unclassified` maturity is not a synonym for `general`** | `catalog/ingest/normalise.ts` | A surface that must be safe filters to `general` and accepts a smaller catalog |
 | **One row per reading *attempt*** | `reads.attempt_no` | A re-read is a new row, never an overwrite |
 | **`progress_events` is append-only** | schema + `reading/index.ts` | Current position is the latest row. Enables pace, streaks, prediction, offline sync |
 | **`client_event_id` on every progress write** | `reading/index.ts`, `api.ts` | Replay is safe. The entire offline story in one field |
@@ -346,14 +407,14 @@ These are not prototype shortcuts. Changing them costs far more later.
 | Shortcut | Replaced by |
 |---|---|
 | Opaque session tokens in a table | JWT + rotating refresh with family reuse detection — `FN-63/64` |
-| Schema applied by container init | drizzle-kit migrations — `FN-01` |
-| 102 books from a CSV | Streaming `COPY` ingest of Open Library dumps — `FN-2x` |
 | Hand-written API client | Generated from the Fastify route schemas — `FN-80/81` |
 | No offline queue | SQLite + mutation queue — `SL-1x` |
 | System fonts | Literata + Archivo — `SL-02` |
-| Expo Go as the dev target | A development build — required from the start, see §4 |
-| No rate limiting, no CORS, no request logging | `FN-30`, `FN-82` |
-| No CI, no branch protection | GitHub Actions — `FN-05` |
+| No duplicate detection | `FN-5x` — the catalog holds two *Piranesi* by Susanna Clarke today |
+| No ISBN lookup | `FN-42` — what makes the barcode scanner worth building |
+| 102 editions | The 9.2 GB editions pass. Now more valuable than it looked: **OL work records carry no alternate titles at all**, so edition titles are the only source for aliases like `1984` → *Nineteen Eighty-Four* |
+
+Already replaced: container-init schema → drizzle migrations (`FN-01`) · 102 books from a CSV → the full Open Library ingest (`FN-2x`) · no rate limiting or request logging → `FN-30`, `FN-03` · no CI → GitHub Actions (`FN-05`) · Expo Go → a development build.
 
 ---
 
@@ -361,25 +422,30 @@ These are not prototype shortcuts. Changing them costs far more later.
 
 | Check | Result |
 |---|---|
+| CI | **green** on every push — GitHub Actions, ~90 s |
 | `tsc --noEmit` (API) | pass — TypeScript **7.0.2** strict, `noUncheckedIndexedAccess` |
-| `vitest run` | **157 tests** — identity/platform, schema, search, ingest, outbound. Every suite that touches SQL runs against **PGlite** (Postgres compiled to WASM), so migrations, CHECK constraints, generated columns, GIN and trigram are exercised for real, with no Docker and no services in CI |
-| Catalog | **3,203,575 works · 15,409,896 authors · 3,791,016 authorship links · 2.18M covers**, ingested from the Open Library dumps |
-| Popularity | **3,203,476 works scored** from the reading-log and ratings dumps. Most-logged: Atomic Habits, 64,006 |
-| Search latency | **47–68 ms warm** on the full catalog (was 40 s). Cold, after a restart, 430–660 ms |
+| `vitest run` | **190 tests** — identity, schema, search, ingest, outbound, jobs, relevance. Every suite that touches SQL runs against **PGlite** (Postgres compiled to WASM), so migrations, CHECK constraints, generated columns, GIN and trigram are exercised for real, with no Docker and no services needed |
+| Relevance panel | **216/217 (99.5%)** over a 2,071-work slice of the real catalog. Exact titles must rank **#1**; prefixes, authors and typos must make the top 5 |
+| Catalog | **3,203,575 works · 15,409,896 authors · 3,791,016 authorship links · 2.18M covers** |
+| Author aliases | **1,661,072 credited authors** re-ingested with `alternate_names`, which is what makes `murakami` → 村上春樹 work |
+| Popularity | **3,203,476 works scored**. Most-logged: Atomic Habits, 64,006 |
+| Search latency | **47–85 ms warm** on the full catalog (was 40 s). Cold, after a restart, 430–815 ms |
+| Background jobs | pg-boss worker; `smoke.ping` round-trips against real Postgres |
 | Client typecheck | pass — verified against real React 19 types |
 | Mobile dependency resolution | pass — lockfile resolves 624 packages, no peer conflicts |
 | `scripts\smoke.ps1` | **36/36** against a real Postgres |
 | End-to-end on a device | **pass** — Android 14, dev build of SDK 57, 3 Sep 2026 |
 | 20-second finish budget | **pass** — under 15 seconds, unstyled |
-| Surprises list | written — `surprises.md` |
-| Second person walks it unaided | **SK-09 — still open** |
+| Surprises list | written — [`docs/surprises.md`](docs/surprises.md) |
 
 ---
 
-## What to do next — SK-09, the last open item
+## What to read first
 
-**Have one other person complete the path unaided.** Hand them the phone, say nothing, and watch. Where they hesitate is the finding.
+[`docs/surprises.md`](docs/surprises.md). It is the list of things that were not true in the plan, and it has cost more to learn than anything else here. Two entries in particular:
 
-Everything else in Phase −1 is closed. The four questions are answered in `phases.md`, and the full account is in **`surprises.md`** — including the entry that matters most:
+> Two of the bugs that reached the device passed `tsc` strict, 23 unit tests and 36/36 smoke assertions. One produced no runtime error at all. **Green checks are not a device pass.**
 
-> Two of the bugs that reached the device passed `tsc` strict, 23 unit tests and 36/36 smoke assertions. One produced no runtime error at all. Green checks are not a device pass.
+> Every expensive bug in Phase 0 was one where **failure and success looked identical from outside** — a COPY stream that died and exited 0, an interrupt that left a dead run marked `running`, a smoke job that logged nothing. The question to ask before calling anything verified: *if this were completely broken, what would I see, and is it different from what I see now?*
+
+Then [`docs/tasks.md`](docs/tasks.md) for what is done, what is next, and what each thing actually cost.
