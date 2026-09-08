@@ -1,0 +1,83 @@
+# FN-05.
+#
+# The checks themselves live in scripts/ci.mjs, not here. This file's job is
+# to build the environment they need -- Node, dependencies, a Postgres -- and
+# then hand over. Restating the steps in YAML would let CI and `make ci` drift
+# apart, and the copy that drifts is always the one you are not watching.
+#
+# --strict makes the migration check mandatory. Locally it is skipped when no
+# database is running; here there is always one, so a skip would be a bug.
+
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+# A second push to the same branch cancels the first. Nothing here is worth
+# running twice, and the older answer is about to be wrong anyway.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+
+    services:
+      postgres:
+        # Must match docker-compose.yml. Postgres 18 is where `unaccent`
+        # immutability in a generated column bit us; testing migrations
+        # against a different major would prove nothing.
+        image: postgres:18-alpine
+        env:
+          POSTGRES_USER: flyleaf
+          POSTGRES_PASSWORD: flyleaf
+          POSTGRES_DB: flyleaf
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U flyleaf -d flyleaf"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 20
+
+    env:
+      DATABASE_URL: postgres://flyleaf:flyleaf@localhost:5432/flyleaf
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          # apps/api sets engines.node >=22. Pinned rather than `lts/*` so a
+          # new LTS cannot change the answer without a commit saying so.
+          node-version: '22'
+          cache: npm
+          # Two independent projects, two lockfiles, no root workspace.
+          cache-dependency-path: |
+            apps/api/package-lock.json
+            apps/mobile/package-lock.json
+
+      # `npm ci`, not `npm install`: it installs the lockfile exactly and
+      # fails if package.json and the lockfile disagree, which is a real
+      # failure worth hearing about rather than quietly resolving.
+      - name: Install — api
+        working-directory: apps/api
+        run: npm ci
+
+      # ~600 packages, about three minutes. Worth it: all three bugs found on
+      # device in SK-08 were client-side, and tsc is the only automated check
+      # the mobile app has at all.
+      - name: Install — mobile
+        working-directory: apps/mobile
+        run: npm ci --no-audit --no-fund
+
+      - name: Checks
+        run: node scripts/ci.mjs --strict

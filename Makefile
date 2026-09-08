@@ -1,4 +1,4 @@
-.PHONY: up down reset dev seed test typecheck mobile
+.PHONY: up down reset dev seed test typecheck mobile ci
 
 up:            ## start postgres + minio
 	docker compose up -d
@@ -28,6 +28,9 @@ smoke:         ## walk the whole API path and assert the locked decisions
 typecheck:
 	cd apps/api && npm run typecheck
 	cd apps/mobile && npm run typecheck
+
+ci:            ## everything GitHub Actions runs, before you push
+	node scripts/ci.mjs
 
 mobile:
 	cd apps/mobile && npx expo start
