@@ -155,9 +155,16 @@
 - [ ] FN-66 Session list + per-device revoke — 0.5d
 
 ### Authorization — `FN-7x` · 3d
-- [ ] **FN-70** ⚠️ Repository layer: **viewer ID a required argument everywhere** — 1d
-- [ ] **FN-71** ⚠️ Single `canView()`: public/followers/private/blocked/guest — 0.5d
-- [ ] **FN-72** ⚠️ **Cross-user access test suite — 404 not 403, every private type** — 1.5d
+- [x] **FN-70** ⚠️ Repository layer: **viewer ID a required argument everywhere** — 1d
+  - Enforced `viewer: string | null` (or `viewer: string` for authenticated operations) as the required first argument across `ReadingService` (`get`, `list`, `upsert`, `addProgress`), `CatalogService` (`getWork`), and `IdentityService` (`getProfile`). No method reading user-scoped data can be queried without a viewer argument.
+  - Added `visibility` column to `reads` table with migration `0006_reads_visibility.sql` (`CHECK IN ('public', 'followers', 'private')`, default `'public'`).
+  - Added `GET /v1/reads/:id` and `GET /v1/users/:id/reads` endpoints supporting guest (`req.viewer === null`) and authenticated callers.
+- [x] **FN-71** ⚠️ Single `canView()`: public/followers/private/blocked/guest — 0.5d
+  - Implemented centralized `canView()` and `assertCanView()` in `src/authorization/index.ts` covering complete bidirectional block invisibility, owner access, private item visibility, private account visibility, followers-only items, and guest access.
+- [x] **FN-72** ⚠️ **Cross-user access test suite — 404 not 403, every private type** — 1.5d
+  - Implemented comprehensive unit matrix and HTTP injection test suite in `src/test/authorization.test.ts` (43 tests).
+  - Asserts that guest callers, non-followers, and blocked callers attempting to view another user's private reads, followers-only reads, private accounts, or add progress to another user's read receive **404 Not Found** with error code `'not_found'` — **never 403 Forbidden**.
+
 
 ### API contract — `FN-8x` · 2d
 - [ ] **FN-80** Fastify route schemas for the Phase 0–1 surface; `openapi.yaml` generated from them — 1d

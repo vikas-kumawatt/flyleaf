@@ -43,6 +43,13 @@
       "when": 1788880000000,
       "tag": "0005_auth",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1788890000000,
+      "tag": "0006_reads_visibility",
+      "breakpoints": true
     }
   ]
 }

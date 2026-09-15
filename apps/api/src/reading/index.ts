@@ -12,8 +12,9 @@ import { z } from 'zod';
 import type { FastifyInstance } from 'fastify';
 
 import type { Db } from '../platform/index.js';
-import { reads, works, progressEvents } from '../db/schema.js';
+import { reads, works, progressEvents, profiles } from '../db/schema.js';
 import { ApiError, requireViewer } from '../http.js';
+import { canView, type Visibility, VISIBILITIES } from '../authorization/index.js';
 
 export const STATUSES = ['want', 'reading', 'paused', 'finished', 'dnf'] as const;
 export type Status = (typeof STATUSES)[number];
@@ -31,6 +32,7 @@ const upsertBody = z.object({
   status: z.enum(STATUSES),
   rating: ratingSchema.nullish(),
   hearted: z.boolean().nullish(),
+  visibility: z.enum(VISIBILITIES).nullish(),
 });
 
 const progressBody = z
@@ -46,11 +48,13 @@ const progressBody = z
 
 export type Read = {
   id: string;
+  user_id: string;
   work_id: string;
   status: string;
   attempt_no: number;
   rating: number | null;
   hearted: boolean;
+  visibility: Visibility;
   title?: string;
   author_name?: string;
   cover_id?: number | null;
@@ -75,6 +79,7 @@ export class ReadingService {
     status: Status,
     rating?: number | null,
     hearted?: boolean | null,
+    visibility?: Visibility | null,
   ): Promise<Read> {
     return this.db.transaction(async (tx) => {
       const [existing] = await tx
@@ -93,12 +98,12 @@ export class ReadingService {
 
       if (startsNewAttempt) {
         const [row] = await tx.execute<{ id: string }>(sql`
-          INSERT INTO reads (user_id, work_id, status, attempt_no, started_at, finished_at, rating, hearted)
+          INSERT INTO reads (user_id, work_id, status, attempt_no, started_at, finished_at, rating, hearted, visibility)
           VALUES (
             ${viewer}, ${workId}, ${status}, ${(existing?.attemptNo ?? 0) + 1},
             CASE WHEN ${status} IN ('reading','finished') THEN CURRENT_DATE END,
             CASE WHEN ${status} = 'finished' THEN CURRENT_DATE END,
-            ${rating ?? null}, ${hearted ?? false}
+            ${rating ?? null}, ${hearted ?? false}, ${visibility ?? 'public'}
           )
           RETURNING id
         `);
@@ -114,6 +119,7 @@ export class ReadingService {
             finished_at = CASE WHEN ${status} = 'finished' THEN COALESCE(finished_at, CURRENT_DATE) ELSE finished_at END,
             rating      = COALESCE(${rating ?? null}, rating),
             hearted     = COALESCE(${hearted ?? null}, hearted),
+            visibility  = COALESCE(${visibility ?? null}, visibility),
             updated_at  = now()
           WHERE id = ${id}
         `);
@@ -125,45 +131,85 @@ export class ReadingService {
     });
   }
 
-  /** Returns null for another user's read — the route turns that into a 404, never a 403. */
-  async get(viewer: string, id: string): Promise<Read | null> {
+  /**
+   * Returns the read if the viewer is authorized to view it (Architecture §4).
+   * Returns null for another user's private read — the route turns that into a 404, never a 403.
+   */
+  async get(viewer: string | null, id: string): Promise<Read | null> {
     return this.#get(this.db, viewer, id);
   }
 
-  async #get(db: Db, viewer: string, id: string): Promise<Read | null> {
+  async #get(db: Db, viewer: string | null, id: string): Promise<Read | null> {
     const [row] = await db
       .select({
         id: reads.id,
+        userId: reads.userId,
         workId: reads.workId,
         status: reads.status,
         attemptNo: reads.attemptNo,
         rating: reads.rating,
         hearted: reads.hearted,
+        visibility: reads.visibility,
+        isPrivate: profiles.isPrivate,
       })
       .from(reads)
-      .where(sql`${reads.id} = ${id} AND ${reads.userId} = ${viewer}`)
+      .innerJoin(profiles, eq(reads.userId, profiles.userId))
+      .where(eq(reads.id, id))
       .limit(1);
 
     if (!row) return null;
+
+    const allowed = canView({
+      viewer,
+      ownerId: row.userId,
+      visibility: row.visibility as Visibility,
+      isOwnerPrivate: row.isPrivate,
+    });
+
+    if (!allowed) return null;
+
     return {
       id: row.id,
+      user_id: row.userId,
       work_id: row.workId,
       status: row.status,
       attempt_no: row.attemptNo,
       rating: row.rating === null ? null : Number(row.rating),
       hearted: row.hearted,
+      visibility: row.visibility as Visibility,
     };
   }
 
-  /** Powers the Reading tab and the Diary. */
-  async list(viewer: string, status?: string): Promise<Read[]> {
+  /**
+   * Powers the Reading tab, the Diary, and public profiles.
+   * Viewer ID is a required argument (FN-70).
+   * Returns only reads the viewer is authorized to see via canView.
+   */
+  async list(viewer: string | null, userId: string, status?: string): Promise<Read[]> {
+    const [profile] = await this.db
+      .select({ isPrivate: profiles.isPrivate })
+      .from(profiles)
+      .where(eq(profiles.userId, userId))
+      .limit(1);
+
+    if (!profile) return [];
+
+    const canViewAccount = canView({
+      viewer,
+      ownerId: userId,
+      isOwnerPrivate: profile.isPrivate,
+    });
+    if (!canViewAccount) return [];
+
+    const isOwner = viewer !== null && viewer === userId;
+
     const rows = await this.db.execute<{
-      id: string; work_id: string; status: string; attempt_no: number;
-      rating: string | null; hearted: boolean;
+      id: string; user_id: string; work_id: string; status: string; attempt_no: number;
+      rating: string | null; hearted: boolean; visibility: string;
       title: string; author_name: string | null; cover_id: number | null;
       page: number | null; percent: string | null; page_count: number | null;
     }>(sql`
-      SELECT r.id, r.work_id, r.status, r.attempt_no, r.rating, r.hearted,
+      SELECT r.id, r.user_id, r.work_id, r.status, r.attempt_no, r.rating, r.hearted, r.visibility,
              w.title,
              -- Authorship is a join table and covers live on editions now
              -- (FN-10). Same response shape, different storage.
@@ -190,18 +236,21 @@ export class ReadingService {
         SELECT page, percent FROM progress_events
         WHERE read_id = r.id ORDER BY at DESC LIMIT 1
       ) pe ON true
-      WHERE r.user_id = ${viewer}
+      WHERE r.user_id = ${userId}
+        AND (${isOwner} OR r.visibility = 'public')
         AND (${status ?? null}::text IS NULL OR r.status = ${status ?? null})
       ORDER BY r.updated_at DESC
     `);
 
     return rows.map((r) => ({
       id: r.id,
+      user_id: r.user_id,
       work_id: r.work_id,
       status: r.status,
       attempt_no: Number(r.attempt_no),
       rating: r.rating === null ? null : Number(r.rating),
       hearted: r.hearted,
+      visibility: r.visibility as Visibility,
       title: r.title,
       author_name: r.author_name ?? 'Unknown',
       cover_id: r.cover_id,
@@ -248,14 +297,34 @@ export class ReadingService {
 
 export function readingRoutes(service: ReadingService) {
   return async (app: FastifyInstance) => {
+    // Current user's reads (authenticated)
     app.get<{ Querystring: { status?: string } }>('/reads', async (req) => {
       const viewer = requireViewer(req);
       const { status } = req.query;
       if (status && !STATUSES.includes(status as Status)) {
         throw ApiError.unprocessable('invalid_status', 'Unknown status filter.', 'status');
       }
-      return { data: await service.list(viewer, status) };
+      return { data: await service.list(viewer, viewer, status) };
     });
+
+    // Single read attempt by ID (optional auth: guest viewer is null)
+    app.get<{ Params: { id: string } }>('/reads/:id', async (req) => {
+      const read = await service.get(req.viewer, req.params.id);
+      if (!read) throw ApiError.notFound('No such read.');
+      return read;
+    });
+
+    // Another user's public reads (optional auth: guest viewer is null)
+    app.get<{ Params: { id: string }; Querystring: { status?: string } }>(
+      '/users/:id/reads',
+      async (req) => {
+        const { status } = req.query;
+        if (status && !STATUSES.includes(status as Status)) {
+          throw ApiError.unprocessable('invalid_status', 'Unknown status filter.', 'status');
+        }
+        return { data: await service.list(req.viewer, req.params.id, status) };
+      },
+    );
 
     app.post('/reads', async (req) => {
       const viewer = requireViewer(req);
@@ -268,8 +337,8 @@ export function readingRoutes(service: ReadingService) {
           String(issue?.path[0] ?? ''),
         );
       }
-      const { work_id, status, rating, hearted } = parsed.data;
-      return service.upsert(viewer, work_id, status, rating, hearted);
+      const { work_id, status, rating, hearted, visibility } = parsed.data;
+      return service.upsert(viewer, work_id, status, rating, hearted, visibility);
     });
 
     app.post<{ Params: { id: string } }>('/reads/:id/progress', async (req) => {
@@ -295,3 +364,4 @@ export function readingRoutes(service: ReadingService) {
     });
   };
 }
+

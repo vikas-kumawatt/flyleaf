@@ -374,11 +374,13 @@ export const reads = pgTable('reads', {
   finishedAt: date('finished_at'),
   rating: numeric('rating', { precision: 2, scale: 1 }),   // NULLABLE by design
   hearted: boolean('hearted').notNull().default(false),
+  visibility: text('visibility').notNull().default('public'),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 }, (t) => [
   unique('reads_user_work_attempt').on(t.userId, t.workId, t.attemptNo),
   check('reads_status_ck', sql`${t.status} IN ('want','reading','paused','finished','dnf')`),
+  check('reads_visibility_ck', sql`${t.visibility} IN ('public','followers','private')`),
   // Half stars, and only half stars. Enforced in the database because the API
   // is not the only thing that will ever write here (imports, admin, backfill).
   check('reads_rating_ck',
@@ -386,6 +388,7 @@ export const reads = pgTable('reads', {
   check('reads_dates_ck',
     sql`${t.finishedAt} IS NULL OR ${t.startedAt} IS NULL OR ${t.finishedAt} >= ${t.startedAt}`),
   index('reads_user_status_idx').on(t.userId, t.status, t.updatedAt),
+  index('reads_user_visibility_idx').on(t.userId, t.visibility, t.status, t.updatedAt),
 ]);
 
 /** APPEND-ONLY. Current position is always the latest row (PRD §8.3). */

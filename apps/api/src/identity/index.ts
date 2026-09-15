@@ -15,6 +15,19 @@ import { config, type Db, type RateLimiter } from '../platform/index.js';
 import { users, profiles, refreshTokens } from '../db/schema.js';
 import { ApiError, requireViewer } from '../http.js';
 import { isCommonPassword } from './common-passwords.js';
+import { canView } from '../authorization/index.js';
+
+export type Profile = {
+  id: string;
+  username: string;
+  displayName: string | null;
+  bio: string | null;
+  avatarKey: string | null;
+  isPrivate: boolean;
+  followerCount: number;
+  followingCount: number;
+  createdAt: Date;
+};
 
 // ---------------------------------------------------------------- validation
 
@@ -312,6 +325,42 @@ export class IdentityService {
       .limit(1);
     return (row as User | undefined) ?? null;
   }
+
+  /**
+   * Public profile lookup respecting privacy (Architecture §4, PRD §24).
+   * Takes viewer as required first argument (FN-70).
+   * If the account is private and viewer cannot view, returns null -> 404 (never 403).
+   */
+  async getProfile(viewer: string | null, userId: string): Promise<Profile | null> {
+    const [row] = await this.db
+      .select({
+        id: users.id,
+        username: profiles.username,
+        displayName: profiles.displayName,
+        bio: profiles.bio,
+        avatarKey: profiles.avatarKey,
+        isPrivate: profiles.isPrivate,
+        followerCount: profiles.followerCount,
+        followingCount: profiles.followingCount,
+        createdAt: profiles.createdAt,
+      })
+      .from(users)
+      .innerJoin(profiles, eq(users.id, profiles.userId))
+      .where(eq(users.id, userId))
+      .limit(1);
+
+    if (!row) return null;
+
+    const allowed = canView({
+      viewer,
+      ownerId: row.id,
+      isOwnerPrivate: row.isPrivate,
+    });
+
+    if (!allowed) return null;
+
+    return row;
+  }
 }
 
 // ---------------------------------------------------------------- routes
@@ -358,6 +407,13 @@ export function identityRoutes(service: IdentityService) {
       const user = await service.get(viewer);
       if (!user) throw ApiError.notFound('No such account.');
       return user;
+    });
+
+    // Public user profile (optional auth: guest viewer is null, PRD §24)
+    app.get<{ Params: { id: string } }>('/users/:id', async (req) => {
+      const profile = await service.getProfile(req.viewer, req.params.id);
+      if (!profile) throw ApiError.notFound('No such user.');
+      return profile;
     });
   };
 }

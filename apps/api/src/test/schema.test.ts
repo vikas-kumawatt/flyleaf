@@ -252,3 +252,35 @@ describe('catalog CHECK constraints', () => {
     expect(Number(rows[0]!.position)).toBe(2.5);
   });
 });
+
+describe('reads constraints (FN-70, PRD §26.1)', () => {
+  it('defaults read visibility to public', async () => {
+    const { rows } = await db.query<{ visibility: string }>(`
+      INSERT INTO reads (user_id, work_id, status, attempt_no)
+      VALUES ('${USER}', '${WORK}', 'want', 99)
+      RETURNING visibility
+    `);
+    expect(rows[0]?.visibility).toBe('public');
+  });
+
+  it('accepts valid visibility values (followers, private)', async () => {
+    const { rows } = await db.query<{ visibility: string }>(`
+      UPDATE reads SET visibility = 'followers' WHERE user_id = '${USER}' AND work_id = '${WORK}' AND attempt_no = 99
+      RETURNING visibility
+    `);
+    expect(rows[0]?.visibility).toBe('followers');
+
+    const { rows: rows2 } = await db.query<{ visibility: string }>(`
+      UPDATE reads SET visibility = 'private' WHERE user_id = '${USER}' AND work_id = '${WORK}' AND attempt_no = 99
+      RETURNING visibility
+    `);
+    expect(rows2[0]?.visibility).toBe('private');
+  });
+
+  it('rejects unknown visibility values with check constraint violation', async () => {
+    expect(await rejected(db, `
+      UPDATE reads SET visibility = 'secret' WHERE user_id = '${USER}' AND work_id = '${WORK}' AND attempt_no = 99
+    `)).toBe(true);
+  });
+});
+
