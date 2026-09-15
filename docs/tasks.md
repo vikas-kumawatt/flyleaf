@@ -130,15 +130,27 @@
 > **What it does NOT catch:** it runs on PGlite over 2,071 rows, so it validates ranking, not planner behaviour. None of the 40s → 47ms work would have shown up here. Query *performance* on 3.2M rows still needs `EXPLAIN` against the real catalog.
 
 ### Dedupe — `FN-5x` · 2d
-- [ ] FN-50 Stage 1–2 auto-merge (ISBN13; normalised title + shared author) — 1d
-- [ ] FN-51 Stage 3–4 queue; `merged_into_id` repointing; 30-day undo — 1d
+- [x] **FN-50** Stage 1–2 auto-merge (ISBN13; normalised title + shared author) — 1d
+  - `src/catalog/dedupe.ts` + `npm run dedupe -- --dry-run`. 27 tests.
+  - ⚠️ **A merge is seven repoints, and four of them collide.** `reads` has `UNIQUE (user_id, work_id, attempt_no)`, so a user who logged **both** duplicates breaks the naive `UPDATE reads SET work_id = survivor`. Attempts are renumbered to continue after that user's existing ones — which is also the semantically right answer, since they did read it twice. `work_authors`, `work_subjects` and `series_entries` collide on their primary keys (insert-then-delete with `ON CONFLICT DO NOTHING`); `work_stats` is keyed on `work_id` alone and is dropped rather than merged, because summing it would double-count anyone who logged both copies — `stats.workstats` recomputes from the reads that just moved. Merge **chains** are flattened, or resolving an old id takes two hops and the next merge makes it three.
+  - ⚠️ **`work_merges` is written by the merge, not by the undo.** PRD §40.3 wants 30-day reversibility; once a merge has renumbered `attempt_no` and forgotten the old values, the undo is not deferred work, it is impossible. The prior attempt numbers go into `moved` jsonb at merge time. A partial unique index on `loser_id WHERE undone_at IS NULL` makes merging the same work twice an error — it would mean it came back from the dead.
+  - **Stage 1 is written and inert.** ISBNs live on editions and the catalog has 102 of them, so it finds nothing until the editions pass runs. It is here rather than deferred because the merge machinery is identical and writing it later means re-deriving all of the collision handling above.
+  - The normalisation rule exists **twice** — TypeScript for callers, SQL for the 3.2M-row scan — so there is a test asserting the two agree on 15 titles. Two implementations of one rule is how a dedupe pass starts merging the wrong things, and the divergence would surface as books quietly disappearing.
+  - Not accent-folded, deliberately: `flyleaf_unaccent` is for search, where a false match costs a slightly wrong result. Here a false match destroys a book, and folding would collide distinct translations.
+- [ ] FN-51 Stage 3–4 queue; 30-day undo (the log it needs already exists); admin review UI — 1d
+- [ ] FN-52 Register `catalog.dedupe` as the monthly pg-boss job — small, now that FN-04 has a worker and FN-50 has something worth scheduling
 
 ### Auth — `FN-6x` · 5d
-- [ ] **FN-60** users, refresh_tokens, profiles migrations — 0.5d
-- [ ] **FN-61** argon2id (`@node-rs/argon2`); common-password list; 10-char minimum — 0.5d
-- [ ] **FN-62** Register, login, DOB age gate — 1d
-- [ ] **FN-63** **JWT 15m (`jose`) + opaque rotating refresh, hashed, `family_id`** — 1d
-- [ ] **FN-64** ⚠️ **Reuse detection: used token → revoke whole family** — 0.5d
+- [x] **FN-60** users, refresh_tokens, profiles migrations — 0.5d
+  - Migration `0005_auth.sql` applies cleanly on an empty database and live database. `users` gained `date_of_birth` (13+ age gate), `email_verified_at`, `role`, and `deleted_at`. `username` lives on `profiles`. `sessions` replaced by `refresh_tokens`.
+- [x] **FN-61** argon2id (`@node-rs/argon2`); common-password list; 10-char minimum — 0.5d
+  - `isCommonPassword` check rejects top dictionary passwords regardless of length. `passwordSchema` enforces 10-character minimum without entropy-reducing composition rules.
+- [x] **FN-62** Register, login, DOB age gate — 1d
+  - `isAtLeast13` rejects registration for users under 13 years old per PRD §26.6. `IdentityService.register` and `login` return full user + profile context with rate-limited login.
+- [x] **FN-63** **JWT 15m (`jose`) + opaque rotating refresh, hashed, `family_id`** — 1d
+  - 15-minute HS256 JWT evaluated statelessly by Fastify's `onRequest` hook. 256-bit cryptographically secure opaque refresh tokens stored as SHA-256 hashes with 60-day expiry.
+- [x] **FN-64** ⚠️ **Reuse detection: used token → revoke whole family** — 0.5d
+  - Presenting an already-consumed refresh token immediately revokes all tokens matching its `family_id` and rejects with 403 `token_reused`. All 35 identity tests pass in 2.8s.
 - [ ] **FN-65** Email verification + password reset behind a sender interface — 1d
 - [ ] FN-66 Session list + per-device revoke — 0.5d
 

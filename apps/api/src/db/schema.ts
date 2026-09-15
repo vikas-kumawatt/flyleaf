@@ -14,7 +14,7 @@
 import { sql } from 'drizzle-orm';
 import {
   bigint, boolean, check, customType, date, index, integer, jsonb, numeric,
-  pgTable, primaryKey, real, smallint, text, timestamp, unique, uuid,
+  pgTable, primaryKey, real, smallint, text, timestamp, unique, uniqueIndex, uuid,
   type AnyPgColumn,
 } from 'drizzle-orm/pg-core';
 
@@ -305,25 +305,56 @@ export const rawPayloads = pgTable('raw_payloads', {
 ]);
 
 // ---------------------------------------------------------------------------
-// 3. Identity
+// 3. Identity (architecture.md §3.3, FN-60)
 //
-// Still the Phase -1 shape. FN-60 through FN-65 replace `sessions` with
-// rotating refresh tokens and add profiles, verification and reset.
+// Users, profiles, and rotating refresh tokens with family reuse detection.
 // ---------------------------------------------------------------------------
 
 export const users = pgTable('users', {
   id: uuid('id').primaryKey().defaultRandom(),
   email: text('email').notNull().unique(),
+  emailVerifiedAt: timestamp('email_verified_at', { withTimezone: true }),
   passwordHash: text('password_hash').notNull(),
-  username: text('username').notNull().unique(),
+  dateOfBirth: date('date_of_birth').notNull(),
+  role: text('role').notNull().default('user'),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
-});
+  deletedAt: timestamp('deleted_at', { withTimezone: true }),
+}, (t) => [
+  check('users_role_ck', sql`${t.role} IN ('user','moderator','admin')`),
+]);
 
-export const sessions = pgTable('sessions', {
-  token: text('token').primaryKey(),
-  userId: uuid('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+export const profiles = pgTable('profiles', {
+  userId: uuid('user_id').primaryKey().references(() => users.id, { onDelete: 'cascade' }),
+  username: text('username').notNull().unique(),
+  displayName: text('display_name'),
+  bio: text('bio'),
+  avatarKey: text('avatar_key'),
+  isPrivate: boolean('is_private').notNull().default(false),
+  favouriteWorkIds: uuid('favourite_work_ids').array().notNull().default(sql`'{}'::uuid[]`),
+  librarySystems: jsonb('library_systems').notNull().default(sql`'[]'::jsonb`),
+  showExplicit: boolean('show_explicit').notNull().default(false),
+  followerCount: integer('follower_count').notNull().default(0),
+  followingCount: integer('following_count').notNull().default(0),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
-});
+}, (t) => [
+  check('profiles_bio_length_ck', sql`char_length(${t.bio}) <= 160`),
+  check('profiles_favs_length_ck', sql`array_length(${t.favouriteWorkIds}, 1) IS NULL OR array_length(${t.favouriteWorkIds}, 1) <= 4`),
+]);
+
+export const refreshTokens = pgTable('refresh_tokens', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  userId: uuid('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  tokenHash: text('token_hash').notNull(),
+  familyId: uuid('family_id').notNull(),
+  device: text('device'),
+  expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
+  usedAt: timestamp('used_at', { withTimezone: true }),
+  revokedAt: timestamp('revoked_at', { withTimezone: true }),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [
+  index('refresh_tokens_hash_idx').on(t.tokenHash),
+  index('refresh_tokens_family_idx').on(t.familyId),
+]);
 
 // ---------------------------------------------------------------------------
 // 4. Reading
@@ -418,4 +449,40 @@ export const ingestRuns = pgTable('ingest_runs', {
   check('ingest_runs_status_ck',
     sql`${t.status} IN ('running','done','failed','interrupted')`),
   index('ingest_runs_resume_idx').on(t.dumpType, t.sourceFile, t.startedAt),
+]);
+
+/**
+ * What a merge moved, so it can be undone (FN-50/51, PRD §40.3).
+ *
+ * PRD: "Merges are reversible for 30 days. A wrong merge destroys two books'
+ * worth of ratings at once, so the operation records exactly what it moved."
+ *
+ * THIS TABLE IS WRITTEN BY THE MERGE ITSELF, not by the undo feature. Once a
+ * merge has repointed rows and forgotten which ones it touched, the undo is
+ * not deferred work -- it is impossible. `reads` is the reason: repointing a
+ * read has to renumber `attempt_no` to satisfy `reads_user_work_attempt`, and
+ * nothing in the resulting row remembers what the number used to be.
+ *
+ * `moved` holds the per-table counts and the read renumbering, as jsonb:
+ *   { "reads": [{ "id": "...", "attempt_no": 1 }], "editions": 4, ... }
+ * Counts for the tables whose repointing is reversible from the loser id
+ * alone; explicit rows only where it is not.
+ */
+export const workMerges = pgTable('work_merges', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  survivorId: uuid('survivor_id').notNull().references(() => works.id),
+  loserId: uuid('loser_id').notNull().references(() => works.id),
+  /** Which rule fired: 1 exact ISBN, 2 title+author, 3 fuzzy, 4 reported. */
+  stage: smallint('stage').notNull(),
+  reason: text('reason').notNull(),
+  moved: jsonb('moved').notNull().default(sql`'{}'::jsonb`),
+  mergedAt: timestamp('merged_at', { withTimezone: true }).notNull().defaultNow(),
+  /** Set when reversed. Kept, never deleted — the audit trail is the point. */
+  undoneAt: timestamp('undone_at', { withTimezone: true }),
+}, (t) => [
+  check('work_merges_stage_ck', sql`${t.stage} BETWEEN 1 AND 4`),
+  // A work is merged away once. Merging it again would mean it had come back.
+  uniqueIndex('work_merges_loser_live_idx').on(t.loserId).where(sql`${t.undoneAt} IS NULL`),
+  index('work_merges_survivor_idx').on(t.survivorId),
+  index('work_merges_at_idx').on(t.mergedAt),
 ]);

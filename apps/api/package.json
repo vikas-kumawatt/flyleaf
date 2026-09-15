@@ -15,6 +15,7 @@
     "db:studio": "drizzle-kit studio",
     "seed": "tsx src/seed.ts",
     "ingest": "tsx src/ingest.ts",
+    "dedupe": "tsx src/dedupe.ts",
     "ingest:fetch": "tsx src/fetch-dumps.ts",
     "typecheck": "tsc --noEmit",
     "test": "vitest run"

@@ -19,8 +19,10 @@ const ACCENTED = '33333333-3333-3333-3333-333333333333';
 beforeAll(async () => {
   db = await freshDb();
   await db.exec(`
-    INSERT INTO users (id, email, password_hash, username)
-      VALUES ('${USER}', 'a@b.c', 'x', 'reader');
+    INSERT INTO users (id, email, password_hash, date_of_birth)
+      VALUES ('${USER}', 'a@b.c', 'x', '2000-01-01');
+    INSERT INTO profiles (user_id, username)
+      VALUES ('${USER}', 'reader');
     INSERT INTO works (id, title) VALUES
       ('${WORK}', 'Piranesi'),
       ('${ACCENTED}', 'Les Misérables');

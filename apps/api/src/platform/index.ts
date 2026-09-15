@@ -12,6 +12,8 @@ export const config = {
     process.env.DATABASE_URL ?? 'postgres://flyleaf:flyleaf@localhost:5432/flyleaf',
   env: process.env.NODE_ENV ?? 'development',
   logLevel: process.env.LOG_LEVEL ?? (process.env.NODE_ENV === 'production' ? 'info' : 'debug'),
+  jwtSecret:
+    process.env.JWT_SECRET ?? 'flyleaf-dev-secret-do-not-use-in-production-must-be-at-least-32-chars!',
 } as const;
 
 export type Db = ReturnType<typeof makeDb>;

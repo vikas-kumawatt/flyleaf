@@ -29,6 +29,20 @@
       "when": 1788851910198,
       "tag": "0003_author_aliases",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1788874736336,
+      "tag": "0004_work_merges",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1788880000000,
+      "tag": "0005_auth",
+      "breakpoints": true
     }
   ]
 }
