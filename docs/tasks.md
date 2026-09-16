@@ -157,7 +157,15 @@
   - Implemented `POST /v1/auth/verify-email` (burns token, marks `users.email_verified_at`), `POST /v1/auth/resend-verification` (authenticated `Bearer`, 1/60s rate limit, no-op when verified), `POST /v1/auth/forgot-password` (unauthenticated, always 200 without email enumeration), and `POST /v1/auth/reset-password` (argon2id update, burns token, **revokes all active refresh token families** for user).
   - Registration automatically dispatches a 24-hour verification token.
   - Updated Fastify route schemas, regenerated `openapi.yaml` with 0 drift, and added typed methods to `@flyleaf/api-client`. 42 tests in `identity.test.ts`, 289 tests passing across full suite in CI.
-- [ ] FN-66 Session list + per-device revoke — 0.5d
+- [x] **FN-66** Session list + per-device revoke — 0.5d
+  - Added `sessionSchema`, `sessionListResponseSchema`, and `revokeSessionResponseSchema` in `apps/api/src/contract/schemas.ts`.
+  - Device info captured via `User-Agent` request header on register/login and preserved during refresh token rotation.
+  - Implemented `IdentityService.listSessions(userId)` grouping unrevoked, unexpired tokens by `family_id` and device, returning `id`, `device`, `createdAt`, `lastUsedAt`.
+  - Implemented `IdentityService.revokeSession(userId, familyId)` revoking the entire token family (returns 404 `not_found` if not owned by caller or already revoked).
+  - Implemented `IdentityService.logoutAll(userId)` revoking all active sessions for the user.
+  - Added endpoints `GET /v1/auth/sessions`, `DELETE /v1/auth/sessions/:id`, and `POST /v1/auth/logout-all` with Bearer auth.
+  - Updated `@flyleaf/api-client` with typed `Session` interfaces and `getSessions()`, `revokeSession()`, `logoutAll()` methods; fixed request helper so empty body DELETE/POST does not attach content-type.
+  - 47 unit/HTTP tests in `identity.test.ts` and contract tests in `contract.test.ts`; 295 tests passing across full CI suite with 0 OpenAPI drift.
 
 ### Authorization — `FN-7x` · 3d
 - [x] **FN-70** ⚠️ Repository layer: **viewer ID a required argument everywhere** — 1d

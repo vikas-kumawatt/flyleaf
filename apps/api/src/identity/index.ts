@@ -6,7 +6,7 @@
 
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import { hash as argonHash, verify as argonVerify } from '@node-rs/argon2';
-import { eq } from 'drizzle-orm';
+import { and, eq, gt, isNull, sql } from 'drizzle-orm';
 import * as jose from 'jose';
 import { z } from 'zod';
 import type { FastifyInstance } from 'fastify';
@@ -27,6 +27,13 @@ export type Profile = {
   followerCount: number;
   followingCount: number;
   createdAt: Date;
+};
+
+export type Session = {
+  id: string;
+  device: string | null;
+  createdAt: Date;
+  lastUsedAt: Date;
 };
 
 // ---------------------------------------------------------------- validation
@@ -147,7 +154,7 @@ export class IdentityService {
     private mailer: EmailSender = new ConsoleEmailSender(),
   ) {}
 
-  async register(email: string, username: string, password: string, dateOfBirth: string) {
+  async register(email: string, username: string, password: string, dateOfBirth: string, device?: string) {
     const passwordHash = await argonHash(password);
     const familyId = randomUUID();
     const rawRefreshToken = randomBytes(32).toString('base64url');
@@ -182,6 +189,7 @@ export class IdentityService {
           userId: u.id,
           tokenHash,
           familyId,
+          device: device ?? null,
           expiresAt,
         });
 
@@ -211,7 +219,7 @@ export class IdentityService {
     };
   }
 
-  async login(email: string, password: string) {
+  async login(email: string, password: string, device?: string) {
     const allowed = await this.limiter.allow(`login:${email.trim().toLowerCase()}`, 10, 60);
     if (!allowed) throw ApiError.rateLimited();
 
@@ -240,6 +248,7 @@ export class IdentityService {
       userId: row.id,
       tokenHash,
       familyId,
+      device: device ?? null,
       expiresAt,
     });
 
@@ -264,6 +273,7 @@ export class IdentityService {
         id: refreshTokens.id,
         userId: refreshTokens.userId,
         familyId: refreshTokens.familyId,
+        device: refreshTokens.device,
         expiresAt: refreshTokens.expiresAt,
         usedAt: refreshTokens.usedAt,
         revokedAt: refreshTokens.revokedAt,
@@ -304,6 +314,7 @@ export class IdentityService {
         userId: row.userId,
         tokenHash: nextTokenHash,
         familyId: row.familyId,
+        device: row.device,
         expiresAt,
       });
     });
@@ -542,6 +553,62 @@ export class IdentityService {
 
     return { status: 'ok', message: 'Password has been reset successfully.' };
   }
+
+  async listSessions(userId: string): Promise<Session[]> {
+    const rows = await this.db
+      .select({
+        id: refreshTokens.familyId,
+        device: refreshTokens.device,
+        createdAt: sql<string>`min(${refreshTokens.createdAt})`,
+        lastUsedAt: sql<string>`max(coalesce(${refreshTokens.usedAt}, ${refreshTokens.createdAt}))`,
+      })
+      .from(refreshTokens)
+      .where(
+        and(
+          eq(refreshTokens.userId, userId),
+          isNull(refreshTokens.revokedAt),
+          gt(refreshTokens.expiresAt, new Date()),
+        ),
+      )
+      .groupBy(refreshTokens.familyId, refreshTokens.device)
+      .orderBy(sql`max(coalesce(${refreshTokens.usedAt}, ${refreshTokens.createdAt})) desc`);
+
+    return rows.map((r) => ({
+      id: r.id,
+      device: r.device ?? null,
+      createdAt: new Date(r.createdAt),
+      lastUsedAt: new Date(r.lastUsedAt),
+    }));
+  }
+
+  async revokeSession(userId: string, familyId: string): Promise<{ status: 'ok'; message: string }> {
+    const result = await this.db
+      .update(refreshTokens)
+      .set({ revokedAt: new Date() })
+      .where(
+        and(
+          eq(refreshTokens.userId, userId),
+          eq(refreshTokens.familyId, familyId),
+          isNull(refreshTokens.revokedAt),
+        ),
+      )
+      .returning({ id: refreshTokens.id });
+
+    if (result.length === 0) {
+      throw ApiError.notFound('Session not found.');
+    }
+
+    return { status: 'ok', message: 'Session revoked.' };
+  }
+
+  async logoutAll(userId: string): Promise<{ status: 'ok'; message: string }> {
+    await this.db
+      .update(refreshTokens)
+      .set({ revokedAt: new Date() })
+      .where(and(eq(refreshTokens.userId, userId), isNull(refreshTokens.revokedAt)));
+
+    return { status: 'ok', message: 'All sessions revoked.' };
+  }
 }
 
 import {
@@ -559,6 +626,8 @@ import {
   forgotPasswordResponseSchema,
   resetPasswordBodySchema,
   resetPasswordResponseSchema,
+  sessionListResponseSchema,
+  revokeSessionResponseSchema,
   userSchema,
   profileSchema,
   idParamSchema,
@@ -593,7 +662,8 @@ export function identityRoutes(service: IdentityService) {
           );
         }
         const { email, username, password, dateOfBirth } = parsed.data;
-        const result = await service.register(email, username, password, dateOfBirth);
+        const device = (req.headers['user-agent'] as string) || undefined;
+        const result = await service.register(email, username, password, dateOfBirth, device);
         return reply.status(201).send(result);
       },
     );
@@ -615,7 +685,8 @@ export function identityRoutes(service: IdentityService) {
       async (req) => {
         const parsed = loginBody.safeParse(req.body);
         if (!parsed.success) throw ApiError.unauthorized('Email or password is incorrect.');
-        return service.login(parsed.data.email, parsed.data.password);
+        const device = (req.headers['user-agent'] as string) || undefined;
+        return service.login(parsed.data.email, parsed.data.password, device);
       },
     );
 
@@ -759,6 +830,69 @@ export function identityRoutes(service: IdentityService) {
           );
         }
         return service.resetPassword(parsed.data.token, parsed.data.newPassword);
+      },
+    );
+
+    app.get(
+      '/auth/sessions',
+      {
+        schema: {
+          tags: ['Auth'],
+          summary: 'List active sessions',
+          description: 'Lists active device sessions for the authenticated user (PRD §24.2, §25).',
+          security: [{ BearerAuth: [] }],
+          response: {
+            200: sessionListResponseSchema,
+            401: errorResponseSchema,
+          },
+        },
+      },
+      async (req) => {
+        const viewer = requireViewer(req);
+        const data = await service.listSessions(viewer);
+        return { data };
+      },
+    );
+
+    app.delete<{ Params: { id: string } }>(
+      '/auth/sessions/:id',
+      {
+        schema: {
+          tags: ['Auth'],
+          summary: 'Revoke session',
+          description: 'Revokes an active device session by family UUID (PRD §24.2, §25).',
+          security: [{ BearerAuth: [] }],
+          params: idParamSchema,
+          response: {
+            200: revokeSessionResponseSchema,
+            401: errorResponseSchema,
+            404: errorResponseSchema,
+          },
+        },
+      },
+      async (req) => {
+        const viewer = requireViewer(req);
+        return service.revokeSession(viewer, req.params.id);
+      },
+    );
+
+    app.post(
+      '/auth/logout-all',
+      {
+        schema: {
+          tags: ['Auth'],
+          summary: 'Revoke all sessions',
+          description: 'Revokes all device sessions for the authenticated user (PRD §24.2, §25).',
+          security: [{ BearerAuth: [] }],
+          response: {
+            200: revokeSessionResponseSchema,
+            401: errorResponseSchema,
+          },
+        },
+      },
+      async (req) => {
+        const viewer = requireViewer(req);
+        return service.logoutAll(viewer);
       },
     );
 

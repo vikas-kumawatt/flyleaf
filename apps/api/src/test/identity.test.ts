@@ -488,4 +488,183 @@ describe('Email verification and password reset (FN-65)', () => {
     });
     expect(validResetRes.statusCode).toBe(200);
   });
+
+  it('listSessions groups active tokens by device family and reflects rotation (FN-66)', async () => {
+    const reg = await service.register('maya@example.com', 'maya_reads', 'goodpassword123', '1992-03-10', 'Firefox on macOS');
+    const login2 = await service.login('maya@example.com', 'goodpassword123', 'Safari on iOS');
+
+    let sessions = await service.listSessions(reg.user.id);
+    expect(sessions).toHaveLength(2);
+    const devices = sessions.map((s) => s.device).sort();
+    expect(devices).toEqual(['Firefox on macOS', 'Safari on iOS']);
+
+    // Rotate refresh token on device 2
+    const rotated = await service.refresh(login2.refreshToken);
+    expect(rotated.refreshToken).toBeDefined();
+
+    // Session count is still 2 (rotation preserves family)
+    sessions = await service.listSessions(reg.user.id);
+    expect(sessions).toHaveLength(2);
+  });
+
+  it('revokeSession revokes specific session family, leaving other devices intact (FN-66)', async () => {
+    const reg = await service.register('noah@example.com', 'noah_reads', 'goodpassword123', '1991-07-22', 'Desktop');
+    const login2 = await service.login('noah@example.com', 'goodpassword123', 'Mobile');
+
+    const sessions = await service.listSessions(reg.user.id);
+    expect(sessions).toHaveLength(2);
+
+    const desktopSession = sessions.find((s) => s.device === 'Desktop')!;
+    const mobileSession = sessions.find((s) => s.device === 'Mobile')!;
+
+    // Revoke desktop session
+    const revokeRes = await service.revokeSession(reg.user.id, desktopSession.id);
+    expect(revokeRes.status).toBe('ok');
+
+    // Desktop refresh now fails
+    await expect(service.refresh(reg.refreshToken)).rejects.toThrowError(
+      expect.objectContaining({ status: 401, code: 'invalid_refresh_token' }),
+    );
+
+    // Mobile refresh still works
+    const refreshedMobile = await service.refresh(login2.refreshToken);
+    expect(refreshedMobile.accessToken).toBeDefined();
+
+    // Active session list only contains Mobile
+    const remaining = await service.listSessions(reg.user.id);
+    expect(remaining).toHaveLength(1);
+    expect(remaining[0]!.id).toBe(mobileSession.id);
+  });
+
+  it('revokeSession returns 404 for unknown or other user session (FN-66)', async () => {
+    const userA = await service.register('usera@example.com', 'usera', 'goodpassword123', '1990-01-01', 'Device A');
+    const userB = await service.register('userb@example.com', 'userb', 'goodpassword123', '1990-01-01', 'Device B');
+
+    const sessionsB = await service.listSessions(userB.user.id);
+    const sessionBId = sessionsB[0]!.id;
+
+    // User A cannot revoke User B's session (404 not found, never 403)
+    await expect(service.revokeSession(userA.user.id, sessionBId)).rejects.toThrowError(
+      expect.objectContaining({ status: 404, code: 'not_found' }),
+    );
+
+    // Non-existent UUID returns 404
+    await expect(service.revokeSession(userA.user.id, '00000000-0000-0000-0000-000000000000')).rejects.toThrowError(
+      expect.objectContaining({ status: 404, code: 'not_found' }),
+    );
+  });
+
+  it('logoutAll revokes all active session families for user (FN-66)', async () => {
+    const reg = await service.register('oliver@example.com', 'oliver_reads', 'goodpassword123', '1993-11-05', 'Tablet');
+    const login2 = await service.login('oliver@example.com', 'goodpassword123', 'Phone');
+    const login3 = await service.login('oliver@example.com', 'goodpassword123', 'Laptop');
+
+    const sessions = await service.listSessions(reg.user.id);
+    expect(sessions).toHaveLength(3);
+
+    const logoutRes = await service.logoutAll(reg.user.id);
+    expect(logoutRes.status).toBe('ok');
+
+    // All refresh tokens are now revoked
+    for (const token of [reg.refreshToken, login2.refreshToken, login3.refreshToken]) {
+      await expect(service.refresh(token)).rejects.toThrowError(
+        expect.objectContaining({ status: 401, code: 'invalid_refresh_token' }),
+      );
+    }
+
+    // Active session list is empty
+    const remaining = await service.listSessions(reg.user.id);
+    expect(remaining).toHaveLength(0);
+  });
+
+  it('HTTP session endpoints enforce authentication, device headers, and revocation (FN-66)', async () => {
+    // 1. Unauthenticated requests fail with 401
+    const unauthGet = await app.inject({ method: 'GET', url: '/v1/auth/sessions' });
+    expect(unauthGet.statusCode).toBe(401);
+
+    const unauthDel = await app.inject({
+      method: 'DELETE',
+      url: '/v1/auth/sessions/00000000-0000-0000-0000-000000000000',
+    });
+    expect(unauthDel.statusCode).toBe(401);
+
+    const unauthLogoutAll = await app.inject({ method: 'POST', url: '/v1/auth/logout-all' });
+    expect(unauthLogoutAll.statusCode).toBe(401);
+
+    // 2. Register via HTTP with User-Agent
+    const regRes = await app.inject({
+      method: 'POST',
+      url: '/v1/auth/register',
+      headers: { 'user-agent': 'Mozilla/5.0 (Windows NT 10.0) Chrome/120.0' },
+      payload: {
+        email: 'paula@example.com',
+        username: 'paula_reads',
+        password: 'goodpassword123',
+        dateOfBirth: '1995-10-10',
+      },
+    });
+    expect(regRes.statusCode).toBe(201);
+    const { accessToken } = JSON.parse(regRes.payload);
+
+    // 3. Login second device via HTTP
+    const loginRes = await app.inject({
+      method: 'POST',
+      url: '/v1/auth/login',
+      headers: { 'user-agent': 'FlyleafMobile/1.0 (iOS 17)' },
+      payload: {
+        email: 'paula@example.com',
+        password: 'goodpassword123',
+      },
+    });
+    expect(loginRes.statusCode).toBe(200);
+
+    // 4. List sessions via HTTP
+    const listRes = await app.inject({
+      method: 'GET',
+      url: '/v1/auth/sessions',
+      headers: { authorization: `Bearer ${accessToken}` },
+    });
+    expect(listRes.statusCode).toBe(200);
+    const { data: sessionList } = JSON.parse(listRes.payload);
+    expect(sessionList).toHaveLength(2);
+    expect(sessionList[0].id).toBeDefined();
+    expect(sessionList[0].createdAt).toBeDefined();
+    expect(sessionList[0].lastUsedAt).toBeDefined();
+
+    // 5. Revoke one session via HTTP
+    const targetSessionId = sessionList[0].id;
+    const deleteRes = await app.inject({
+      method: 'DELETE',
+      url: `/v1/auth/sessions/${targetSessionId}`,
+      headers: { authorization: `Bearer ${accessToken}` },
+    });
+    expect(deleteRes.statusCode).toBe(200);
+    expect(JSON.parse(deleteRes.payload).status).toBe('ok');
+
+    // 6. Revoking already-revoked session returns 404
+    const repeatDeleteRes = await app.inject({
+      method: 'DELETE',
+      url: `/v1/auth/sessions/${targetSessionId}`,
+      headers: { authorization: `Bearer ${accessToken}` },
+    });
+    expect(repeatDeleteRes.statusCode).toBe(404);
+
+    // 7. Logout all sessions via HTTP
+    const logoutAllRes = await app.inject({
+      method: 'POST',
+      url: '/v1/auth/logout-all',
+      headers: { authorization: `Bearer ${accessToken}` },
+    });
+    expect(logoutAllRes.statusCode).toBe(200);
+    expect(JSON.parse(logoutAllRes.payload).status).toBe('ok');
+
+    // 8. Session list is now empty
+    const listAfterRes = await app.inject({
+      method: 'GET',
+      url: '/v1/auth/sessions',
+      headers: { authorization: `Bearer ${accessToken}` },
+    });
+    expect(listAfterRes.statusCode).toBe(200);
+    expect(JSON.parse(listAfterRes.payload).data).toHaveLength(0);
+  });
 });

@@ -60,6 +60,13 @@ describe('API Contract — openapi.yaml (FN-80)', () => {
     expect(paths).toContain('/auth/login');
     expect(paths).toContain('/auth/refresh');
     expect(paths).toContain('/auth/logout');
+    expect(paths).toContain('/auth/verify-email');
+    expect(paths).toContain('/auth/resend-verification');
+    expect(paths).toContain('/auth/forgot-password');
+    expect(paths).toContain('/auth/reset-password');
+    expect(paths).toContain('/auth/sessions');
+    expect(paths).toContain('/auth/sessions/{id}');
+    expect(paths).toContain('/auth/logout-all');
     expect(paths).toContain('/me');
     expect(paths).toContain('/users/{id}');
     expect(paths).toContain('/search');
@@ -78,6 +85,7 @@ describe('Typed FlyleafClient (FN-81)', () => {
   let clientDb: import('@electric-sql/pglite').PGlite;
   let app: FastifyInstance;
   let client: FlyleafClient;
+  let currentToken: string | null = null;
   const WORK_ID = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa';
 
   beforeAll(async () => {
@@ -98,6 +106,12 @@ describe('Typed FlyleafClient (FN-81)', () => {
 
     app = Fastify();
     app.decorateRequest('viewer', null);
+    app.addHook('onRequest', async (req) => {
+      const header = req.headers.authorization;
+      if (header?.startsWith('Bearer ')) {
+        req.viewer = await identityService.lookup(header.slice(7).trim());
+      }
+    });
     app.setErrorHandler((err, _req, reply) => {
       if (err instanceof ApiError) return sendError(reply, err);
       const message = err instanceof Error ? err.message : 'Something went wrong.';
@@ -112,6 +126,7 @@ describe('Typed FlyleafClient (FN-81)', () => {
     // Wire client to route through app.inject
     client = new FlyleafClient({
       baseUrl: 'http://localhost/v1',
+      getToken: () => currentToken,
       fetch: async (url, init) => {
         const u = new URL(url.toString());
         const res = await app.inject({
@@ -156,5 +171,35 @@ describe('Typed FlyleafClient (FN-81)', () => {
   it('performs catalog search using typed search()', async () => {
     const results = await client.search('Neuro');
     expect(Array.isArray(results)).toBe(true);
+  });
+
+  it('manages sessions using typed getSessions(), revokeSession(), and logoutAll()', async () => {
+    // 1. Register a user via typed client
+    const auth = await client.register({
+      email: 'client_user@example.com',
+      username: 'client_user',
+      password: 'goodpassword123',
+      dateOfBirth: '1995-01-01',
+    });
+    expect(auth.accessToken).toBeDefined();
+    currentToken = auth.accessToken;
+
+    // 2. Fetch active sessions via typed getSessions()
+    const sessions = await client.getSessions();
+    expect(sessions).toHaveLength(1);
+    expect(sessions[0]!.id).toBeDefined();
+
+    // 3. Revoke session via typed revokeSession()
+    const revokeRes = await client.revokeSession(sessions[0]!.id);
+    expect(revokeRes.status).toBe('ok');
+
+    // 4. Session list is now empty
+    const remaining = await client.getSessions();
+    expect(remaining).toHaveLength(0);
+
+    // 5. Test logoutAll()
+    const logoutRes = await client.logoutAll();
+    expect(logoutRes.status).toBe('ok');
+    currentToken = null;
   });
 });

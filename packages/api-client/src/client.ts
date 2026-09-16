@@ -15,6 +15,8 @@ import type {
   RegisterRequest,
   ResetPasswordRequest,
   SearchResponse,
+  Session,
+  SessionListResponse,
   StandardResponse,
   UpsertReadRequest,
   User,
@@ -56,7 +58,7 @@ export class FlyleafClient {
     const url = `${this.baseUrl}${path.startsWith('/') ? path : `/${path}`}`;
 
     const headers: Record<string, string> = {
-      'Content-Type': 'application/json',
+      ...(init.body !== undefined ? { 'Content-Type': 'application/json' } : {}),
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
       ...(init.headers as Record<string, string> | undefined),
     };
@@ -143,6 +145,25 @@ export class FlyleafClient {
     return this.request<StandardResponse>('/auth/reset-password', {
       method: 'POST',
       body: JSON.stringify(data),
+    });
+  }
+
+  async getSessions(): Promise<Session[]> {
+    const res = await this.request<SessionListResponse>('/auth/sessions', {
+      method: 'GET',
+    });
+    return res.data;
+  }
+
+  async revokeSession(sessionId: string): Promise<StandardResponse> {
+    return this.request<StandardResponse>(`/auth/sessions/${encodeURIComponent(sessionId)}`, {
+      method: 'DELETE',
+    });
+  }
+
+  async logoutAll(): Promise<StandardResponse> {
+    return this.request<StandardResponse>('/auth/logout-all', {
+      method: 'POST',
     });
   }
 

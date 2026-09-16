@@ -163,6 +163,27 @@ export const resetPasswordBodySchema = {
 
 export const resetPasswordResponseSchema = standardStatusResponseSchema;
 
+export const sessionSchema = {
+  type: 'object',
+  properties: {
+    id: { type: 'string', format: 'uuid', description: 'Session family UUID' },
+    device: { type: ['string', 'null'], description: 'Device description or User-Agent' },
+    createdAt: { type: 'string', format: 'date-time' },
+    lastUsedAt: { type: 'string', format: 'date-time' },
+  },
+  required: ['id', 'createdAt', 'lastUsedAt'],
+} as const;
+
+export const sessionListResponseSchema = {
+  type: 'object',
+  properties: {
+    data: { type: 'array', items: sessionSchema },
+  },
+  required: ['data'],
+} as const;
+
+export const revokeSessionResponseSchema = standardStatusResponseSchema;
+
 // ---------------------------------------------------------------- catalog
 
 export const editionSchema = {

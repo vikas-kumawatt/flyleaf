@@ -76,6 +76,17 @@ export interface ResetPasswordRequest {
   newPassword: string;
 }
 
+export interface Session {
+  id: string;
+  device: string | null;
+  createdAt: string;
+  lastUsedAt: string;
+}
+
+export interface SessionListResponse {
+  data: Session[];
+}
+
 // ---------------------------------------------------------------- Catalog
 
 export interface Edition {
