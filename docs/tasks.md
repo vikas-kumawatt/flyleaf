@@ -28,7 +28,7 @@
 - [x] **SK-07b** `.\scripts\fix-gradle.ps1` — RN's generated wrapper allows 10s to connect before a 130 MB download. Raises the timeout and pre-seeds the wrapper cache with a checksum-verified zip — 0.25d
 - [x] **SK-07** ⚠️ **Development build** on a **physical Android device**. Local build: 36 min first, 1–2 min after. The EAS free-tier queue hit 47 min with a growing estimate and is not an inner loop. Expo Go cannot open an SDK 57 project — it supports one SDK version only — 0.5d
 - [x] **SK-08** Walked the whole path on device; **surprises list written → `surprises.md`**. Found 3 client bugs invisible to tsc and to all 59 automated assertions: `<Link asChild>` rejecting array styles, a two-layer star control using a glyph absent from the Android font, and `ListHeaderComponent` remounting the search field on every keystroke — 0.5d
-- [ ] **SK-09** Have one other person complete the path unaided — 0.25d
+- [x] **SK-09** Have one other person complete the path unaided — 0.25d
 
 **Exit:** full path works on a real phone · surprises list written and acted on.
 
