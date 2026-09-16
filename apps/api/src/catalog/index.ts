@@ -357,20 +357,57 @@ export class CatalogService {
   }
 }
 
+import {
+  searchQuerySchema,
+  searchResponseSchema,
+  idParamSchema,
+  workSchema,
+  errorResponseSchema,
+} from '../contract/schemas.js';
+
 const searchQuery = z.object({ q: z.string().optional() });
 
 export function catalogRoutes(service: CatalogService) {
   return async (app: FastifyInstance) => {
     // Both routes are readable by guests (PRD §4.2).
-    app.get('/search', async (req) => {
-      const { q } = searchQuery.parse(req.query);
-      return { data: await service.search(q ?? '') };
-    });
+    app.get(
+      '/search',
+      {
+        schema: {
+          tags: ['Catalog'],
+          summary: 'Search catalog',
+          description: 'Searches works by title, subtitle, author, or alternate titles. Guest readable.',
+          querystring: searchQuerySchema,
+          response: {
+            200: searchResponseSchema,
+          },
+        },
+      },
+      async (req) => {
+        const { q } = searchQuery.parse(req.query);
+        return { data: await service.search(q ?? '') };
+      },
+    );
 
-    app.get<{ Params: { id: string } }>('/works/:id', async (req) => {
-      const work = await service.getWork(req.viewer, req.params.id);
-      if (!work) throw ApiError.notFound('No such book.');
-      return work;
-    });
+    app.get<{ Params: { id: string } }>(
+      '/works/:id',
+      {
+        schema: {
+          tags: ['Catalog'],
+          summary: 'Get book by ID',
+          description: 'Returns work metadata, editions, and viewer read state if signed in. Guest readable.',
+          params: idParamSchema,
+          response: {
+            200: workSchema,
+            404: errorResponseSchema,
+          },
+        },
+      },
+      async (req) => {
+        const work = await service.getWork(req.viewer, req.params.id);
+        if (!work) throw ApiError.notFound('No such book.');
+        return work;
+      },
+    );
   };
 }

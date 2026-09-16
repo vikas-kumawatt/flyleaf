@@ -43,7 +43,13 @@ const DATABASE_URL =
  * red is a check nobody reads.
  */
 const STEPS = [
+  {
+    name: 'api-client · build',
+    cwd: 'apps/api',
+    args: ['exec', 'tsc', '--', '-p', '../../packages/api-client/tsconfig.json'],
+  },
   { name: 'api · typecheck', cwd: 'apps/api', args: ['run', 'typecheck'] },
+  { name: 'api · spec check', cwd: 'apps/api', args: ['run', 'spec:check'] },
   { name: 'api · tests', cwd: 'apps/api', args: ['test'] },
   { name: 'api · build', cwd: 'apps/api', args: ['run', 'build'] },
   { name: 'api · audit', cwd: 'apps/api', args: ['audit', '--audit-level=high'] },

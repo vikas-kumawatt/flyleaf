@@ -363,57 +363,161 @@ export class IdentityService {
   }
 }
 
-// ---------------------------------------------------------------- routes
+import {
+  registerBodySchema,
+  registerResponseSchema,
+  loginBodySchema,
+  loginResponseSchema,
+  refreshBodySchema,
+  refreshResponseSchema,
+  logoutResponseSchema,
+  userSchema,
+  profileSchema,
+  idParamSchema,
+  errorResponseSchema,
+} from '../contract/schemas.js';
 
 export function identityRoutes(service: IdentityService) {
   return async (app: FastifyInstance) => {
-    app.post('/auth/register', async (req, reply) => {
-      const parsed = registerBody.safeParse(req.body);
-      if (!parsed.success) {
-        const issue = parsed.error.issues[0];
-        throw ApiError.unprocessable(
-          'invalid_field',
-          issue?.message ?? 'Check that.',
-          String(issue?.path[0] ?? ''),
-        );
-      }
-      const { email, username, password, dateOfBirth } = parsed.data;
-      const result = await service.register(email, username, password, dateOfBirth);
-      return reply.status(201).send(result);
-    });
+    app.post(
+      '/auth/register',
+      {
+        schema: {
+          tags: ['Auth'],
+          summary: 'Register account',
+          description: 'Creates user and profile with age gate check (PRD §26.6).',
+          body: registerBodySchema,
+          response: {
+            201: registerResponseSchema,
+            409: errorResponseSchema,
+            422: errorResponseSchema,
+          },
+        },
+      },
+      async (req, reply) => {
+        const parsed = registerBody.safeParse(req.body);
+        if (!parsed.success) {
+          const issue = parsed.error.issues[0];
+          throw ApiError.unprocessable(
+            'invalid_field',
+            issue?.message ?? 'Check that.',
+            String(issue?.path[0] ?? ''),
+          );
+        }
+        const { email, username, password, dateOfBirth } = parsed.data;
+        const result = await service.register(email, username, password, dateOfBirth);
+        return reply.status(201).send(result);
+      },
+    );
 
-    app.post('/auth/login', async (req) => {
-      const parsed = loginBody.safeParse(req.body);
-      if (!parsed.success) throw ApiError.unauthorized('Email or password is incorrect.');
-      return service.login(parsed.data.email, parsed.data.password);
-    });
+    app.post(
+      '/auth/login',
+      {
+        schema: {
+          tags: ['Auth'],
+          summary: 'Sign in',
+          description: 'Authenticates with email and password, returning 15m JWT + 60d refresh token.',
+          body: loginBodySchema,
+          response: {
+            200: loginResponseSchema,
+            401: errorResponseSchema,
+          },
+        },
+      },
+      async (req) => {
+        const parsed = loginBody.safeParse(req.body);
+        if (!parsed.success) throw ApiError.unauthorized('Email or password is incorrect.');
+        return service.login(parsed.data.email, parsed.data.password);
+      },
+    );
 
-    app.post('/auth/refresh', async (req) => {
-      const parsed = refreshBody.safeParse(req.body);
-      if (!parsed.success) {
-        throw ApiError.unprocessable('invalid_field', 'Refresh token is required.', 'refreshToken');
-      }
-      return service.refresh(parsed.data.refreshToken);
-    });
+    app.post(
+      '/auth/refresh',
+      {
+        schema: {
+          tags: ['Auth'],
+          summary: 'Rotate refresh token',
+          description: 'Rotates opaque refresh token. Reusing an old token revokes the entire family (FN-64).',
+          body: refreshBodySchema,
+          response: {
+            200: refreshResponseSchema,
+            401: errorResponseSchema,
+            403: errorResponseSchema,
+          },
+        },
+      },
+      async (req) => {
+        const parsed = refreshBody.safeParse(req.body);
+        if (!parsed.success) {
+          throw ApiError.unprocessable('invalid_field', 'Refresh token is required.', 'refreshToken');
+        }
+        return service.refresh(parsed.data.refreshToken);
+      },
+    );
 
-    app.post('/auth/logout', async (req) => {
-      const parsed = refreshBody.safeParse(req.body);
-      if (!parsed.success) return { status: 'ok' };
-      return service.logout(parsed.data.refreshToken);
-    });
+    app.post(
+      '/auth/logout',
+      {
+        schema: {
+          tags: ['Auth'],
+          summary: 'Sign out',
+          description: 'Revokes the presented refresh token family.',
+          body: refreshBodySchema,
+          response: {
+            200: logoutResponseSchema,
+          },
+        },
+      },
+      async (req) => {
+        const parsed = refreshBody.safeParse(req.body);
+        if (!parsed.success) return { status: 'ok' };
+        return service.logout(parsed.data.refreshToken);
+      },
+    );
 
-    app.get('/me', async (req) => {
-      const viewer = requireViewer(req);
-      const user = await service.get(viewer);
-      if (!user) throw ApiError.notFound('No such account.');
-      return user;
-    });
+    app.get(
+      '/me',
+      {
+        schema: {
+          tags: ['Auth'],
+          summary: 'Get current user',
+          description: 'Returns private user account details for the authenticated viewer.',
+          security: [{ BearerAuth: [] }],
+          response: {
+            200: userSchema,
+            401: errorResponseSchema,
+            404: errorResponseSchema,
+          },
+        },
+      },
+      async (req) => {
+        const viewer = requireViewer(req);
+        const user = await service.get(viewer);
+        if (!user) throw ApiError.notFound('No such account.');
+        return user;
+      },
+    );
 
     // Public user profile (optional auth: guest viewer is null, PRD §24)
-    app.get<{ Params: { id: string } }>('/users/:id', async (req) => {
-      const profile = await service.getProfile(req.viewer, req.params.id);
-      if (!profile) throw ApiError.notFound('No such user.');
-      return profile;
-    });
+    app.get<{ Params: { id: string } }>(
+      '/users/:id',
+      {
+        schema: {
+          tags: ['Auth'],
+          summary: 'Get public profile',
+          description: 'Returns public user profile. Private accounts return 404 for non-followers (Architecture §4).',
+          params: idParamSchema,
+          response: {
+            200: profileSchema,
+            404: errorResponseSchema,
+          },
+        },
+      },
+      async (req) => {
+        const profile = await service.getProfile(req.viewer, req.params.id);
+        if (!profile) throw ApiError.notFound('No such user.');
+        return profile;
+      },
+    );
   };
 }

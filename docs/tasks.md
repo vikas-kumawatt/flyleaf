@@ -167,8 +167,14 @@
 
 
 ### API contract — `FN-8x` · 2d
-- [ ] **FN-80** Fastify route schemas for the Phase 0–1 surface; `openapi.yaml` generated from them — 1d
-- [ ] **FN-81** Typed client generated into `packages/api-client`, CI-enforced — 0.5d
+- [x] **FN-80** Fastify route schemas for the Phase 0–1 surface; `openapi.yaml` generated from them — 1d
+  - Defined Fastify route schemas (`schema: { params, querystring, body, response }`) and reusable JSON schemas in `apps/api/src/contract/schemas.ts` for all Phase 0–1 endpoints across `Auth`, `Catalog`, `Reading`, and `System`.
+  - Integrated `@fastify/swagger` and `yaml` with OpenAPI 3.1.0 specifications and BearerAuth security scheme.
+  - Implemented `npm run spec:generate` and `npm run spec:check` in `src/contract/generate.ts`, generating `openapi.yaml` at repo root with zero schema drift.
+- [x] **FN-81** Typed client generated into `packages/api-client`, CI-enforced — 0.5d
+  - Created `packages/api-client` containing TypeScript interfaces and typed `FlyleafClient` with full endpoint coverage and standard error parsing (`FlyleafApiError`).
+  - Connected `apps/mobile/src/lib/api.ts` to `@flyleaf/api-client`, replacing hand-written endpoint types and contracts with Fastify route schema bindings.
+  - Added `api-client · build` and `api · spec check` to `scripts/ci.mjs`, ensuring CI breaks if schemas, `openapi.yaml`, or `@flyleaf/api-client` drift. 282 tests passing across 10 test suites in CI.
 - [ ] FN-82 Hook chain incl. the auth hook that never rejects (guests) — 0.5d
 
 ### Admin (early slice) — `FN-9x` · 2d

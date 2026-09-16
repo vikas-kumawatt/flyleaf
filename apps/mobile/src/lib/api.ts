@@ -1,21 +1,27 @@
-// Phase -1 API client, hand-written.
+// Mobile API client backed by @flyleaf/api-client (FN-80, FN-81, Architecture §6).
 //
-// FN-80/81 replace this with a client GENERATED from the Fastify route
-// schemas, because those schemas and this file otherwise define every
-// endpoint twice and drift silently until something is null in production.
+// Types and requests are bound to the Fastify route schemas and openapi.yaml,
+// preventing client/server contract drift.
 
 import Constants from 'expo-constants';
 import * as SecureStore from 'expo-secure-store';
 import * as Crypto from 'expo-crypto';
 
-// Resolve the API host without anyone editing a config file.
-//
-// Expo's dev server already knows the LAN address the phone reached it on
-// (`hostUri` is e.g. "10.219.25.133:8081"), and the API runs on the same
-// machine. Deriving the host from it means the app follows your laptop
-// around — no editing app.json when the IP changes, which it will.
-//
-// Precedence: explicit override → Expo dev host → emulator alias.
+import {
+  FlyleafClient,
+  FlyleafApiError,
+  type User,
+  type Profile,
+  type Edition,
+  type YourRead,
+  type Work,
+  type Read,
+  type ReadStatus,
+} from '@flyleaf/api-client';
+
+export type { User, Profile, Edition, YourRead, Work, Read, ReadStatus };
+export { FlyleafApiError as ApiError };
+
 const API_PORT = 3000;
 
 function resolveBase(): string {
@@ -30,101 +36,59 @@ function resolveBase(): string {
 }
 
 const BASE: string = resolveBase();
-
 const TOKEN_KEY = 'flyleaf.token';
 
 // The refresh token lives in the OS keychain, never AsyncStorage.
-// Phase -1 stores an opaque session token in the same place.
 export async function saveToken(t: string) { await SecureStore.setItemAsync(TOKEN_KEY, t); }
 export async function loadToken() { return SecureStore.getItemAsync(TOKEN_KEY); }
 export async function clearToken() { await SecureStore.deleteItemAsync(TOKEN_KEY); }
 
-export class ApiError extends Error {
-  constructor(public code: string, message: string, public field?: string, public status?: number) {
-    super(message);
-  }
-}
-
-async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
-  const token = await loadToken();
-  const res = await fetch(`${BASE}/v1${path}`, {
-    ...init,
-    headers: {
-      'Content-Type': 'application/json',
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      ...(init.headers ?? {}),
-    },
-  });
-  const text = await res.text();
-  const body = text ? JSON.parse(text) : null;
-  if (!res.ok) {
-    const e = body?.error ?? {};
-    throw new ApiError(e.code ?? 'unknown', e.message ?? 'Something went wrong.', e.field, res.status);
-  }
-  return body as T;
-}
-
-// ---------------------------------------------------------------- types
-
-export type User = { id: string; email: string; username: string };
-export type Edition = {
-  id: string; isbn13: string | null; page_count: number | null;
-  format: string; cover_id: number | null;
-};
-export type YourRead = {
-  id: string; status: string; rating: number | null; hearted: boolean;
-  page: number | null; percent: number | null;
-};
-export type Work = {
-  id: string; title: string; author_name: string;
-  first_publish_year: number | null; cover_id: number | null; log_count: number;
-  editions?: Edition[]; your_read?: YourRead;
-};
-export type Read = {
-  id: string; work_id: string; status: string; attempt_no: number;
-  rating: number | null; hearted: boolean;
-  title?: string; author_name?: string; cover_id?: number | null;
-  page?: number | null; percent?: number | null; page_count?: number | null;
-};
-
-// ---------------------------------------------------------------- calls
+const client = new FlyleafClient({
+  baseUrl: `${BASE}/v1`,
+  getToken: loadToken,
+});
 
 export const api = {
-  register: (email: string, username: string, password: string) =>
-    request<{ user: User; token: string }>('/auth/register', {
-      method: 'POST', body: JSON.stringify({ email, username, password }),
-    }),
+  client,
+
+  register: (email: string, username: string, password: string, dateOfBirth = '2000-01-01') =>
+    client.register({ email, username, password, dateOfBirth }).then((r) => ({
+      user: r.user,
+      token: r.accessToken,
+      refreshToken: r.refreshToken,
+    })),
 
   login: (email: string, password: string) =>
-    request<{ user: User; token: string }>('/auth/login', {
-      method: 'POST', body: JSON.stringify({ email, password }),
-    }),
+    client.login({ email, password }).then((r) => ({
+      user: r.user,
+      token: r.accessToken,
+      refreshToken: r.refreshToken,
+    })),
 
-  me: () => request<User>('/me'),
+  me: () => client.getMe(),
 
   // Readable by guests — no token required (PRD §4.2).
-  search: (q: string) =>
-    request<{ data: Work[] }>(`/search?q=${encodeURIComponent(q)}`).then(r => r.data),
+  search: (q: string) => client.search(q),
 
-  work: (id: string) => request<Work>(`/works/${id}`),
+  work: (id: string) => client.getWork(id),
 
-  reads: (status?: string) =>
-    request<{ data: Read[] }>(`/reads${status ? `?status=${status}` : ''}`).then(r => r.data),
+  reads: (status?: string) => client.getReads(status as ReadStatus | undefined),
 
   setStatus: (workId: string, status: string, rating?: number | null, hearted?: boolean) =>
-    request<Read>('/reads', {
-      method: 'POST',
-      body: JSON.stringify({ work_id: workId, status, rating, hearted }),
+    client.createRead({
+      work_id: workId,
+      status: status as ReadStatus,
+      rating: rating ?? null,
+      hearted: hearted ?? null,
     }),
 
   // client_event_id makes replay safe. This is the whole offline story in one
   // field, and it is here from day one (architecture.md §10).
   addProgress: (readId: string, page: number | null, percent: number | null, minutes?: number) =>
-    request<Read>(`/reads/${readId}/progress`, {
-      method: 'POST',
-      body: JSON.stringify({
-        client_event_id: Crypto.randomUUID(),
-        page, percent, minutes,
-      }),
+    client.addProgress(readId, {
+      client_event_id: Crypto.randomUUID(),
+      page: page ?? null,
+      percent: percent ?? null,
+      minutes: minutes ?? null,
     }),
 };

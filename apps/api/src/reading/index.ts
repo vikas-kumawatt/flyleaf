@@ -295,28 +295,83 @@ export class ReadingService {
   }
 }
 
+import {
+  readSchema,
+  readListResponseSchema,
+  statusQuerySchema,
+  idParamSchema,
+  upsertReadBodySchema,
+  progressEventBodySchema,
+  errorResponseSchema,
+} from '../contract/schemas.js';
+
 export function readingRoutes(service: ReadingService) {
   return async (app: FastifyInstance) => {
     // Current user's reads (authenticated)
-    app.get<{ Querystring: { status?: string } }>('/reads', async (req) => {
-      const viewer = requireViewer(req);
-      const { status } = req.query;
-      if (status && !STATUSES.includes(status as Status)) {
-        throw ApiError.unprocessable('invalid_status', 'Unknown status filter.', 'status');
-      }
-      return { data: await service.list(viewer, viewer, status) };
-    });
+    app.get<{ Querystring: { status?: string } }>(
+      '/reads',
+      {
+        schema: {
+          tags: ['Reading'],
+          summary: 'List my reads',
+          description: 'Returns the authenticated viewer’s reading attempts, ordered by updated_at descending.',
+          security: [{ BearerAuth: [] }],
+          querystring: statusQuerySchema,
+          response: {
+            200: readListResponseSchema,
+            401: errorResponseSchema,
+            422: errorResponseSchema,
+          },
+        },
+      },
+      async (req) => {
+        const viewer = requireViewer(req);
+        const { status } = req.query;
+        if (status && !STATUSES.includes(status as Status)) {
+          throw ApiError.unprocessable('invalid_status', 'Unknown status filter.', 'status');
+        }
+        return { data: await service.list(viewer, viewer, status) };
+      },
+    );
 
     // Single read attempt by ID (optional auth: guest viewer is null)
-    app.get<{ Params: { id: string } }>('/reads/:id', async (req) => {
-      const read = await service.get(req.viewer, req.params.id);
-      if (!read) throw ApiError.notFound('No such read.');
-      return read;
-    });
+    app.get<{ Params: { id: string } }>(
+      '/reads/:id',
+      {
+        schema: {
+          tags: ['Reading'],
+          summary: 'Get read attempt',
+          description: 'Returns reading attempt details if authorized. Returns 404 for private reads (Architecture §4).',
+          params: idParamSchema,
+          response: {
+            200: readSchema,
+            404: errorResponseSchema,
+          },
+        },
+      },
+      async (req) => {
+        const read = await service.get(req.viewer, req.params.id);
+        if (!read) throw ApiError.notFound('No such read.');
+        return read;
+      },
+    );
 
     // Another user's public reads (optional auth: guest viewer is null)
     app.get<{ Params: { id: string }; Querystring: { status?: string } }>(
       '/users/:id/reads',
+      {
+        schema: {
+          tags: ['Reading'],
+          summary: 'List user public reads',
+          description: 'Returns public reads for a user. Private accounts return empty list for non-followers.',
+          params: idParamSchema,
+          querystring: statusQuerySchema,
+          response: {
+            200: readListResponseSchema,
+            422: errorResponseSchema,
+          },
+        },
+      },
       async (req) => {
         const { status } = req.query;
         if (status && !STATUSES.includes(status as Status)) {
@@ -326,42 +381,78 @@ export function readingRoutes(service: ReadingService) {
       },
     );
 
-    app.post('/reads', async (req) => {
-      const viewer = requireViewer(req);
-      const parsed = upsertBody.safeParse(req.body);
-      if (!parsed.success) {
-        const issue = parsed.error.issues[0];
-        throw ApiError.unprocessable(
-          'invalid_field',
-          issue?.message ?? 'Check that.',
-          String(issue?.path[0] ?? ''),
-        );
-      }
-      const { work_id, status, rating, hearted, visibility } = parsed.data;
-      return service.upsert(viewer, work_id, status, rating, hearted, visibility);
-    });
+    app.post(
+      '/reads',
+      {
+        schema: {
+          tags: ['Reading'],
+          summary: 'Log or update read attempt',
+          description: 'Creates or updates reading attempt. Starting a finished/dnf book creates attempt_no + 1 (PRD §8.1).',
+          security: [{ BearerAuth: [] }],
+          body: upsertReadBodySchema,
+          response: {
+            200: readSchema,
+            401: errorResponseSchema,
+            422: errorResponseSchema,
+          },
+        },
+      },
+      async (req) => {
+        const viewer = requireViewer(req);
+        const parsed = upsertBody.safeParse(req.body);
+        if (!parsed.success) {
+          const issue = parsed.error.issues[0];
+          throw ApiError.unprocessable(
+            'invalid_field',
+            issue?.message ?? 'Check that.',
+            String(issue?.path[0] ?? ''),
+          );
+        }
+        const { work_id, status, rating, hearted, visibility } = parsed.data;
+        return service.upsert(viewer, work_id, status, rating, hearted, visibility);
+      },
+    );
 
-    app.post<{ Params: { id: string } }>('/reads/:id/progress', async (req) => {
-      const viewer = requireViewer(req);
-      const parsed = progressBody.safeParse(req.body);
-      if (!parsed.success) {
-        const issue = parsed.error.issues[0];
-        throw ApiError.unprocessable(
-          'invalid_progress',
-          issue?.message ?? 'Check that.',
-          String(issue?.path[0] ?? ''),
+    app.post<{ Params: { id: string } }>(
+      '/reads/:id/progress',
+      {
+        schema: {
+          tags: ['Reading'],
+          summary: 'Record reading progress',
+          description: 'Appends a progress event. Idempotent on client_event_id for offline replay (PRD §8.3).',
+          security: [{ BearerAuth: [] }],
+          params: idParamSchema,
+          body: progressEventBodySchema,
+          response: {
+            200: readSchema,
+            401: errorResponseSchema,
+            404: errorResponseSchema,
+            422: errorResponseSchema,
+          },
+        },
+      },
+      async (req) => {
+        const viewer = requireViewer(req);
+        const parsed = progressBody.safeParse(req.body);
+        if (!parsed.success) {
+          const issue = parsed.error.issues[0];
+          throw ApiError.unprocessable(
+            'invalid_progress',
+            issue?.message ?? 'Check that.',
+            String(issue?.path[0] ?? ''),
+          );
+        }
+        const { client_event_id, page, percent, minutes } = parsed.data;
+        return service.addProgress(
+          viewer,
+          req.params.id,
+          client_event_id,
+          page ?? null,
+          percent ?? null,
+          minutes ?? null,
         );
-      }
-      const { client_event_id, page, percent, minutes } = parsed.data;
-      return service.addProgress(
-        viewer,
-        req.params.id,
-        client_event_id,
-        page ?? null,
-        percent ?? null,
-        minutes ?? null,
-      );
-    });
+      },
+    );
   };
 }
 
