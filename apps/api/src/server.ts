@@ -6,7 +6,7 @@ import Fastify from 'fastify';
 import cors from '@fastify/cors';
 import { sql } from 'drizzle-orm';
 
-import { config, makeDb, waitForDb, closeDb, MemoryCache, PgRateLimiter } from './platform/index.js';
+import { config, makeDb, waitForDb, closeDb, MemoryCache, PgRateLimiter, ConsoleEmailSender } from './platform/index.js';
 import { ApiError, sendError } from './http.js';
 import { IdentityService, identityRoutes } from './identity/index.js';
 import { CatalogService, catalogRoutes } from './catalog/index.js';
@@ -22,8 +22,9 @@ async function main() {
   // instance that is strictly faster than a network hop to Redis.
   const limiter = new PgRateLimiter(db);
   const cache = new MemoryCache(1000);
+  const mailer = new ConsoleEmailSender();
 
-  const identity = new IdentityService(db, limiter);
+  const identity = new IdentityService(db, limiter, mailer);
   // Gap-fill turns a search miss into a permanent catalog entry (FN-32).
   // Layer 2 of the accelerator: it exists whether or not the dumps have been
   // ingested, because no ingest is ever complete.
@@ -69,6 +70,17 @@ async function main() {
 
   app.setErrorHandler((err, req, reply) => {
     if (err instanceof ApiError) return sendError(reply, err);
+    if ((err as any).validation) {
+      const v = (err as any).validation[0];
+      const field = v?.params?.missingProperty || v?.instancePath?.replace(/^\//, '') || undefined;
+      return reply.status(422).send({
+        error: {
+          code: 'invalid_field',
+          message: (err as Error).message,
+          ...(field ? { field } : {}),
+        },
+      });
+    }
     req.log.error({ err }, 'unhandled');
     return reply
       .status(500)

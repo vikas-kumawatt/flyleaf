@@ -7,6 +7,7 @@ export default defineConfig({
     // like a broken migration.
     testTimeout: 60_000,
     hookTimeout: 60_000,
+    fileParallelism: false,
 
     // Never collect tests out of the build output.
     //

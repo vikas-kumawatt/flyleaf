@@ -1,6 +1,7 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { hash, verify } from '@node-rs/argon2';
 import type { PGlite } from '@electric-sql/pglite';
+import Fastify, { type FastifyInstance } from 'fastify';
 
 import {
   passwordSchema,
@@ -11,8 +12,9 @@ import {
   signAccessToken,
   verifyAccessToken,
   IdentityService,
+  identityRoutes,
 } from '../identity/index.js';
-import { MemoryCache, PgRateLimiter, type Db } from '../platform/index.js';
+import { MemoryCache, MemoryEmailSender, PgRateLimiter, type Db } from '../platform/index.js';
 import { freshDrizzle } from './pg.js';
 import { ApiError } from '../http.js';
 
@@ -147,10 +149,12 @@ describe('IdentityService (FN-60 through FN-64)', () => {
   let db: Db;
   let client: PGlite;
   let service: IdentityService;
+  let mailer: MemoryEmailSender;
 
   beforeAll(async () => {
     ({ db, client } = await freshDrizzle());
-    service = new IdentityService(db, new PgRateLimiter(db));
+    mailer = new MemoryEmailSender();
+    service = new IdentityService(db, new PgRateLimiter(db), mailer);
   }, 60_000);
 
   afterAll(async () => {
@@ -158,7 +162,10 @@ describe('IdentityService (FN-60 through FN-64)', () => {
   });
 
   beforeEach(async () => {
-    await client.exec('TRUNCATE users, profiles, refresh_tokens RESTART IDENTITY CASCADE');
+    await client.exec(
+      'TRUNCATE users, profiles, refresh_tokens, email_verification_tokens, password_reset_tokens RESTART IDENTITY CASCADE',
+    );
+    mailer.clear();
   });
 
   it('registers a user with profile and returns tokens (FN-60, FN-62, FN-63)', async () => {
@@ -240,5 +247,245 @@ describe('IdentityService (FN-60 through FN-64)', () => {
     await expect(service.refresh(reg.refreshToken)).rejects.toThrowError(
       expect.objectContaining({ status: 401, code: 'invalid_refresh_token' }),
     );
+  });
+});
+
+describe('Email verification and password reset (FN-65)', () => {
+  let db: Db;
+  let client: PGlite;
+  let service: IdentityService;
+  let mailer: MemoryEmailSender;
+  let app: FastifyInstance;
+
+  beforeAll(async () => {
+    ({ db, client } = await freshDrizzle());
+    mailer = new MemoryEmailSender();
+    service = new IdentityService(db, new PgRateLimiter(db), mailer);
+
+    app = Fastify();
+    app.decorateRequest('viewer', null);
+    app.addHook('onRequest', async (req) => {
+      const header = req.headers.authorization;
+      if (header?.startsWith('Bearer ')) {
+        req.viewer = await service.lookup(header.slice(7).trim());
+      }
+    });
+    app.setErrorHandler((err, _req, reply) => {
+      if (err instanceof ApiError) {
+        return reply.status(err.status).send({
+          error: { code: err.code, message: err.message, field: err.field },
+        });
+      }
+      if ((err as any).validation) {
+        const v = (err as any).validation[0];
+        const field = v?.params?.missingProperty || v?.instancePath?.replace(/^\//, '') || undefined;
+        return reply.status(422).send({
+          error: {
+            code: 'invalid_field',
+            message: (err as Error).message,
+            ...(field ? { field } : {}),
+          },
+        });
+      }
+      return reply.status(500).send({ error: { code: 'internal', message: 'Internal error' } });
+    });
+    await app.register(identityRoutes(service), { prefix: '/v1' });
+    await app.ready();
+  }, 60_000);
+
+  afterAll(async () => {
+    await app?.close();
+    await client?.close();
+  });
+
+  beforeEach(async () => {
+    await client.exec(
+      'TRUNCATE users, profiles, refresh_tokens, email_verification_tokens, password_reset_tokens, rate_limits RESTART IDENTITY CASCADE',
+    );
+    mailer.clear();
+  });
+
+  it('registration dispatches verification email with a usable token', async () => {
+    const reg = await service.register('grace@example.com', 'grace_reads', 'goodpassword123', '1995-04-12');
+    expect(mailer.sentMessages).toHaveLength(1);
+    const sent = mailer.sentMessages[0]!;
+    expect(sent.to).toBe('grace@example.com');
+    expect(sent.subject).toContain('Verify your email');
+
+    // Extract the raw token from the email body
+    const match = sent.text.match(/token=([a-zA-Z0-9_-]+)/);
+    expect(match).not.toBeNull();
+    const rawToken = match![1]!;
+
+    const verifyRes = await service.verifyEmail(rawToken);
+    expect(verifyRes.status).toBe('ok');
+
+    // Token is single-use: replay must fail
+    await expect(service.verifyEmail(rawToken)).rejects.toThrowError(
+      expect.objectContaining({ status: 400, code: 'invalid_or_expired_token' }),
+    );
+  });
+
+  it('verifyEmail rejects forged or non-existent tokens', async () => {
+    await expect(service.verifyEmail('nonexistent-raw-token')).rejects.toThrowError(
+      expect.objectContaining({ status: 400, code: 'invalid_or_expired_token' }),
+    );
+  });
+
+  it('resendVerification dispatches fresh token and enforces 60s cooldown (PRD §6.6)', async () => {
+    const reg = await service.register('heidi@example.com', 'heidi_reads', 'goodpassword123', '1996-08-20');
+    mailer.clear();
+
+    const resendRes = await service.resendVerification(reg.user.id);
+    expect(resendRes.status).toBe('ok');
+    expect(mailer.sentMessages).toHaveLength(1);
+
+    // Immediate second call triggers 429 rate limit
+    await expect(service.resendVerification(reg.user.id)).rejects.toThrowError(
+      expect.objectContaining({ status: 429, code: 'rate_limited' }),
+    );
+  });
+
+  it('resendVerification is a no-op if user is already verified', async () => {
+    const reg = await service.register('ian@example.com', 'ian_reads', 'goodpassword123', '1994-02-14');
+    const match = mailer.sentMessages[0]?.text.match(/token=([a-zA-Z0-9_-]+)/);
+    expect(match).not.toBeNull();
+    await service.verifyEmail(match![1]!);
+    mailer.clear();
+
+    // Clear rate limits table for test
+    await client.exec('TRUNCATE rate_limits');
+
+    const resendRes = await service.resendVerification(reg.user.id);
+    expect(resendRes.status).toBe('ok');
+    expect(resendRes.message).toBe('Email is already verified.');
+    expect(mailer.sentMessages).toHaveLength(0);
+  });
+
+  it('forgotPassword always returns generic 200 without leaking email presence (PRD §6.5)', async () => {
+    // Non-existent email
+    const res1 = await service.forgotPassword('nonexistent@example.com');
+    expect(res1.status).toBe('ok');
+    expect(res1.message).toContain('If that email exists');
+    expect(mailer.sentMessages).toHaveLength(0);
+
+    // Existing email
+    await service.register('julia@example.com', 'julia_reads', 'goodpassword123', '1993-11-05');
+    mailer.clear();
+
+    const res2 = await service.forgotPassword('julia@example.com');
+    expect(res2.status).toBe('ok');
+    expect(res2.message).toBe(res1.message); // IDENTICAL message
+    expect(mailer.sentMessages).toHaveLength(1);
+    expect(mailer.sentMessages[0]?.to).toBe('julia@example.com');
+    expect(mailer.sentMessages[0]?.subject).toContain('Reset your Flyleaf password');
+  });
+
+  it('resetPassword changes password, burns reset token, and revokes all active refresh families (PRD §6.5 & Architecture §7)', async () => {
+    const reg = await service.register('kyle@example.com', 'kyle_reads', 'oldpassword10', '1991-07-22');
+    const initialRefresh = reg.refreshToken;
+    mailer.clear();
+
+    await service.forgotPassword('kyle@example.com');
+    expect(mailer.sentMessages).toHaveLength(1);
+    const match = mailer.sentMessages[0]?.text.match(/token=([a-zA-Z0-9_-]+)/);
+    expect(match).not.toBeNull();
+    const resetToken = match![1]!;
+
+    // Reset password with a fresh valid password
+    const resetRes = await service.resetPassword(resetToken, 'brandnewpassword123');
+    expect(resetRes.status).toBe('ok');
+
+    // 1. Old password login must fail
+    await expect(service.login('kyle@example.com', 'oldpassword10')).rejects.toThrowError(
+      expect.objectContaining({ status: 401, code: 'invalid_credentials' }),
+    );
+
+    // 2. New password login must succeed
+    const newLogin = await service.login('kyle@example.com', 'brandnewpassword123');
+    expect(newLogin.accessToken).toBeDefined();
+
+    // 3. Old refresh token family is REVOKED
+    await expect(service.refresh(initialRefresh)).rejects.toThrowError(
+      expect.objectContaining({ status: 401, code: 'invalid_refresh_token' }),
+    );
+
+    // 4. Reset token cannot be reused
+    await expect(service.resetPassword(resetToken, 'anotherpassword123')).rejects.toThrowError(
+      expect.objectContaining({ status: 400, code: 'invalid_or_expired_token' }),
+    );
+  });
+
+  it('HTTP endpoints verify full request/response cycle and input validation', async () => {
+    // 1. Register via HTTP
+    const regRes = await app.inject({
+      method: 'POST',
+      url: '/v1/auth/register',
+      payload: {
+        email: 'leo@example.com',
+        username: 'leo_reader',
+        password: 'securepassword123',
+        dateOfBirth: '1990-01-01',
+      },
+    });
+    expect(regRes.statusCode).toBe(201);
+    const { accessToken } = JSON.parse(regRes.payload);
+
+    const emailMatch = mailer.sentMessages[0]?.text.match(/token=([a-zA-Z0-9_-]+)/);
+    expect(emailMatch).not.toBeNull();
+    const verifyToken = emailMatch![1]!;
+
+    // 2. Verify email via HTTP
+    const verifyRes = await app.inject({
+      method: 'POST',
+      url: '/v1/auth/verify-email',
+      payload: { token: verifyToken },
+    });
+    expect(verifyRes.statusCode).toBe(200);
+
+    // 3. Resend verification via HTTP (with Bearer auth)
+    const resendRes = await app.inject({
+      method: 'POST',
+      url: '/v1/auth/resend-verification',
+      headers: { authorization: `Bearer ${accessToken}` },
+    });
+    expect(resendRes.statusCode).toBe(200);
+    expect(JSON.parse(resendRes.payload).message).toBe('Email is already verified.');
+
+    // 4. Forgot password via HTTP
+    const forgotRes = await app.inject({
+      method: 'POST',
+      url: '/v1/auth/forgot-password',
+      payload: { email: 'leo@example.com' },
+    });
+    expect(forgotRes.statusCode).toBe(200);
+
+    const resetMatch = mailer.lastMessage()?.text.match(/token=([a-zA-Z0-9_-]+)/);
+    expect(resetMatch).not.toBeNull();
+    const resetToken = resetMatch![1]!;
+
+    // 5. Reset password with weak password fails (422)
+    const weakResetRes = await app.inject({
+      method: 'POST',
+      url: '/v1/auth/reset-password',
+      payload: { token: resetToken, newPassword: 'short' },
+    });
+    expect(weakResetRes.statusCode).toBe(422);
+
+    // 6. Reset password with common password fails (422)
+    const commonResetRes = await app.inject({
+      method: 'POST',
+      url: '/v1/auth/reset-password',
+      payload: { token: resetToken, newPassword: 'password1234' },
+    });
+    expect(commonResetRes.statusCode).toBe(422);
+
+    // 7. Reset password with valid password succeeds (200)
+    const validResetRes = await app.inject({
+      method: 'POST',
+      url: '/v1/auth/reset-password',
+      payload: { token: resetToken, newPassword: 'brandnewpassword123' },
+    });
+    expect(validResetRes.statusCode).toBe(200);
   });
 });

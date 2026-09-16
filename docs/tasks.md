@@ -151,7 +151,12 @@
   - 15-minute HS256 JWT evaluated statelessly by Fastify's `onRequest` hook. 256-bit cryptographically secure opaque refresh tokens stored as SHA-256 hashes with 60-day expiry.
 - [x] **FN-64** ⚠️ **Reuse detection: used token → revoke whole family** — 0.5d
   - Presenting an already-consumed refresh token immediately revokes all tokens matching its `family_id` and rejects with 403 `token_reused`. All 35 identity tests pass in 2.8s.
-- [ ] **FN-65** Email verification + password reset behind a sender interface — 1d
+- [x] **FN-65** Email verification + password reset behind a sender interface — 1d
+  - Defined swap-ready `EmailSender` interface, `ConsoleEmailSender`, and `MemoryEmailSender` in `platform/mail.ts`.
+  - Added `email_verification_tokens` and `password_reset_tokens` tables (SHA-256 hashed, short-lived, single-use) with migration `0007_auth_tokens.sql` applied to live PostgreSQL.
+  - Implemented `POST /v1/auth/verify-email` (burns token, marks `users.email_verified_at`), `POST /v1/auth/resend-verification` (authenticated `Bearer`, 1/60s rate limit, no-op when verified), `POST /v1/auth/forgot-password` (unauthenticated, always 200 without email enumeration), and `POST /v1/auth/reset-password` (argon2id update, burns token, **revokes all active refresh token families** for user).
+  - Registration automatically dispatches a 24-hour verification token.
+  - Updated Fastify route schemas, regenerated `openapi.yaml` with 0 drift, and added typed methods to `@flyleaf/api-client`. 42 tests in `identity.test.ts`, 289 tests passing across full suite in CI.
 - [ ] FN-66 Session list + per-device revoke — 0.5d
 
 ### Authorization — `FN-7x` · 3d

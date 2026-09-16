@@ -122,6 +122,47 @@ export const logoutResponseSchema = {
   required: ['status'],
 } as const;
 
+export const standardStatusResponseSchema = {
+  type: 'object',
+  properties: {
+    status: { type: 'string', enum: ['ok'] },
+    message: { type: 'string' },
+  },
+  required: ['status', 'message'],
+} as const;
+
+export const verifyEmailBodySchema = {
+  type: 'object',
+  properties: {
+    token: { type: 'string', minLength: 1, description: 'Email verification token' },
+  },
+  required: ['token'],
+} as const;
+
+export const verifyEmailResponseSchema = standardStatusResponseSchema;
+export const resendVerificationResponseSchema = standardStatusResponseSchema;
+
+export const forgotPasswordBodySchema = {
+  type: 'object',
+  properties: {
+    email: { type: 'string', format: 'email', description: 'Account email address' },
+  },
+  required: ['email'],
+} as const;
+
+export const forgotPasswordResponseSchema = standardStatusResponseSchema;
+
+export const resetPasswordBodySchema = {
+  type: 'object',
+  properties: {
+    token: { type: 'string', minLength: 1, description: 'Password reset token' },
+    newPassword: { type: 'string', minLength: 10, description: 'New password (minimum 10 characters)' },
+  },
+  required: ['token', 'newPassword'],
+} as const;
+
+export const resetPasswordResponseSchema = standardStatusResponseSchema;
+
 // ---------------------------------------------------------------- catalog
 
 export const editionSchema = {

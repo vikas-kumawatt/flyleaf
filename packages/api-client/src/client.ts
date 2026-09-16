@@ -3,6 +3,7 @@
 import type {
   ApiErrorResponse,
   AuthResponse,
+  ForgotPasswordRequest,
   LoginRequest,
   Profile,
   ProgressEventRequest,
@@ -12,9 +13,12 @@ import type {
   RefreshRequest,
   RefreshResponse,
   RegisterRequest,
+  ResetPasswordRequest,
   SearchResponse,
+  StandardResponse,
   UpsertReadRequest,
   User,
+  VerifyEmailRequest,
   Work,
 } from './types.js';
 
@@ -110,6 +114,33 @@ export class FlyleafClient {
 
   async logout(data: RefreshRequest): Promise<{ status: string }> {
     return this.request<{ status: string }>('/auth/logout', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async verifyEmail(data: VerifyEmailRequest): Promise<StandardResponse> {
+    return this.request<StandardResponse>('/auth/verify-email', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async resendVerification(): Promise<StandardResponse> {
+    return this.request<StandardResponse>('/auth/resend-verification', {
+      method: 'POST',
+    });
+  }
+
+  async forgotPassword(data: ForgotPasswordRequest): Promise<StandardResponse> {
+    return this.request<StandardResponse>('/auth/forgot-password', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async resetPassword(data: ResetPasswordRequest): Promise<StandardResponse> {
+    return this.request<StandardResponse>('/auth/reset-password', {
       method: 'POST',
       body: JSON.stringify(data),
     });

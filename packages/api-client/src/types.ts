@@ -58,6 +58,24 @@ export interface RefreshResponse {
   refreshToken: string;
 }
 
+export interface StandardResponse {
+  status: 'ok';
+  message: string;
+}
+
+export interface VerifyEmailRequest {
+  token: string;
+}
+
+export interface ForgotPasswordRequest {
+  email: string;
+}
+
+export interface ResetPasswordRequest {
+  token: string;
+  newPassword: string;
+}
+
 // ---------------------------------------------------------------- Catalog
 
 export interface Edition {

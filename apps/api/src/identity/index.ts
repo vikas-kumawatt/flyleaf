@@ -11,8 +11,8 @@ import * as jose from 'jose';
 import { z } from 'zod';
 import type { FastifyInstance } from 'fastify';
 
-import { config, type Db, type RateLimiter } from '../platform/index.js';
-import { users, profiles, refreshTokens } from '../db/schema.js';
+import { config, type Db, type RateLimiter, type EmailSender, ConsoleEmailSender } from '../platform/index.js';
+import { users, profiles, refreshTokens, emailVerificationTokens, passwordResetTokens } from '../db/schema.js';
 import { ApiError, requireViewer } from '../http.js';
 import { isCommonPassword } from './common-passwords.js';
 import { canView } from '../authorization/index.js';
@@ -74,6 +74,19 @@ const refreshBody = z.object({
   refreshToken: z.string().min(1, 'Refresh token is required.'),
 });
 
+const verifyEmailBody = z.object({
+  token: z.string().min(1, 'Token is required.'),
+});
+
+const forgotPasswordBody = z.object({
+  email: z.string().email('That does not look like an email address.'),
+});
+
+const resetPasswordBody = z.object({
+  token: z.string().min(1, 'Token is required.'),
+  newPassword: passwordSchema,
+});
+
 // ---------------------------------------------------------------- JWT
 
 const jwtKey = new TextEncoder().encode(config.jwtSecret);
@@ -128,7 +141,11 @@ export function uniqueViolationField(err: unknown): 'email' | 'username' | 'othe
 export type User = { id: string; email: string; username: string };
 
 export class IdentityService {
-  constructor(private db: Db, private limiter: RateLimiter) {}
+  constructor(
+    private db: Db,
+    private limiter: RateLimiter,
+    private mailer: EmailSender = new ConsoleEmailSender(),
+  ) {}
 
   async register(email: string, username: string, password: string, dateOfBirth: string) {
     const passwordHash = await argonHash(password);
@@ -185,6 +202,8 @@ export class IdentityService {
     }
 
     const accessToken = await signAccessToken(userRow.id);
+    await this.sendVerificationEmail(userRow.id, userRow.email);
+
     return {
       user: { id: userRow.id, email: userRow.email, username: profileRow.username } as User,
       accessToken,
@@ -361,6 +380,168 @@ export class IdentityService {
 
     return row;
   }
+
+  async sendVerificationEmail(userId: string, email: string): Promise<void> {
+    const rawToken = randomBytes(32).toString('base64url');
+    const tokenHash = createHash('sha256').update(rawToken).digest('hex');
+    const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000); // 24 hours
+
+    await this.db.transaction(async (tx) => {
+      await tx
+        .update(emailVerificationTokens)
+        .set({ usedAt: new Date() })
+        .where(eq(emailVerificationTokens.userId, userId));
+
+      await tx.insert(emailVerificationTokens).values({
+        userId,
+        tokenHash,
+        expiresAt,
+      });
+    });
+
+    await this.mailer.send({
+      to: email,
+      subject: 'Verify your email for Flyleaf',
+      text: `Welcome to Flyleaf! Please verify your email using this token:\n${rawToken}\n\nOr click: https://flyleaf.app/verify-email?token=${rawToken}\n\nThis token expires in 24 hours.`,
+    });
+  }
+
+  async verifyEmail(rawToken: string): Promise<{ status: 'ok'; message: string }> {
+    const tokenHash = createHash('sha256').update(rawToken).digest('hex');
+    const [row] = await this.db
+      .select({
+        id: emailVerificationTokens.id,
+        userId: emailVerificationTokens.userId,
+        expiresAt: emailVerificationTokens.expiresAt,
+        usedAt: emailVerificationTokens.usedAt,
+      })
+      .from(emailVerificationTokens)
+      .where(eq(emailVerificationTokens.tokenHash, tokenHash))
+      .limit(1);
+
+    if (!row || row.usedAt !== null || row.expiresAt < new Date()) {
+      throw new ApiError(400, 'invalid_or_expired_token', 'Verification link is invalid or has expired.');
+    }
+
+    await this.db.transaction(async (tx) => {
+      await tx
+        .update(emailVerificationTokens)
+        .set({ usedAt: new Date() })
+        .where(eq(emailVerificationTokens.id, row.id));
+
+      await tx
+        .update(users)
+        .set({ emailVerifiedAt: new Date() })
+        .where(eq(users.id, row.userId));
+    });
+
+    return { status: 'ok', message: 'Email verified successfully.' };
+  }
+
+  async resendVerification(userId: string): Promise<{ status: 'ok'; message: string }> {
+    const allowed = await this.limiter.allow(`resend_verification:${userId}`, 1, 60);
+    if (!allowed) {
+      throw ApiError.rateLimited('Please wait a minute before requesting another verification email.');
+    }
+
+    const [user] = await this.db
+      .select({ id: users.id, email: users.email, emailVerifiedAt: users.emailVerifiedAt })
+      .from(users)
+      .where(eq(users.id, userId))
+      .limit(1);
+
+    if (!user) throw ApiError.notFound('User not found.');
+
+    if (user.emailVerifiedAt !== null) {
+      return { status: 'ok', message: 'Email is already verified.' };
+    }
+
+    await this.sendVerificationEmail(user.id, user.email);
+    return { status: 'ok', message: 'Verification email sent.' };
+  }
+
+  async forgotPassword(email: string): Promise<{ status: 'ok'; message: string }> {
+    const normalized = email.trim().toLowerCase();
+    const allowed = await this.limiter.allow(`forgot_pwd:${normalized}`, 5, 900);
+    if (!allowed) {
+      throw ApiError.rateLimited('Too many password reset requests. Please try again later.');
+    }
+
+    const [user] = await this.db
+      .select({ id: users.id, email: users.email })
+      .from(users)
+      .where(eq(users.email, normalized))
+      .limit(1);
+
+    if (user) {
+      const rawToken = randomBytes(32).toString('base64url');
+      const tokenHash = createHash('sha256').update(rawToken).digest('hex');
+      const expiresAt = new Date(Date.now() + 60 * 60 * 1000); // 60 minutes (PRD §6.5)
+
+      await this.db.transaction(async (tx) => {
+        await tx
+          .update(passwordResetTokens)
+          .set({ usedAt: new Date() })
+          .where(eq(passwordResetTokens.userId, user.id));
+
+        await tx.insert(passwordResetTokens).values({
+          userId: user.id,
+          tokenHash,
+          expiresAt,
+        });
+      });
+
+      await this.mailer.send({
+        to: user.email,
+        subject: 'Reset your Flyleaf password',
+        text: `You requested a password reset for your Flyleaf account.\nUse this token to reset your password:\n${rawToken}\n\nOr click: https://flyleaf.app/reset-password?token=${rawToken}\n\nThis link is single-use and expires in 60 minutes.\nIf you did not request this, you can safely ignore this email.`,
+      });
+    }
+
+    return {
+      status: 'ok',
+      message: "If that email exists in our system, we've sent a password reset link.",
+    };
+  }
+
+  async resetPassword(rawToken: string, newPassword: string): Promise<{ status: 'ok'; message: string }> {
+    const tokenHash = createHash('sha256').update(rawToken).digest('hex');
+    const [row] = await this.db
+      .select({
+        id: passwordResetTokens.id,
+        userId: passwordResetTokens.userId,
+        expiresAt: passwordResetTokens.expiresAt,
+        usedAt: passwordResetTokens.usedAt,
+      })
+      .from(passwordResetTokens)
+      .where(eq(passwordResetTokens.tokenHash, tokenHash))
+      .limit(1);
+
+    if (!row || row.usedAt !== null || row.expiresAt < new Date()) {
+      throw new ApiError(400, 'invalid_or_expired_token', 'Password reset link is invalid or has expired.');
+    }
+
+    const passwordHash = await argonHash(newPassword);
+
+    await this.db.transaction(async (tx) => {
+      await tx
+        .update(passwordResetTokens)
+        .set({ usedAt: new Date() })
+        .where(eq(passwordResetTokens.id, row.id));
+
+      await tx
+        .update(users)
+        .set({ passwordHash })
+        .where(eq(users.id, row.userId));
+
+      await tx
+        .update(refreshTokens)
+        .set({ revokedAt: new Date() })
+        .where(eq(refreshTokens.userId, row.userId));
+    });
+
+    return { status: 'ok', message: 'Password has been reset successfully.' };
+  }
 }
 
 import {
@@ -371,6 +552,13 @@ import {
   refreshBodySchema,
   refreshResponseSchema,
   logoutResponseSchema,
+  verifyEmailBodySchema,
+  verifyEmailResponseSchema,
+  resendVerificationResponseSchema,
+  forgotPasswordBodySchema,
+  forgotPasswordResponseSchema,
+  resetPasswordBodySchema,
+  resetPasswordResponseSchema,
   userSchema,
   profileSchema,
   idParamSchema,
@@ -472,6 +660,105 @@ export function identityRoutes(service: IdentityService) {
         const parsed = refreshBody.safeParse(req.body);
         if (!parsed.success) return { status: 'ok' };
         return service.logout(parsed.data.refreshToken);
+      },
+    );
+
+    app.post(
+      '/auth/verify-email',
+      {
+        schema: {
+          tags: ['Auth'],
+          summary: 'Verify email',
+          description: 'Verifies email ownership using single-use verification token (PRD §6.6).',
+          body: verifyEmailBodySchema,
+          response: {
+            200: verifyEmailResponseSchema,
+            400: errorResponseSchema,
+            422: errorResponseSchema,
+          },
+        },
+      },
+      async (req) => {
+        const parsed = verifyEmailBody.safeParse(req.body);
+        if (!parsed.success) {
+          throw ApiError.unprocessable('invalid_field', 'Verification token is required.', 'token');
+        }
+        return service.verifyEmail(parsed.data.token);
+      },
+    );
+
+    app.post(
+      '/auth/resend-verification',
+      {
+        schema: {
+          tags: ['Auth'],
+          summary: 'Resend email verification',
+          description: 'Resends verification email with 60s rate limit (PRD §6.6, §24.2).',
+          security: [{ BearerAuth: [] }],
+          response: {
+            200: resendVerificationResponseSchema,
+            401: errorResponseSchema,
+            429: errorResponseSchema,
+          },
+        },
+      },
+      async (req) => {
+        const viewer = requireViewer(req);
+        return service.resendVerification(viewer);
+      },
+    );
+
+    app.post(
+      '/auth/forgot-password',
+      {
+        schema: {
+          tags: ['Auth'],
+          summary: 'Forgot password',
+          description: 'Requests password reset link. Always returns 200 to prevent user enumeration (PRD §6.5, §24.2).',
+          body: forgotPasswordBodySchema,
+          response: {
+            200: forgotPasswordResponseSchema,
+            422: errorResponseSchema,
+            429: errorResponseSchema,
+          },
+        },
+      },
+      async (req) => {
+        const parsed = forgotPasswordBody.safeParse(req.body);
+        if (!parsed.success) {
+          const issue = parsed.error.issues[0];
+          throw ApiError.unprocessable('invalid_field', issue?.message ?? 'Valid email is required.', 'email');
+        }
+        return service.forgotPassword(parsed.data.email);
+      },
+    );
+
+    app.post(
+      '/auth/reset-password',
+      {
+        schema: {
+          tags: ['Auth'],
+          summary: 'Reset password',
+          description: 'Resets password and revokes all active refresh token families (PRD §6.5, Architecture §7).',
+          body: resetPasswordBodySchema,
+          response: {
+            200: resetPasswordResponseSchema,
+            400: errorResponseSchema,
+            422: errorResponseSchema,
+          },
+        },
+      },
+      async (req) => {
+        const parsed = resetPasswordBody.safeParse(req.body);
+        if (!parsed.success) {
+          const issue = parsed.error.issues[0];
+          throw ApiError.unprocessable(
+            'invalid_field',
+            issue?.message ?? 'Check that.',
+            String(issue?.path[0] ?? ''),
+          );
+        }
+        return service.resetPassword(parsed.data.token, parsed.data.newPassword);
       },
     );
 
