@@ -112,7 +112,12 @@
 > ⚠️ **An unordered `LIMIT` is a silent quality bug.** The `by_author` arm took an arbitrary 300 rows with no `ORDER BY`, so it discarded the best results while looking perfectly correct. Every arm now orders by `log_count` before truncating.
 
 > **Settings that must be set on the DATABASE, not the session.** `pg_trgm.similarity_threshold` via `ALTER DATABASE`, because a plain `SET` lands on one pooled connection out of ten. It reaches NEW connections only, so the API needs a restart — and the test harness sets it explicitly, or tests would quietly run at 0.3 while production runs at 0.45.
-- [ ] **FN-42** ISBN detection → exact edition path — 0.5d
+- [x] **FN-42** ISBN detection → exact edition path — 0.5d
+  - Added `apps/api/src/catalog/isbn.ts`: `cleanIsbn`, `isValidIsbn10` (mod-11), `isValidIsbn13` (mod-10), `isbn10ToIsbn13`, `isbn13ToIsbn10`, and `detectIsbn` with bidirectional 10↔13 checksum cross-conversion.
+  - Added exact edition resolver `CatalogService.getEditionByIsbn(viewer, isbn)` and updated `search(q, limit)` to prioritize exact ISBN matches as result #1 (PRD §1013, §14.2).
+  - Added `GET /v1/editions/isbn/:isbn` endpoint (guest-readable barcode scan path, PRD §3374) with `editionLookupResponseSchema` and `isbnParamSchema`.
+  - Regenerated `openapi.yaml` with 0 drift and added typed `getEditionByIsbn` to `@flyleaf/api-client`.
+  - 18 tests in `apps/api/src/test/isbn.test.ts`; 217-query relevance panel holds 99.5% (216/217); full CI suite green (313 tests across 11 test suites).
 - [x] **FN-43** ⚠️ **217-query relevance panel**, hard cases included, runs in CI — 1d
       Hard cases, all confirmed against the real catalog and now all asserted individually:
       `murakami` (author is 村上春樹), `piranesi` (novel vs. the architect),

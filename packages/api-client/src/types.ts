@@ -97,6 +97,24 @@ export interface Edition {
   cover_id: number | null;
 }
 
+export interface EditionDetail {
+  id: string;
+  work_id: string;
+  isbn13: string | null;
+  isbn10: string | null;
+  title: string | null;
+  publisher: string | null;
+  publish_year: number | null;
+  page_count: number | null;
+  format: string;
+  cover_id: number | null;
+}
+
+export interface EditionLookupResponse {
+  work: Work;
+  edition: EditionDetail;
+}
+
 export interface YourRead {
   id: string;
   status: string;

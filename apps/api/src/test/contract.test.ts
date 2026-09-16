@@ -71,6 +71,7 @@ describe('API Contract — openapi.yaml (FN-80)', () => {
     expect(paths).toContain('/users/{id}');
     expect(paths).toContain('/search');
     expect(paths).toContain('/works/{id}');
+    expect(paths).toContain('/editions/isbn/{isbn}');
     expect(paths).toContain('/reads');
     expect(paths).toContain('/reads/{id}');
     expect(paths).toContain('/users/{id}/reads');

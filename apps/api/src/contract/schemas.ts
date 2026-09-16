@@ -198,6 +198,23 @@ export const editionSchema = {
   required: ['id', 'format'],
 } as const;
 
+export const editionDetailSchema = {
+  type: 'object',
+  properties: {
+    id: { type: 'string', format: 'uuid' },
+    work_id: { type: 'string', format: 'uuid' },
+    isbn13: { type: ['string', 'null'] },
+    isbn10: { type: ['string', 'null'] },
+    title: { type: ['string', 'null'] },
+    publisher: { type: ['string', 'null'] },
+    publish_year: { type: ['integer', 'null'] },
+    page_count: { type: ['integer', 'null'] },
+    format: { type: 'string' },
+    cover_id: { type: ['integer', 'null'] },
+  },
+  required: ['id', 'work_id', 'format'],
+} as const;
+
 export const yourReadSchema = {
   type: 'object',
   properties: {
@@ -240,6 +257,23 @@ export const searchResponseSchema = {
     data: { type: 'array', items: workSchema },
   },
   required: ['data'],
+} as const;
+
+export const editionLookupResponseSchema = {
+  type: 'object',
+  properties: {
+    work: workSchema,
+    edition: editionDetailSchema,
+  },
+  required: ['work', 'edition'],
+} as const;
+
+export const isbnParamSchema = {
+  type: 'object',
+  properties: {
+    isbn: { type: 'string', minLength: 9, description: 'ISBN-10 or ISBN-13 barcode/string' },
+  },
+  required: ['isbn'],
 } as const;
 
 // ---------------------------------------------------------------- reading

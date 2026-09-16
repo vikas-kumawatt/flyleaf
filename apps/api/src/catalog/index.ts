@@ -14,6 +14,7 @@ import type { Cache, Db } from '../platform/index.js';
 import type { GapFillService } from './gapfill.js';
 import { editions, reads, progressEvents } from '../db/schema.js';
 import { ApiError } from '../http.js';
+import { detectIsbn, type DetectedIsbn } from './isbn.js';
 
 export type Edition = {
   id: string;
@@ -21,6 +22,24 @@ export type Edition = {
   page_count: number | null;
   format: string;
   cover_id: number | null;
+};
+
+export type EditionDetail = {
+  id: string;
+  work_id: string;
+  isbn13: string | null;
+  isbn10: string | null;
+  title: string | null;
+  publisher: string | null;
+  publish_year: number | null;
+  page_count: number | null;
+  format: string;
+  cover_id: number | null;
+};
+
+export type EditionLookupResult = {
+  work: Work;
+  edition: EditionDetail;
 };
 
 export type YourRead = {
@@ -219,20 +238,89 @@ export class CatalogService {
     private gapFill?: GapFillService,
   ) {}
 
+  /**
+   * Looks up the work corresponding to an exact ISBN match (FN-42, PRD §14.2).
+   */
+  async #findWorkByIsbn(isbn: DetectedIsbn): Promise<SearchRow | null> {
+    const candidates = [isbn.isbn13, isbn.isbn10].filter((v): v is string => Boolean(v));
+    if (candidates.length === 0) return null;
+
+    const [row] = await this.db.execute<{
+      id: string;
+      title: string;
+      first_publish_year: number | null;
+      log_count: number;
+      author_name: string | null;
+      cover_id: number | null;
+    }>(sql`
+      SELECT
+        w.id, w.title, w.first_publish_year, w.log_count,
+        (SELECT a.name
+           FROM work_authors wa JOIN authors a ON a.id = wa.author_id
+          WHERE wa.work_id = w.id
+          ORDER BY wa.position, a.name
+          LIMIT 1) AS author_name,
+        COALESCE(e.ol_cover_id, w.ol_cover_id) AS cover_id
+      FROM editions e
+      JOIN works w ON w.id = e.work_id
+      WHERE (e.isbn_13 IN ${candidates} OR e.isbn_10 IN ${candidates})
+        AND w.merged_into_id IS NULL
+        AND w.is_provisional = false
+      ORDER BY w.log_count DESC, e.publish_year DESC NULLS LAST
+      LIMIT 1
+    `);
+
+    if (!row) return null;
+
+    return {
+      id: row.id,
+      title: row.title,
+      first_publish_year: row.first_publish_year,
+      log_count: Number(row.log_count),
+      author_name: row.author_name,
+      cover_id: row.cover_id,
+    };
+  }
+
   /** See SEARCH_SQL above for how matching and ranking work. */
   async search(q: string, limit = 20): Promise<Work[]> {
     const query = q.trim();
     if (query.length < 2) return [];
 
-    let rows = await this.#localSearch(query, limit);
+    const isbn = detectIsbn(query);
+    let isbnMatch: SearchRow | null = null;
+    if (isbn) {
+      isbnMatch = await this.#findWorkByIsbn(isbn);
+    }
 
-    // Layer 2 of the catalog accelerator. Bounded by the outbound client's
-    // 2.5s timeout and skipped entirely when the circuit is open or the
-    // shared rate limiter has no token, so a slow or unwell Open Library
-    // costs a few milliseconds rather than the request.
-    if (rows.length < GAP_FILL_THRESHOLD && this.gapFill && query.length >= 3) {
-      const stored = await this.gapFill.fill(query);
-      if (stored > 0) rows = await this.#localSearch(query, limit);
+    let rows: SearchRow[] = [];
+    if (isbnMatch) {
+      // PRD §1013: ISBN pasted -> exact edition match first.
+      const otherRows = await this.#localSearch(query, limit - 1);
+      rows = [isbnMatch, ...otherRows.filter((r) => r.id !== isbnMatch!.id)];
+    } else {
+      rows = await this.#localSearch(query, limit);
+
+      // Layer 2 of the catalog accelerator. Bounded by the outbound client's
+      // 2.5s timeout and skipped entirely when the circuit is open or the
+      // shared rate limiter has no token, so a slow or unwell Open Library
+      // costs a few milliseconds rather than the request.
+      if (rows.length < GAP_FILL_THRESHOLD && this.gapFill && query.length >= 3) {
+        const stored = await this.gapFill.fill(query);
+        if (stored > 0) {
+          if (isbn) {
+            isbnMatch = await this.#findWorkByIsbn(isbn);
+            if (isbnMatch) {
+              const otherRows = await this.#localSearch(query, limit - 1);
+              rows = [isbnMatch, ...otherRows.filter((r) => r.id !== isbnMatch!.id)];
+            } else {
+              rows = await this.#localSearch(query, limit);
+            }
+          } else {
+            rows = await this.#localSearch(query, limit);
+          }
+        }
+      }
     }
 
     return rows.map((r) => ({
@@ -355,6 +443,64 @@ export class CatalogService {
       },
     };
   }
+
+  /**
+   * Resolves an edition and its parent work by ISBN-10 or ISBN-13 (FN-42, PRD §14.2, §3374).
+   * Used for barcode scanning and exact ISBN resolution.
+   */
+  async getEditionByIsbn(viewer: string | null, rawIsbn: string): Promise<EditionLookupResult | null> {
+    const detected = detectIsbn(rawIsbn);
+    if (!detected) {
+      throw ApiError.unprocessable('invalid_field', 'Invalid ISBN format or checksum.', 'isbn');
+    }
+
+    const candidates = [detected.isbn13, detected.isbn10].filter((v): v is string => Boolean(v));
+
+    const [e] = await this.db.execute<{
+      id: string;
+      work_id: string;
+      isbn_13: string | null;
+      isbn_10: string | null;
+      title: string | null;
+      publisher: string | null;
+      publish_year: number | null;
+      page_count: number | null;
+      format: string;
+      ol_cover_id: number | null;
+    }>(sql`
+      SELECT
+        e.id, e.work_id, e.isbn_13, e.isbn_10, e.title,
+        e.publisher, e.publish_year, e.page_count, e.format, e.ol_cover_id
+      FROM editions e
+      JOIN works w ON w.id = e.work_id
+      WHERE (e.isbn_13 IN ${candidates} OR e.isbn_10 IN ${candidates})
+        AND w.merged_into_id IS NULL
+        AND w.is_provisional = false
+      ORDER BY e.publish_year DESC NULLS LAST
+      LIMIT 1
+    `);
+
+    if (!e) return null;
+
+    const work = await this.getWork(viewer, e.work_id);
+    if (!work) return null;
+
+    return {
+      work,
+      edition: {
+        id: e.id,
+        work_id: e.work_id,
+        isbn13: e.isbn_13,
+        isbn10: e.isbn_10,
+        title: e.title,
+        publisher: e.publisher,
+        publish_year: e.publish_year,
+        page_count: e.page_count,
+        format: e.format,
+        cover_id: e.ol_cover_id,
+      },
+    };
+  }
 }
 
 import {
@@ -362,6 +508,8 @@ import {
   searchResponseSchema,
   idParamSchema,
   workSchema,
+  editionLookupResponseSchema,
+  isbnParamSchema,
   errorResponseSchema,
 } from '../contract/schemas.js';
 
@@ -407,6 +555,28 @@ export function catalogRoutes(service: CatalogService) {
         const work = await service.getWork(req.viewer, req.params.id);
         if (!work) throw ApiError.notFound('No such book.');
         return work;
+      },
+    );
+
+    app.get<{ Params: { isbn: string } }>(
+      '/editions/isbn/:isbn',
+      {
+        schema: {
+          tags: ['Catalog'],
+          summary: 'Get edition by ISBN',
+          description: 'Resolves an edition and its parent work by ISBN-10 or ISBN-13 barcode (PRD §14.2, §3374).',
+          params: isbnParamSchema,
+          response: {
+            200: editionLookupResponseSchema,
+            404: errorResponseSchema,
+            422: errorResponseSchema,
+          },
+        },
+      },
+      async (req) => {
+        const result = await service.getEditionByIsbn(req.viewer, req.params.isbn);
+        if (!result) throw ApiError.notFound('No edition found for this ISBN.');
+        return result;
       },
     );
   };

@@ -1235,6 +1235,199 @@ paths:
                       - message
                 required:
                   - error
+  /editions/isbn/{isbn}:
+    get:
+      summary: Get edition by ISBN
+      tags:
+        - Catalog
+      description: Resolves an edition and its parent work by ISBN-10 or ISBN-13
+        barcode (PRD §14.2, §3374).
+      parameters:
+        - schema:
+            type: string
+            minLength: 9
+          in: path
+          name: isbn
+          required: true
+          description: ISBN-10 or ISBN-13 barcode/string
+      responses:
+        "200":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  work:
+                    type: object
+                    properties:
+                      id:
+                        type: string
+                        format: uuid
+                      title:
+                        type: string
+                      author_name:
+                        type: string
+                      first_publish_year:
+                        type:
+                          - "null"
+                          - integer
+                      cover_id:
+                        type:
+                          - "null"
+                          - integer
+                      log_count:
+                        type: integer
+                      editions:
+                        type: array
+                        items:
+                          type: object
+                          properties:
+                            id:
+                              type: string
+                              format: uuid
+                            isbn13:
+                              type:
+                                - "null"
+                                - string
+                            page_count:
+                              type:
+                                - "null"
+                                - integer
+                            format:
+                              type: string
+                            cover_id:
+                              type:
+                                - "null"
+                                - integer
+                          required:
+                            - id
+                            - format
+                      your_read:
+                        type: object
+                        properties:
+                          id:
+                            type: string
+                            format: uuid
+                          status:
+                            type: string
+                          rating:
+                            type:
+                              - "null"
+                              - number
+                          hearted:
+                            type: boolean
+                          page:
+                            type:
+                              - "null"
+                              - integer
+                          percent:
+                            type:
+                              - "null"
+                              - number
+                        required:
+                          - id
+                          - status
+                          - hearted
+                    required:
+                      - id
+                      - title
+                      - author_name
+                      - log_count
+                  edition:
+                    type: object
+                    properties:
+                      id:
+                        type: string
+                        format: uuid
+                      work_id:
+                        type: string
+                        format: uuid
+                      isbn13:
+                        type:
+                          - "null"
+                          - string
+                      isbn10:
+                        type:
+                          - "null"
+                          - string
+                      title:
+                        type:
+                          - "null"
+                          - string
+                      publisher:
+                        type:
+                          - "null"
+                          - string
+                      publish_year:
+                        type:
+                          - "null"
+                          - integer
+                      page_count:
+                        type:
+                          - "null"
+                          - integer
+                      format:
+                        type: string
+                      cover_id:
+                        type:
+                          - "null"
+                          - integer
+                    required:
+                      - id
+                      - work_id
+                      - format
+                required:
+                  - work
+                  - edition
+        "404":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      code:
+                        type: string
+                        description: Machine-readable error code
+                      message:
+                        type: string
+                        description: Human-readable error description
+                      field:
+                        type: string
+                        description: Invalid field name if applicable
+                    required:
+                      - code
+                      - message
+                required:
+                  - error
+        "422":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      code:
+                        type: string
+                        description: Machine-readable error code
+                      message:
+                        type: string
+                        description: Human-readable error description
+                      field:
+                        type: string
+                        description: Invalid field name if applicable
+                    required:
+                      - code
+                      - message
+                required:
+                  - error
   /reads:
     get:
       summary: List my reads

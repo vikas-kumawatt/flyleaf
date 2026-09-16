@@ -3,6 +3,7 @@
 import type {
   ApiErrorResponse,
   AuthResponse,
+  EditionLookupResponse,
   ForgotPasswordRequest,
   LoginRequest,
   Profile,
@@ -191,6 +192,12 @@ export class FlyleafClient {
 
   async getWork(id: string): Promise<Work> {
     return this.request<Work>(`/works/${encodeURIComponent(id)}`, {
+      method: 'GET',
+    });
+  }
+
+  async getEditionByIsbn(isbn: string): Promise<EditionLookupResponse> {
+    return this.request<EditionLookupResponse>(`/editions/isbn/${encodeURIComponent(isbn)}`, {
       method: 'GET',
     });
   }
