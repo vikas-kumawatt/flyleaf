@@ -23,6 +23,10 @@ import {
   type ReadStatus,
   type AuthResponse,
   type RefreshResponse,
+  type Review,
+  type CreateReviewRequest,
+  type UpdateReviewRequest,
+  type WorkReviewsResponse,
 } from '@flyleaf/api-client';
 
 export type {
@@ -37,6 +41,10 @@ export type {
   ReadStatus,
   AuthResponse,
   RefreshResponse,
+  Review,
+  CreateReviewRequest,
+  UpdateReviewRequest,
+  WorkReviewsResponse,
 };
 export { FlyleafApiError, FlyleafApiError as ApiError };
 
@@ -283,6 +291,13 @@ export const api = {
   resendVerification: () => client.resendVerification(),
 
   lookupIsbn: (isbn: string) => client.getEditionByIsbn(isbn),
+  reviews: (workId: string, options?: { sort?: 'friends' | 'likes' | 'newest' | 'highest' | 'lowest'; rating?: number; limit?: number; offset?: number }) =>
+    client.getWorkReviews(workId, options),
+  review: (id: string) => client.getReview(id),
+  createReview: (readId: string, payload: CreateReviewRequest) => client.createReview(readId, payload),
+  updateReview: (id: string, payload: UpdateReviewRequest) => client.updateReview(id, payload),
+  deleteReview: (id: string) => client.deleteReview(id),
+  toggleLike: (readId: string) => client.toggleLike(readId),
 
   author: async (nameOrId: string): Promise<AuthorDetail> => {
     // Queries search for books by this author

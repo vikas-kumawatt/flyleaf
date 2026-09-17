@@ -131,6 +131,9 @@ export interface Work {
   first_publish_year: number | null;
   cover_id: number | null;
   log_count: number;
+  avg_rating?: number | null;
+  weighted_rating?: number | null;
+  rating_count?: number;
   editions?: Edition[];
   your_read?: YourRead;
 }
@@ -210,6 +213,73 @@ export interface DnfReadRequest {
   note?: string | null;
   rating?: number | null;
   visibility?: ReadVisibility | null;
+}
+
+// ---------------------------------------------------------------- Reviews & Social (SL-63, SL-64)
+
+export interface ReviewAuthor {
+  id: string;
+  username: string;
+  display_name?: string | null;
+  avatar_url?: string | null;
+}
+
+export interface Review {
+  id: string;
+  read_id: string;
+  user_id: string;
+  work_id: string;
+  body: string;
+  has_spoilers: boolean;
+  spoiler_after_page?: number | null;
+  visibility: 'public' | 'followers' | 'private';
+  published_at: string;
+  edited_at?: string | null;
+  rating?: number | null;
+  hearted: boolean;
+  format_override?: string | null;
+  like_count: number;
+  comment_count?: number;
+  viewer_has_liked: boolean;
+  author: ReviewAuthor;
+  work_title?: string | null;
+  work_author?: string | null;
+  work_cover_id?: number | null;
+}
+
+export interface CreateReviewRequest {
+  body: string;
+  has_spoilers?: boolean;
+  spoiler_after_page?: number | null;
+  visibility?: 'public' | 'followers' | 'private';
+  rating?: number | null;
+  hearted?: boolean | null;
+}
+
+export interface UpdateReviewRequest {
+  body?: string;
+  has_spoilers?: boolean;
+  spoiler_after_page?: number | null;
+  visibility?: 'public' | 'followers' | 'private';
+  rating?: number | null;
+  hearted?: boolean | null;
+}
+
+export interface WorkReviewsQuery {
+  sort?: 'friends' | 'likes' | 'newest' | 'highest' | 'lowest';
+  rating?: number;
+  limit?: number;
+  offset?: number;
+}
+
+export interface WorkReviewsResponse {
+  data: Review[];
+  total: number;
+}
+
+export interface ToggleLikeResponse {
+  liked: boolean;
+  like_count: number;
 }
 
 // ---------------------------------------------------------------- Dedupe & Admin

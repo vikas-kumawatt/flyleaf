@@ -237,6 +237,9 @@ export const workSchema = {
     first_publish_year: { type: ['integer', 'null'] },
     cover_id: { type: ['integer', 'null'] },
     log_count: { type: 'integer' },
+    avg_rating: { type: ['number', 'null'] },
+    weighted_rating: { type: ['number', 'null'] },
+    rating_count: { type: ['integer', 'null'] },
     editions: { type: 'array', items: editionSchema },
     your_read: yourReadSchema,
   },
@@ -374,6 +377,112 @@ export const dnfReadBodySchema = {
     visibility: { type: 'string', enum: ['public', 'followers', 'private'], default: 'public' },
   },
 } as const;
+
+// ---------------------------------------------------------------- reviews & social (SL-63, SL-64)
+
+export const reviewAuthorSchema = {
+  type: 'object',
+  properties: {
+    id: { type: 'string', format: 'uuid' },
+    username: { type: 'string' },
+    display_name: { type: ['string', 'null'] },
+    avatar_url: { type: ['string', 'null'] },
+  },
+  required: ['id', 'username'],
+} as const;
+
+export const reviewSchema = {
+  type: 'object',
+  properties: {
+    id: { type: 'string', format: 'uuid' },
+    read_id: { type: 'string', format: 'uuid' },
+    user_id: { type: 'string', format: 'uuid' },
+    work_id: { type: 'string', format: 'uuid' },
+    body: { type: 'string' },
+    has_spoilers: { type: 'boolean' },
+    spoiler_after_page: { type: ['integer', 'null'] },
+    visibility: { type: 'string', enum: ['public', 'followers', 'private'] },
+    published_at: { type: 'string' },
+    edited_at: { type: ['string', 'null'] },
+    rating: { type: ['number', 'null'] },
+    hearted: { type: 'boolean' },
+    format_override: { type: ['string', 'null'] },
+    like_count: { type: 'integer' },
+    viewer_has_liked: { type: 'boolean' },
+    author: reviewAuthorSchema,
+    work_title: { type: ['string', 'null'] },
+    work_author: { type: ['string', 'null'] },
+    work_cover_id: { type: ['integer', 'null'] },
+  },
+  required: [
+    'id',
+    'read_id',
+    'user_id',
+    'work_id',
+    'body',
+    'has_spoilers',
+    'visibility',
+    'published_at',
+    'hearted',
+    'like_count',
+    'viewer_has_liked',
+    'author',
+  ],
+} as const;
+
+export const createReviewBodySchema = {
+  type: 'object',
+  properties: {
+    body: { type: 'string', minLength: 1, maxLength: 10000 },
+    has_spoilers: { type: 'boolean', default: false },
+    spoiler_after_page: { type: ['integer', 'null'], minimum: 0 },
+    visibility: { type: 'string', enum: ['public', 'followers', 'private'], default: 'public' },
+    rating: { type: ['number', 'null'], minimum: 0.5, maximum: 5.0 },
+    hearted: { type: ['boolean', 'null'] },
+  },
+  required: ['body'],
+} as const;
+
+export const updateReviewBodySchema = {
+  type: 'object',
+  properties: {
+    body: { type: 'string', minLength: 1, maxLength: 10000 },
+    has_spoilers: { type: 'boolean' },
+    spoiler_after_page: { type: ['integer', 'null'], minimum: 0 },
+    visibility: { type: 'string', enum: ['public', 'followers', 'private'] },
+    rating: { type: ['number', 'null'], minimum: 0.5, maximum: 5.0 },
+    hearted: { type: ['boolean', 'null'] },
+  },
+} as const;
+
+export const workReviewsQuerySchema = {
+  type: 'object',
+  properties: {
+    sort: { type: 'string', enum: ['friends', 'likes', 'newest', 'highest', 'lowest'], default: 'friends' },
+    rating: { type: 'number', minimum: 0.5, maximum: 5.0 },
+    limit: { type: 'integer', minimum: 1, maximum: 100, default: 20 },
+    offset: { type: 'integer', minimum: 0, default: 0 },
+  },
+} as const;
+
+export const workReviewsResponseSchema = {
+  type: 'object',
+  properties: {
+    data: { type: 'array', items: reviewSchema },
+    total: { type: 'integer' },
+  },
+  required: ['data', 'total'],
+} as const;
+
+export const toggleLikeResponseSchema = {
+  type: 'object',
+  properties: {
+    liked: { type: 'boolean' },
+    like_count: { type: 'integer' },
+  },
+  required: ['liked', 'like_count'],
+} as const;
+
 
 // ---------------------------------------------------------------------------
 // 4. Dedupe & Admin Schemas (FN-51, PRD §40.3, §3721)

@@ -78,6 +78,13 @@
       "when": 1788930000000,
       "tag": "0010_reading_lifecycle",
       "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1788940000000,
+      "tag": "0011_ratings_reviews",
+      "breakpoints": true
     }
   ]
 }

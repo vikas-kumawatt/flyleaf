@@ -595,3 +595,48 @@ export const adminAuditLog = pgTable('admin_audit_log', {
   index('admin_audit_log_subject_idx').on(t.subjectType, t.subjectId),
 ]);
 
+// ---------------------------------------------------------------------------
+// 8. Reviews, Social & Interactions (Architecture §3.5, §3.7, PRD §10)
+// ---------------------------------------------------------------------------
+
+export const reviews = pgTable('reviews', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  readId: uuid('read_id').notNull().unique().references(() => reads.id, { onDelete: 'cascade' }),
+  userId: uuid('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  workId: uuid('work_id').notNull().references(() => works.id, { onDelete: 'cascade' }),
+  body: text('body').notNull(),
+  hasSpoilers: boolean('has_spoilers').notNull().default(false),
+  spoilerAfterPage: integer('spoiler_after_page'),
+  visibility: text('visibility').notNull().default('public'),
+  publishedAt: timestamp('published_at', { withTimezone: true }).notNull().defaultNow(),
+  editedAt: timestamp('edited_at', { withTimezone: true }),
+  deletedAt: timestamp('deleted_at', { withTimezone: true }),
+}, (t) => [
+  check('reviews_body_length_ck', sql`char_length(${t.body}) <= 10000`),
+  check('reviews_visibility_ck', sql`${t.visibility} IN ('public','followers','private')`),
+  index('reviews_work_idx').on(t.workId, t.publishedAt),
+  index('reviews_user_idx').on(t.userId, t.publishedAt),
+]);
+
+export const readLikes = pgTable('read_likes', {
+  readId: uuid('read_id').notNull().references(() => reads.id, { onDelete: 'cascade' }),
+  userId: uuid('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [
+  primaryKey({ columns: [t.readId, t.userId] }),
+  index('read_likes_user_idx').on(t.userId),
+]);
+
+export const follows = pgTable('follows', {
+  followerId: uuid('follower_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  followeeId: uuid('followee_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  state: text('state').notNull().default('accepted'),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [
+  primaryKey({ columns: [t.followerId, t.followeeId] }),
+  check('follows_no_self_follow_ck', sql`${t.followerId} <> ${t.followeeId}`),
+  check('follows_state_ck', sql`${t.state} IN ('pending','accepted')`),
+  index('follows_follower_idx').on(t.followerId, t.state),
+  index('follows_followee_idx').on(t.followeeId, t.state),
+]);
+

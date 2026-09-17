@@ -316,4 +316,48 @@ describe('Offline Mutation Queue & Mirroring', () => {
       fs.rmSync(tmpDir, { recursive: true, force: true });
     }
   });
+
+  test('7. Offline review creation and queue replay (SL-63)', async () => {
+    let replayedReadId: string | null = null;
+    let replayedReview: any = null;
+    const handler: MutationHandler = {
+      addProgress: async () => {},
+      upsertRead: async () => {},
+      saveReview: async (readId, payload) => {
+        replayedReadId = readId;
+        replayedReview = payload;
+      },
+    };
+    const queue = new MutationQueue(db, handler);
+
+    await queue.enqueue(
+      'review',
+      'read-rev-100',
+      'save_review',
+      {
+        body: 'A truly magnificent novel with intricate worldbuilding.',
+        containsSpoilers: true,
+        spoilerPage: 240,
+        visibility: 'public',
+      },
+      'event-rev-uuid-1'
+    );
+
+    assert.equal(await queue.getPendingCount(), 1);
+
+    const res = await queue.flush();
+    assert.equal(res.succeeded, 1);
+    assert.equal(res.failed, 0);
+    assert.equal(await queue.getPendingCount(), 0);
+
+    assert.equal(replayedReadId, 'read-rev-100');
+    assert.deepEqual(replayedReview, {
+      body: 'A truly magnificent novel with intricate worldbuilding.',
+      containsSpoilers: true,
+      spoilerPage: 240,
+      visibility: 'public',
+      client_event_id: 'event-rev-uuid-1',
+    });
+  });
 });
+

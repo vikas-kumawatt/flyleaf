@@ -58,6 +58,9 @@ export type Work = {
   first_publish_year: number | null;
   cover_id: number | null;
   log_count: number;
+  avg_rating?: number | null;
+  weighted_rating?: number | null;
+  rating_count?: number;
   editions?: Edition[];
   your_read?: YourRead;
 };
@@ -390,6 +393,17 @@ export class CatalogService {
         .where(eq(editions.workId, id))
         .orderBy(asc(editions.pageCount));
 
+      const [stats] = await this.db.execute<{
+        avg_rating: string | null;
+        weighted_rating: string | null;
+        rating_count: string | null;
+      }>(sql`
+        SELECT avg_rating, weighted_rating, rating_count
+        FROM work_stats
+        WHERE work_id = ${id}
+        LIMIT 1
+      `);
+
       base = {
         id: w.id,
         title: w.title,
@@ -397,6 +411,9 @@ export class CatalogService {
         first_publish_year: w.first_publish_year,
         cover_id: w.ol_cover_id ?? eds.find((e) => e.olCoverId !== null)?.olCoverId ?? null,
         log_count: Number(w.log_count),
+        avg_rating: stats?.avg_rating ? Number(stats.avg_rating) : null,
+        weighted_rating: stats?.weighted_rating ? Number(stats.weighted_rating) : null,
+        rating_count: stats?.rating_count ? Number(stats.rating_count) : 0,
         editions: eds.map((e) => ({
           id: e.id,
           isbn13: e.isbn13,

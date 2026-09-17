@@ -56,6 +56,14 @@ function Nav() {
           name="dnf/[id]"
           options={{ presentation: 'modal', headerShown: false }}
         />
+        <Stack.Screen
+          name="review/compose/[id]"
+          options={{ presentation: 'modal', headerShown: false }}
+        />
+        <Stack.Screen
+          name="review/[id]"
+          options={{ presentation: 'card', headerShown: false }}
+        />
         <Stack.Screen name="profile" options={{ headerShown: false }} />
       </Stack>
     </View>

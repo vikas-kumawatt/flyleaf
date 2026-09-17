@@ -45,12 +45,12 @@ export interface LocalProgressEvent {
   synced: number; // 1 = clean, 0 = pending sync
 }
 
-export type MutationAction = 'add_progress' | 'upsert_read' | 'finish_read' | 'dnf_read';
+export type MutationAction = 'add_progress' | 'upsert_read' | 'finish_read' | 'dnf_read' | 'save_review';
 export type MutationStatus = 'pending' | 'processing' | 'dead_letter';
 
 export interface QueuedMutation {
   id: string;
-  entity_type: 'read' | 'progress_event';
+  entity_type: 'read' | 'progress_event' | 'review';
   entity_id: string;
   action: MutationAction;
   payload: string; // JSON

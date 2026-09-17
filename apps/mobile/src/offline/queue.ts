@@ -55,6 +55,17 @@ export interface MutationHandler {
       visibility?: any;
     },
   ) => Promise<any>;
+  saveReview?: (
+    readId: string,
+    payload: {
+      body: string;
+      has_spoilers?: boolean;
+      spoiler_after_page?: number | null;
+      visibility?: any;
+      rating?: number | null;
+      hearted?: boolean | null;
+    },
+  ) => Promise<any>;
 }
 
 export class MutationQueue {
@@ -74,7 +85,7 @@ export class MutationQueue {
    * Generates client_event_id if not provided.
    */
   async enqueue(
-    entityType: 'read' | 'progress_event',
+    entityType: 'read' | 'progress_event' | 'review',
     entityId: string,
     action: MutationAction,
     payload: Record<string, any>,
@@ -209,6 +220,8 @@ export class MutationQueue {
         await this.handler.finishRead(m.entity_id, payload);
       } else if (m.action === 'dnf_read' && this.handler.dnfRead) {
         await this.handler.dnfRead(m.entity_id, payload);
+      } else if (m.action === 'save_review' && this.handler.saveReview) {
+        await this.handler.saveReview(m.entity_id, payload);
       }
 
       // Success: delete from mutation queue and mark local mirrored record synced

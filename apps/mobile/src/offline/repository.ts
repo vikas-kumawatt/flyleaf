@@ -33,6 +33,9 @@ export class OfflineRepository {
       dnfRead: async (readId, payload) => {
         return api.client.dnfRead(readId, payload);
       },
+      saveReview: async (readId, payload) => {
+        return api.client.createReview(readId, payload);
+      },
     });
   }
 
@@ -376,5 +379,43 @@ export class OfflineRepository {
 
   async getUnsyncedCount(): Promise<number> {
     return this.queue.getPendingCount();
+  }
+
+  /**
+   * Saves a review with local optimistic write and persistent queue replay (SL-63).
+   */
+  async saveReview(
+    readId: string,
+    data: {
+      body: string;
+      has_spoilers?: boolean;
+      spoiler_after_page?: number | null;
+      visibility?: 'public' | 'followers' | 'private';
+      rating?: number | null;
+      hearted?: boolean | null;
+    },
+  ): Promise<void> {
+    if (data.rating !== undefined || data.hearted !== undefined) {
+      const updates: string[] = [];
+      const params: any[] = [];
+      if (data.rating !== undefined) {
+        updates.push('rating = ?');
+        params.push(data.rating);
+      }
+      if (data.hearted !== undefined && data.hearted !== null) {
+        updates.push('hearted = ?');
+        params.push(data.hearted ? 1 : 0);
+      }
+      if (updates.length > 0) {
+        params.push(new Date().toISOString(), readId);
+        await this.db.run(
+          `UPDATE reads SET ${updates.join(', ')}, updated_at = ? WHERE id = ?`,
+          params,
+        );
+      }
+    }
+
+    await this.queue.enqueue('read', readId, 'save_review', data);
+    void this.queue.flush();
   }
 }

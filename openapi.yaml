@@ -1057,6 +1057,18 @@ paths:
                             - integer
                         log_count:
                           type: integer
+                        avg_rating:
+                          type:
+                            - "null"
+                            - number
+                        weighted_rating:
+                          type:
+                            - "null"
+                            - number
+                        rating_count:
+                          type:
+                            - "null"
+                            - integer
                         editions:
                           type: array
                           items:
@@ -1155,6 +1167,18 @@ paths:
                       - integer
                   log_count:
                     type: integer
+                  avg_rating:
+                    type:
+                      - "null"
+                      - number
+                  weighted_rating:
+                    type:
+                      - "null"
+                      - number
+                  rating_count:
+                    type:
+                      - "null"
+                      - integer
                   editions:
                     type: array
                     items:
@@ -1278,6 +1302,18 @@ paths:
                           - integer
                       log_count:
                         type: integer
+                      avg_rating:
+                        type:
+                          - "null"
+                          - number
+                      weighted_rating:
+                        type:
+                          - "null"
+                          - number
+                      rating_count:
+                        type:
+                          - "null"
+                          - integer
                       editions:
                         type: array
                         items:

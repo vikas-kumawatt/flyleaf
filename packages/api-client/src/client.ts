@@ -21,6 +21,7 @@ import type {
   AdminViewer,
   ApiErrorResponse,
   AuthResponse,
+  CreateReviewRequest,
   DedupePreviewResponse,
   DedupeQueueItem,
   DedupeQueueListResponse,
@@ -44,15 +45,20 @@ import type {
   RefreshResponse,
   RegisterRequest,
   ResetPasswordRequest,
+  Review,
   SearchResponse,
   Session,
   SessionListResponse,
   StandardResponse,
+  ToggleLikeResponse,
   UndoMergeResponse,
+  UpdateReviewRequest,
   UpsertReadRequest,
   User,
   VerifyEmailRequest,
   Work,
+  WorkReviewsQuery,
+  WorkReviewsResponse,
 } from './types.js';
 
 export class FlyleafApiError extends Error {
@@ -281,6 +287,52 @@ export class FlyleafClient {
     return this.request<Read>(`/reads/${encodeURIComponent(readId)}/dnf`, {
       method: 'POST',
       body: JSON.stringify(data),
+    });
+  }
+
+  // ---------------------------------------------------------------- Reviews & Social (SL-63, SL-64)
+
+  async createReview(readId: string, data: CreateReviewRequest): Promise<Review> {
+    return this.request<Review>(`/reads/${encodeURIComponent(readId)}/review`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async getReview(id: string): Promise<Review> {
+    return this.request<Review>(`/reviews/${encodeURIComponent(id)}`, {
+      method: 'GET',
+    });
+  }
+
+  async updateReview(id: string, data: UpdateReviewRequest): Promise<Review> {
+    return this.request<Review>(`/reviews/${encodeURIComponent(id)}`, {
+      method: 'PATCH',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async deleteReview(id: string): Promise<void> {
+    await this.request<void>(`/reviews/${encodeURIComponent(id)}`, {
+      method: 'DELETE',
+    });
+  }
+
+  async getWorkReviews(workId: string, query?: WorkReviewsQuery): Promise<WorkReviewsResponse> {
+    const q = new URLSearchParams();
+    if (query?.sort) q.set('sort', query.sort);
+    if (query?.rating != null) q.set('rating', String(query.rating));
+    if (query?.limit != null) q.set('limit', String(query.limit));
+    if (query?.offset != null) q.set('offset', String(query.offset));
+    const qs = q.toString() ? `?${q.toString()}` : '';
+    return this.request<WorkReviewsResponse>(`/works/${encodeURIComponent(workId)}/reviews${qs}`, {
+      method: 'GET',
+    });
+  }
+
+  async toggleLike(readId: string): Promise<ToggleLikeResponse> {
+    return this.request<ToggleLikeResponse>(`/reads/${encodeURIComponent(readId)}/like`, {
+      method: 'POST',
     });
   }
 

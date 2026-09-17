@@ -18,6 +18,7 @@ import { waitForDb } from './platform/index.js';
 import { type IdentityService, identityRoutes } from './identity/index.js';
 import { type CatalogService, catalogRoutes } from './catalog/index.js';
 import { type ReadingService, readingRoutes } from './reading/index.js';
+import { reviewsPlugin, type ReviewService } from './reviews/index.js';
 import { adminDedupeRoutes } from './admin/dedupe.js';
 import { adminAuthRoutes } from './admin/routes.js';
 import { adminCatalogRoutes } from './admin/catalog-routes.js';
@@ -135,6 +136,7 @@ export interface BuildAppOptions {
   identity?: IdentityService;
   catalog?: CatalogService;
   reading?: ReadingService;
+  reviews?: ReviewService;
   logger?: FastifyServerOptions['logger'];
   trustProxy?: boolean;
   bodyLimit?: number;
@@ -189,6 +191,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
     await app.register(readingRoutes(options.reading), { prefix: '/v1' });
   }
   if (options.db) {
+    await app.register(reviewsPlugin, { db: options.db });
     await app.register(adminAuthRoutes(options.db));
     await app.register(adminDedupeRoutes(options.db));
     await app.register(adminCatalogRoutes(options.db));

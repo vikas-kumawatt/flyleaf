@@ -19,7 +19,7 @@ import {
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
-import { api, type Work } from '@/lib/api';
+import { api, type Work, type Review } from '@/lib/api';
 import { useSession } from '@/lib/session';
 import { useGuestShelf } from '@/lib/guest';
 import { useActionGate } from '@/ui/ActionGate';
@@ -28,6 +28,7 @@ import {
   Card,
   Cover,
   EmptyState,
+  Heart,
   ProgressBar,
   Screen,
   SegmentedControl,
@@ -60,6 +61,60 @@ export default function WorkScreen() {
   const [pageInput, setPageInput] = useState('');
   const [descExpanded, setDescExpanded] = useState(false);
   const [activeTab, setActiveTab] = useState<'reviews' | 'editions' | 'history'>('reviews');
+
+  // Reviews state (SL-64)
+  const [reviewsList, setReviewsList] = useState<Review[]>([]);
+  const [reviewsTotal, setReviewsTotal] = useState(0);
+  const [reviewsLoading, setReviewsLoading] = useState(false);
+  const [reviewSort, setReviewSort] = useState<'friends' | 'likes' | 'newest' | 'highest' | 'lowest'>('friends');
+  const [ratingFilter, setRatingFilter] = useState<number | null>(null);
+  const [revealedSpoilers, setRevealedSpoilers] = useState<Set<string>>(new Set());
+
+  const loadReviews = async () => {
+    if (!id) return;
+    setReviewsLoading(true);
+    try {
+      const res = await api.client.getWorkReviews(id, {
+        sort: reviewSort,
+        rating: ratingFilter ?? undefined,
+      });
+      setReviewsList(res.data);
+      setReviewsTotal(res.total);
+    } catch {
+      // Ignore
+    } finally {
+      setReviewsLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (activeTab === 'reviews' && id) {
+      loadReviews().catch(() => {});
+    }
+  }, [id, activeTab, reviewSort, ratingFilter]);
+
+  const toggleReviewLike = async (review: Review) => {
+    if (!user) {
+      promptAuth({
+        title: 'Sign up to like reviews',
+        subtitle: 'Join Flyleaf to like reviews and follow readers.',
+      });
+      return;
+    }
+    void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    try {
+      const res = await api.client.toggleLike(review.read_id);
+      setReviewsList((prev) =>
+        prev.map((r) =>
+          r.id === review.id
+            ? { ...r, viewer_has_liked: res.liked, like_count: res.like_count }
+            : r,
+        ),
+      );
+    } catch {
+      // Ignore
+    }
+  };
 
   const load = async () => {
     if (id) {
@@ -274,15 +329,35 @@ export default function WorkScreen() {
           <View style={{ gap: space[2] }}>
             <View style={[sheet.row, { justifyContent: 'space-between' }]}>
               <View style={sheet.row}>
-                <Txt variant="displayM" tabular style={{ marginRight: space[2] }}>
-                  4.4
-                </Txt>
-                <View>
-                  <Stars value={4.4} size={14} />
-                  <Txt variant="micro" color="muted">
-                    1,423 ratings
-                  </Txt>
-                </View>
+                {work.rating_count && work.rating_count >= 5 ? (
+                  <>
+                    <Txt variant="displayM" tabular style={{ marginRight: space[2] }}>
+                      {work.avg_rating ? Number(work.avg_rating).toFixed(1) : '—'}
+                    </Txt>
+                    <View>
+                      <Stars value={work.avg_rating ? Number(work.avg_rating) : null} size={14} />
+                      <Txt variant="micro" color="muted">
+                        {work.rating_count.toLocaleString()} ratings
+                      </Txt>
+                    </View>
+                  </>
+                ) : work.rating_count && work.rating_count > 0 ? (
+                  <View>
+                    <Txt variant="body" style={{ fontWeight: '600' }}>
+                      {work.rating_count} {work.rating_count === 1 ? 'rating' : 'ratings'}
+                    </Txt>
+                    <Stars value={work.avg_rating ? Number(work.avg_rating) : null} size={14} />
+                  </View>
+                ) : (
+                  <View>
+                    <Txt variant="body" color="muted">
+                      No ratings yet
+                    </Txt>
+                    <Txt variant="micro" color="muted">
+                      Be the first to rate
+                    </Txt>
+                  </View>
+                )}
               </View>
             </View>
 
@@ -442,70 +517,237 @@ export default function WorkScreen() {
 
           {activeTab === 'reviews' && (
             <View style={{ gap: space[3] }}>
-              <Card style={{ gap: space[2] }}>
-                <View style={[sheet.row, { justifyContent: 'space-between' }]}>
-                  <View style={sheet.row}>
-                    <View
-                      style={{
-                        width: 28,
-                        height: 28,
-                        borderRadius: 14,
-                        backgroundColor: c.surface2,
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        marginRight: space[2],
-                      }}
-                    >
-                      <Txt variant="caption" style={{ fontWeight: '600' }}>
-                        P
-                      </Txt>
-                    </View>
-                    <Txt variant="caption" style={{ fontWeight: '600' }}>
-                      paloma
-                    </Txt>
-                  </View>
-                  <Stars value={5} size={16} />
-                </View>
-                <Txt variant="body" color="ink" style={{ lineHeight: 21 }}>
-                  The Beauty of the House is immeasurable; its Kindness infinite. A quiet,
-                  transformative puzzle box of a novel that lingers long after closing the back cover.
+              {/* Reviews Header with Write CTA */}
+              <View style={[sheet.row, { justifyContent: 'space-between', alignItems: 'center' }]}>
+                <Txt variant="body" style={{ fontWeight: '600' }}>
+                  {reviewsTotal > 0 ? `${reviewsTotal} ${reviewsTotal === 1 ? 'Review' : 'Reviews'}` : 'Reviews'}
                 </Txt>
-                <Txt variant="micro" color="muted">
-                  Finished · September 2026
-                </Txt>
-              </Card>
+                <Button
+                  label="Write a review"
+                  variant="secondary"
+                  onPress={() => {
+                    if (!user) {
+                      promptAuth({
+                        title: 'Sign up to write a review',
+                        subtitle: 'Share your thoughts and ratings with other readers.',
+                      });
+                      return;
+                    }
+                    const targetId = work.your_read?.id ?? work.id;
+                    router.push(`/review/compose/${targetId}` as any);
+                  }}
+                />
+              </View>
 
-              <Card style={{ gap: space[2] }}>
-                <View style={[sheet.row, { justifyContent: 'space-between' }]}>
-                  <View style={sheet.row}>
-                    <View
+              {/* Sort Selector (PRD §6.25, §10.7) */}
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: space[2] }}>
+                {(
+                  [
+                    { key: 'friends', label: 'Friends first' },
+                    { key: 'likes', label: 'Most liked' },
+                    { key: 'newest', label: 'Newest' },
+                    { key: 'highest', label: 'Highest rated' },
+                    { key: 'lowest', label: 'Lowest rated' },
+                  ] as const
+                ).map((s) => (
+                  <Pressable
+                    key={s.key}
+                    onPress={() => {
+                      void Haptics.selectionAsync();
+                      setReviewSort(s.key);
+                    }}
+                    style={{
+                      paddingHorizontal: space[3],
+                      paddingVertical: space[2],
+                      borderRadius: radius.pill,
+                      backgroundColor: reviewSort === s.key ? c.accent : c.surface2,
+                    }}
+                  >
+                    <Txt
+                      variant="caption"
                       style={{
-                        width: 28,
-                        height: 28,
-                        borderRadius: 14,
-                        backgroundColor: c.surface2,
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        marginRight: space[2],
+                        fontWeight: reviewSort === s.key ? '600' : '400',
+                        color: reviewSort === s.key ? c.ground : c.ink,
                       }}
                     >
-                      <Txt variant="caption" style={{ fontWeight: '600' }}>
-                        J
-                      </Txt>
-                    </View>
-                    <Txt variant="caption" style={{ fontWeight: '600' }}>
-                      julian
+                      {s.label}
                     </Txt>
-                  </View>
-                  <Stars value={4.5} size={16} />
-                </View>
-                <Txt variant="body" color="ink" style={{ lineHeight: 21 }}>
-                  Hypnotic and meditative. Susanna Clarke builds an eerie, oceanic dreamscape.
-                </Txt>
-                <Txt variant="micro" color="muted">
-                  Finished · August 2026
-                </Txt>
-              </Card>
+                  </Pressable>
+                ))}
+              </ScrollView>
+
+              {/* Rating Filter Chips */}
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: space[2] }}>
+                {[null, 5, 4, 3, 2, 1].map((rVal) => (
+                  <Pressable
+                    key={rVal === null ? 'all' : String(rVal)}
+                    onPress={() => {
+                      void Haptics.selectionAsync();
+                      setRatingFilter(rVal);
+                    }}
+                    style={{
+                      paddingHorizontal: space[3],
+                      paddingVertical: 4,
+                      borderRadius: radius.pill,
+                      borderWidth: 1,
+                      borderColor: ratingFilter === rVal ? c.accent : c.line,
+                      backgroundColor: ratingFilter === rVal ? c.surface2 : c.surface,
+                    }}
+                  >
+                    <Txt
+                      variant="micro"
+                      style={{
+                        fontWeight: ratingFilter === rVal ? '600' : '400',
+                        color: ratingFilter === rVal ? c.accent : c.muted,
+                      }}
+                    >
+                      {rVal === null ? 'All stars' : `${rVal}★`}
+                    </Txt>
+                  </Pressable>
+                ))}
+              </ScrollView>
+
+              {/* Reviews List */}
+              {reviewsLoading ? (
+                <Card style={{ paddingVertical: space[6], alignItems: 'center' }}>
+                  <Txt color="muted">Loading reviews…</Txt>
+                </Card>
+              ) : reviewsList.length === 0 ? (
+                <EmptyState
+                  title="No reviews yet"
+                  subtitle="Be the first to share your thoughts on this book."
+                  action={
+                    <Button
+                      label="Write a review"
+                      variant="secondary"
+                      onPress={() => {
+                        if (!user) {
+                          promptAuth({
+                            title: 'Sign up to write a review',
+                            subtitle: 'Share your thoughts and ratings with other readers.',
+                          });
+                          return;
+                        }
+                        const targetId = work.your_read?.id ?? work.id;
+                        router.push(`/review/compose/${targetId}` as any);
+                      }}
+                    />
+                  }
+                />
+              ) : (
+                reviewsList.map((rev) => {
+                  const isHiddenBySpoiler = rev.has_spoilers && !revealedSpoilers.has(rev.id);
+                  return (
+                    <Card
+                      key={rev.id}
+                      onPress={() => router.push(`/review/${rev.id}` as any)}
+                      style={{ gap: space[2] }}
+                    >
+                      <View style={[sheet.row, { justifyContent: 'space-between' }]}>
+                        <View style={[sheet.row, { gap: space[2] }]}>
+                          <View
+                            style={{
+                              width: 30,
+                              height: 30,
+                              borderRadius: 15,
+                              backgroundColor: c.surface2,
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                            }}
+                          >
+                            <Txt variant="caption" style={{ fontWeight: '600' }}>
+                              {rev.author.username.charAt(0).toUpperCase()}
+                            </Txt>
+                          </View>
+                          <View>
+                            <Txt variant="caption" style={{ fontWeight: '600' }}>
+                              {rev.author.display_name || rev.author.username}
+                            </Txt>
+                            <Txt variant="micro" color="muted">
+                              {new Date(rev.published_at).toLocaleDateString(undefined, {
+                                month: 'short',
+                                day: 'numeric',
+                              })}
+                            </Txt>
+                          </View>
+                        </View>
+                        <View style={[sheet.row, { gap: space[2] }]}>
+                          <Stars value={rev.rating ?? null} size={14} />
+                          {rev.hearted && (
+                            <Txt variant="caption" style={{ color: c.heart }}>
+                              ♥
+                            </Txt>
+                          )}
+                        </View>
+                      </View>
+
+                      {/* Spoiler Gate */}
+                      {isHiddenBySpoiler ? (
+                        <Pressable
+                          onPress={(e) => {
+                            e.stopPropagation();
+                            void Haptics.selectionAsync();
+                            setRevealedSpoilers((prev) => new Set([...prev, rev.id]));
+                          }}
+                          style={{
+                            paddingVertical: space[3],
+                            paddingHorizontal: space[3],
+                            backgroundColor: c.surface2,
+                            borderRadius: radius.sm,
+                            alignItems: 'center',
+                            gap: 4,
+                          }}
+                        >
+                          <Txt variant="caption" style={{ fontWeight: '600', color: c.accent }}>
+                            ⚠️ Contains spoilers
+                          </Txt>
+                          {rev.spoiler_after_page ? (
+                            <Txt variant="micro" color="muted">
+                              (after page {rev.spoiler_after_page})
+                            </Txt>
+                          ) : null}
+                          <Txt variant="micro" color="muted">
+                            Tap to reveal
+                          </Txt>
+                        </Pressable>
+                      ) : (
+                        <Txt variant="body" color="ink" style={{ lineHeight: 22 }}>
+                          {rev.body}
+                        </Txt>
+                      )}
+
+                      {/* Social bar */}
+                      <View
+                        style={[
+                          sheet.row,
+                          { justifyContent: 'space-between', marginTop: space[1], paddingTop: space[1] },
+                        ]}
+                      >
+                        <Pressable
+                          onPress={(e) => {
+                            e.stopPropagation();
+                            void toggleReviewLike(rev);
+                          }}
+                          style={[sheet.row, { gap: 4 }]}
+                          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                        >
+                          <Txt variant="body" style={{ color: rev.viewer_has_liked ? c.heart : c.muted }}>
+                            {rev.viewer_has_liked ? '♥' : '♡'}
+                          </Txt>
+                          <Txt variant="micro" color="muted" tabular>
+                            {rev.like_count > 0 ? rev.like_count : 'Like'}
+                          </Txt>
+                        </Pressable>
+                        {rev.has_spoilers && !isHiddenBySpoiler && (
+                          <Txt variant="micro" color="muted">
+                            Spoilers revealed
+                          </Txt>
+                        )}
+                      </View>
+                    </Card>
+                  );
+                })
+              )}
             </View>
           )}
 

@@ -4,7 +4,7 @@
 // Near-monochrome with one accent. Every colour from tokens.
 // Touch targets >= 44x44 everywhere. Full Reanimated + gesture-handler motion.
 
-import React, { useEffect } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import {
   ActivityIndicator,
   DimensionValue,
@@ -28,6 +28,7 @@ import Animated, {
   withTiming,
   withRepeat,
   Easing,
+  runOnJS,
 } from 'react-native-reanimated';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import {
@@ -299,8 +300,11 @@ export function Stars({
 }) {
   const c = useTheme();
   const readOnly = !onChange;
-  const v = value ?? 0;
+  const [hoverValue, setHoverValue] = useState<number | null>(null);
+  const v = hoverValue ?? value ?? 0;
   const starScale = useSharedValue(1);
+  const lastStep = useRef<number>(Math.round((value ?? 0) * 2));
+  const rowWidth = size * 5;
 
   const starAnimatedStyle = useAnimatedStyle(() => ({
     transform: [{ scale: starScale.value }],
@@ -312,8 +316,129 @@ export function Stars({
       withTiming(1.15, { duration: motion.star / 2 }),
       withTiming(1, { duration: motion.star / 2 }),
     );
+    setHoverValue(null);
     onChange?.(target);
   };
+
+  const calculateTarget = (x: number): number => {
+    const clamped = Math.max(0, Math.min(rowWidth, x));
+    const bucket = Math.ceil((clamped / rowWidth) * 10);
+    return Math.max(0.5, Math.min(5.0, bucket * 0.5));
+  };
+
+  const panGesture = Gesture.Pan()
+    .enabled(!readOnly)
+    .onStart((e) => {
+      const target = calculateTarget(e.x);
+      runOnJS(setHoverValue)(target);
+      const step = Math.round(target * 2);
+      if (step !== lastStep.current) {
+        lastStep.current = step;
+        void Haptics.selectionAsync();
+      }
+    })
+    .onUpdate((e) => {
+      const target = calculateTarget(e.x);
+      runOnJS(setHoverValue)(target);
+      const step = Math.round(target * 2);
+      if (step !== lastStep.current) {
+        lastStep.current = step;
+        void Haptics.selectionAsync();
+      }
+    })
+    .onEnd((e) => {
+      const target = calculateTarget(e.x);
+      runOnJS(handleRate)(target);
+    });
+
+  const starsContent = (
+    <Animated.View
+      style={[
+        {
+          flexDirection: 'row',
+          alignItems: 'center',
+          paddingVertical: space[1],
+          paddingHorizontal: space[1],
+        },
+        starAnimatedStyle,
+      ]}
+    >
+      {[1, 2, 3, 4, 5].map((n) => {
+        const fill = v >= n ? size : v >= n - 0.5 ? size / 2 : 0;
+        return (
+          <View
+            key={n}
+            style={{
+              width: size,
+              height: 44,
+              justifyContent: 'center',
+              alignItems: 'center',
+            }}
+          >
+            <Text
+              style={[
+                starGlyph,
+                { fontSize: size, width: size, color: c.lineStrong },
+              ]}
+            >
+              ★
+            </Text>
+            {fill > 0 && (
+              <View
+                pointerEvents="none"
+                style={{
+                  position: 'absolute',
+                  left: 0,
+                  top: 0,
+                  bottom: 0,
+                  width: fill,
+                  overflow: 'hidden',
+                  justifyContent: 'center',
+                }}
+              >
+                <Text
+                  style={[
+                    starGlyph,
+                    { fontSize: size, width: size, color: c.star },
+                  ]}
+                >
+                  ★
+                </Text>
+              </View>
+            )}
+            {!readOnly && (
+              <>
+                <Pressable
+                  onPress={() => handleRate(n - 0.5)}
+                  hitSlop={{ top: 8, bottom: 8, left: 4, right: 0 }}
+                  accessibilityLabel={`Rate ${n - 0.5} stars`}
+                  style={{
+                    position: 'absolute',
+                    top: 0,
+                    bottom: 0,
+                    left: 0,
+                    width: size / 2,
+                  }}
+                />
+                <Pressable
+                  onPress={() => handleRate(n)}
+                  hitSlop={{ top: 8, bottom: 8, left: 0, right: 4 }}
+                  accessibilityLabel={`Rate ${n} stars`}
+                  style={{
+                    position: 'absolute',
+                    top: 0,
+                    bottom: 0,
+                    left: size / 2,
+                    width: size / 2,
+                  }}
+                />
+              </>
+            )}
+          </View>
+        );
+      })}
+    </Animated.View>
+  );
 
   return (
     <View
@@ -339,62 +464,15 @@ export function Stars({
         }
       }}
     >
-      <Animated.View style={[{ flexDirection: 'row' }, starAnimatedStyle]}>
-        {[1, 2, 3, 4, 5].map((n) => {
-          const fill = v >= n ? size : v >= n - 0.5 ? size / 2 : 0;
-          return (
-            <View key={n} style={{ width: size, height: 44, justifyContent: 'center' }}>
-              <Text style={[starGlyph, { fontSize: size, width: size, color: c.lineStrong }]}>
-                ★
-              </Text>
-              {fill > 0 && (
-                <View
-                  pointerEvents="none"
-                  style={{
-                    position: 'absolute',
-                    left: 0,
-                    top: 0,
-                    bottom: 0,
-                    width: fill,
-                    overflow: 'hidden',
-                    justifyContent: 'center',
-                  }}
-                >
-                  <Text style={[starGlyph, { fontSize: size, width: size, color: c.star }]}>★</Text>
-                </View>
-              )}
-              {!readOnly && (
-                <>
-                  <Pressable
-                    onPress={() => handleRate(n - 0.5)}
-                    accessibilityLabel={`Rate ${n - 0.5} stars`}
-                    style={{
-                      position: 'absolute',
-                      top: 0,
-                      bottom: 0,
-                      left: 0,
-                      width: size / 2,
-                    }}
-                  />
-                  <Pressable
-                    onPress={() => handleRate(n)}
-                    accessibilityLabel={`Rate ${n} stars`}
-                    style={{
-                      position: 'absolute',
-                      top: 0,
-                      bottom: 0,
-                      left: size / 2,
-                      width: size / 2,
-                    }}
-                  />
-                </>
-              )}
-            </View>
-          );
-        })}
-      </Animated.View>
+      {readOnly ? (
+        starsContent
+      ) : (
+        <GestureDetector gesture={panGesture}>
+          {starsContent}
+        </GestureDetector>
+      )}
       <Txt variant="caption" color="muted" tabular>
-        {value ? value.toFixed(1) : '—'}
+        {v > 0 ? v.toFixed(1) : value ? value.toFixed(1) : '—'}
       </Txt>
     </View>
   );
