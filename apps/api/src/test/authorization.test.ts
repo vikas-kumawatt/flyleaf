@@ -10,7 +10,8 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import Fastify, { type FastifyInstance } from 'fastify';
 
 import { canView, assertCanView } from '../authorization/index.js';
-import { ApiError, sendError } from '../http.js';
+import { ApiError } from '../http.js';
+import { registerCoreHooks } from '../app.js';
 import { ReadingService, readingRoutes } from '../reading/index.js';
 import { IdentityService, identityRoutes, signAccessToken } from '../identity/index.js';
 import { PgRateLimiter, type Db } from '../platform/index.js';
@@ -341,18 +342,8 @@ describe('Cross-user HTTP access tests — 404 not 403 (FN-70, FN-72)', () => {
     const readingService = new ReadingService(db);
 
     app = Fastify();
-    app.decorateRequest('viewer', null);
-    app.addHook('onRequest', async (req) => {
-      const header = req.headers.authorization;
-      if (header?.startsWith('Bearer ')) {
-        req.viewer = await identityService.lookup(header.slice(7).trim());
-      }
-    });
-
-    app.setErrorHandler((err, _req, reply) => {
-      if (err instanceof ApiError) return sendError(reply, err);
-      const message = err instanceof Error ? err.message : 'Something went wrong.';
-      return reply.status(500).send({ error: { code: 'internal', message } });
+    registerCoreHooks(app, {
+      identityLookup: (token) => identityService.lookup(token),
     });
 
     await app.register(identityRoutes(identityService), { prefix: '/v1' });

@@ -17,6 +17,7 @@ import { MemoryCache, type Db } from '../platform/index.js';
 import { freshDrizzle } from './pg.js';
 import { works, editions, authors, workAuthors } from '../db/schema.js';
 import { ApiError } from '../http.js';
+import { registerCoreHooks } from '../app.js';
 import { FlyleafClient } from '../../../../packages/api-client/dist/index.js';
 
 describe('ISBN utilities (catalog/isbn.ts)', () => {
@@ -141,26 +142,7 @@ describe('CatalogService exact edition lookup & search (FN-42)', () => {
     });
 
     app = Fastify();
-    app.decorateRequest('viewer', null);
-    app.setErrorHandler((err, _req, reply) => {
-      if (err instanceof ApiError) {
-        return reply.status(err.status).send({
-          error: { code: err.code, message: err.message, field: err.field },
-        });
-      }
-      if ((err as any).validation) {
-        const v = (err as any).validation[0];
-        const field = v?.params?.missingProperty || v?.instancePath?.replace(/^\//, '') || undefined;
-        return reply.status(422).send({
-          error: {
-            code: 'invalid_field',
-            message: (err as Error).message,
-            ...(field ? { field } : {}),
-          },
-        });
-      }
-      return reply.status(500).send({ error: { code: 'internal', message: 'Internal error' } });
-    });
+    registerCoreHooks(app);
 
     await app.register(catalogRoutes(service), { prefix: '/v1' });
     await app.ready();

@@ -1,17 +1,12 @@
 // Phase -1 walking skeleton API. Six endpoints, one process, one database.
 // Deliberately crude — see phases.md, Phase -1.
 
-import { randomUUID } from 'node:crypto';
-import Fastify from 'fastify';
-import cors from '@fastify/cors';
-import { sql } from 'drizzle-orm';
-
 import { config, makeDb, waitForDb, closeDb, MemoryCache, PgRateLimiter, ConsoleEmailSender } from './platform/index.js';
-import { ApiError, sendError } from './http.js';
-import { IdentityService, identityRoutes } from './identity/index.js';
-import { CatalogService, catalogRoutes } from './catalog/index.js';
+import { IdentityService } from './identity/index.js';
+import { CatalogService } from './catalog/index.js';
 import { GapFillService } from './catalog/gapfill.js';
-import { ReadingService, readingRoutes } from './reading/index.js';
+import { ReadingService } from './reading/index.js';
+import { buildApp } from './app.js';
 
 async function main() {
   const db = makeDb();
@@ -31,7 +26,12 @@ async function main() {
   const catalog = new CatalogService(db, cache, new GapFillService(db));
   const reading = new ReadingService(db);
 
-  const app = Fastify({
+  const app = await buildApp({
+    db,
+    identity,
+    catalog,
+    reading,
+    trustProxy: true,
     logger: {
       level: config.logLevel,
       // Structured JSON in production, human-readable locally. Never both.
@@ -48,71 +48,7 @@ async function main() {
         req: (req) => ({ method: req.method, url: req.url, id: req.id }),
       },
     },
-    // Trust the proxy's X-Forwarded-For so rate-limit buckets key on the real
-    // client rather than on the proxy (FN-30 depends on this being right).
-    trustProxy: true,
-    genReqId: () => randomUUID(),
-    requestIdHeader: 'x-request-id',
-    bodyLimit: 1_048_576,
   });
-
-  await app.register(cors, { origin: true });
-
-  // Auth NEVER rejects. It populates a viewer when a token is present and
-  // leaves null when it is not — a guest is a legitimate caller (PRD §4.2).
-  app.decorateRequest('viewer', null);
-  app.addHook('onRequest', async (req) => {
-    const header = req.headers.authorization;
-    if (header?.startsWith('Bearer ')) {
-      req.viewer = await identity.lookup(header.slice(7).trim());
-    }
-  });
-
-  app.setErrorHandler((err, req, reply) => {
-    if (err instanceof ApiError) return sendError(reply, err);
-    if ((err as any).validation) {
-      const v = (err as any).validation[0];
-      const field = v?.params?.missingProperty || v?.instancePath?.replace(/^\//, '') || undefined;
-      return reply.status(422).send({
-        error: {
-          code: 'invalid_field',
-          message: (err as Error).message,
-          ...(field ? { field } : {}),
-        },
-      });
-    }
-    req.log.error({ err }, 'unhandled');
-    return reply
-      .status(500)
-      .send({ error: { code: 'internal', message: 'Something went wrong.' } });
-  });
-
-  app.setNotFoundHandler((_req, reply) =>
-    reply.status(404).send({ error: { code: 'not_found', message: 'Not found.' } }),
-  );
-
-  // healthz: is this process alive. readyz: can it actually serve traffic.
-  // Keeping them distinct matters — a restart loop caused by a readiness
-  // probe that only pings the socket is very hard to diagnose.
-  app.get('/healthz', async () => ({ status: 'ok' }));
-  app.get('/readyz', async () => {
-    await waitForDb(db, 1);
-    // The database answering is not the same as the schema being there.
-    // Before migrations existed this gap showed up as a 500 on the first
-    // real request instead of an honest "not ready".
-    const [row] = await db.execute<{ ready: boolean }>(sql`
-      SELECT to_regclass('public.works') IS NOT NULL
-         AND to_regclass('public.reads') IS NOT NULL AS ready
-    `);
-    if (!row?.ready) {
-      throw new ApiError(503, 'migrations_pending', 'Schema not applied. Run: npm run migrate');
-    }
-    return { status: 'ready' };
-  });
-
-  await app.register(identityRoutes(identity), { prefix: '/v1' });
-  await app.register(catalogRoutes(catalog), { prefix: '/v1' });
-  await app.register(readingRoutes(reading), { prefix: '/v1' });
 
   await app.listen({ port: config.port, host: config.host });
 

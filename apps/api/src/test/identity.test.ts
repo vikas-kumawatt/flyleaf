@@ -17,6 +17,7 @@ import {
 import { MemoryCache, MemoryEmailSender, PgRateLimiter, type Db } from '../platform/index.js';
 import { freshDrizzle } from './pg.js';
 import { ApiError } from '../http.js';
+import { registerCoreHooks } from '../app.js';
 
 describe('password hashing', () => {
   it('round-trips', async () => {
@@ -263,31 +264,8 @@ describe('Email verification and password reset (FN-65)', () => {
     service = new IdentityService(db, new PgRateLimiter(db), mailer);
 
     app = Fastify();
-    app.decorateRequest('viewer', null);
-    app.addHook('onRequest', async (req) => {
-      const header = req.headers.authorization;
-      if (header?.startsWith('Bearer ')) {
-        req.viewer = await service.lookup(header.slice(7).trim());
-      }
-    });
-    app.setErrorHandler((err, _req, reply) => {
-      if (err instanceof ApiError) {
-        return reply.status(err.status).send({
-          error: { code: err.code, message: err.message, field: err.field },
-        });
-      }
-      if ((err as any).validation) {
-        const v = (err as any).validation[0];
-        const field = v?.params?.missingProperty || v?.instancePath?.replace(/^\//, '') || undefined;
-        return reply.status(422).send({
-          error: {
-            code: 'invalid_field',
-            message: (err as Error).message,
-            ...(field ? { field } : {}),
-          },
-        });
-      }
-      return reply.status(500).send({ error: { code: 'internal', message: 'Internal error' } });
+    registerCoreHooks(app, {
+      identityLookup: (token) => service.lookup(token),
     });
     await app.register(identityRoutes(service), { prefix: '/v1' });
     await app.ready();

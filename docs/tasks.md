@@ -193,7 +193,13 @@
   - Created `packages/api-client` containing TypeScript interfaces and typed `FlyleafClient` with full endpoint coverage and standard error parsing (`FlyleafApiError`).
   - Connected `apps/mobile/src/lib/api.ts` to `@flyleaf/api-client`, replacing hand-written endpoint types and contracts with Fastify route schema bindings.
   - Added `api-client · build` and `api · spec check` to `scripts/ci.mjs`, ensuring CI breaks if schemas, `openapi.yaml`, or `@flyleaf/api-client` drift. 282 tests passing across 10 test suites in CI.
-- [ ] FN-82 Hook chain incl. the auth hook that never rejects (guests) — 0.5d
+- [x] **FN-82** Hook chain incl. the auth hook that never rejects (guests) — 0.5d
+  - Centralized Fastify hook chain and app factory in `apps/api/src/app.ts` (`registerCoreHooks` & `buildApp`).
+  - **Auth hook that never rejects (PRD §4.2, Architecture §3.3 & §7)**: Statelessly extracts Bearer token, populates `req.viewer` when valid, and falls back to `req.viewer = null` for guests. Never throws 401/500 on expired, forged, malformed, or missing tokens; protected endpoints enforce authentication explicitly via `requireViewer(req)`.
+  - **Correlation & defensive headers**: Injected `X-Request-Id` (propagating `req.id`), `X-Content-Type-Options: nosniff`, and `X-Frame-Options: DENY` on every response via `onSend` hook.
+  - **Error envelope & not found**: Centralized `setErrorHandler` mapping `ApiError` status/envelope, Fastify schema validation to 422 `invalid_field`, malformed JSON to 400 `invalid_json`, and unhandled errors to 500 `internal`. Uniform 404 handler.
+  - Refactored `server.ts` and test harnesses (`identity.test.ts`, `contract.test.ts`, `isbn.test.ts`, `authorization.test.ts`) to use shared core hooks.
+  - Dedicated 17-test suite in `apps/api/src/test/hooks.test.ts`; 330 tests passing across 12 test suites in full CI. All tasks in **API contract `FN-8x`** are now complete.
 
 ### Admin (early slice) — `FN-9x` · 2d
 - [ ] FN-90 Admin auth, separate from app accounts, 2FA — 0.5d

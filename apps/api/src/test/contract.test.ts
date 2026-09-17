@@ -20,7 +20,8 @@ import { catalogRoutes, CatalogService } from '../catalog/index.js';
 import { freshDrizzle } from './pg.js';
 import { MemoryCache, PgRateLimiter, type Db } from '../platform/index.js';
 import { works } from '../db/schema.js';
-import { ApiError, sendError } from '../http.js';
+import { ApiError } from '../http.js';
+import { registerCoreHooks } from '../app.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -106,17 +107,8 @@ describe('Typed FlyleafClient (FN-81)', () => {
     const readingService = new ReadingService(db);
 
     app = Fastify();
-    app.decorateRequest('viewer', null);
-    app.addHook('onRequest', async (req) => {
-      const header = req.headers.authorization;
-      if (header?.startsWith('Bearer ')) {
-        req.viewer = await identityService.lookup(header.slice(7).trim());
-      }
-    });
-    app.setErrorHandler((err, _req, reply) => {
-      if (err instanceof ApiError) return sendError(reply, err);
-      const message = err instanceof Error ? err.message : 'Something went wrong.';
-      return reply.status(500).send({ error: { code: 'internal', message } });
+    registerCoreHooks(app, {
+      identityLookup: (token) => identityService.lookup(token),
     });
 
     await app.register(identityRoutes(identityService), { prefix: '/v1' });
