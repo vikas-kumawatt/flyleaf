@@ -1,7 +1,8 @@
-// Minimal auth context. A null user is a GUEST, which is a legitimate state
-// and not an error — the whole point of PRD §4.2.
+// Minimal auth context (PRD §4.2, SL-04).
+// A null user is a GUEST, which is a legitimate state and not an error.
+
 import React, { createContext, useContext, useEffect, useState, useCallback } from 'react';
-import { api, clearToken, loadToken, saveToken, User } from './api';
+import { api, loadAccessToken, clearAllTokens, subscribeAuthChange, type User } from './api';
 
 type Ctx = {
   user: User | null;
@@ -20,29 +21,37 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     (async () => {
       try {
-        if (await loadToken()) setUser(await api.me());
+        const token = await loadAccessToken();
+        if (token) {
+          setUser(await api.me());
+        }
       } catch {
-        await clearToken();
+        await clearAllTokens();
       } finally {
         setReady(true);
       }
     })();
+
+    // Listen to token refresh expiration / logout events from api client
+    const unsubscribe = subscribeAuthChange((updatedUser) => {
+      setUser(updatedUser);
+    });
+
+    return () => unsubscribe();
   }, []);
 
   const signIn = useCallback(async (email: string, password: string) => {
-    const { user, token } = await api.login(email, password);
-    await saveToken(token);
-    setUser(user);
+    const res = await api.login(email, password);
+    setUser(res.user);
   }, []);
 
   const signUp = useCallback(async (email: string, username: string, password: string) => {
-    const { user, token } = await api.register(email, username, password);
-    await saveToken(token);
-    setUser(user);
+    const res = await api.register(email, username, password);
+    setUser(res.user);
   }, []);
 
   const signOut = useCallback(async () => {
-    await clearToken();
+    await api.logout();
     setUser(null);
   }, []);
 

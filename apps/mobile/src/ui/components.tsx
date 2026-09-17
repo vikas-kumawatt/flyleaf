@@ -1,81 +1,642 @@
-// Phase -1 component set. Deliberately small: enough to build four screens
-// with tokens rather than literals. The real design system is SL-02.
+// Flyleaf Design System Components (design.md §5, PRD §36-38, SL-02).
+//
+// Governed by: "The interface recedes; covers advance."
+// Near-monochrome with one accent. Every colour from tokens.
+// Touch targets >= 44x44 everywhere. Full Reanimated + gesture-handler motion.
 
-import React from 'react';
+import React, { useEffect } from 'react';
 import {
-  ActivityIndicator, Pressable, StyleSheet, Text, TextInput,
-  View, ViewStyle, TextStyle,
+  ActivityIndicator,
+  DimensionValue,
+  Modal,
+  Pressable,
+  StyleProp,
+  StyleSheet,
+  Text,
+  TextInput,
+  TextStyle,
+  View,
+  ViewStyle,
 } from 'react-native';
 import { Image } from 'expo-image';
 import * as Haptics from 'expo-haptics';
-import { cover, coverUrl, radius, space, type as t, useTheme } from './tokens';
+import Animated, {
+  useAnimatedStyle,
+  useSharedValue,
+  withSequence,
+  withSpring,
+  withTiming,
+  withRepeat,
+  Easing,
+} from 'react-native-reanimated';
+import { Gesture, GestureDetector } from 'react-native-gesture-handler';
+import {
+  ColorName,
+  cover,
+  coverUrl,
+  motion,
+  radius,
+  space,
+  type as t,
+  useTheme,
+} from './tokens';
 
-export function Screen({ children }: { children: React.ReactNode }) {
+// ---------------------------------------------------------------- Screen
+export function Screen({
+  children,
+  style,
+}: {
+  children: React.ReactNode;
+  style?: StyleProp<ViewStyle>;
+}) {
   const c = useTheme();
-  return <View style={{ flex: 1, backgroundColor: c.ground }}>{children}</View>;
+  return <View style={[{ flex: 1, backgroundColor: c.ground }, style]}>{children}</View>;
 }
 
+// ---------------------------------------------------------------- Txt
 export function Txt({
-  variant = 'body', color = 'ink', style, children, numberOfLines,
+  variant = 'body',
+  color = 'ink',
+  style,
+  children,
+  numberOfLines,
+  tabular = false,
 }: {
   variant?: keyof typeof t;
-  color?: 'ink' | 'ink2' | 'muted' | 'accent' | 'critical' | 'star';
-  style?: TextStyle;
+  color?: ColorName;
+  style?: StyleProp<TextStyle>;
   children: React.ReactNode;
   numberOfLines?: number;
+  tabular?: boolean;
 }) {
   const c = useTheme();
   return (
     <Text
       numberOfLines={numberOfLines}
-      style={[t[variant] as TextStyle, { color: c[color] }, style]}
+      style={[
+        t[variant] as TextStyle,
+        { color: c[color] },
+        tabular ? { fontVariant: ['tabular-nums'] } : null,
+        style,
+      ]}
     >
       {children}
     </Text>
   );
 }
 
+// ---------------------------------------------------------------- Button
+export type ButtonVariant = 'primary' | 'secondary' | 'tertiary' | 'text' | 'destructive';
+
 export function Button({
-  label, onPress, variant = 'primary', disabled, loading,
+  label,
+  onPress,
+  variant = 'primary',
+  disabled,
+  loading,
+  style,
 }: {
   label: string;
   onPress: () => void;
-  variant?: 'primary' | 'secondary' | 'text';
+  variant?: ButtonVariant;
   disabled?: boolean;
   loading?: boolean;
+  style?: StyleProp<ViewStyle>;
 }) {
   const c = useTheme();
-  const base: ViewStyle = {
-    minHeight: 48,                    // 44 minimum target, 48 for comfort
+
+  const baseStyle: ViewStyle = {
+    minHeight: 48,
+    minWidth: 44,
     paddingHorizontal: space[4],
     borderRadius: radius.md,
     alignItems: 'center',
     justifyContent: 'center',
+    flexDirection: 'row',
     opacity: disabled || loading ? 0.5 : 1,
   };
-  const styles: Record<string, ViewStyle> = {
-    primary: { ...base, backgroundColor: c.accent },
-    secondary: { ...base, borderWidth: 1, borderColor: c.accent },
-    text: { ...base, paddingHorizontal: space[2] },
+
+  const variantStyles: Record<ButtonVariant, ViewStyle> = {
+    primary: {
+      ...baseStyle,
+      backgroundColor: c.accent,
+    },
+    secondary: {
+      ...baseStyle,
+      backgroundColor: 'transparent',
+      borderWidth: 1,
+      borderColor: c.accent,
+    },
+    tertiary: {
+      ...baseStyle,
+      backgroundColor: 'transparent',
+      paddingHorizontal: space[2],
+    },
+    text: {
+      ...baseStyle,
+      backgroundColor: 'transparent',
+      paddingHorizontal: space[2],
+    },
+    destructive: {
+      ...baseStyle,
+      backgroundColor: 'transparent',
+      borderWidth: 1,
+      borderColor: c.critical,
+    },
   };
-  const fg = variant === 'primary' ? c.ground : c.accent;
+
+  const textColors: Record<ButtonVariant, string> = {
+    primary: c.ground,
+    secondary: c.accent,
+    tertiary: c.accent,
+    text: c.accent,
+    destructive: c.critical,
+  };
+
+  const fg = textColors[variant];
+
   return (
     <Pressable
-      onPress={onPress}
+      onPress={() => {
+        void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+        onPress();
+      }}
       disabled={disabled || loading}
       accessibilityRole="button"
       accessibilityLabel={label}
-      style={styles[variant]}
+      style={[variantStyles[variant], style]}
     >
-      {loading
-        ? <ActivityIndicator color={fg} />
-        : <Text style={{ ...(t.body as TextStyle), fontWeight: '600', color: fg }}>{label}</Text>}
+      {loading ? (
+        <ActivityIndicator color={fg} size="small" />
+      ) : (
+        <Text style={[t.body as TextStyle, { fontWeight: '600', color: fg }]}>{label}</Text>
+      )}
     </Pressable>
   );
 }
 
+// ---------------------------------------------------------------- Card
+export function Card({
+  children,
+  onPress,
+  style,
+}: {
+  children: React.ReactNode;
+  onPress?: () => void;
+  style?: StyleProp<ViewStyle>;
+}) {
+  const c = useTheme();
+  const cardStyle: ViewStyle = {
+    backgroundColor: c.surface,
+    borderColor: c.line,
+    borderWidth: 1,
+    borderRadius: radius.md,
+    padding: space[4],
+    gap: space[3],
+  };
+
+  return onPress ? (
+    <Pressable
+      onPress={() => {
+        void Haptics.selectionAsync();
+        onPress();
+      }}
+      accessibilityRole="button"
+      style={[cardStyle, style]}
+    >
+      {children}
+    </Pressable>
+  ) : (
+    <View style={[cardStyle, style]}>{children}</View>
+  );
+}
+
+// ---------------------------------------------------------------- Cover
+export function Cover({
+  coverId,
+  title,
+  author,
+  size = 'm',
+  style,
+}: {
+  coverId?: number | null;
+  title?: string;
+  author?: string;
+  size?: keyof typeof cover;
+  style?: StyleProp<ViewStyle>;
+}) {
+  const c = useTheme();
+  const dims = cover[size];
+  const remote = coverUrl(coverId, size === 'xl' || size === 'l' ? 'L' : size === 'm' ? 'M' : 'S');
+
+  return (
+    <View
+      style={[
+        dims,
+        {
+          borderRadius: radius.sm,
+          backgroundColor: c.surface2,
+          borderWidth: 1,
+          borderColor: c.line,
+          overflow: 'hidden',
+        },
+        style,
+      ]}
+      accessible
+      accessibilityRole="image"
+      accessibilityLabel={title ? `Cover of ${title}${author ? ` by ${author}` : ''}` : 'Book cover'}
+    >
+      {remote ? (
+        <Image
+          source={{ uri: remote }}
+          style={{ width: '100%', height: '100%' }}
+          contentFit="cover"
+          transition={200}
+          accessible={false}
+        />
+      ) : (
+        // Typographic poster placeholder when cover art is missing (design.md §10 The Wall)
+        <View
+          style={{
+            flex: 1,
+            padding: size === 'xs' ? 2 : space[2],
+            justifyContent: 'center',
+            alignItems: 'center',
+            backgroundColor: c.surface2,
+          }}
+        >
+          <Text
+            numberOfLines={size === 'xs' ? 1 : 3}
+            style={[
+              t.micro as TextStyle,
+              {
+                color: c.ink2,
+                textAlign: 'center',
+                fontSize: size === 'xs' ? 8 : 10,
+                lineHeight: size === 'xs' ? 10 : 13,
+              },
+            ]}
+          >
+            {title || 'Flyleaf'}
+          </Text>
+        </View>
+      )}
+    </View>
+  );
+}
+
+// ---------------------------------------------------------------- Stars & StarRating
+const starGlyph: TextStyle = { textAlign: 'center', includeFontPadding: false };
+
+export function Stars({
+  value,
+  onChange,
+  size = 32,
+}: {
+  value: number | null;
+  onChange?: (v: number) => void;
+  size?: number;
+}) {
+  const c = useTheme();
+  const readOnly = !onChange;
+  const v = value ?? 0;
+  const starScale = useSharedValue(1);
+
+  const starAnimatedStyle = useAnimatedStyle(() => ({
+    transform: [{ scale: starScale.value }],
+  }));
+
+  const handleRate = (target: number) => {
+    void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    starScale.value = withSequence(
+      withTiming(1.15, { duration: motion.star / 2 }),
+      withTiming(1, { duration: motion.star / 2 }),
+    );
+    onChange?.(target);
+  };
+
+  return (
+    <View
+      style={{ flexDirection: 'row', alignItems: 'center', gap: space[2] }}
+      accessible
+      accessibilityRole={readOnly ? 'text' : 'adjustable'}
+      accessibilityLabel={value ? `${value} out of 5 stars` : 'Not rated'}
+      accessibilityValue={{ min: 0, max: 5, now: value ?? 0 }}
+      accessibilityActions={
+        readOnly
+          ? undefined
+          : [
+              { name: 'increment', label: 'Half star up' },
+              { name: 'decrement', label: 'Half star down' },
+            ]
+      }
+      onAccessibilityAction={(e) => {
+        if (readOnly) return;
+        if (e.nativeEvent.actionName === 'increment') {
+          handleRate(Math.min(5, (value ?? 0) + 0.5));
+        } else if (e.nativeEvent.actionName === 'decrement') {
+          handleRate(Math.max(0.5, (value ?? 0) - 0.5));
+        }
+      }}
+    >
+      <Animated.View style={[{ flexDirection: 'row' }, starAnimatedStyle]}>
+        {[1, 2, 3, 4, 5].map((n) => {
+          const fill = v >= n ? size : v >= n - 0.5 ? size / 2 : 0;
+          return (
+            <View key={n} style={{ width: size, height: 44, justifyContent: 'center' }}>
+              <Text style={[starGlyph, { fontSize: size, width: size, color: c.lineStrong }]}>
+                ★
+              </Text>
+              {fill > 0 && (
+                <View
+                  pointerEvents="none"
+                  style={{
+                    position: 'absolute',
+                    left: 0,
+                    top: 0,
+                    bottom: 0,
+                    width: fill,
+                    overflow: 'hidden',
+                    justifyContent: 'center',
+                  }}
+                >
+                  <Text style={[starGlyph, { fontSize: size, width: size, color: c.star }]}>★</Text>
+                </View>
+              )}
+              {!readOnly && (
+                <>
+                  <Pressable
+                    onPress={() => handleRate(n - 0.5)}
+                    accessibilityLabel={`Rate ${n - 0.5} stars`}
+                    style={{
+                      position: 'absolute',
+                      top: 0,
+                      bottom: 0,
+                      left: 0,
+                      width: size / 2,
+                    }}
+                  />
+                  <Pressable
+                    onPress={() => handleRate(n)}
+                    accessibilityLabel={`Rate ${n} stars`}
+                    style={{
+                      position: 'absolute',
+                      top: 0,
+                      bottom: 0,
+                      left: size / 2,
+                      width: size / 2,
+                    }}
+                  />
+                </>
+              )}
+            </View>
+          );
+        })}
+      </Animated.View>
+      <Txt variant="caption" color="muted" tabular>
+        {value ? value.toFixed(1) : '—'}
+      </Txt>
+    </View>
+  );
+}
+
+// ---------------------------------------------------------------- Heart
+export function Heart({
+  hearted,
+  onToggle,
+  size = 28,
+}: {
+  hearted: boolean;
+  onToggle?: () => void;
+  size?: number;
+}) {
+  const c = useTheme();
+  const scale = useSharedValue(1);
+
+  const animatedStyle = useAnimatedStyle(() => ({
+    transform: [{ scale: scale.value }],
+  }));
+
+  const handlePress = () => {
+    if (!onToggle) return;
+    void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    scale.value = withSequence(
+      withTiming(1.3, { duration: motion.like / 2 }),
+      withTiming(1, { duration: motion.like / 2 }),
+    );
+    onToggle();
+  };
+
+  return (
+    <Pressable
+      onPress={handlePress}
+      disabled={!onToggle}
+      accessibilityRole="button"
+      accessibilityLabel={hearted ? 'Hearted. Remove heart' : 'Heart book'}
+      style={{ width: 44, height: 44, alignItems: 'center', justifyContent: 'center' }}
+    >
+      <Animated.View style={animatedStyle}>
+        <Text style={{ fontSize: size, color: hearted ? c.heart : c.lineStrong }}>
+          {hearted ? '♥' : '♡'}
+        </Text>
+      </Animated.View>
+    </Pressable>
+  );
+}
+
+// ---------------------------------------------------------------- ProgressBar
+export function ProgressBar({ percent }: { percent: number }) {
+  const c = useTheme();
+  const clamped = Math.max(0, Math.min(100, percent));
+  const animatedWidth = useSharedValue(clamped);
+
+  useEffect(() => {
+    animatedWidth.value = withTiming(clamped, {
+      duration: motion.progress,
+      easing: Easing.out(Easing.ease),
+    });
+  }, [clamped]);
+
+  const fillStyle = useAnimatedStyle(() => ({
+    width: `${animatedWidth.value}%` as DimensionValue,
+  }));
+
+  return (
+    <View
+      style={{
+        height: 6,
+        borderRadius: radius.pill,
+        backgroundColor: c.surface2,
+        overflow: 'hidden',
+      }}
+      accessible
+      accessibilityRole="progressbar"
+      accessibilityValue={{ min: 0, max: 100, now: Math.round(clamped) }}
+    >
+      <Animated.View
+        style={[
+          {
+            height: '100%',
+            backgroundColor: c.accent,
+            borderRadius: radius.pill,
+          },
+          fillStyle,
+        ]}
+      />
+    </View>
+  );
+}
+
+// ---------------------------------------------------------------- Skeleton
+export function Skeleton({
+  width,
+  height,
+  borderRadius = radius.sm,
+  style,
+}: {
+  width: number | DimensionValue;
+  height: number;
+  borderRadius?: number;
+  style?: StyleProp<ViewStyle>;
+}) {
+  const c = useTheme();
+  const opacity = useSharedValue(0.4);
+
+  useEffect(() => {
+    opacity.value = withRepeat(
+      withSequence(
+        withTiming(0.8, { duration: 800, easing: Easing.inOut(Easing.ease) }),
+        withTiming(0.4, { duration: 800, easing: Easing.inOut(Easing.ease) }),
+      ),
+      -1,
+      true,
+    );
+  }, []);
+
+  const animStyle = useAnimatedStyle(() => ({
+    opacity: opacity.value,
+  }));
+
+  return (
+    <Animated.View
+      style={[
+        {
+          width: width as any,
+          height,
+          borderRadius,
+          backgroundColor: c.surface2,
+        },
+        animStyle,
+        style,
+      ]}
+    />
+  );
+}
+
+// ---------------------------------------------------------------- EmptyState
+export function EmptyState({
+  title,
+  subtitle,
+  action,
+  style,
+}: {
+  title: string;
+  subtitle?: string;
+  action?: React.ReactNode;
+  style?: StyleProp<ViewStyle>;
+}) {
+  return (
+    <View style={[{ padding: space[8], alignItems: 'center', gap: space[3] }, style]}>
+      <Txt variant="title" color="ink" style={{ textAlign: 'center' }}>
+        {title}
+      </Txt>
+      {subtitle ? (
+        <Txt variant="body" color="muted" style={{ textAlign: 'center', maxWidth: 320 }}>
+          {subtitle}
+        </Txt>
+      ) : null}
+      {action ? <View style={{ marginTop: space[2] }}>{action}</View> : null}
+    </View>
+  );
+}
+
+// Alias for backwards compatibility
+export const Empty = EmptyState;
+
+// ---------------------------------------------------------------- SegmentedControl
+export function SegmentedControl<T extends string>({
+  values,
+  selected,
+  onSelect,
+  labels,
+}: {
+  values: readonly T[];
+  selected: T;
+  onSelect: (v: T) => void;
+  labels?: Record<T, string>;
+}) {
+  const c = useTheme();
+  return (
+    <View
+      style={{
+        flexDirection: 'row',
+        backgroundColor: c.surface2,
+        borderRadius: radius.md,
+        padding: 2,
+      }}
+      accessibilityRole="radiogroup"
+    >
+      {values.map((val) => {
+        const isSelected = selected === val;
+        return (
+          <Pressable
+            key={val}
+            onPress={() => {
+              void Haptics.selectionAsync();
+              onSelect(val);
+            }}
+            accessibilityRole="radio"
+            accessibilityState={{ selected: isSelected }}
+            style={{
+              flex: 1,
+              minHeight: 40,
+              alignItems: 'center',
+              justifyContent: 'center',
+              borderRadius: radius.sm,
+              backgroundColor: isSelected ? c.surface : 'transparent',
+              borderWidth: isSelected ? 1 : 0,
+              borderColor: isSelected ? c.line : 'transparent',
+            }}
+          >
+            <Text
+              style={[
+                t.body as TextStyle,
+                {
+                  fontSize: 14,
+                  fontWeight: isSelected ? '600' : '400',
+                  color: isSelected ? c.ink : c.muted,
+                },
+              ]}
+            >
+              {labels?.[val] ?? val}
+            </Text>
+          </Pressable>
+        );
+      })}
+    </View>
+  );
+}
+
+// ---------------------------------------------------------------- Field
 export function Field({
-  label, value, onChangeText, secureTextEntry, autoCapitalize = 'none', keyboardType, error,
+  label,
+  value,
+  onChangeText,
+  secureTextEntry,
+  autoCapitalize = 'none',
+  keyboardType,
+  error,
+  placeholder,
 }: {
   label: string;
   value: string;
@@ -84,11 +645,14 @@ export function Field({
   autoCapitalize?: 'none' | 'sentences';
   keyboardType?: 'default' | 'email-address' | 'number-pad';
   error?: string;
+  placeholder?: string;
 }) {
   const c = useTheme();
   return (
     <View style={{ gap: space[1] }}>
-      <Txt variant="micro" color="muted">{label.toUpperCase()}</Txt>
+      <Txt variant="micro" color="muted">
+        {label.toUpperCase()}
+      </Txt>
       <TextInput
         value={value}
         onChangeText={onChangeText}
@@ -96,6 +660,7 @@ export function Field({
         autoCapitalize={autoCapitalize}
         autoCorrect={false}
         keyboardType={keyboardType}
+        placeholder={placeholder}
         accessibilityLabel={label}
         placeholderTextColor={c.muted}
         style={{
@@ -106,160 +671,119 @@ export function Field({
           borderColor: error ? c.critical : c.line,
           backgroundColor: c.surface,
           color: c.ink,
-          ...(t.body as object),
+          fontSize: 15,
         }}
       />
-      {error ? <Txt variant="caption" color="critical">{error}</Txt> : null}
-    </View>
-  );
-}
-
-export function Cover({
-  coverId, size = 'm',
-}: { coverId?: number | null; size?: keyof typeof cover }) {
-  const c = useTheme();
-  const dims = cover[size];
-  // S for rows, M for grids, L only for the detail hero.
-  const remote = coverUrl(coverId, size === 'xl' || size === 'l' ? 'L' : size === 'm' ? 'M' : 'S');
-  return (
-    <View style={{
-      ...dims,
-      borderRadius: radius.sm,
-      backgroundColor: c.surface2,
-      borderWidth: 1,
-      borderColor: c.line,
-      overflow: 'hidden',
-    }}>
-      {remote ? (
-        <Image
-          source={{ uri: remote }}
-          style={{ width: '100%', height: '100%' }}
-          contentFit="cover"
-          transition={200}
-          accessible={false}
-        />
+      {error ? (
+        <Txt variant="caption" color="critical">
+          {error}
+        </Txt>
       ) : null}
     </View>
   );
 }
 
-// Centring the glyph in a box exactly `size` wide is what makes the half
-// star work: whatever the font's actual advance width, the glyph's centre
-// lands on the box's centre, so clipping at size/2 always cuts it in half.
-const starGlyph: TextStyle = { textAlign: 'center', includeFontPadding: false };
-
-// Half-star control. The most-repeated interaction in the product, so it gets
-// the extra hit area and the numeral beside it from day one (design.md §5).
-export function Stars({
-  value, onChange, size = 32,
-}: { value: number | null; onChange?: (v: number) => void; size?: number }) {
+// ---------------------------------------------------------------- Sheet
+export function BottomSheet({
+  visible,
+  onClose,
+  title,
+  children,
+}: {
+  visible: boolean;
+  onClose: () => void;
+  title?: string;
+  children: React.ReactNode;
+}) {
   const c = useTheme();
-  const readOnly = !onChange;
-  const v = value ?? 0;
+  const translateY = useSharedValue(600);
+
+  useEffect(() => {
+    if (visible) {
+      translateY.value = withSpring(0, { damping: motion.sheet.damping });
+    } else {
+      translateY.value = withTiming(600, { duration: 250 });
+    }
+  }, [visible]);
+
+  const pan = Gesture.Pan()
+    .onUpdate((e) => {
+      if (e.translationY > 0) {
+        translateY.value = e.translationY;
+      }
+    })
+    .onEnd((e) => {
+      if (e.translationY > 120 || e.velocityY > 600) {
+        translateY.value = withTiming(600, { duration: 200 });
+        onClose();
+      } else {
+        translateY.value = withSpring(0, { damping: motion.sheet.damping });
+      }
+    });
+
+  const sheetAnimStyle = useAnimatedStyle(() => ({
+    transform: [{ translateY: translateY.value }],
+  }));
+
+  if (!visible) return null;
 
   return (
-    <View
-      style={{ flexDirection: 'row', alignItems: 'center', gap: space[2] }}
-      accessible
-      accessibilityRole={readOnly ? 'text' : 'adjustable'}
-      accessibilityLabel={value ? `${value} out of 5 stars` : 'Not rated'}
-    >
-      <View style={{ flexDirection: 'row' }}>
-        {[1, 2, 3, 4, 5].map((n) => {
-          // How much of THIS star is gold: all of it, half, or none.
-          const fill = v >= n ? size : v >= n - 0.5 ? size / 2 : 0;
-          return (
-            <View key={n} style={{ width: size, height: 44, justifyContent: 'center' }}>
-              {/* ONE glyph, drawn twice: grey underneath, gold on top and
-                  clipped. The previous version stacked a '★' layer and a
-                  '☆'/'⯨' layer, which showed through each other, and '⯨'
-                  is not in the Android system font anyway. */}
-              <Text style={[starGlyph, { fontSize: size, width: size, color: c.lineStrong }]}>★</Text>
-              {fill > 0 && (
-                <View
-                  pointerEvents="none"
-                  style={{
-                    position: 'absolute', left: 0, top: 0, bottom: 0,
-                    width: fill, overflow: 'hidden', justifyContent: 'center',
-                  }}
-                >
-                  <Text style={[starGlyph, { fontSize: size, width: size, color: c.star }]}>★</Text>
-                </View>
-              )}
-              {/* Left half sets n-0.5, right half sets n. Full 44pt height,
-                  so the target is comfortable even though the glyph is not. */}
-              {!readOnly && [n - 0.5, n].map((target, i) => (
-                <Pressable
-                  key={target}
-                  onPress={() => {
-                    void Haptics.selectionAsync();
-                    onChange?.(target);
-                  }}
-                  accessibilityLabel={`Rate ${target} ${target === 1 ? 'star' : 'stars'}`}
-                  style={{
-                    position: 'absolute', top: 0, bottom: 0,
-                    left: i === 0 ? 0 : size / 2, width: size / 2,
-                  }}
-                />
-              ))}
+    <Modal visible={visible} transparent animationType="none" onRequestClose={onClose}>
+      <View style={{ flex: 1, justifyContent: 'flex-end' }}>
+        <Pressable
+          onPress={onClose}
+          accessibilityLabel="Dismiss sheet"
+          style={[StyleSheet.absoluteFill, { backgroundColor: c.overlay }]}
+        />
+        <GestureDetector gesture={pan}>
+          <Animated.View
+            style={[
+              {
+                backgroundColor: c.surface,
+                borderTopLeftRadius: radius.lg,
+                borderTopRightRadius: radius.lg,
+                borderWidth: 1,
+                borderColor: c.line,
+                paddingBottom: space[8],
+                maxHeight: '90%',
+              },
+              sheetAnimStyle,
+            ]}
+          >
+            {/* Grabber handle */}
+            <View style={{ alignItems: 'center', paddingVertical: space[2] }}>
+              <View
+                style={{
+                  width: 36,
+                  height: 4,
+                  borderRadius: radius.pill,
+                  backgroundColor: c.lineStrong,
+                }}
+              />
             </View>
-          );
-        })}
+            {title ? (
+              <View
+                style={{
+                  paddingHorizontal: space[4],
+                  paddingBottom: space[3],
+                  borderBottomWidth: 1,
+                  borderBottomColor: c.line,
+                }}
+              >
+                <Txt variant="title">{title}</Txt>
+              </View>
+            ) : null}
+            <View style={{ padding: space[4] }}>{children}</View>
+          </Animated.View>
+        </GestureDetector>
       </View>
-      {/* Colour is never the sole carrier of meaning (design.md §9). */}
-      <Txt variant="caption" color="muted">{value ? value.toFixed(1) : '—'}</Txt>
-    </View>
+    </Modal>
   );
 }
 
-export function ProgressBar({ percent }: { percent: number }) {
-  const c = useTheme();
-  return (
-    <View style={{
-      height: 6, borderRadius: radius.pill, backgroundColor: c.surface2, overflow: 'hidden',
-    }}>
-      <View style={{
-        height: '100%',
-        width: `${Math.max(0, Math.min(100, percent))}%`,
-        backgroundColor: c.accent,
-        borderRadius: radius.pill,
-      }} />
-    </View>
-  );
-}
-
-export function Card({ children, onPress }: { children: React.ReactNode; onPress?: () => void }) {
-  const c = useTheme();
-  const style: ViewStyle = {
-    backgroundColor: c.surface,
-    borderColor: c.line,
-    borderWidth: 1,
-    borderRadius: radius.md,
-    padding: space[4],
-    gap: space[3],
-  };
-  return onPress
-    ? <Pressable onPress={onPress} style={style}>{children}</Pressable>
-    : <View style={style}>{children}</View>;
-}
-
-// Never a shrug. Always content or one concrete action (design.md §5).
-export function Empty({ title, action }: { title: string; action?: React.ReactNode }) {
-  return (
-    <View style={{ padding: space[8], alignItems: 'center', gap: space[4] }}>
-      <Txt variant="bodyL" color="ink2" style={{ textAlign: 'center' }}>{title}</Txt>
-      {action}
-    </View>
-  );
-}
-
+// Layout helper styles
 export const sheet = StyleSheet.create({
   pad: { padding: space[4], gap: space[4] },
   row: { flexDirection: 'row', alignItems: 'center', gap: space[3] },
-  // Top-aligned row, registered as its own style rather than composed
-  // inline. `<Link asChild>` clones its child and merges props into it, and
-  // it rejects a child whose `style` is an ARRAY — so `[sheet.row, {...}]`
-  // throws inside renderItem and takes the whole list down with it.
-  // Being a single style also stops FlatList allocating a new array per row.
   rowTop: { flexDirection: 'row', alignItems: 'flex-start', gap: space[3] },
 });

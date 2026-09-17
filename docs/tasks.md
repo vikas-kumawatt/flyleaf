@@ -246,12 +246,12 @@
 ## Phase 1 — Solo loop · `SL` · 40d
 
 ### Client foundation — `SL-0x` · 6d
-- [ ] **SL-00** ⚠️ Run `npx expo install --check` and `npx expo-doctor` before adding any mobile dependency. Expo Go rejects a project whose native module versions differ from what it ships — pin from `bundledNativeModules.json`, never npm `latest` — 0.25d
-- [ ] **SL-01** Expo Router shell, 5 tabs + centre FAB — 1d
-- [ ] **SL-02** Design system from `design.md`: tokens, Button, Card, Sheet, Cover, StarRating, Heart, ProgressBar, Skeleton, EmptyState — Reanimated + gesture-handler — 3d
-- [ ] **SL-03** API client wiring, TanStack Query, error surface — 0.5d
-- [ ] **SL-04** `expo-secure-store` refresh token; 401 → refresh interceptor — 1d
-- [ ] SL-05 Theme switching, system default, both palettes verified — 0.5d
+- [x] **SL-00** ⚠️ Run `npx expo install --check` and `npx expo-doctor` before adding any mobile dependency. Expo Go rejects a project whose native module versions differ from what it ships — pin from `bundledNativeModules.json`, never npm `latest` — 0.25d
+- [x] **SL-01** Expo Router shell, 5 tabs + centre FAB — 1d
+- [x] **SL-02** Design system from `design.md`: tokens, Button, Card, Sheet, Cover, StarRating, Heart, ProgressBar, Skeleton, EmptyState — Reanimated + gesture-handler — 3d
+- [x] **SL-03** API client wiring, TanStack Query, error surface — 0.5d
+- [x] **SL-04** `expo-secure-store` refresh token; 401 → refresh interceptor — 1d
+- [x] **SL-05** Theme switching, system default, both palettes verified — 0.5d
 
 ### Offline — `SL-1x` · 6d
 - [ ] **SL-10** ⚠️ SQLite schema mirroring reads + progress_events — 1d

@@ -4,7 +4,7 @@
 // and an interface with its own strong colour fights every one of them.
 // The colour in this product comes from the books.
 
-import { useColorScheme } from 'react-native';
+import { TextStyle } from 'react-native';
 
 export const palette = {
   ground:     { light: '#F7F7F5', dark: '#0F1113' },
@@ -21,20 +21,32 @@ export const palette = {
   heart:      { light: '#A8443A', dark: '#D9756A' },
   positive:   { light: '#2E6B4E', dark: '#6DB68B' },
   critical:   { light: '#93441D', dark: '#D4906A' },
+  overlay:    { light: 'rgba(20,22,26,0.4)', dark: 'rgba(0,0,0,0.6)' },
 } as const;
 
 export type ColorName = keyof typeof palette;
 export type Theme = Record<ColorName, string>;
 
-export function useTheme(): Theme {
-  const scheme = useColorScheme() === 'dark' ? 'dark' : 'light';
-  return Object.fromEntries(
-    Object.entries(palette).map(([k, v]) => [k, v[scheme]]),
-  ) as Theme;
-}
+// Re-export useTheme from theme provider
+export { useTheme, useThemeContext, ThemeProvider, type ThemeMode } from './theme';
 
-export const space = { 1: 4, 2: 8, 3: 12, 4: 16, 6: 24, 8: 32, 12: 48, 16: 64 } as const;
-export const radius = { sm: 6, md: 12, lg: 16, pill: 999 } as const;
+export const space = {
+  1: 4,
+  2: 8,
+  3: 12,
+  4: 16,
+  6: 24,
+  8: 32,
+  12: 48,
+  16: 64,
+} as const;
+
+export const radius = {
+  sm: 6,
+  md: 12,
+  lg: 16,
+  pill: 999,
+} as const;
 
 // 2:3, always. Placeholders render at the same ratio so grids never jump.
 export const cover = {
@@ -45,19 +57,79 @@ export const cover = {
   xl: { width: 180, height: 270 },
 } as const;
 
-// Phase -1 uses system faces. Literata and Archivo land with the design
-// system in SL-02; the SCALE below is already the real one.
-export const type = {
-  displayL: { fontSize: 34, lineHeight: 40, fontWeight: '600' },
-  displayM: { fontSize: 26, lineHeight: 32, fontWeight: '600' },
-  title:    { fontSize: 20, lineHeight: 26, fontWeight: '600' },
-  bodyL:    { fontSize: 17, lineHeight: 26, fontWeight: '400' },
-  body:     { fontSize: 15, lineHeight: 22, fontWeight: '400' },
-  caption:  { fontSize: 13, lineHeight: 18, fontWeight: '400' },
-  micro:    { fontSize: 11, lineHeight: 14, fontWeight: '500', letterSpacing: 0.9 },
-} as const;
+// Font families matching design.md §3:
+// Display & review body: Literata (fallback Georgia / serif)
+// UI & metadata: Archivo (fallback System / sans-serif)
+export const fontFamilies = {
+  displaySemiBold: 'Literata_600SemiBold',
+  displayRegular: 'Literata_400Regular',
+  uiSemiBold: 'Archivo_600SemiBold',
+  uiMedium: 'Archivo_500Medium',
+  uiRegular: 'Archivo_400Regular',
+};
 
-export const motion = { push: 280, progress: 400, star: 150, like: 200 } as const;
+// Typography scale (design.md §3, scale 1:1)
+export const type = {
+  displayL: {
+    fontFamily: fontFamilies.displaySemiBold,
+    fontSize: 34,
+    lineHeight: 40,
+    fontWeight: '600' as const,
+  },
+  displayM: {
+    fontFamily: fontFamilies.displaySemiBold,
+    fontSize: 26,
+    lineHeight: 32,
+    fontWeight: '600' as const,
+  },
+  title: {
+    fontFamily: fontFamilies.uiSemiBold,
+    fontSize: 20,
+    lineHeight: 26,
+    fontWeight: '600' as const,
+  },
+  bodyL: {
+    // Review body - serif for bookish feel
+    fontFamily: fontFamilies.displayRegular,
+    fontSize: 17,
+    lineHeight: 26,
+    fontWeight: '400' as const,
+  },
+  body: {
+    fontFamily: fontFamilies.uiRegular,
+    fontSize: 15,
+    lineHeight: 22,
+    fontWeight: '400' as const,
+  },
+  caption: {
+    fontFamily: fontFamilies.uiRegular,
+    fontSize: 13,
+    lineHeight: 18,
+    fontWeight: '400' as const,
+  },
+  micro: {
+    fontFamily: fontFamilies.uiMedium,
+    fontSize: 11,
+    lineHeight: 14,
+    fontWeight: '500' as const,
+    letterSpacing: 0.9,
+  },
+} satisfies Record<string, TextStyle>;
+
+// Tabular numbers style for aligning stats and page counts
+export const tabularNums: TextStyle = {
+  fontVariant: ['tabular-nums'],
+};
+
+export const motion = {
+  push: 280,
+  sheet: { damping: 0.8 },
+  progress: 400,
+  star: 150,
+  like: 200,
+  statsReveal: 600,
+  stagger: 40,
+} as const;
 
 // Covers are served straight from Open Library's CDN at the size the surface
 // renders. Never request L for a grid (architecture.md §5.3, stage 1).

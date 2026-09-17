@@ -6,10 +6,8 @@
     "version": "0.0.1",
     "orientation": "portrait",
     "userInterfaceStyle": "automatic",
-    "newArchEnabled": true,
     "android": {
       "package": "app.flyleaf.skeleton",
-      "edgeToEdgeEnabled": true,
       "permissions": [
         "android.permission.CAMERA",
         "android.permission.RECORD_AUDIO"
@@ -29,13 +27,15 @@
         {
           "cameraPermission": "Flyleaf uses the camera to scan book barcodes."
         }
-      ]
+      ],
+      "expo-image",
+      "expo-sqlite"
     ],
     "experiments": {
       "typedRoutes": true
     },
     "extra": {
-      "_apiUrlNote": "Optional override. Leave unset \u2014 src/lib/api.ts derives the host from Expo's dev server.",
+      "_apiUrlNote": "Optional override. Leave unset — src/lib/api.ts derives the host from Expo's dev server.",
       "router": {},
       "eas": {
         "projectId": "1458ebc2-9f8c-461d-8c77-777a72b0b7e9"
