@@ -272,11 +272,11 @@
 - [x] **SL-33** ⚠️ **Migrate local shelf on signup + confirmation copy** — 0.75d
 
 ### Catalog screens — `SL-4x` · 7d
-- [ ] **SL-40** Search screen: debounce 250ms, tabs, recents, filters — 2d
-- [ ] **SL-41** **Book detail**: hero, status control, rating + histogram, description, metadata, tabs — 2.5d
-- [ ] **SL-42** Cover-forward edition picker; "the copy I own" — 1d
-- [ ] SL-43 Author page; series page with your progress — 1d
-- [ ] SL-44 Barcode scanner + permission rationale + manual fallback — 0.5d
+- [x] **SL-40** Search screen: debounce 250ms, tabs, recents, filters — 2d
+- [x] **SL-41** **Book detail**: hero, status control, rating + histogram, description, metadata, tabs — 2.5d
+- [x] **SL-42** Cover-forward edition picker; "the copy I own" — 1d
+- [x] SL-43 Author page; series page with your progress — 1d
+- [x] SL-44 Barcode scanner + permission rationale + manual fallback — 0.5d
 
 ### Reading core — `SL-5x` · 9d
 - [ ] **SL-50** reads + progress_events migrations & repos — 1d

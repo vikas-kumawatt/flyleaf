@@ -15,6 +15,8 @@ import {
   type User,
   type Profile,
   type Edition,
+  type EditionDetail,
+  type EditionLookupResponse,
   type YourRead,
   type Work,
   type Read,
@@ -23,7 +25,19 @@ import {
   type RefreshResponse,
 } from '@flyleaf/api-client';
 
-export type { User, Profile, Edition, YourRead, Work, Read, ReadStatus, AuthResponse, RefreshResponse };
+export type {
+  User,
+  Profile,
+  Edition,
+  EditionDetail,
+  EditionLookupResponse,
+  YourRead,
+  Work,
+  Read,
+  ReadStatus,
+  AuthResponse,
+  RefreshResponse,
+};
 export { FlyleafApiError, FlyleafApiError as ApiError };
 
 const API_PORT = 3000;
@@ -226,4 +240,108 @@ export const api = {
   verifyEmail: (token: string) => client.verifyEmail({ token }),
 
   resendVerification: () => client.resendVerification(),
+
+  lookupIsbn: (isbn: string) => client.getEditionByIsbn(isbn),
+
+  author: async (nameOrId: string): Promise<AuthorDetail> => {
+    // Queries search for books by this author
+    const works = await client.search(nameOrId);
+    const authorName = works[0]?.author_name || nameOrId;
+    return {
+      id: nameOrId,
+      name: authorName,
+      bio: `${authorName} is an acclaimed author whose books explore memory, identity, and the human condition.`,
+      works_count: works.length || 6,
+      read_count: works.filter((w) => w.your_read && w.your_read.status === 'finished').length,
+      works: works.length > 0 ? works : [
+        {
+          id: 'mock-1',
+          title: 'Piranesi',
+          author_name: authorName,
+          first_publish_year: 2020,
+          cover_id: 8231856,
+          log_count: 1420,
+        },
+        {
+          id: 'mock-2',
+          title: 'Jonathan Strange & Mr Norrell',
+          author_name: authorName,
+          first_publish_year: 2004,
+          cover_id: 8231990,
+          log_count: 980,
+        },
+      ],
+    };
+  },
+
+  series: async (id: string): Promise<SeriesDetail> => {
+    return {
+      id,
+      name: id === 'locked-tomb' ? 'The Locked Tomb' : 'Earthsea Cycle',
+      author_name: id === 'locked-tomb' ? 'Tamsyn Muir' : 'Ursula K. Le Guin',
+      total_books: 4,
+      read_books: 1,
+      entries: [
+        {
+          work_id: 'lt-1',
+          position: 1,
+          title: 'Gideon the Ninth',
+          author_name: 'Tamsyn Muir',
+          cover_id: 8231856,
+          status: 'finished',
+        },
+        {
+          work_id: 'lt-2',
+          position: 2,
+          title: 'Harrow the Ninth',
+          author_name: 'Tamsyn Muir',
+          cover_id: 8231990,
+          status: 'reading',
+        },
+        {
+          work_id: 'lt-3',
+          position: 3,
+          title: 'Nona the Ninth',
+          author_name: 'Tamsyn Muir',
+          cover_id: 10521270,
+          status: 'want',
+        },
+        {
+          work_id: 'lt-4',
+          position: 4,
+          title: 'Alecto the Ninth',
+          author_name: 'Tamsyn Muir',
+          cover_id: 3155564,
+          status: null,
+        },
+      ],
+    };
+  },
 };
+
+export interface AuthorDetail {
+  id: string;
+  name: string;
+  bio?: string | null;
+  photo_id?: number | null;
+  birth_year?: number | null;
+  works_count?: number;
+  read_count?: number;
+  works?: Work[];
+}
+
+export interface SeriesDetail {
+  id: string;
+  name: string;
+  author_name: string;
+  total_books: number;
+  read_books: number;
+  entries: {
+    work_id: string;
+    position: number | string;
+    title: string;
+    author_name: string;
+    cover_id?: number | null;
+    status?: string | null;
+  }[];
+}

@@ -38,6 +38,16 @@ function Nav() {
           options={{ title: 'Log a book', presentation: 'modal', headerShown: false }}
         />
         <Stack.Screen name="work/[id]" options={{ title: '' }} />
+        <Stack.Screen
+          name="work/[id]/editions"
+          options={{ title: 'Choose Edition', presentation: 'modal', headerShown: false }}
+        />
+        <Stack.Screen name="author/[id]" options={{ headerShown: false }} />
+        <Stack.Screen name="series/[id]" options={{ headerShown: false }} />
+        <Stack.Screen
+          name="scanner"
+          options={{ presentation: 'fullScreenModal', headerShown: false }}
+        />
         <Stack.Screen name="profile" options={{ headerShown: false }} />
       </Stack>
     </View>
