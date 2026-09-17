@@ -54,6 +54,7 @@ const STEPS = [
   { name: 'api · build', cwd: 'apps/api', args: ['run', 'build'] },
   { name: 'api · audit', cwd: 'apps/api', args: ['audit', '--audit-level=high'] },
   { name: 'mobile · typecheck', cwd: 'apps/mobile', args: ['run', 'typecheck'] },
+  { name: 'mobile · offline tests', cwd: 'apps/mobile', args: ['test'] },
   {
     name: 'api · migrations on a real Postgres',
     cwd: 'apps/api',

@@ -254,11 +254,11 @@
 - [x] **SL-05** Theme switching, system default, both palettes verified — 0.5d
 
 ### Offline — `SL-1x` · 6d
-- [ ] **SL-10** ⚠️ SQLite schema mirroring reads + progress_events — 1d
-- [ ] **SL-11** ⚠️ **Mutation queue: persist, replay, backoff, dead-letter** — 2d
-- [ ] **SL-12** ⚠️ `client_event_id` generation + idempotent replay — 0.5d
-- [ ] **SL-13** ⚠️ **Offline queue test suite incl. simulated process death** — 1.5d
-- [ ] SL-14 Sync-on-foreground and on reconnect; unsynced indicator — 1d
+- [x] **SL-10** ⚠️ SQLite schema mirroring reads + progress_events — 1d
+- [x] **SL-11** ⚠️ **Mutation queue: persist, replay, backoff, dead-letter** — 2d
+- [x] **SL-12** ⚠️ `client_event_id` generation + idempotent replay — 0.5d
+- [x] **SL-13** ⚠️ **Offline queue test suite incl. simulated process death** — 1.5d
+- [x] SL-14 Sync-on-foreground and on reconnect; unsynced indicator — 1d
 
 ### Auth screens — `SL-2x` · 3d
 - [ ] SL-20 Welcome carousel with "Look around first" — 0.5d
