@@ -249,7 +249,7 @@ describe('Offline Mutation Queue & Mirroring', () => {
     // Verify visible via dead-letter recovery methods
     const deadLetters = await queue.getDeadLetters();
     assert.equal(deadLetters.length, 1);
-    assert.equal(deadLetters[0].id, m.id);
+    assert.equal(deadLetters[0]!.id, m.id);
 
     // Verify retryDeadLetter resets back to pending
     await queue.retryDeadLetter(m.id);
