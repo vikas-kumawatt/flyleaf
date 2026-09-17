@@ -110,4 +110,15 @@ CREATE TABLE IF NOT EXISTS mutation_queue (
 
 CREATE INDEX IF NOT EXISTS idx_queue_status_retry ON mutation_queue(status, next_retry_at);
 CREATE INDEX IF NOT EXISTS idx_queue_entity ON mutation_queue(entity_id, created_at);
+
+CREATE TABLE IF NOT EXISTS guest_want_to_read (
+  work_id TEXT PRIMARY KEY,
+  title TEXT NOT NULL,
+  author_name TEXT NOT NULL,
+  cover_id INTEGER,
+  first_publish_year INTEGER,
+  format TEXT,
+  added_at TEXT NOT NULL
+);
 `;
+

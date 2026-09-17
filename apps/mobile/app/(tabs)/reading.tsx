@@ -28,6 +28,135 @@ export default function ReadingScreen() {
   const { user } = useSession();
   const [section, setSection] = useState<'reading' | 'want_to_read' | 'diary'>('reading');
 
+  if (!user) {
+    return (
+      <Screen>
+        <View
+          style={{
+            paddingTop: Math.max(insets.top, space[4]),
+            paddingHorizontal: space[4],
+            paddingBottom: space[3],
+            backgroundColor: c.ground,
+            borderBottomWidth: 1,
+            borderBottomColor: c.line,
+          }}
+        >
+          <Txt variant="displayM">Reading</Txt>
+        </View>
+
+        <ScrollView
+          contentContainerStyle={{
+            padding: space[4],
+            paddingBottom: space[12],
+            gap: space[6],
+          }}
+        >
+          {/* Upsell Header & Value Prop */}
+          <View style={{ gap: space[2], marginTop: space[2] }}>
+            <Txt variant="title">Your quiet reading sanctuary</Txt>
+            <Txt variant="body" color="muted" style={{ lineHeight: 22 }}>
+              Track daily pages without social noise. Predict finish dates, log private reading
+              notes, and keep your personal diary forever.
+            </Txt>
+          </View>
+
+          {/* Interactive Preview of What Reading Tab Looks Like */}
+          <View style={{ gap: space[2] }}>
+            <View style={[sheet.row, { justifyContent: 'space-between' }]}>
+              <Txt variant="micro" color="muted">
+                SAMPLE READING LOG
+              </Txt>
+              <View
+                style={{
+                  backgroundColor: c.accentSoft,
+                  paddingHorizontal: space[2],
+                  paddingVertical: 2,
+                  borderRadius: 4,
+                }}
+              >
+                <Txt variant="micro" color="accent" style={{ fontWeight: '600' }}>
+                  PREVIEW
+                </Txt>
+              </View>
+            </View>
+
+            <Card style={{ opacity: 0.95 }}>
+              <View style={sheet.rowTop}>
+                <Cover coverId={8231856} title="Piranesi" author="Susanna Clarke" size="l" />
+                <View style={{ flex: 1, gap: space[2], justifyContent: 'space-between' }}>
+                  <View style={{ gap: space[1] }}>
+                    <Txt variant="title" numberOfLines={1}>
+                      Piranesi
+                    </Txt>
+                    <Txt variant="caption" color="muted">
+                      Susanna Clarke
+                    </Txt>
+                  </View>
+
+                  <View style={{ gap: space[2] }}>
+                    <View style={[sheet.row, { justifyContent: 'space-between' }]}>
+                      <Txt variant="caption" color="ink2" tabular>
+                        Page 168 of 245
+                      </Txt>
+                      <Txt variant="caption" color="muted" tabular>
+                        68%
+                      </Txt>
+                    </View>
+                    <ProgressBar percent={68} />
+                    <Txt variant="micro" color="muted">
+                      Estimated finish: 2 days
+                    </Txt>
+                  </View>
+                </View>
+              </View>
+
+              <View
+                style={[
+                  sheet.row,
+                  { justifyContent: 'flex-end', gap: space[2], marginTop: space[3] },
+                ]}
+              >
+                <Button
+                  label="+10 pages"
+                  variant="secondary"
+                  disabled
+                  onPress={() => {}}
+                  style={{ minHeight: 36, paddingHorizontal: space[3], opacity: 0.7 }}
+                />
+                <Button
+                  label="Update"
+                  variant="primary"
+                  disabled
+                  onPress={() => {}}
+                  style={{ minHeight: 36, paddingHorizontal: space[3], opacity: 0.7 }}
+                />
+              </View>
+            </Card>
+          </View>
+
+          {/* Call to action */}
+          <View style={{ gap: space[3], marginTop: space[3] }}>
+            <Button
+              label="Create an account to start tracking"
+              variant="primary"
+              onPress={() => router.push('/auth')}
+            />
+            <Button
+              label="Sign in"
+              variant="secondary"
+              onPress={() => router.push('/auth')}
+            />
+            <Button
+              label="Explore books first"
+              variant="tertiary"
+              onPress={() => router.push('/discover')}
+            />
+          </View>
+        </ScrollView>
+      </Screen>
+    );
+  }
+
   return (
     <Screen>
       {/* Header */}

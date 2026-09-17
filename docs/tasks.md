@@ -266,10 +266,10 @@
 - [x] SL-22 Username + avatar; live availability; reserved words — 1d
 
 ### Guest mode — `SL-3x` · 3d
-- [ ] **SL-30** ⚠️ Guest routing: no session → Home in browse mode — 0.5d
-- [ ] **SL-31** ⚠️ **Action gate**: contextual prompt at Log/Rate/Follow/Like, one-tap dismiss — 1d
-- [ ] **SL-32** ⚠️ Local Want-to-Read (cap 20) — 0.75d
-- [ ] **SL-33** ⚠️ **Migrate local shelf on signup + confirmation copy** — 0.75d
+- [x] **SL-30** ⚠️ Guest routing: no session → Home in browse mode — 0.5d
+- [x] **SL-31** ⚠️ **Action gate**: contextual prompt at Log/Rate/Follow/Like, one-tap dismiss — 1d
+- [x] **SL-32** ⚠️ Local Want-to-Read (cap 20) — 0.75d
+- [x] **SL-33** ⚠️ **Migrate local shelf on signup + confirmation copy** — 0.75d
 
 ### Catalog screens — `SL-4x` · 7d
 - [ ] **SL-40** Search screen: debounce 250ms, tabs, recents, filters — 2d

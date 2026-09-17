@@ -13,6 +13,8 @@ import { Tabs, useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
+import { useSession } from '@/lib/session';
+import { useActionGate } from '@/ui/ActionGate';
 import { useTheme, radius, space, type as t } from '@/ui/tokens';
 
 function TabBarItem({
@@ -70,6 +72,8 @@ export default function TabLayout() {
   const c = useTheme();
   const router = useRouter();
   const insets = useSafeAreaInsets();
+  const { user } = useSession();
+  const { promptAuth } = useActionGate();
 
   return (
     <Tabs
@@ -122,6 +126,14 @@ export default function TabLayout() {
               <Pressable
                 onPress={() => {
                   void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+                  if (!user) {
+                    promptAuth({
+                      title: 'Sign up to log a book',
+                      subtitle:
+                        'Record what you read, track your progress, and build your private library.',
+                    });
+                    return;
+                  }
                   router.push('/log');
                 }}
                 accessibilityRole="button"

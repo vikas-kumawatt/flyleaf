@@ -3,6 +3,7 @@
 
 import React, { createContext, useContext, useEffect, useState, useCallback } from 'react';
 import { api, loadAccessToken, clearAllTokens, subscribeAuthChange, type User } from './api';
+import { guestManager } from './guest';
 
 type Ctx = {
   user: User | null;
@@ -23,7 +24,9 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
       try {
         const token = await loadAccessToken();
         if (token) {
-          setUser(await api.me());
+          const me = await api.me();
+          setUser(me);
+          void guestManager.migrateToServer(api);
         }
       } catch {
         await clearAllTokens();
@@ -35,6 +38,9 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
     // Listen to token refresh expiration / logout events from api client
     const unsubscribe = subscribeAuthChange((updatedUser) => {
       setUser(updatedUser);
+      if (updatedUser) {
+        void guestManager.migrateToServer(api);
+      }
     });
 
     return () => unsubscribe();
@@ -43,11 +49,13 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
   const signIn = useCallback(async (email: string, password: string) => {
     const res = await api.login(email, password);
     setUser(res.user);
+    await guestManager.migrateToServer(api);
   }, []);
 
   const signUp = useCallback(async (email: string, username: string, password: string) => {
     const res = await api.register(email, username, password);
     setUser(res.user);
+    await guestManager.migrateToServer(api);
   }, []);
 
   const signOut = useCallback(async () => {

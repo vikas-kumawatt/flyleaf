@@ -15,6 +15,7 @@ import { SessionProvider } from '@/lib/session';
 import { AppQueryProvider } from '@/lib/query';
 import { SyncProvider } from '@/offline/sync';
 import { SyncIndicator } from '@/ui/SyncIndicator';
+import { ActionGateProvider } from '@/ui/ActionGate';
 import { ThemeProvider, useTheme, useThemeContext } from '@/ui/tokens';
 
 function Nav() {
@@ -64,7 +65,9 @@ export default function RootLayout() {
         <AppQueryProvider>
           <SessionProvider>
             <SyncProvider>
-              <Nav />
+              <ActionGateProvider>
+                <Nav />
+              </ActionGateProvider>
             </SyncProvider>
           </SessionProvider>
         </AppQueryProvider>

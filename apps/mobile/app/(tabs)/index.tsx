@@ -11,6 +11,8 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import { useSession } from '@/lib/session';
+import { useGuestShelf } from '@/lib/guest';
+import { useActionGate } from '@/ui/ActionGate';
 import {
   Card,
   Cover,
@@ -28,10 +30,41 @@ export default function HomeScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { user } = useSession();
+  const { promptAuth } = useActionGate();
+  const { migrationMessage, dismissMigrationMessage } = useGuestShelf();
   const [feedMode, setFeedMode] = useState<'friends' | 'popular'>('popular');
 
   return (
     <Screen>
+      {/* Migration Confirmation Banner (PRD §4.2, SL-33) */}
+      {migrationMessage && (
+        <View
+          style={{
+            flexDirection: 'row',
+            alignItems: 'center',
+            backgroundColor: c.accentSoft,
+            paddingHorizontal: space[4],
+            paddingVertical: space[3],
+            gap: space[3],
+            borderBottomWidth: 1,
+            borderBottomColor: c.line,
+          }}
+        >
+          <Ionicons name="bookmark" size={20} color={c.accent} />
+          <Txt variant="body" color="accent" style={{ flex: 1, fontWeight: '500' }}>
+            {migrationMessage}
+          </Txt>
+          <Pressable
+            onPress={dismissMigrationMessage}
+            accessibilityRole="button"
+            accessibilityLabel="Dismiss confirmation"
+            hitSlop={8}
+          >
+            <Ionicons name="close" size={20} color={c.muted} />
+          </Pressable>
+        </View>
+      )}
+
       {/* Header with Title and Notifications Bell */}
       <View
         style={{
