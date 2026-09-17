@@ -8,7 +8,7 @@
     "android": "expo run:android",
     "ios": "expo run:ios",
     "typecheck": "tsc --noEmit",
-    "test": "npx tsx --test src/offline/__tests__/queue.test.ts",
+    "test": "npx tsx --test src/offline/__tests__/queue.test.ts src/lib/__tests__/auth-validation.test.ts",
     "check-deps": "expo install --check",
     "fix-deps": "expo install --fix",
     "doctor": "npx expo-doctor",

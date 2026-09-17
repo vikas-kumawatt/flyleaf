@@ -217,4 +217,13 @@ export const api = {
       percent: percent ?? null,
       minutes: minutes ?? null,
     }),
+
+  forgotPassword: (email: string) => client.forgotPassword({ email }),
+
+  resetPassword: (token: string, newPassword: string) =>
+    client.resetPassword({ token, newPassword }),
+
+  verifyEmail: (token: string) => client.verifyEmail({ token }),
+
+  resendVerification: () => client.resendVerification(),
 };

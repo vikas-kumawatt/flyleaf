@@ -261,9 +261,9 @@
 - [x] SL-14 Sync-on-foreground and on reconnect; unsynced indicator — 1d
 
 ### Auth screens — `SL-2x` · 3d
-- [ ] SL-20 Welcome carousel with "Look around first" — 0.5d
-- [ ] SL-21 Sign up / log in / forgot / reset / verify — 1.5d
-- [ ] SL-22 Username + avatar; live availability; reserved words — 1d
+- [x] SL-20 Welcome carousel with "Look around first" — 0.5d
+- [x] SL-21 Sign up / log in / forgot / reset / verify — 1.5d
+- [x] SL-22 Username + avatar; live availability; reserved words — 1d
 
 ### Guest mode — `SL-3x` · 3d
 - [ ] **SL-30** ⚠️ Guest routing: no session → Home in browse mode — 0.5d
