@@ -2147,6 +2147,749 @@ paths:
                       - message
                 required:
                   - error
+  /admin/dedupe/queue:
+    get:
+      summary: List dedupe review queue
+      tags:
+        - Admin Dedupe
+      description: Lists pending or resolved Stage 3 & 4 duplicate candidates.
+      parameters:
+        - schema:
+            type: string
+            enum:
+              - pending
+              - merged
+              - dismissed
+            default: pending
+          in: query
+          name: status
+          required: false
+        - schema:
+            type: integer
+            enum:
+              - 3
+              - 4
+          in: query
+          name: stage
+          required: false
+        - schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 50
+          in: query
+          name: limit
+          required: false
+        - schema:
+            type: integer
+            minimum: 0
+            default: 0
+          in: query
+          name: offset
+          required: false
+      responses:
+        "200":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: string
+                          format: uuid
+                        stage:
+                          type: integer
+                          enum:
+                            - 3
+                            - 4
+                        status:
+                          type: string
+                          enum:
+                            - pending
+                            - merged
+                            - dismissed
+                        confidence:
+                          type:
+                            - "null"
+                            - number
+                        reason:
+                          type: string
+                        dismiss_reason:
+                          type:
+                            - "null"
+                            - string
+                        created_at:
+                          type: string
+                          format: date-time
+                        reviewed_at:
+                          type:
+                            - "null"
+                            - string
+                          format: date-time
+                        reviewed_by_user_id:
+                          type:
+                            - "null"
+                            - string
+                          format: uuid
+                        survivor:
+                          type: object
+                          properties:
+                            id:
+                              type: string
+                              format: uuid
+                            title:
+                              type: string
+                            authors:
+                              type: array
+                              items:
+                                type: string
+                            first_publish_year:
+                              type:
+                                - "null"
+                                - integer
+                            log_count:
+                              type: integer
+                            edition_count:
+                              type: integer
+                            reads_count:
+                              type: integer
+                            cover_id:
+                              type:
+                                - "null"
+                                - integer
+                          required:
+                            - id
+                            - title
+                            - authors
+                            - log_count
+                            - edition_count
+                        loser:
+                          type: object
+                          properties:
+                            id:
+                              type: string
+                              format: uuid
+                            title:
+                              type: string
+                            authors:
+                              type: array
+                              items:
+                                type: string
+                            first_publish_year:
+                              type:
+                                - "null"
+                                - integer
+                            log_count:
+                              type: integer
+                            edition_count:
+                              type: integer
+                            reads_count:
+                              type: integer
+                            cover_id:
+                              type:
+                                - "null"
+                                - integer
+                          required:
+                            - id
+                            - title
+                            - authors
+                            - log_count
+                            - edition_count
+                      required:
+                        - id
+                        - stage
+                        - status
+                        - reason
+                        - created_at
+                        - survivor
+                        - loser
+                required:
+                  - data
+        "500":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      code:
+                        type: string
+                        description: Machine-readable error code
+                      message:
+                        type: string
+                        description: Human-readable error description
+                      field:
+                        type: string
+                        description: Invalid field name if applicable
+                    required:
+                      - code
+                      - message
+                required:
+                  - error
+  /admin/dedupe/preview/{survivorId}/{loserId}:
+    get:
+      summary: Preview merge impact
+      tags:
+        - Admin Dedupe
+      description: Forecasts read moves, collision handling, and metadata merging side
+        by side.
+      parameters:
+        - schema:
+            type: string
+            format: uuid
+          in: path
+          name: survivorId
+          required: true
+        - schema:
+            type: string
+            format: uuid
+          in: path
+          name: loserId
+          required: true
+      responses:
+        "200":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  survivor:
+                    type: object
+                    properties:
+                      id:
+                        type: string
+                        format: uuid
+                      title:
+                        type: string
+                      authors:
+                        type: array
+                        items:
+                          type: string
+                      first_publish_year:
+                        type:
+                          - "null"
+                          - integer
+                      log_count:
+                        type: integer
+                      edition_count:
+                        type: integer
+                      reads_count:
+                        type: integer
+                      cover_id:
+                        type:
+                          - "null"
+                          - integer
+                    required:
+                      - id
+                      - title
+                      - authors
+                      - log_count
+                      - edition_count
+                  loser:
+                    type: object
+                    properties:
+                      id:
+                        type: string
+                        format: uuid
+                      title:
+                        type: string
+                      authors:
+                        type: array
+                        items:
+                          type: string
+                      first_publish_year:
+                        type:
+                          - "null"
+                          - integer
+                      log_count:
+                        type: integer
+                      edition_count:
+                        type: integer
+                      reads_count:
+                        type: integer
+                      cover_id:
+                        type:
+                          - "null"
+                          - integer
+                    required:
+                      - id
+                      - title
+                      - authors
+                      - log_count
+                      - edition_count
+                  preview:
+                    type: object
+                    properties:
+                      reads_to_move:
+                        type: integer
+                      colliding_reads:
+                        type: integer
+                      editions_to_move:
+                        type: integer
+                      authors_to_add:
+                        type: integer
+                      subjects_to_add:
+                        type: integer
+                    required:
+                      - reads_to_move
+                      - colliding_reads
+                      - editions_to_move
+                      - authors_to_add
+                      - subjects_to_add
+                required:
+                  - survivor
+                  - loser
+                  - preview
+        "404":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      code:
+                        type: string
+                        description: Machine-readable error code
+                      message:
+                        type: string
+                        description: Human-readable error description
+                      field:
+                        type: string
+                        description: Invalid field name if applicable
+                    required:
+                      - code
+                      - message
+                required:
+                  - error
+        "500":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      code:
+                        type: string
+                        description: Machine-readable error code
+                      message:
+                        type: string
+                        description: Human-readable error description
+                      field:
+                        type: string
+                        description: Invalid field name if applicable
+                    required:
+                      - code
+                      - message
+                required:
+                  - error
+  /admin/dedupe/queue/{id}/resolve:
+    post:
+      summary: Resolve dedupe candidate
+      tags:
+        - Admin Dedupe
+      description: Approves merge or dismisses duplicate candidate with reason.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                action:
+                  type: string
+                  enum:
+                    - merge
+                    - dismiss
+                reason:
+                  type: string
+              required:
+                - action
+      parameters:
+        - schema:
+            type: string
+            format: uuid
+          in: path
+          name: id
+          required: true
+      responses:
+        "200":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  action:
+                    type: string
+                    enum:
+                      - merge
+                      - dismiss
+                  merge_id:
+                    type: string
+                    format: uuid
+                required:
+                  - success
+                  - action
+        "400":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      code:
+                        type: string
+                        description: Machine-readable error code
+                      message:
+                        type: string
+                        description: Human-readable error description
+                      field:
+                        type: string
+                        description: Invalid field name if applicable
+                    required:
+                      - code
+                      - message
+                required:
+                  - error
+        "404":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      code:
+                        type: string
+                        description: Machine-readable error code
+                      message:
+                        type: string
+                        description: Human-readable error description
+                      field:
+                        type: string
+                        description: Invalid field name if applicable
+                    required:
+                      - code
+                      - message
+                required:
+                  - error
+        "500":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      code:
+                        type: string
+                        description: Machine-readable error code
+                      message:
+                        type: string
+                        description: Human-readable error description
+                      field:
+                        type: string
+                        description: Invalid field name if applicable
+                    required:
+                      - code
+                      - message
+                required:
+                  - error
+  /admin/dedupe/report:
+    post:
+      summary: Report duplicate work (Stage 4)
+      tags:
+        - Admin Dedupe
+      description: Queues a candidate duplicate pair reported by a user or moderator.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                survivor_id:
+                  type: string
+                  format: uuid
+                loser_id:
+                  type: string
+                  format: uuid
+                reason:
+                  type: string
+                  minLength: 3
+              required:
+                - survivor_id
+                - loser_id
+                - reason
+      responses:
+        "200":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id:
+                    type: string
+                    format: uuid
+                  queued:
+                    type: boolean
+                required:
+                  - id
+                  - queued
+        "400":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      code:
+                        type: string
+                        description: Machine-readable error code
+                      message:
+                        type: string
+                        description: Human-readable error description
+                      field:
+                        type: string
+                        description: Invalid field name if applicable
+                    required:
+                      - code
+                      - message
+                required:
+                  - error
+        "404":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      code:
+                        type: string
+                        description: Machine-readable error code
+                      message:
+                        type: string
+                        description: Human-readable error description
+                      field:
+                        type: string
+                        description: Invalid field name if applicable
+                    required:
+                      - code
+                      - message
+                required:
+                  - error
+        "500":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      code:
+                        type: string
+                        description: Machine-readable error code
+                      message:
+                        type: string
+                        description: Human-readable error description
+                      field:
+                        type: string
+                        description: Invalid field name if applicable
+                    required:
+                      - code
+                      - message
+                required:
+                  - error
+  /admin/merges:
+    get:
+      responses:
+        "200":
+          description: Default Response
+  /admin/merges/{id}/undo:
+    post:
+      summary: Undo work merge
+      tags:
+        - Admin Dedupe
+      description: Reverses a work merge within 30 days, restoring the loser and
+        original reads.
+      parameters:
+        - schema:
+            type: string
+            format: uuid
+          in: path
+          name: id
+          required: true
+      responses:
+        "200":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  undone:
+                    type: boolean
+                  merge_id:
+                    type: string
+                    format: uuid
+                  survivor_id:
+                    type: string
+                    format: uuid
+                  loser_id:
+                    type: string
+                    format: uuid
+                  restored:
+                    type: object
+                    properties:
+                      reads:
+                        type: integer
+                      editions:
+                        type: integer
+                      authors:
+                        type: integer
+                      subjects:
+                        type: integer
+                    required:
+                      - reads
+                      - editions
+                      - authors
+                      - subjects
+                required:
+                  - undone
+                  - merge_id
+                  - survivor_id
+                  - loser_id
+                  - restored
+        "400":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      code:
+                        type: string
+                        description: Machine-readable error code
+                      message:
+                        type: string
+                        description: Human-readable error description
+                      field:
+                        type: string
+                        description: Invalid field name if applicable
+                    required:
+                      - code
+                      - message
+                required:
+                  - error
+        "404":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      code:
+                        type: string
+                        description: Machine-readable error code
+                      message:
+                        type: string
+                        description: Human-readable error description
+                      field:
+                        type: string
+                        description: Invalid field name if applicable
+                    required:
+                      - code
+                      - message
+                required:
+                  - error
+        "409":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      code:
+                        type: string
+                        description: Machine-readable error code
+                      message:
+                        type: string
+                        description: Human-readable error description
+                      field:
+                        type: string
+                        description: Invalid field name if applicable
+                    required:
+                      - code
+                      - message
+                required:
+                  - error
+        "500":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      code:
+                        type: string
+                        description: Machine-readable error code
+                      message:
+                        type: string
+                        description: Human-readable error description
+                      field:
+                        type: string
+                        description: Invalid field name if applicable
+                    required:
+                      - code
+                      - message
+                required:
+                  - error
   /healthz:
     get:
       summary: Liveness probe
@@ -2214,3 +2957,5 @@ tags:
     description: Works, editions, and search
   - name: Reading
     description: Reads, re-reads, and progress events
+  - name: Admin Dedupe
+    description: Duplicate detection review queue and 30-day undo (FN-51)

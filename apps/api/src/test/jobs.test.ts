@@ -15,9 +15,10 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { PgBoss, fromPglite } from 'pg-boss';
 import type { PGlite } from '@electric-sql/pglite';
 import {
-  JOBS_SCHEMA, QUEUES, makeBoss, pingHandler, registerQueues, sendInTx, type JobLog,
+  JOBS_SCHEMA, QUEUES, makeBoss, pingHandler, dedupeJobHandler, registerQueues, sendInTx, type JobLog,
 } from '../jobs/index.js';
 import { freshDb, freshDrizzle } from './pg.js';
+import type { Db } from '../platform/index.js';
 
 const bosses: PgBoss[] = [];
 const clients: PGlite[] = [];
@@ -29,14 +30,14 @@ function recordingLog() {
 }
 
 /** A boss on its own database. Torn down after each test. */
-async function bossOn(client: PGlite, opts: { work?: boolean; log?: JobLog } = {}) {
+async function bossOn(client: PGlite, opts: { work?: boolean; log?: JobLog; db?: Db } = {}) {
   clients.push(client);
   const boss = makeBoss({ db: fromPglite(client), backend: 'pglite' });
   bosses.push(boss);
   // Surfacing these beats a test that times out with no explanation.
   boss.on('error', (err) => console.error('pg-boss error:', err));
   await boss.start();
-  if (opts.work) await registerQueues(boss, opts.log ?? { info: () => {} });
+  if (opts.work) await registerQueues(boss, opts.log ?? { info: () => {} }, opts.db);
   else for (const name of Object.values(QUEUES)) await boss.createQueue(name);
   return boss;
 }
@@ -47,14 +48,14 @@ afterEach(async () => {
 });
 
 /** Poll until the job leaves `created`/`active`, or give up. */
-async function settled(boss: PgBoss, id: string, ms = 20_000) {
+async function settled(boss: PgBoss, id: string, queue: string = QUEUES.smokePing, ms = 20_000) {
   const deadline = Date.now() + ms;
   while (Date.now() < deadline) {
-    const job = await boss.getJobById(QUEUES.smokePing, id);
+    const job = await boss.getJobById(queue, id);
     if (job && job.state !== 'created' && job.state !== 'active') return job;
     await new Promise((r) => setTimeout(r, 100));
   }
-  throw new Error(`job ${id} never settled`);
+  throw new Error(`job ${id} in queue ${queue} never settled`);
 }
 
 describe('the handler itself', () => {
@@ -70,6 +71,19 @@ describe('the handler itself', () => {
   it('does not require a note', async () => {
     const result = await pingHandler([{ id: '1', name: QUEUES.smokePing, data: {} }] as never);
     expect(result.note).toBe('ping');
+  });
+
+  it('runs catalog dedupe via dedupeJobHandler', async () => {
+    const { db } = await freshDrizzle();
+    const result = await dedupeJobHandler(
+      [{ id: '1', name: QUEUES.catalogDedupe, data: { limit: 10, dryRun: true } }] as never,
+      db,
+    );
+    expect(result).toMatchObject({
+      stage1: 0,
+      stage2: 0,
+      stage3Queued: 0,
+    });
   });
 });
 
@@ -93,6 +107,30 @@ describe('a job goes all the way round', () => {
     // which is the entire job of a smoke job.
     expect(log.lines).toContainEqual(
       expect.objectContaining({ obj: expect.objectContaining({ note: 'hello' }) }),
+    );
+  }, 60_000);
+
+  it('enqueues and processes catalog.dedupe job when worker has db', async () => {
+    const { db, client } = await freshDrizzle();
+    const log = recordingLog();
+    const boss = await bossOn(client, { work: true, log, db });
+
+    const id = await boss.send(QUEUES.catalogDedupe, { limit: 50, dryRun: true });
+    expect(id).toBeTruthy();
+
+    const job = await settled(boss, id!, QUEUES.catalogDedupe);
+    expect(job.state).toBe('completed');
+    expect(job.output).toMatchObject({
+      stage1: 0,
+      stage2: 0,
+      stage3Queued: 0,
+    });
+
+    expect(log.lines).toContainEqual(
+      expect.objectContaining({
+        obj: expect.objectContaining({ queue: QUEUES.catalogDedupe }),
+        msg: 'job handled',
+      }),
     );
   }, 60_000);
 

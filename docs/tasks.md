@@ -142,8 +142,20 @@
   - **Stage 1 is written and inert.** ISBNs live on editions and the catalog has 102 of them, so it finds nothing until the editions pass runs. It is here rather than deferred because the merge machinery is identical and writing it later means re-deriving all of the collision handling above.
   - The normalisation rule exists **twice** — TypeScript for callers, SQL for the 3.2M-row scan — so there is a test asserting the two agree on 15 titles. Two implementations of one rule is how a dedupe pass starts merging the wrong things, and the divergence would surface as books quietly disappearing.
   - Not accent-folded, deliberately: `flyleaf_unaccent` is for search, where a false match costs a slightly wrong result. Here a false match destroys a book, and folding would collide distinct translations.
-- [ ] FN-51 Stage 3–4 queue; 30-day undo (the log it needs already exists); admin review UI — 1d
-- [ ] FN-52 Register `catalog.dedupe` as the monthly pg-boss job — small, now that FN-04 has a worker and FN-50 has something worth scheduling
+- [x] **FN-51** Stage 3–4 queue; 30-day undo; admin review UI — 1d
+  - Migration `0008_dedupe_queue.sql` introduces `dedupe_queue` table with foreign keys, checks, and unique indexes preventing duplicate reviews.
+  - Stage 3 detection (`findStage3Candidates` / `queueStage3Candidates`): Trigram title similarity > 0.85, author similarity > 0.9, first publication year ±2. Never auto-merges; always enqueues for human review (PRD §40.3).
+  - Stage 4 reporting (`queueReportedDuplicate`): Accepts user and admin duplicate reports with validation and collision checks.
+  - 30-day reversible undo engine (`undoMerge`): Enforces `merged_at >= now() - interval '30 days'` window and restores loser work, reclaims moved reads to exact prior attempt numbers, un-merges authors, subjects, and editions, and marks merge record `undone_at`.
+  - Preview & collision forecasting (`previewMerge`): Queries survivor and loser side-by-side to forecast colliding reads (user read both), moved reads, and merged metadata prior to applying changes.
+  - Admin dedupe REST endpoints (`/v1/admin/dedupe/queue`, `/v1/admin/dedupe/preview/:survivorId/:loserId`, `/v1/admin/dedupe/queue/:id/resolve`, `/v1/admin/dedupe/report`, `/v1/admin/merges`, `/v1/admin/merges/:id/undo`) and server-rendered HTML review UI (`/admin/merges`) with confidence badges, side-by-side cards, and 1-click undo.
+  - Complete OpenAPI spec synchronization (`openapi.yaml`) with 0 contract drift, plus typed `@flyleaf/api-client` methods (`getDedupeQueue`, `previewDedupeMerge`, `resolveDedupeQueueItem`, `reportDuplicate`, `getRecentMerges`, `undoMerge`).
+  - 38 unit & route tests in `apps/api/src/test/dedupe.test.ts` passing.
+- [x] **FN-52** Register `catalog.dedupe` as the monthly pg-boss job — 0.5d
+  - Registered `QUEUES.catalogDedupe = 'catalog.dedupe'` in `apps/api/src/jobs/index.ts`.
+  - Added pure `dedupeJobHandler` wrapping `runDedupe(db, opts)` and worker event logging.
+  - Scheduled monthly cron (`0 0 1 * *`) in `apps/api/src/worker.ts` with `--dedupe` standalone worker runner.
+  - Verified job registration, handler execution, and full lifecycle in `apps/api/src/test/jobs.test.ts`. Complete monorepo CI green.
 
 ### Auth — `FN-6x` · 5d
 - [x] **FN-60** users, refresh_tokens, profiles migrations — 0.5d

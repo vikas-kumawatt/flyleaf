@@ -336,3 +336,184 @@ export const progressEventBodySchema = {
   },
   required: ['client_event_id'],
 } as const;
+
+// ---------------------------------------------------------------------------
+// 4. Dedupe & Admin Schemas (FN-51, PRD §40.3, §3721)
+// ---------------------------------------------------------------------------
+
+export const dedupeWorkSummarySchema = {
+  type: 'object',
+  properties: {
+    id: { type: 'string', format: 'uuid' },
+    title: { type: 'string' },
+    authors: { type: 'array', items: { type: 'string' } },
+    first_publish_year: { type: ['integer', 'null'] },
+    log_count: { type: 'integer' },
+    edition_count: { type: 'integer' },
+    reads_count: { type: 'integer' },
+    cover_id: { type: ['integer', 'null'] },
+  },
+  required: ['id', 'title', 'authors', 'log_count', 'edition_count'],
+} as const;
+
+export const dedupeQueueItemSchema = {
+  type: 'object',
+  properties: {
+    id: { type: 'string', format: 'uuid' },
+    stage: { type: 'integer', enum: [3, 4] },
+    status: { type: 'string', enum: ['pending', 'merged', 'dismissed'] },
+    confidence: { type: ['number', 'null'] },
+    reason: { type: 'string' },
+    dismiss_reason: { type: ['string', 'null'] },
+    created_at: { type: 'string', format: 'date-time' },
+    reviewed_at: { type: ['string', 'null'], format: 'date-time' },
+    reviewed_by_user_id: { type: ['string', 'null'], format: 'uuid' },
+    survivor: dedupeWorkSummarySchema,
+    loser: dedupeWorkSummarySchema,
+  },
+  required: ['id', 'stage', 'status', 'reason', 'created_at', 'survivor', 'loser'],
+} as const;
+
+export const dedupeQueueListResponseSchema = {
+  type: 'object',
+  properties: {
+    data: { type: 'array', items: dedupeQueueItemSchema },
+  },
+  required: ['data'],
+} as const;
+
+export const dedupeQueueQuerySchema = {
+  type: 'object',
+  properties: {
+    status: { type: 'string', enum: ['pending', 'merged', 'dismissed'], default: 'pending' },
+    stage: { type: 'integer', enum: [3, 4] },
+    limit: { type: 'integer', minimum: 1, maximum: 100, default: 50 },
+    offset: { type: 'integer', minimum: 0, default: 0 },
+  },
+} as const;
+
+export const dedupePreviewResponseSchema = {
+  type: 'object',
+  properties: {
+    survivor: dedupeWorkSummarySchema,
+    loser: dedupeWorkSummarySchema,
+    preview: {
+      type: 'object',
+      properties: {
+        reads_to_move: { type: 'integer' },
+        colliding_reads: { type: 'integer' },
+        editions_to_move: { type: 'integer' },
+        authors_to_add: { type: 'integer' },
+        subjects_to_add: { type: 'integer' },
+      },
+      required: ['reads_to_move', 'colliding_reads', 'editions_to_move', 'authors_to_add', 'subjects_to_add'],
+    },
+  },
+  required: ['survivor', 'loser', 'preview'],
+} as const;
+
+export const dedupeResolveBodySchema = {
+  type: 'object',
+  properties: {
+    action: { type: 'string', enum: ['merge', 'dismiss'] },
+    reason: { type: 'string' },
+  },
+  required: ['action'],
+} as const;
+
+export const dedupeResolveResponseSchema = {
+  type: 'object',
+  properties: {
+    success: { type: 'boolean' },
+    action: { type: 'string', enum: ['merge', 'dismiss'] },
+    merge_id: { type: 'string', format: 'uuid' },
+  },
+  required: ['success', 'action'],
+} as const;
+
+export const dedupeReportBodySchema = {
+  type: 'object',
+  properties: {
+    survivor_id: { type: 'string', format: 'uuid' },
+    loser_id: { type: 'string', format: 'uuid' },
+    reason: { type: 'string', minLength: 3 },
+  },
+  required: ['survivor_id', 'loser_id', 'reason'],
+} as const;
+
+export const dedupeReportResponseSchema = {
+  type: 'object',
+  properties: {
+    id: { type: 'string', format: 'uuid' },
+    queued: { type: 'boolean' },
+  },
+  required: ['id', 'queued'],
+} as const;
+
+export const mergeListItemSchema = {
+  type: 'object',
+  properties: {
+    id: { type: 'string', format: 'uuid' },
+    survivor: {
+      type: 'object',
+      properties: {
+        id: { type: 'string', format: 'uuid' },
+        title: { type: 'string' },
+      },
+      required: ['id', 'title'],
+    },
+    loser: {
+      type: 'object',
+      properties: {
+        id: { type: 'string', format: 'uuid' },
+        title: { type: 'string' },
+      },
+      required: ['id', 'title'],
+    },
+    stage: { type: 'integer' },
+    reason: { type: 'string' },
+    merged_at: { type: 'string', format: 'date-time' },
+    undone_at: { type: ['string', 'null'], format: 'date-time' },
+    can_undo: { type: 'boolean' },
+    stats: {
+      type: 'object',
+      properties: {
+        reads_moved: { type: 'integer' },
+        editions_moved: { type: 'integer' },
+        authors_moved: { type: 'integer' },
+      },
+      required: ['reads_moved', 'editions_moved', 'authors_moved'],
+    },
+  },
+  required: ['id', 'survivor', 'loser', 'stage', 'reason', 'merged_at', 'can_undo', 'stats'],
+} as const;
+
+export const mergeListResponseSchema = {
+  type: 'object',
+  properties: {
+    data: { type: 'array', items: mergeListItemSchema },
+  },
+  required: ['data'],
+} as const;
+
+export const undoMergeResponseSchema = {
+  type: 'object',
+  properties: {
+    undone: { type: 'boolean' },
+    merge_id: { type: 'string', format: 'uuid' },
+    survivor_id: { type: 'string', format: 'uuid' },
+    loser_id: { type: 'string', format: 'uuid' },
+    restored: {
+      type: 'object',
+      properties: {
+        reads: { type: 'integer' },
+        editions: { type: 'integer' },
+        authors: { type: 'integer' },
+        subjects: { type: 'integer' },
+      },
+      required: ['reads', 'editions', 'authors', 'subjects'],
+    },
+  },
+  required: ['undone', 'merge_id', 'survivor_id', 'loser_id', 'restored'],
+} as const;
+

@@ -14,8 +14,20 @@ import { sql } from 'drizzle-orm';
 import type { PGlite } from '@electric-sql/pglite';
 import type { Db } from '../platform/index.js';
 import {
-  NORMALISED_TITLE_EXPR, mergeWorks, normaliseTitle, runDedupe,
+  NORMALISED_TITLE_EXPR,
+  mergeWorks,
+  undoMerge,
+  previewMerge,
+  findStage3Candidates,
+  queueStage3Candidates,
+  queueReportedDuplicate,
+  getDedupeQueue,
+  resolveQueueItem,
+  getRecentMerges,
+  normaliseTitle,
+  runDedupe,
 } from '../catalog/dedupe.js';
+import { buildApp } from '../app.js';
 import { freshDrizzle } from './pg.js';
 
 // One database for the file, emptied between tests — the same shape as every
@@ -29,7 +41,7 @@ afterAll(async () => { await client?.close(); });
 
 beforeEach(async () => {
   await client.exec(`TRUNCATE works, authors, editions, reads, users, profiles, refresh_tokens,
-    work_authors, work_subjects, series_entries, work_stats, work_merges, external_ids,
+    work_authors, work_subjects, series_entries, work_stats, work_merges, dedupe_queue, external_ids,
     field_provenance, progress_events RESTART IDENTITY CASCADE`);
 });
 
@@ -322,3 +334,351 @@ describe('a full pass', () => {
     expect(report.stage2).toBe(0);
   });
 });
+
+describe('Stage 3 fuzzy dedupe & Stage 4 reporting (FN-51)', () => {
+  it('detects Stage 3 fuzzy pairs and queues them without auto-merging', async () => {
+    const a = await author(db, 'Susanna Clarke');
+    // "Jonathan Strange & Mr Norrell" and "Jonathan Strange and Mr Norrell" share author and have high trigram similarity > 0.85
+    const w1 = await work(db, 'Jonathan Strange & Mr Norrell', 500, a);
+    const w2 = await work(db, 'Jonathan Strange and Mr Norrell', 10, a);
+
+    const candidates = await findStage3Candidates(db);
+    expect(candidates.length).toBeGreaterThanOrEqual(1);
+    const pair = candidates.find((c) => c.survivorId === w1 && c.loserId === w2);
+    expect(pair).toBeDefined();
+    expect(pair!.titleSimilarity).toBeGreaterThan(0.85);
+
+    // Running dedupe should queue this pair into dedupe_queue
+    const report = await runDedupe(db);
+    expect(report.stage3Queued).toBeGreaterThanOrEqual(1);
+
+    // Crucial rule: Stage 3 is NEVER auto-merged!
+    const [row] = await db.execute<{ merged_into_id: string | null }>(
+      sql`SELECT merged_into_id FROM works WHERE id = ${w2}`);
+    expect(row!.merged_into_id).toBeNull();
+
+    // Check that it's in the review queue
+    const queue = await getDedupeQueue(db, { status: 'pending' });
+    const item = queue.find((q) => q.survivor.id === w1 && q.loser.id === w2);
+    expect(item).toBeDefined();
+    expect(item!.stage).toBe(3);
+    expect(item!.status).toBe('pending');
+  });
+
+  it('allows reporting duplicates (Stage 4) from users/moderators', async () => {
+    const a = await author(db, 'Ted Chiang');
+    const w1 = await work(db, 'Stories of Your Life and Others', 200, a);
+    const w2 = await work(db, 'Stories of Your Life', 50, a);
+
+    const res = await queueReportedDuplicate(db, {
+      survivorId: w1,
+      loserId: w2,
+      reason: 'Same collection published under truncated title',
+    });
+
+    expect(res.queued).toBe(true);
+
+    const queue = await getDedupeQueue(db, { stage: 4 });
+    expect(queue.some((q) => q.id === res.id && q.stage === 4)).toBe(true);
+  });
+
+  it('rejects reporting a work as duplicate of itself', async () => {
+    const a = await author(db, 'Ted Chiang');
+    const w1 = await work(db, 'Exhalation', 100, a);
+    await expect(
+      queueReportedDuplicate(db, {
+        survivorId: w1,
+        loserId: w1,
+        reason: 'Duplicate of itself',
+      }),
+    ).rejects.toThrow(/duplicate of itself/i);
+  });
+});
+
+describe('Preview and Queue Resolution (FN-51, PRD §3721)', () => {
+  it('generates a preview with collision forecasting', async () => {
+    const a = await author(db, 'Ursula K. Le Guin');
+    const w1 = await work(db, 'The Dispossessed', 300, a);
+    const w2 = await work(db, 'The Dispossessed: An Ambiguous Utopia', 20, a);
+    await edition(db, w1);
+    await edition(db, w2);
+
+    const u = await user(db, 'reader@example.com');
+    await read(db, u, w1, 1);
+    await read(db, u, w2, 1); // Collision! User logged both
+
+    const preview = await previewMerge(db, w1, w2);
+    expect(preview.survivor.id).toBe(w1);
+    expect(preview.loser.id).toBe(w2);
+    expect(preview.preview.readsToMove).toBe(1);
+    expect(preview.preview.collidingReads).toBe(1);
+    expect(preview.preview.editionsToMove).toBe(1);
+  });
+
+  it('resolves queue items by merging works', async () => {
+    const a = await author(db, 'China Miéville');
+    const w1 = await work(db, 'The City & The City', 400, a);
+    const w2 = await work(db, 'The City and the City', 10, a);
+
+    const { id } = await queueReportedDuplicate(db, {
+      survivorId: w1,
+      loserId: w2,
+      reason: 'Title punctuation variant',
+    });
+
+    const result = await resolveQueueItem(db, id, 'merge');
+    expect(result.success).toBe(true);
+    expect(result.action).toBe('merge');
+    expect(result.mergeId).toBeDefined();
+
+    // Verify loser is now merged
+    const [row] = await db.execute<{ merged_into_id: string | null }>(
+      sql`SELECT merged_into_id FROM works WHERE id = ${w2}`);
+    expect(row!.merged_into_id).toBe(w1);
+
+    // Verify queue item is marked merged
+    const [qItem] = await db.execute<{ status: string }>(
+      sql`SELECT status FROM dedupe_queue WHERE id = ${id}`);
+    expect(qItem!.status).toBe('merged');
+  });
+
+  it('resolves queue items by dismissing candidate', async () => {
+    const a = await author(db, 'Gene Wolfe');
+    const w1 = await work(db, 'The Shadow of the Torturer', 400, a);
+    const w2 = await work(db, 'The Claw of the Conciliator', 300, a);
+
+    const { id } = await queueReportedDuplicate(db, {
+      survivorId: w1,
+      loserId: w2,
+      reason: 'Mistakenly queued',
+    });
+
+    const result = await resolveQueueItem(db, id, 'dismiss', { reason: 'Distinct books in series' });
+    expect(result.success).toBe(true);
+    expect(result.action).toBe('dismiss');
+
+    // Loser remains live
+    const [row] = await db.execute<{ merged_into_id: string | null }>(
+      sql`SELECT merged_into_id FROM works WHERE id = ${w2}`);
+    expect(row!.merged_into_id).toBeNull();
+
+    const [qItem] = await db.execute<{ status: string; dismiss_reason: string }>(
+      sql`SELECT status, dismiss_reason FROM dedupe_queue WHERE id = ${id}`);
+    expect(qItem!.status).toBe('dismissed');
+    expect(qItem!.dismiss_reason).toBe('Distinct books in series');
+  });
+});
+
+describe('30-Day Reversible Undo (FN-51, PRD §40.3)', () => {
+  it('reverses a merge, restoring loser work, editions, and reads with exact attempt numbers', async () => {
+    const a = await author(db, 'Neal Stephenson');
+    const survivor = await work(db, 'Snow Crash', 1000, a);
+    const loser = await work(db, 'Snow Crash (Special Edition)', 10, a);
+    const edLoser = await edition(db, loser);
+
+    const u1 = await user(db, 'u1@example.com');
+    const u2 = await user(db, 'u2@example.com');
+
+    // u1 read ONLY the loser
+    const r1 = await read(db, u1, loser, 1);
+
+    // u2 read BOTH: survivor is attempt 1, loser is attempt 1 -> will renumber to 2 on merge
+    const r2Survivor = await read(db, u2, survivor, 1);
+    const r2Loser = await read(db, u2, loser, 1);
+
+    // Perform merge
+    const { mergeId } = await mergeWorks(db, {
+      survivorId: survivor,
+      loserId: loser,
+      stage: 3,
+      reason: 'test merge for undo',
+    });
+
+    // Check post-merge state: loser is merged
+    const [mergedLoser] = await db.execute<{ merged_into_id: string | null }>(
+      sql`SELECT merged_into_id FROM works WHERE id = ${loser}`);
+    expect(mergedLoser!.merged_into_id).toBe(survivor);
+
+    // Edition repointed to survivor
+    const [mergedEd] = await db.execute<{ work_id: string }>(
+      sql`SELECT work_id FROM editions WHERE id = ${edLoser}`);
+    expect(mergedEd!.work_id).toBe(survivor);
+
+    // u2's read on loser became attempt 2 on survivor
+    const [renumberedRead] = await db.execute<{ work_id: string; attempt_no: number }>(
+      sql`SELECT work_id, attempt_no FROM reads WHERE id = ${r2Loser}`);
+    expect(renumberedRead!.work_id).toBe(survivor);
+    expect(Number(renumberedRead!.attempt_no)).toBe(2);
+
+    // Now UNDO the merge!
+    const undoResult = await undoMerge(db, mergeId);
+    expect(undoResult.undone).toBe(true);
+    expect(undoResult.survivorId).toBe(survivor);
+    expect(undoResult.loserId).toBe(loser);
+
+    // 1. Loser work is untombstoned (merged_into_id is NULL)
+    const [restoredLoser] = await db.execute<{ merged_into_id: string | null }>(
+      sql`SELECT merged_into_id FROM works WHERE id = ${loser}`);
+    expect(restoredLoser!.merged_into_id).toBeNull();
+
+    // 2. Edition is restored to loser
+    const [restoredEd] = await db.execute<{ work_id: string }>(
+      sql`SELECT work_id FROM editions WHERE id = ${edLoser}`);
+    expect(restoredEd!.work_id).toBe(loser);
+
+    // 3. Reads restored with exact original attempt numbers
+    const [restoredR1] = await db.execute<{ work_id: string; attempt_no: number }>(
+      sql`SELECT work_id, attempt_no FROM reads WHERE id = ${r1}`);
+    expect(restoredR1!.work_id).toBe(loser);
+    expect(Number(restoredR1!.attempt_no)).toBe(1);
+
+    const [restoredR2] = await db.execute<{ work_id: string; attempt_no: number }>(
+      sql`SELECT work_id, attempt_no FROM reads WHERE id = ${r2Loser}`);
+    expect(restoredR2!.work_id).toBe(loser);
+    expect(Number(restoredR2!.attempt_no)).toBe(1); // RESTORED to attempt 1!
+
+    // Survivor's read remains untouched
+    const [survivorRead] = await db.execute<{ work_id: string; attempt_no: number }>(
+      sql`SELECT work_id, attempt_no FROM reads WHERE id = ${r2Survivor}`);
+    expect(survivorRead!.work_id).toBe(survivor);
+    expect(Number(survivorRead!.attempt_no)).toBe(1);
+
+    // 4. work_merges record is marked undone
+    const [mergeRow] = await db.execute<{ undone_at: string | null }>(
+      sql`SELECT undone_at FROM work_merges WHERE id = ${mergeId}`);
+    expect(mergeRow!.undone_at).not.toBeNull();
+  });
+
+  it('rejects undoing an already undone merge', async () => {
+    const a = await author(db, 'Octavia Butler');
+    const s = await work(db, 'Kindred', 500, a);
+    const l = await work(db, 'Kindred 25th Anniv', 20, a);
+
+    const { mergeId } = await mergeWorks(db, { survivorId: s, loserId: l, stage: 2, reason: 'test' });
+    await undoMerge(db, mergeId);
+
+    // Second undo must throw
+    await expect(undoMerge(db, mergeId)).rejects.toThrow(/already been undone/);
+  });
+
+  it('rejects undo after the 30-day window expires (PRD §40.3)', async () => {
+    const a = await author(db, 'Octavia Butler');
+    const s = await work(db, 'Parable of the Sower', 800, a);
+    const l = await work(db, 'Parable of the Sower (Copy)', 10, a);
+
+    const { mergeId } = await mergeWorks(db, { survivorId: s, loserId: l, stage: 2, reason: 'test' });
+
+    // Artificially age the merge to 31 days ago
+    await db.execute(sql`
+      UPDATE work_merges
+      SET merged_at = now() - interval '31 days'
+      WHERE id = ${mergeId}
+    `);
+
+    await expect(undoMerge(db, mergeId)).rejects.toThrow(/within 30 days/);
+  });
+
+  it('lists recent merges with undo eligibility flag', async () => {
+    const a = await author(db, 'Shirley Jackson');
+    const s = await work(db, 'The Haunting of Hill House', 600, a);
+    const l = await work(db, 'Haunting of Hill House', 5, a);
+
+    const { mergeId } = await mergeWorks(db, { survivorId: s, loserId: l, stage: 2, reason: 'test list' });
+
+    const merges = await getRecentMerges(db);
+    const item = merges.find((m) => m.id === mergeId);
+    expect(item).toBeDefined();
+    expect(item!.canUndo).toBe(true);
+    expect(item!.survivor.title).toBe('The Haunting of Hill House');
+
+    await undoMerge(db, mergeId);
+
+    const mergesAfter = await getRecentMerges(db);
+    const itemAfter = mergesAfter.find((m) => m.id === mergeId);
+    expect(itemAfter!.canUndo).toBe(false);
+    expect(itemAfter!.undoneAt).not.toBeNull();
+  });
+});
+
+describe('Admin Dedupe & Merge HTTP Endpoints', () => {
+  it('serves dedupe queue, preview, resolve, merges list, and undo via HTTP', async () => {
+    const app = await buildApp({ db });
+    await app.ready();
+
+    const a = await author(db, 'Italo Calvino');
+    const w1 = await work(db, 'Invisible Cities', 350, a);
+    const w2 = await work(db, 'Invisible Cities (Annotated)', 15, a);
+
+    // 1. Report duplicate via POST /v1/admin/dedupe/report
+    const reportRes = await app.inject({
+      method: 'POST',
+      url: '/v1/admin/dedupe/report',
+      payload: {
+        survivor_id: w1,
+        loser_id: w2,
+        reason: 'Same translation with minor annotations',
+      },
+    });
+    expect(reportRes.statusCode).toBe(200);
+    const { id: queueId } = JSON.parse(reportRes.payload);
+
+    // 2. Query queue via GET /v1/admin/dedupe/queue
+    const queueRes = await app.inject({
+      method: 'GET',
+      url: '/v1/admin/dedupe/queue',
+    });
+    expect(queueRes.statusCode).toBe(200);
+    const queueData = JSON.parse(queueRes.payload);
+    expect(queueData.data.some((d: any) => d.id === queueId)).toBe(true);
+
+    // 3. Preview merge via GET /v1/admin/dedupe/preview/:survivorId/:loserId
+    const previewRes = await app.inject({
+      method: 'GET',
+      url: `/v1/admin/dedupe/preview/${w1}/${w2}`,
+    });
+    expect(previewRes.statusCode).toBe(200);
+    const previewData = JSON.parse(previewRes.payload);
+    expect(previewData.survivor.title).toBe('Invisible Cities');
+
+    // 4. Resolve candidate via POST /v1/admin/dedupe/queue/:id/resolve
+    const resolveRes = await app.inject({
+      method: 'POST',
+      url: `/v1/admin/dedupe/queue/${queueId}/resolve`,
+      payload: { action: 'merge' },
+    });
+    expect(resolveRes.statusCode).toBe(200);
+    const resolveData = JSON.parse(resolveRes.payload);
+    expect(resolveData.success).toBe(true);
+    expect(resolveData.merge_id).toBeDefined();
+
+    // 5. List merges via GET /v1/admin/merges
+    const mergesRes = await app.inject({
+      method: 'GET',
+      url: '/v1/admin/merges',
+    });
+    expect(mergesRes.statusCode).toBe(200);
+    const mergesData = JSON.parse(mergesRes.payload);
+    expect(mergesData.data.some((m: any) => m.id === resolveData.merge_id)).toBe(true);
+
+    // 6. Undo merge via POST /v1/admin/merges/:id/undo
+    const undoRes = await app.inject({
+      method: 'POST',
+      url: `/v1/admin/merges/${resolveData.merge_id}/undo`,
+    });
+    expect(undoRes.statusCode).toBe(200);
+    const undoData = JSON.parse(undoRes.payload);
+    expect(undoData.undone).toBe(true);
+
+    // 7. Server-rendered HTML review UI via GET /admin/merges
+    const htmlRes = await app.inject({
+      method: 'GET',
+      url: '/admin/merges',
+    });
+    expect(htmlRes.statusCode).toBe(200);
+    expect(htmlRes.headers['content-type']).toContain('text/html');
+    expect(htmlRes.payload).toContain('Flyleaf Admin — Catalog Merges');
+
+    await app.close();
+  });
+});
+

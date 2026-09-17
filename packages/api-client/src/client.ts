@@ -3,9 +3,18 @@
 import type {
   ApiErrorResponse,
   AuthResponse,
+  DedupePreviewResponse,
+  DedupeQueueItem,
+  DedupeQueueListResponse,
+  DedupeReportRequest,
+  DedupeReportResponse,
+  DedupeResolveRequest,
+  DedupeResolveResponse,
   EditionLookupResponse,
   ForgotPasswordRequest,
   LoginRequest,
+  MergeListItem,
+  MergeListResponse,
   Profile,
   ProgressEventRequest,
   Read,
@@ -19,6 +28,7 @@ import type {
   Session,
   SessionListResponse,
   StandardResponse,
+  UndoMergeResponse,
   UpsertReadRequest,
   User,
   VerifyEmailRequest,
@@ -239,4 +249,69 @@ export class FlyleafClient {
       body: JSON.stringify(data),
     });
   }
+
+  // ---------------------------------------------------------------- Admin Dedupe
+
+  async getDedupeQueue(params?: {
+    status?: 'pending' | 'merged' | 'dismissed';
+    stage?: number;
+    limit?: number;
+    offset?: number;
+  }): Promise<DedupeQueueItem[]> {
+    const q = new URLSearchParams();
+    if (params?.status) q.set('status', params.status);
+    if (params?.stage != null) q.set('stage', String(params.stage));
+    if (params?.limit != null) q.set('limit', String(params.limit));
+    if (params?.offset != null) q.set('offset', String(params.offset));
+    const qs = q.toString() ? `?${q.toString()}` : '';
+    const res = await this.request<DedupeQueueListResponse>(`/admin/dedupe/queue${qs}`, {
+      method: 'GET',
+    });
+    return res.data;
+  }
+
+  async previewMerge(survivorId: string, loserId: string): Promise<DedupePreviewResponse> {
+    return this.request<DedupePreviewResponse>(
+      `/admin/dedupe/preview/${encodeURIComponent(survivorId)}/${encodeURIComponent(loserId)}`,
+      { method: 'GET' },
+    );
+  }
+
+  async resolveDedupeQueueItem(
+    id: string,
+    data: DedupeResolveRequest,
+  ): Promise<DedupeResolveResponse> {
+    return this.request<DedupeResolveResponse>(
+      `/admin/dedupe/queue/${encodeURIComponent(id)}/resolve`,
+      {
+        method: 'POST',
+        body: JSON.stringify(data),
+      },
+    );
+  }
+
+  async reportDuplicate(data: DedupeReportRequest): Promise<DedupeReportResponse> {
+    return this.request<DedupeReportResponse>('/admin/dedupe/report', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async getRecentMerges(params?: { limit?: number; offset?: number }): Promise<MergeListItem[]> {
+    const q = new URLSearchParams();
+    if (params?.limit != null) q.set('limit', String(params.limit));
+    if (params?.offset != null) q.set('offset', String(params.offset));
+    const qs = q.toString() ? `?${q.toString()}` : '';
+    const res = await this.request<MergeListResponse>(`/admin/merges${qs}`, {
+      method: 'GET',
+    });
+    return res.data;
+  }
+
+  async undoMerge(mergeId: string): Promise<UndoMergeResponse> {
+    return this.request<UndoMergeResponse>(`/admin/merges/${encodeURIComponent(mergeId)}/undo`, {
+      method: 'POST',
+    });
+  }
 }
+

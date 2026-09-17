@@ -5,9 +5,8 @@
 //   npm run dedupe                     do it
 //   npm run dedupe -- --limit 50       a cautious first pass
 //
-// ALWAYS DRY-RUN FIRST on a catalog you care about. A merge is reversible for
-// 30 days by design (PRD §40.3) but the undo is FN-51 and does not exist yet,
-// so today a wrong merge is undone by hand from `work_merges`.
+// ALWAYS DRY-RUN FIRST on a catalog you care about. Merges are reversible for
+// 30 days by design (PRD §40.3, FN-51) via undoMerge or the admin console.
 
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -47,6 +46,7 @@ async function main() {
       `\n${dryRun ? 'dry run' : 'done'}\n` +
       `  stage 1 (shared ISBN-13)      ${commas(report.stage1)}\n` +
       `  stage 2 (title + author)      ${commas(report.stage2)}\n` +
+      `  stage 3 queued (fuzzy)        ${commas(report.stage3Queued)}\n` +
       (dryRun
         ? `\nNothing was changed. Re-run without --dry-run to apply.`
         : `  merged                        ${commas(report.merged)}\n` +

@@ -13,6 +13,7 @@ import { registerSwagger } from './index.js';
 import { identityRoutes } from '../identity/index.js';
 import { catalogRoutes } from '../catalog/index.js';
 import { readingRoutes } from '../reading/index.js';
+import { adminDedupeRoutes } from '../admin/dedupe.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -28,10 +29,12 @@ export async function buildOpenApiSpec(): Promise<object> {
   const mockIdentity = {} as any;
   const mockCatalog = {} as any;
   const mockReading = {} as any;
+  const mockDb = {} as any;
 
   await app.register(identityRoutes(mockIdentity), { prefix: '/v1' });
   await app.register(catalogRoutes(mockCatalog), { prefix: '/v1' });
   await app.register(readingRoutes(mockReading), { prefix: '/v1' });
+  await app.register(adminDedupeRoutes(mockDb));
 
   // System endpoints
   app.get(

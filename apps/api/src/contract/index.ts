@@ -32,6 +32,7 @@ export async function registerSwagger(app: FastifyInstance) {
         { name: 'Auth', description: 'Authentication, rotating sessions, and profiles' },
         { name: 'Catalog', description: 'Works, editions, and search' },
         { name: 'Reading', description: 'Reads, re-reads, and progress events' },
+        { name: 'Admin Dedupe', description: 'Duplicate detection review queue and 30-day undo (FN-51)' },
       ],
     },
   });

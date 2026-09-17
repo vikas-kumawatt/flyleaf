@@ -18,6 +18,7 @@ import { waitForDb } from './platform/index.js';
 import { type IdentityService, identityRoutes } from './identity/index.js';
 import { type CatalogService, catalogRoutes } from './catalog/index.js';
 import { type ReadingService, readingRoutes } from './reading/index.js';
+import { adminDedupeRoutes } from './admin/dedupe.js';
 
 export interface CoreHookOptions {
   identityLookup?: (token: string) => Promise<string | null>;
@@ -153,6 +154,9 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
   }
   if (options.reading) {
     await app.register(readingRoutes(options.reading), { prefix: '/v1' });
+  }
+  if (options.db) {
+    await app.register(adminDedupeRoutes(options.db));
   }
 
   return app;

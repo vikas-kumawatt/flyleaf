@@ -179,3 +179,102 @@ export interface ProgressEventRequest {
   percent?: number | null;
   minutes?: number | null;
 }
+
+// ---------------------------------------------------------------- Dedupe & Admin
+
+export interface DedupeWorkSummary {
+  id: string;
+  title: string;
+  authors: string[];
+  first_publish_year: number | null;
+  log_count: number;
+  edition_count: number;
+  reads_count?: number;
+  cover_id: number | null;
+}
+
+export interface DedupeQueueItem {
+  id: string;
+  stage: 3 | 4;
+  status: 'pending' | 'merged' | 'dismissed';
+  confidence: number | null;
+  reason: string;
+  dismiss_reason?: string | null;
+  created_at: string;
+  reviewed_at?: string | null;
+  reviewed_by_user_id?: string | null;
+  survivor: DedupeWorkSummary;
+  loser: DedupeWorkSummary;
+}
+
+export interface DedupeQueueListResponse {
+  data: DedupeQueueItem[];
+}
+
+export interface DedupePreviewResponse {
+  survivor: DedupeWorkSummary;
+  loser: DedupeWorkSummary;
+  preview: {
+    reads_to_move: number;
+    colliding_reads: number;
+    editions_to_move: number;
+    authors_to_add: number;
+    subjects_to_add: number;
+  };
+}
+
+export interface DedupeResolveRequest {
+  action: 'merge' | 'dismiss';
+  reason?: string;
+}
+
+export interface DedupeResolveResponse {
+  success: boolean;
+  action: 'merge' | 'dismiss';
+  merge_id?: string;
+}
+
+export interface DedupeReportRequest {
+  survivor_id: string;
+  loser_id: string;
+  reason: string;
+}
+
+export interface DedupeReportResponse {
+  id: string;
+  queued: boolean;
+}
+
+export interface MergeListItem {
+  id: string;
+  survivor: { id: string; title: string };
+  loser: { id: string; title: string };
+  stage: number;
+  reason: string;
+  merged_at: string;
+  undone_at: string | null;
+  can_undo: boolean;
+  stats: {
+    reads_moved: number;
+    editions_moved: number;
+    authors_moved: number;
+  };
+}
+
+export interface MergeListResponse {
+  data: MergeListItem[];
+}
+
+export interface UndoMergeResponse {
+  undone: boolean;
+  merge_id: string;
+  survivor_id: string;
+  loser_id: string;
+  restored: {
+    reads: number;
+    editions: number;
+    authors: number;
+    subjects: number;
+  };
+}
+

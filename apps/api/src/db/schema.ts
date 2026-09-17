@@ -513,3 +513,32 @@ export const workMerges = pgTable('work_merges', {
   index('work_merges_survivor_idx').on(t.survivorId),
   index('work_merges_at_idx').on(t.mergedAt),
 ]);
+
+/**
+ * Dedupe review queue (FN-51, PRD §40.3).
+ *
+ * Stores Stage 3 (probable fuzzy duplicates) and Stage 4 (user-reported
+ * duplicates) awaiting review by an admin. Merging or dismissing records
+ * review state and audit info.
+ */
+export const dedupeQueue = pgTable('dedupe_queue', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  survivorId: uuid('survivor_id').notNull().references(() => works.id),
+  loserId: uuid('loser_id').notNull().references(() => works.id),
+  stage: smallint('stage').notNull(),
+  status: text('status').notNull().default('pending'),
+  confidence: real('confidence'),
+  reason: text('reason').notNull(),
+  metadata: jsonb('metadata').notNull().default(sql`'{}'::jsonb`),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  reviewedAt: timestamp('reviewed_at', { withTimezone: true }),
+  reviewedByUserId: uuid('reviewed_by_user_id').references(() => users.id, { onDelete: 'set null' }),
+  dismissReason: text('dismiss_reason'),
+}, (t) => [
+  check('dedupe_queue_stage_ck', sql`${t.stage} IN (3, 4)`),
+  check('dedupe_queue_status_ck', sql`${t.status} IN ('pending', 'merged', 'dismissed')`),
+  uniqueIndex('dedupe_queue_pending_pair_idx').on(t.survivorId, t.loserId).where(sql`${t.status} = 'pending'`),
+  index('dedupe_queue_status_stage_idx').on(t.status, t.stage),
+  index('dedupe_queue_created_at_idx').on(t.createdAt),
+]);
+

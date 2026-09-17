@@ -33,11 +33,11 @@ import { config } from '../platform/index.js';
  */
 export const JOBS_SCHEMA = 'pgboss';
 
+import type { Db } from '../platform/index.js';
+import { runDedupe, type DedupeReport } from '../catalog/dedupe.js';
+
 /**
  * Every queue, named once.
- *
- * architecture.md §9 lists thirteen. Exactly one exists today -- adding the
- * other twelve now would be twelve empty handlers to keep compiling.
  */
 export const QUEUES = {
   /**
@@ -46,12 +46,24 @@ export const QUEUES = {
    * consuming, which is otherwise surprisingly hard to answer.
    */
   smokePing: 'smoke.ping',
+  /**
+   * Monthly dedupe pass (FN-52, Architecture §9).
+   * Stages 1–2 auto-merge, Stage 3 queued for review.
+   */
+  catalogDedupe: 'catalog.dedupe',
 } as const;
 
 export type QueueName = (typeof QUEUES)[keyof typeof QUEUES];
 
 export type PingRequest = { note?: string };
 export type PingResult = { pong: true; note: string; workedAt: string };
+
+export type DedupeJobRequest = {
+  limit?: number;
+  dryRun?: boolean;
+};
+
+export type DedupeJobResult = DedupeReport;
 
 /**
  * The smoke handler.
@@ -66,6 +78,20 @@ export type PingResult = { pong: true; note: string; workedAt: string };
 export async function pingHandler(jobs: Job<PingRequest>[]): Promise<PingResult> {
   const note = jobs.at(-1)?.data?.note ?? 'ping';
   return { pong: true, note, workedAt: new Date().toISOString() };
+}
+
+/**
+ * Dedupe background job handler (FN-52).
+ */
+export async function dedupeJobHandler(
+  jobs: Job<DedupeJobRequest>[],
+  db: Db,
+): Promise<DedupeJobResult> {
+  const data = jobs.at(-1)?.data ?? {};
+  return runDedupe(db, {
+    limit: data.limit,
+    dryRun: data.dryRun,
+  });
 }
 
 /**
@@ -104,7 +130,7 @@ export type JobLog = { info(obj: object, msg: string): void };
  * one thing it exists for: watching a worker terminal and seeing the job
  * land. A silent handler and a dead worker look identical.
  */
-export async function registerQueues(boss: PgBoss, log: JobLog): Promise<void> {
+export async function registerQueues(boss: PgBoss, log: JobLog, db?: Db): Promise<void> {
   for (const name of Object.values(QUEUES)) await boss.createQueue(name);
 
   await boss.work<PingRequest, PingResult>(QUEUES.smokePing, async (jobs) => {
@@ -113,6 +139,25 @@ export async function registerQueues(boss: PgBoss, log: JobLog): Promise<void> {
              'job handled');
     return result;
   });
+
+  if (db) {
+    await boss.work<DedupeJobRequest, DedupeJobResult>(QUEUES.catalogDedupe, async (jobs) => {
+      const result = await dedupeJobHandler(jobs, db);
+      log.info(
+        {
+          queue: QUEUES.catalogDedupe,
+          ids: jobs.map((j) => j.id),
+          stage1: result.stage1,
+          stage2: result.stage2,
+          stage3Queued: result.stage3Queued,
+          merged: result.merged,
+          skipped: result.skipped,
+        },
+        'job handled',
+      );
+      return result;
+    });
+  }
 }
 
 /**

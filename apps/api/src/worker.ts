@@ -50,6 +50,16 @@ async function main() {
     return;
   }
 
+  if (process.argv.includes('--dedupe')) {
+    await boss.start();
+    await boss.createQueue(QUEUES.catalogDedupe);
+    const id = await boss.send(QUEUES.catalogDedupe, { limit: 1000 });
+    log.info({ id, queue: QUEUES.catalogDedupe }, 'enqueued; a running worker should handle it');
+    await boss.stop({ graceful: false });
+    await closeDb(db);
+    return;
+  }
+
   // pg-boss reports operational trouble through events, not throws. Without
   // a listener on `error` an EventEmitter turns one into an uncaught
   // exception that kills the process; without one on `warning`, a queue
@@ -58,7 +68,10 @@ async function main() {
   boss.on('warning', (warning) => log.warn({ warning }, 'pg-boss'));
 
   await boss.start();
-  await registerQueues(boss, log);
+  await registerQueues(boss, log, db);
+
+  // Monthly dedupe pass: 1st of every month at midnight (FN-52, Architecture §9)
+  await boss.schedule(QUEUES.catalogDedupe, '0 0 1 * *', { limit: 1000 });
 
   log.info({ queues: Object.values(QUEUES), schema: 'pgboss' }, 'worker ready');
 
