@@ -620,4 +620,238 @@ export const adminAuditLogListResponseSchema = {
   required: ['data'],
 } as const;
 
+export const adminCatalogWorkSummarySchema = {
+  type: 'object',
+  properties: {
+    id: { type: 'string', format: 'uuid' },
+    title: { type: 'string' },
+    subtitle: { type: ['string', 'null'] },
+    author_name: { type: 'string' },
+    first_publish_year: { type: ['integer', 'null'] },
+    ol_cover_id: { type: ['integer', 'null'] },
+    maturity: { type: 'string', enum: ['general', 'mature', 'explicit', 'unclassified'] },
+    log_count: { type: 'integer' },
+    is_locked: { type: 'boolean' },
+    updated_at: { type: 'string', format: 'date-time' },
+  },
+  required: ['id', 'title', 'author_name', 'maturity', 'log_count', 'is_locked', 'updated_at'],
+} as const;
+
+export const adminCatalogWorksQuerySchema = {
+  type: 'object',
+  properties: {
+    maturity: { type: 'string', enum: ['general', 'mature', 'explicit', 'unclassified'] },
+    q: { type: 'string' },
+    limit: { type: 'integer', minimum: 1, maximum: 100, default: 20 },
+    offset: { type: 'integer', minimum: 0, default: 0 },
+  },
+} as const;
+
+export const adminCatalogWorksListResponseSchema = {
+  type: 'object',
+  properties: {
+    works: { type: 'array', items: adminCatalogWorkSummarySchema },
+    total: { type: 'integer' },
+    limit: { type: 'integer' },
+    offset: { type: 'integer' },
+  },
+  required: ['works', 'total', 'limit', 'offset'],
+} as const;
+
+export const adminCatalogWorkResponseSchema = {
+  type: 'object',
+  properties: {
+    work: {
+      type: 'object',
+      properties: {
+        id: { type: 'string', format: 'uuid' },
+        title: { type: 'string' },
+        subtitle: { type: ['string', 'null'] },
+        description: { type: ['string', 'null'] },
+        alternate_titles: { type: 'array', items: { type: 'string' } },
+        first_publish_year: { type: ['integer', 'null'] },
+        ol_cover_id: { type: ['integer', 'null'] },
+        maturity: { type: 'string', enum: ['general', 'mature', 'explicit', 'unclassified'] },
+        log_count: { type: 'integer' },
+        is_locked: { type: 'boolean' },
+        ol_work_key: { type: ['string', 'null'] },
+        authors: {
+          type: 'array',
+          items: {
+            type: 'object',
+            properties: {
+              id: { type: 'string', format: 'uuid' },
+              name: { type: 'string' },
+              role: { type: 'string' },
+            },
+            required: ['id', 'name', 'role'],
+          },
+        },
+        subjects: { type: 'array', items: { type: 'string' } },
+        editions_count: { type: 'integer' },
+        provenance: {
+          type: 'array',
+          items: {
+            type: 'object',
+            properties: {
+              field_name: { type: 'string' },
+              provider: { type: 'string' },
+              is_locked: { type: 'boolean' },
+              fetched_at: { type: 'string', format: 'date-time' },
+            },
+            required: ['field_name', 'provider', 'is_locked', 'fetched_at'],
+          },
+        },
+        audit_history: {
+          type: 'array',
+          items: {
+            type: 'object',
+            properties: {
+              id: { type: 'string', format: 'uuid' },
+              action: { type: 'string' },
+              actor_email: { type: 'string' },
+              reason: { type: ['string', 'null'] },
+              payload: { type: 'object' },
+              created_at: { type: 'string', format: 'date-time' },
+            },
+            required: ['id', 'action', 'actor_email', 'payload', 'created_at'],
+          },
+        },
+      },
+      required: [
+        'id',
+        'title',
+        'maturity',
+        'log_count',
+        'is_locked',
+        'authors',
+        'subjects',
+        'editions_count',
+        'provenance',
+        'audit_history',
+      ],
+    },
+  },
+  required: ['work'],
+} as const;
+
+export const adminMaturityOverrideBodySchema = {
+  type: 'object',
+  properties: {
+    maturity: { type: 'string', enum: ['general', 'mature', 'explicit', 'unclassified'] },
+    reason: { type: 'string', minLength: 3 },
+  },
+  required: ['maturity', 'reason'],
+} as const;
+
+export const adminMaturityOverrideResponseSchema = {
+  type: 'object',
+  properties: {
+    success: { type: 'boolean' },
+    work_id: { type: 'string', format: 'uuid' },
+    previous_maturity: { type: 'string', enum: ['general', 'mature', 'explicit', 'unclassified'] },
+    new_maturity: { type: 'string', enum: ['general', 'mature', 'explicit', 'unclassified'] },
+    is_locked: { type: 'boolean' },
+  },
+  required: ['success', 'work_id', 'previous_maturity', 'new_maturity', 'is_locked'],
+} as const;
+
+export const adminIngestRunSchema = {
+  type: 'object',
+  properties: {
+    id: { type: 'string', format: 'uuid' },
+    dump_type: { type: 'string' },
+    status: { type: 'string' },
+    lines_read: { type: 'integer' },
+    rows_written: { type: 'integer' },
+    rows_skipped: { type: 'integer' },
+    error: { type: ['string', 'null'] },
+    started_at: { type: 'string', format: 'date-time' },
+    finished_at: { type: ['string', 'null'], format: 'date-time' },
+    duration_seconds: { type: ['integer', 'null'] },
+  },
+  required: ['id', 'dump_type', 'status', 'lines_read', 'rows_written', 'rows_skipped', 'started_at'],
+} as const;
+
+export const adminIngestStatusResponseSchema = {
+  type: 'object',
+  properties: {
+    last_run: { anyOf: [adminIngestRunSchema, { type: 'null' }] },
+    recent_runs: { type: 'array', items: adminIngestRunSchema },
+    runs_summary: {
+      type: 'object',
+      properties: {
+        total_runs: { type: 'integer' },
+        completed: { type: 'integer' },
+        failed: { type: 'integer' },
+        interrupted: { type: 'integer' },
+        running: { type: 'integer' },
+      },
+      required: ['total_runs', 'completed', 'failed', 'interrupted', 'running'],
+    },
+    catalog: {
+      type: 'object',
+      properties: {
+        works_count: { type: 'integer' },
+        editions_count: { type: 'integer' },
+        authors_count: { type: 'integer' },
+        authorship_links_count: { type: 'integer' },
+        works_with_cover_count: { type: 'integer' },
+        raw_payloads_count: { type: 'integer' },
+      },
+      required: [
+        'works_count',
+        'editions_count',
+        'authors_count',
+        'authorship_links_count',
+        'works_with_cover_count',
+        'raw_payloads_count',
+      ],
+    },
+    maturity_breakdown: {
+      type: 'object',
+      properties: {
+        general: { type: 'integer' },
+        mature: { type: 'integer' },
+        explicit: { type: 'integer' },
+        unclassified: { type: 'integer' },
+        overridden_locked: { type: 'integer' },
+      },
+      required: ['general', 'mature', 'explicit', 'unclassified', 'overridden_locked'],
+    },
+    telemetry: {
+      type: 'object',
+      properties: {
+        circuit_breaker: {
+          type: 'object',
+          properties: {
+            state: { type: 'string', enum: ['closed', 'open', 'half-open'] },
+            threshold: { type: 'integer' },
+            cooldown_seconds: { type: 'integer' },
+          },
+          required: ['state', 'threshold', 'cooldown_seconds'],
+        },
+        outbound_limiter: {
+          type: 'object',
+          properties: {
+            rate_per_second: { type: 'number' },
+            burst: { type: 'integer' },
+          },
+          required: ['rate_per_second', 'burst'],
+        },
+        pending_work_authors_count: { type: 'integer' },
+        dedupe_queue_pending_count: { type: 'integer' },
+      },
+      required: [
+        'circuit_breaker',
+        'outbound_limiter',
+        'pending_work_authors_count',
+        'dedupe_queue_pending_count',
+      ],
+    },
+  },
+  required: ['last_run', 'recent_runs', 'runs_summary', 'catalog', 'maturity_breakdown', 'telemetry'],
+} as const;
+
+
 

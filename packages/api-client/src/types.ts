@@ -342,3 +342,136 @@ export interface AdminAuditLogResponse {
   data: AdminAuditLogItem[];
 }
 
+// ---------------------------------------------------------------- Admin Catalog & Ingest (FN-92)
+
+export type AdminMaturityRating = 'general' | 'mature' | 'explicit' | 'unclassified';
+
+export interface AdminCatalogWorkSummary {
+  id: string;
+  title: string;
+  subtitle: string | null;
+  author_name: string;
+  first_publish_year: number | null;
+  ol_cover_id: number | null;
+  maturity: AdminMaturityRating;
+  log_count: number;
+  is_locked: boolean;
+  updated_at: string;
+}
+
+export interface AdminCatalogWorksQuery {
+  maturity?: AdminMaturityRating;
+  q?: string;
+  limit?: number;
+  offset?: number;
+}
+
+export interface AdminCatalogWorksListResponse {
+  works: AdminCatalogWorkSummary[];
+  total: number;
+  limit: number;
+  offset: number;
+}
+
+export interface AdminCatalogWorkDetail {
+  id: string;
+  title: string;
+  subtitle: string | null;
+  description: string | null;
+  alternate_titles: string[];
+  first_publish_year: number | null;
+  ol_cover_id: number | null;
+  maturity: AdminMaturityRating;
+  log_count: number;
+  is_locked: boolean;
+  ol_work_key: string | null;
+  authors: Array<{ id: string; name: string; role: string }>;
+  subjects: string[];
+  editions_count: number;
+  provenance: Array<{
+    field_name: string;
+    provider: string;
+    is_locked: boolean;
+    fetched_at: string;
+  }>;
+  audit_history: Array<{
+    id: string;
+    action: string;
+    actor_email: string;
+    reason: string | null;
+    payload: Record<string, unknown>;
+    created_at: string;
+  }>;
+}
+
+export interface AdminCatalogWorkResponse {
+  work: AdminCatalogWorkDetail;
+}
+
+export interface AdminMaturityOverrideRequest {
+  maturity: AdminMaturityRating;
+  reason: string;
+}
+
+export interface AdminMaturityOverrideResponse {
+  success: boolean;
+  work_id: string;
+  previous_maturity: AdminMaturityRating;
+  new_maturity: AdminMaturityRating;
+  is_locked: boolean;
+}
+
+export interface AdminIngestRun {
+  id: string;
+  dump_type: string;
+  status: string;
+  lines_read: number;
+  rows_written: number;
+  rows_skipped: number;
+  error: string | null;
+  started_at: string;
+  finished_at: string | null;
+  duration_seconds: number | null;
+}
+
+export interface AdminIngestStatusResponse {
+  last_run: AdminIngestRun | null;
+  recent_runs: AdminIngestRun[];
+  runs_summary: {
+    total_runs: number;
+    completed: number;
+    failed: number;
+    interrupted: number;
+    running: number;
+  };
+  catalog: {
+    works_count: number;
+    editions_count: number;
+    authors_count: number;
+    authorship_links_count: number;
+    works_with_cover_count: number;
+    raw_payloads_count: number;
+  };
+  maturity_breakdown: {
+    general: number;
+    mature: number;
+    explicit: number;
+    unclassified: number;
+    overridden_locked: number;
+  };
+  telemetry: {
+    circuit_breaker: {
+      state: 'closed' | 'open' | 'half-open';
+      threshold: number;
+      cooldown_seconds: number;
+    };
+    outbound_limiter: {
+      rate_per_second: number;
+      burst: number;
+    };
+    pending_work_authors_count: number;
+    dedupe_queue_pending_count: number;
+  };
+}
+
+

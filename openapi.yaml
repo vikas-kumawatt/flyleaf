@@ -3466,6 +3466,827 @@ paths:
       responses:
         "200":
           description: Default Response
+  /admin/catalog/works:
+    get:
+      summary: List catalog works for maturity review
+      tags:
+        - Admin Catalog
+      description: Lists or searches catalog works filtered by maturity rating and
+        text query.
+      parameters:
+        - schema:
+            type: string
+            enum:
+              - general
+              - mature
+              - explicit
+              - unclassified
+          in: query
+          name: maturity
+          required: false
+        - schema:
+            type: string
+          in: query
+          name: q
+          required: false
+        - schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 20
+          in: query
+          name: limit
+          required: false
+        - schema:
+            type: integer
+            minimum: 0
+            default: 0
+          in: query
+          name: offset
+          required: false
+      responses:
+        "200":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  works:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: string
+                          format: uuid
+                        title:
+                          type: string
+                        subtitle:
+                          type:
+                            - "null"
+                            - string
+                        author_name:
+                          type: string
+                        first_publish_year:
+                          type:
+                            - "null"
+                            - integer
+                        ol_cover_id:
+                          type:
+                            - "null"
+                            - integer
+                        maturity:
+                          type: string
+                          enum:
+                            - general
+                            - mature
+                            - explicit
+                            - unclassified
+                        log_count:
+                          type: integer
+                        is_locked:
+                          type: boolean
+                        updated_at:
+                          type: string
+                          format: date-time
+                      required:
+                        - id
+                        - title
+                        - author_name
+                        - maturity
+                        - log_count
+                        - is_locked
+                        - updated_at
+                  total:
+                    type: integer
+                  limit:
+                    type: integer
+                  offset:
+                    type: integer
+                required:
+                  - works
+                  - total
+                  - limit
+                  - offset
+        "401":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      code:
+                        type: string
+                        description: Machine-readable error code
+                      message:
+                        type: string
+                        description: Human-readable error description
+                      field:
+                        type: string
+                        description: Invalid field name if applicable
+                    required:
+                      - code
+                      - message
+                required:
+                  - error
+        "500":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      code:
+                        type: string
+                        description: Machine-readable error code
+                      message:
+                        type: string
+                        description: Human-readable error description
+                      field:
+                        type: string
+                        description: Invalid field name if applicable
+                    required:
+                      - code
+                      - message
+                required:
+                  - error
+  /admin/catalog/works/{id}:
+    get:
+      summary: Get work detail for maturity review
+      tags:
+        - Admin Catalog
+      description: Returns full work metadata, subjects, editions count, provenance
+        lock, and audit history.
+      parameters:
+        - schema:
+            type: string
+            format: uuid
+          in: path
+          name: id
+          required: true
+      responses:
+        "200":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  work:
+                    type: object
+                    properties:
+                      id:
+                        type: string
+                        format: uuid
+                      title:
+                        type: string
+                      subtitle:
+                        type:
+                          - "null"
+                          - string
+                      description:
+                        type:
+                          - "null"
+                          - string
+                      alternate_titles:
+                        type: array
+                        items:
+                          type: string
+                      first_publish_year:
+                        type:
+                          - "null"
+                          - integer
+                      ol_cover_id:
+                        type:
+                          - "null"
+                          - integer
+                      maturity:
+                        type: string
+                        enum:
+                          - general
+                          - mature
+                          - explicit
+                          - unclassified
+                      log_count:
+                        type: integer
+                      is_locked:
+                        type: boolean
+                      ol_work_key:
+                        type:
+                          - "null"
+                          - string
+                      authors:
+                        type: array
+                        items:
+                          type: object
+                          properties:
+                            id:
+                              type: string
+                              format: uuid
+                            name:
+                              type: string
+                            role:
+                              type: string
+                          required:
+                            - id
+                            - name
+                            - role
+                      subjects:
+                        type: array
+                        items:
+                          type: string
+                      editions_count:
+                        type: integer
+                      provenance:
+                        type: array
+                        items:
+                          type: object
+                          properties:
+                            field_name:
+                              type: string
+                            provider:
+                              type: string
+                            is_locked:
+                              type: boolean
+                            fetched_at:
+                              type: string
+                              format: date-time
+                          required:
+                            - field_name
+                            - provider
+                            - is_locked
+                            - fetched_at
+                      audit_history:
+                        type: array
+                        items:
+                          type: object
+                          properties:
+                            id:
+                              type: string
+                              format: uuid
+                            action:
+                              type: string
+                            actor_email:
+                              type: string
+                            reason:
+                              type:
+                                - "null"
+                                - string
+                            payload:
+                              type: object
+                            created_at:
+                              type: string
+                              format: date-time
+                          required:
+                            - id
+                            - action
+                            - actor_email
+                            - payload
+                            - created_at
+                    required:
+                      - id
+                      - title
+                      - maturity
+                      - log_count
+                      - is_locked
+                      - authors
+                      - subjects
+                      - editions_count
+                      - provenance
+                      - audit_history
+                required:
+                  - work
+        "401":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      code:
+                        type: string
+                        description: Machine-readable error code
+                      message:
+                        type: string
+                        description: Human-readable error description
+                      field:
+                        type: string
+                        description: Invalid field name if applicable
+                    required:
+                      - code
+                      - message
+                required:
+                  - error
+        "404":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      code:
+                        type: string
+                        description: Machine-readable error code
+                      message:
+                        type: string
+                        description: Human-readable error description
+                      field:
+                        type: string
+                        description: Invalid field name if applicable
+                    required:
+                      - code
+                      - message
+                required:
+                  - error
+        "500":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      code:
+                        type: string
+                        description: Machine-readable error code
+                      message:
+                        type: string
+                        description: Human-readable error description
+                      field:
+                        type: string
+                        description: Invalid field name if applicable
+                    required:
+                      - code
+                      - message
+                required:
+                  - error
+  /admin/catalog/works/{id}/maturity:
+    post:
+      summary: Override work maturity classification
+      tags:
+        - Admin Catalog
+      description: Overrides work maturity, locks field provenance, and records
+        non-negotiable audit log. Requires admin role.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                maturity:
+                  type: string
+                  enum:
+                    - general
+                    - mature
+                    - explicit
+                    - unclassified
+                reason:
+                  type: string
+                  minLength: 3
+              required:
+                - maturity
+                - reason
+      parameters:
+        - schema:
+            type: string
+            format: uuid
+          in: path
+          name: id
+          required: true
+      responses:
+        "200":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  work_id:
+                    type: string
+                    format: uuid
+                  previous_maturity:
+                    type: string
+                    enum:
+                      - general
+                      - mature
+                      - explicit
+                      - unclassified
+                  new_maturity:
+                    type: string
+                    enum:
+                      - general
+                      - mature
+                      - explicit
+                      - unclassified
+                  is_locked:
+                    type: boolean
+                required:
+                  - success
+                  - work_id
+                  - previous_maturity
+                  - new_maturity
+                  - is_locked
+        "400":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      code:
+                        type: string
+                        description: Machine-readable error code
+                      message:
+                        type: string
+                        description: Human-readable error description
+                      field:
+                        type: string
+                        description: Invalid field name if applicable
+                    required:
+                      - code
+                      - message
+                required:
+                  - error
+        "401":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      code:
+                        type: string
+                        description: Machine-readable error code
+                      message:
+                        type: string
+                        description: Human-readable error description
+                      field:
+                        type: string
+                        description: Invalid field name if applicable
+                    required:
+                      - code
+                      - message
+                required:
+                  - error
+        "403":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      code:
+                        type: string
+                        description: Machine-readable error code
+                      message:
+                        type: string
+                        description: Human-readable error description
+                      field:
+                        type: string
+                        description: Invalid field name if applicable
+                    required:
+                      - code
+                      - message
+                required:
+                  - error
+        "404":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      code:
+                        type: string
+                        description: Machine-readable error code
+                      message:
+                        type: string
+                        description: Human-readable error description
+                      field:
+                        type: string
+                        description: Invalid field name if applicable
+                    required:
+                      - code
+                      - message
+                required:
+                  - error
+        "500":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      code:
+                        type: string
+                        description: Machine-readable error code
+                      message:
+                        type: string
+                        description: Human-readable error description
+                      field:
+                        type: string
+                        description: Invalid field name if applicable
+                    required:
+                      - code
+                      - message
+                required:
+                  - error
+  /admin/ingest/status:
+    get:
+      summary: Get ingestion status and system telemetry
+      tags:
+        - Admin Ingest
+      description: Returns dump runs history, catalog totals, maturity breakdown, and
+        circuit breaker status.
+      responses:
+        "200":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  last_run:
+                    anyOf:
+                      - type: object
+                        properties:
+                          id:
+                            type: string
+                            format: uuid
+                          dump_type:
+                            type: string
+                          status:
+                            type: string
+                          lines_read:
+                            type: integer
+                          rows_written:
+                            type: integer
+                          rows_skipped:
+                            type: integer
+                          error:
+                            type:
+                              - "null"
+                              - string
+                          started_at:
+                            type: string
+                            format: date-time
+                          finished_at:
+                            type:
+                              - "null"
+                              - string
+                            format: date-time
+                          duration_seconds:
+                            type:
+                              - "null"
+                              - integer
+                        required:
+                          - id
+                          - dump_type
+                          - status
+                          - lines_read
+                          - rows_written
+                          - rows_skipped
+                          - started_at
+                      - type: "null"
+                  recent_runs:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: string
+                          format: uuid
+                        dump_type:
+                          type: string
+                        status:
+                          type: string
+                        lines_read:
+                          type: integer
+                        rows_written:
+                          type: integer
+                        rows_skipped:
+                          type: integer
+                        error:
+                          type:
+                            - "null"
+                            - string
+                        started_at:
+                          type: string
+                          format: date-time
+                        finished_at:
+                          type:
+                            - "null"
+                            - string
+                          format: date-time
+                        duration_seconds:
+                          type:
+                            - "null"
+                            - integer
+                      required:
+                        - id
+                        - dump_type
+                        - status
+                        - lines_read
+                        - rows_written
+                        - rows_skipped
+                        - started_at
+                  runs_summary:
+                    type: object
+                    properties:
+                      total_runs:
+                        type: integer
+                      completed:
+                        type: integer
+                      failed:
+                        type: integer
+                      interrupted:
+                        type: integer
+                      running:
+                        type: integer
+                    required:
+                      - total_runs
+                      - completed
+                      - failed
+                      - interrupted
+                      - running
+                  catalog:
+                    type: object
+                    properties:
+                      works_count:
+                        type: integer
+                      editions_count:
+                        type: integer
+                      authors_count:
+                        type: integer
+                      authorship_links_count:
+                        type: integer
+                      works_with_cover_count:
+                        type: integer
+                      raw_payloads_count:
+                        type: integer
+                    required:
+                      - works_count
+                      - editions_count
+                      - authors_count
+                      - authorship_links_count
+                      - works_with_cover_count
+                      - raw_payloads_count
+                  maturity_breakdown:
+                    type: object
+                    properties:
+                      general:
+                        type: integer
+                      mature:
+                        type: integer
+                      explicit:
+                        type: integer
+                      unclassified:
+                        type: integer
+                      overridden_locked:
+                        type: integer
+                    required:
+                      - general
+                      - mature
+                      - explicit
+                      - unclassified
+                      - overridden_locked
+                  telemetry:
+                    type: object
+                    properties:
+                      circuit_breaker:
+                        type: object
+                        properties:
+                          state:
+                            type: string
+                            enum:
+                              - closed
+                              - open
+                              - half-open
+                          threshold:
+                            type: integer
+                          cooldown_seconds:
+                            type: integer
+                        required:
+                          - state
+                          - threshold
+                          - cooldown_seconds
+                      outbound_limiter:
+                        type: object
+                        properties:
+                          rate_per_second:
+                            type: number
+                          burst:
+                            type: integer
+                        required:
+                          - rate_per_second
+                          - burst
+                      pending_work_authors_count:
+                        type: integer
+                      dedupe_queue_pending_count:
+                        type: integer
+                    required:
+                      - circuit_breaker
+                      - outbound_limiter
+                      - pending_work_authors_count
+                      - dedupe_queue_pending_count
+                required:
+                  - last_run
+                  - recent_runs
+                  - runs_summary
+                  - catalog
+                  - maturity_breakdown
+                  - telemetry
+        "401":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      code:
+                        type: string
+                        description: Machine-readable error code
+                      message:
+                        type: string
+                        description: Human-readable error description
+                      field:
+                        type: string
+                        description: Invalid field name if applicable
+                    required:
+                      - code
+                      - message
+                required:
+                  - error
+        "500":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      code:
+                        type: string
+                        description: Machine-readable error code
+                      message:
+                        type: string
+                        description: Human-readable error description
+                      field:
+                        type: string
+                        description: Invalid field name if applicable
+                    required:
+                      - code
+                      - message
+                required:
+                  - error
+  /admin/catalog/maturity:
+    get:
+      responses:
+        "200":
+          description: Default Response
+  /admin/ingest:
+    get:
+      responses:
+        "200":
+          description: Default Response
   /healthz:
     get:
       summary: Liveness probe
@@ -3537,3 +4358,7 @@ tags:
     description: Administrator authentication, 2FA, and session management (FN-90)
   - name: Admin Audit
     description: Non-negotiable administrative audit log (FN-93)
+  - name: Admin Catalog
+    description: Catalog works inspection and maturity override (FN-92)
+  - name: Admin Ingest
+    description: Ingestion status and circuit breaker telemetry (FN-92)

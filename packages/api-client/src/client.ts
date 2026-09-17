@@ -7,8 +7,16 @@ import type {
   AdminAuditLogItem,
   AdminAuditLogQuery,
   AdminAuditLogResponse,
+  AdminCatalogWorkDetail,
+  AdminCatalogWorkResponse,
+  AdminCatalogWorkSummary,
+  AdminCatalogWorksListResponse,
+  AdminCatalogWorksQuery,
+  AdminIngestStatusResponse,
   AdminLoginRequest,
   AdminLoginResponse,
+  AdminMaturityOverrideRequest,
+  AdminMaturityOverrideResponse,
   AdminMeResponse,
   AdminViewer,
   ApiErrorResponse,
@@ -366,6 +374,50 @@ export class FlyleafClient {
     });
     return res.data;
   }
+
+  // ---------------------------------------------------------------- Admin Catalog & Ingest (FN-92)
+
+  async adminGetCatalogWorks(
+    params?: AdminCatalogWorksQuery,
+  ): Promise<AdminCatalogWorksListResponse> {
+    const q = new URLSearchParams();
+    if (params?.maturity) q.set('maturity', params.maturity);
+    if (params?.q) q.set('q', params.q);
+    if (params?.limit != null) q.set('limit', String(params.limit));
+    if (params?.offset != null) q.set('offset', String(params.offset));
+    const qs = q.toString() ? `?${q.toString()}` : '';
+    return this.request<AdminCatalogWorksListResponse>(`/admin/catalog/works${qs}`, {
+      method: 'GET',
+    });
+  }
+
+  async adminGetCatalogWork(workId: string): Promise<AdminCatalogWorkDetail> {
+    const res = await this.request<AdminCatalogWorkResponse>(
+      `/admin/catalog/works/${encodeURIComponent(workId)}`,
+      { method: 'GET' },
+    );
+    return res.work;
+  }
+
+  async adminOverrideMaturity(
+    workId: string,
+    data: AdminMaturityOverrideRequest,
+  ): Promise<AdminMaturityOverrideResponse> {
+    return this.request<AdminMaturityOverrideResponse>(
+      `/admin/catalog/works/${encodeURIComponent(workId)}/maturity`,
+      {
+        method: 'POST',
+        body: JSON.stringify(data),
+      },
+    );
+  }
+
+  async adminGetIngestStatus(): Promise<AdminIngestStatusResponse> {
+    return this.request<AdminIngestStatusResponse>('/admin/ingest/status', {
+      method: 'GET',
+    });
+  }
 }
+
 
 

@@ -527,6 +527,8 @@ export function adminAuthRoutes(db: Db) {
       </div>
       <div class="nav">
         <a href="/admin/merges">Merge Review</a>
+        <a href="/admin/catalog/maturity">Maturity</a>
+        <a href="/admin/ingest">Ingestion</a>
         <a href="/admin/audit-log" class="active">Audit Trail</a>
         <div class="user-pill">
           <span>${escapeHtml(req.admin.email)}</span>

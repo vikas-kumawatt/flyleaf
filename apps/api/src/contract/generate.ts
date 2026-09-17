@@ -15,6 +15,7 @@ import { catalogRoutes } from '../catalog/index.js';
 import { readingRoutes } from '../reading/index.js';
 import { adminDedupeRoutes } from '../admin/dedupe.js';
 import { adminAuthRoutes } from '../admin/routes.js';
+import { adminCatalogRoutes } from '../admin/catalog-routes.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -37,6 +38,7 @@ export async function buildOpenApiSpec(): Promise<object> {
   await app.register(readingRoutes(mockReading), { prefix: '/v1' });
   await app.register(adminDedupeRoutes(mockDb));
   await app.register(adminAuthRoutes(mockDb));
+  await app.register(adminCatalogRoutes(mockDb));
 
   // System endpoints
   app.get(

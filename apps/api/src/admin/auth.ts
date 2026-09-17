@@ -9,6 +9,7 @@
 
 import { verify as argonVerify, hash as argonHash } from '@node-rs/argon2';
 import { and, desc, eq, sql } from 'drizzle-orm';
+import type { PgTransaction } from 'drizzle-orm/pg-core';
 import * as jose from 'jose';
 import { z } from 'zod';
 
@@ -105,7 +106,7 @@ export async function verifyAdminToken(
  * Logs an administrative action to admin_audit_log (FN-93, PRD §27.5).
  */
 export async function logAdminAction(
-  db: Db,
+  db: Db | PgTransaction<any, any, any>,
   entry: {
     actorId: string;
     action: string;

@@ -223,7 +223,14 @@
   - Server-rendered admin web console at `/admin/login`, `/admin/merges`, and `/admin/audit-log` with secure session cookies (`flyleaf_admin_session`).
 - [x] **FN-91** Merge review UI + undo — 0.75d
   - Delivered with FN-51 & FN-90: Server-rendered dashboard (`/admin/merges`), side-by-side work comparison cards, collision forecasting, and 1-click reversible 30-day undo.
-- [ ] FN-92 Maturity override; ingestion status dashboard — 0.75d
+- [x] **FN-92** Maturity override; ingestion status dashboard — 0.75d
+  - Catalog works inspection & review API (`GET /v1/admin/catalog/works`, `GET /v1/admin/catalog/works/:id`) with maturity filter (`unclassified`, `general`, `mature`, `explicit`) and text search.
+  - Non-negotiable maturity override (`POST /v1/admin/catalog/works/:id/maturity`): Updates `works.maturity`, locks `field_provenance` (`is_locked = true`, `provider = 'user'`) to protect human overrides from dump re-ingests, and logs to `admin_audit_log` with action `catalog.maturity_override` and mandatory human reason.
+  - Role gating: `requireModerator` for reading works and status; `requireAdmin` for maturity mutations (moderator receives 403 `insufficient_role`).
+  - Ingestion status dashboard (`GET /v1/admin/ingest/status`): Ingest runs history (`ingest_runs`), catalog breakdown (works, editions, authors, covers, raw payloads, maturity distribution), pending authorship queue depth, dedupe queue depth, and `outboundBreaker` state (`closed`, `open`, `half-open`) with rate limiter headroom.
+  - Server-rendered HTML console views at `/admin/catalog/maturity` and `/admin/ingest` with shared navigation bar, role badges, and interactive override modal.
+  - Zero-drift OpenAPI 3.1.0 specifications and typed client methods in `@flyleaf/api-client` (`adminGetCatalogWorks`, `adminGetCatalogWork`, `adminOverrideMaturity`, `adminGetIngestStatus`).
+  - 7 dedicated test cases in `apps/api/src/test/admin-catalog.test.ts`. 100% test pass rate across 14 test suites in CI. Phase 0 Foundation is now complete.
 - [x] **FN-93** ⚠️ `admin_audit_log` on every action — 0.25d
   - Migration `0009_admin_auth.sql` introduces `admin_audit_log` with indexes on `(created_at desc)` and `(actor_id, created_at desc)`.
   - Non-negotiable audit logging (`logAdminAction`) automatically records every admin action: logins (`admin.login`), dedupe merges (`catalog.merge`), undos (`catalog.undo`), and dismissals (`catalog.dismiss`).

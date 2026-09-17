@@ -20,6 +20,7 @@ import { type CatalogService, catalogRoutes } from './catalog/index.js';
 import { type ReadingService, readingRoutes } from './reading/index.js';
 import { adminDedupeRoutes } from './admin/dedupe.js';
 import { adminAuthRoutes } from './admin/routes.js';
+import { adminCatalogRoutes } from './admin/catalog-routes.js';
 import { verifyAdminToken } from './admin/auth.js';
 
 export interface CoreHookOptions {
@@ -190,6 +191,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
   if (options.db) {
     await app.register(adminAuthRoutes(options.db));
     await app.register(adminDedupeRoutes(options.db));
+    await app.register(adminCatalogRoutes(options.db));
   }
 
   return app;

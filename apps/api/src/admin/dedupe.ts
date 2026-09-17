@@ -412,7 +412,8 @@ export function adminDedupeRoutes(db: Db) {
       <p class="meta">Review fuzzy duplicate candidates (PRD §40.3 Stage 3/4) &amp; reverse merges within 30 days</p>
     </div>
     <div style="display: flex; align-items: center; gap: 14px;">
-      <span class="badge badge-stage3">${queueItems.length} Queued</span>
+      <a href="/admin/catalog/maturity" style="color: var(--accent); text-decoration: none; font-size: 13px; font-weight: 500;">Maturity</a>
+      <a href="/admin/ingest" style="color: var(--accent); text-decoration: none; font-size: 13px; font-weight: 500;">Ingestion</a>
       <a href="/admin/audit-log" style="color: var(--accent); text-decoration: none; font-size: 13px; font-weight: 500;">Audit Trail</a>
       <div style="display: flex; align-items: center; gap: 6px; background: rgba(255, 255, 255, 0.05); border: 1px solid var(--border); padding: 4px 10px; border-radius: 16px; font-size: 12px;">
         <span>${escapeHtml(req.admin.email)}</span>

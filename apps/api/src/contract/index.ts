@@ -34,6 +34,8 @@ export async function registerSwagger(app: FastifyInstance) {
         { name: 'Admin Dedupe', description: 'Duplicate detection review queue and 30-day undo (FN-51)' },
         { name: 'Admin Auth', description: 'Administrator authentication, 2FA, and session management (FN-90)' },
         { name: 'Admin Audit', description: 'Non-negotiable administrative audit log (FN-93)' },
+        { name: 'Admin Catalog', description: 'Catalog works inspection and maturity override (FN-92)' },
+        { name: 'Admin Ingest', description: 'Ingestion status and circuit breaker telemetry (FN-92)' },
       ],
     },
   });
