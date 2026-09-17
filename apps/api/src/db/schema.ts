@@ -13,7 +13,7 @@
 
 import { sql } from 'drizzle-orm';
 import {
-  bigint, boolean, check, customType, date, index, integer, jsonb, numeric,
+  bigint, bigserial, boolean, check, customType, date, index, integer, jsonb, numeric,
   pgTable, primaryKey, real, smallint, text, timestamp, unique, uniqueIndex, uuid,
   type AnyPgColumn,
 } from 'drizzle-orm/pg-core';
@@ -540,5 +540,45 @@ export const dedupeQueue = pgTable('dedupe_queue', {
   uniqueIndex('dedupe_queue_pending_pair_idx').on(t.survivorId, t.loserId).where(sql`${t.status} = 'pending'`),
   index('dedupe_queue_status_stage_idx').on(t.status, t.stage),
   index('dedupe_queue_created_at_idx').on(t.createdAt),
+]);
+
+// ---------------------------------------------------------------------------
+// 7. Admin & Audit (FN-90, FN-93, PRD §27.5, Architecture §3.7)
+// ---------------------------------------------------------------------------
+
+/**
+ * Admin credentials & 2FA state (FN-90, PRD §27.5).
+ *
+ * Dedicated admin credentials separate from standard mobile app sessions.
+ * Holds the TOTP secret, verification flag, and one-time recovery backup codes.
+ */
+export const adminCredentials = pgTable('admin_credentials', {
+  userId: uuid('user_id').primaryKey().references(() => users.id, { onDelete: 'cascade' }),
+  totpSecret: text('totp_secret').notNull(),
+  totpVerified: boolean('totp_verified').notNull().default(false),
+  backupCodes: text('backup_codes').array().notNull().default(sql`'{}'::text[]`),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+/**
+ * Admin audit log (FN-93, Architecture §3.7, PRD §27.5).
+ *
+ * Non-negotiable audit trail of every moderation, catalog edit, merge, undo,
+ * or administrative action. Records actor, action, target entity, reason, and payload.
+ */
+export const adminAuditLog = pgTable('admin_audit_log', {
+  id: bigserial('id', { mode: 'number' }).primaryKey(),
+  actorId: uuid('actor_id').notNull().references(() => users.id),
+  action: text('action').notNull(),
+  subjectType: text('subject_type'),
+  subjectId: uuid('subject_id'),
+  reason: text('reason'),
+  payload: jsonb('payload').notNull().default(sql`'{}'::jsonb`),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [
+  index('admin_audit_log_actor_idx').on(t.actorId, t.createdAt),
+  index('admin_audit_log_action_idx').on(t.action, t.createdAt),
+  index('admin_audit_log_subject_idx').on(t.subjectType, t.subjectId),
 ]);
 

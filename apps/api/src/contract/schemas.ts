@@ -517,3 +517,107 @@ export const undoMergeResponseSchema = {
   required: ['undone', 'merge_id', 'survivor_id', 'loser_id', 'restored'],
 } as const;
 
+// ---------------------------------------------------------------------------
+// 5. Admin Auth & Audit Schemas (FN-90, FN-93, PRD §27.5)
+// ---------------------------------------------------------------------------
+
+export const adminViewerSchema = {
+  type: 'object',
+  properties: {
+    id: { type: 'string', format: 'uuid' },
+    email: { type: 'string', format: 'email' },
+    role: { type: 'string', enum: ['admin', 'moderator'] },
+  },
+  required: ['id', 'email', 'role'],
+} as const;
+
+export const adminLoginBodySchema = {
+  type: 'object',
+  properties: {
+    email: { type: 'string', format: 'email' },
+    password: { type: 'string', minLength: 1 },
+    totp_code: { type: 'string', minLength: 6, maxLength: 10, description: '6-digit TOTP code or backup code' },
+  },
+  required: ['email', 'password', 'totp_code'],
+} as const;
+
+export const adminLoginResponseSchema = {
+  type: 'object',
+  properties: {
+    token: { type: 'string', description: 'Admin JWT scoped to flyleaf-admin' },
+    admin: adminViewerSchema,
+  },
+  required: ['token', 'admin'],
+} as const;
+
+export const adminMeResponseSchema = {
+  type: 'object',
+  properties: {
+    admin: adminViewerSchema,
+  },
+  required: ['admin'],
+} as const;
+
+export const admin2faSetupResponseSchema = {
+  type: 'object',
+  properties: {
+    secret: { type: 'string' },
+    otpauth_uri: { type: 'string' },
+    backup_codes: { type: 'array', items: { type: 'string' } },
+  },
+  required: ['secret', 'otpauth_uri', 'backup_codes'],
+} as const;
+
+export const admin2faVerifyBodySchema = {
+  type: 'object',
+  properties: {
+    code: { type: 'string', minLength: 6, maxLength: 6 },
+  },
+  required: ['code'],
+} as const;
+
+export const admin2faVerifyResponseSchema = {
+  type: 'object',
+  properties: {
+    success: { type: 'boolean' },
+  },
+  required: ['success'],
+} as const;
+
+export const adminAuditLogItemSchema = {
+  type: 'object',
+  properties: {
+    id: { type: 'integer' },
+    actor_id: { type: 'string', format: 'uuid' },
+    actor_email: { type: 'string' },
+    actor_role: { type: 'string' },
+    action: { type: 'string' },
+    subject_type: { type: ['string', 'null'] },
+    subject_id: { type: ['string', 'null'], format: 'uuid' },
+    reason: { type: ['string', 'null'] },
+    payload: { type: 'object' },
+    created_at: { type: 'string', format: 'date-time' },
+  },
+  required: ['id', 'actor_id', 'actor_email', 'actor_role', 'action', 'payload', 'created_at'],
+} as const;
+
+export const adminAuditLogQuerySchema = {
+  type: 'object',
+  properties: {
+    action: { type: 'string' },
+    actor_id: { type: 'string', format: 'uuid' },
+    subject_type: { type: 'string' },
+    limit: { type: 'integer', minimum: 1, maximum: 100, default: 50 },
+    offset: { type: 'integer', minimum: 0, default: 0 },
+  },
+} as const;
+
+export const adminAuditLogListResponseSchema = {
+  type: 'object',
+  properties: {
+    data: { type: 'array', items: adminAuditLogItemSchema },
+  },
+  required: ['data'],
+} as const;
+
+

@@ -35,12 +35,16 @@ export class ApiError extends Error {
   static badRequest(code: string, message: string, field?: string) {
     return new ApiError(400, code, message, field);
   }
-  static unauthorized(message = 'Sign in to do that.') {
-    return new ApiError(401, 'auth_required', message);
+  static unauthorized(arg1 = 'Sign in to do that.', arg2?: string) {
+    if (arg2) return new ApiError(401, arg1, arg2);
+    return new ApiError(401, 'auth_required', arg1);
   }
   /** Always 404 for another user's private resource — a 403 confirms it exists. */
   static notFound(message = 'Not found.') {
     return new ApiError(404, 'not_found', message);
+  }
+  static forbidden(code: string, message: string) {
+    return new ApiError(403, code, message);
   }
   static conflict(code: string, message: string) {
     return new ApiError(409, code, message);
@@ -53,10 +57,18 @@ export class ApiError extends Error {
   }
 }
 
+export type AdminViewer = {
+  id: string;
+  email: string;
+  role: 'admin' | 'moderator';
+};
+
 declare module 'fastify' {
   interface FastifyRequest {
     /** The authenticated user, or null for a guest. */
     viewer: string | null;
+    /** The authenticated admin or moderator, or null. */
+    admin: AdminViewer | null;
   }
 }
 
@@ -70,6 +82,32 @@ declare module 'fastify' {
 export function requireViewer(req: FastifyRequest): string {
   if (!req.viewer) throw ApiError.unauthorized();
   return req.viewer;
+}
+
+/**
+ * Asserts the request was authenticated with a valid Admin session and has 'admin' role.
+ */
+export function requireAdmin(req: FastifyRequest): AdminViewer {
+  if (!req.admin) {
+    throw new ApiError(401, 'admin_auth_required', 'Admin authentication required.');
+  }
+  if (req.admin.role !== 'admin') {
+    throw ApiError.forbidden('insufficient_role', 'Administrator role required.');
+  }
+  return req.admin;
+}
+
+/**
+ * Asserts the request has an admin or moderator session.
+ */
+export function requireModerator(req: FastifyRequest): AdminViewer {
+  if (!req.admin) {
+    throw new ApiError(401, 'admin_auth_required', 'Admin or moderator authentication required.');
+  }
+  if (req.admin.role !== 'admin' && req.admin.role !== 'moderator') {
+    throw ApiError.forbidden('insufficient_role', 'Moderator or administrator role required.');
+  }
+  return req.admin;
 }
 
 export function sendError(reply: FastifyReply, err: ApiError) {

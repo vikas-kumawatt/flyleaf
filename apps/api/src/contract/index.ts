@@ -31,8 +31,9 @@ export async function registerSwagger(app: FastifyInstance) {
       tags: [
         { name: 'Auth', description: 'Authentication, rotating sessions, and profiles' },
         { name: 'Catalog', description: 'Works, editions, and search' },
-        { name: 'Reading', description: 'Reads, re-reads, and progress events' },
         { name: 'Admin Dedupe', description: 'Duplicate detection review queue and 30-day undo (FN-51)' },
+        { name: 'Admin Auth', description: 'Administrator authentication, 2FA, and session management (FN-90)' },
+        { name: 'Admin Audit', description: 'Non-negotiable administrative audit log (FN-93)' },
       ],
     },
   });

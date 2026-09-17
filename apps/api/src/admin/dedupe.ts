@@ -6,6 +6,8 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import type { Db } from '../platform/index.js';
+import { requireAdmin, requireModerator } from '../http.js';
+import { logAdminAction } from './auth.js';
 import {
   getDedupeQueue,
   previewMerge,
@@ -71,6 +73,7 @@ export function adminDedupeRoutes(db: Db) {
         },
       },
       async (req) => {
+        requireModerator(req);
         const query = queueQuery.parse(req.query);
         const data = await getDedupeQueue(db, query);
         return { data };
@@ -94,12 +97,14 @@ export function adminDedupeRoutes(db: Db) {
           },
           response: {
             200: dedupePreviewResponseSchema,
+            401: errorResponseSchema,
             404: errorResponseSchema,
             500: errorResponseSchema,
           },
         },
       },
       async (req) => {
+        requireModerator(req);
         return previewMerge(db, req.params.survivorId, req.params.loserId);
       },
     );
@@ -110,7 +115,7 @@ export function adminDedupeRoutes(db: Db) {
         schema: {
           tags: ['Admin Dedupe'],
           summary: 'Resolve dedupe candidate',
-          description: 'Approves merge or dismisses duplicate candidate with reason.',
+          description: 'Approves merge or dismisses duplicate candidate with reason. Requires administrator role.',
           params: {
             type: 'object',
             properties: {
@@ -122,17 +127,36 @@ export function adminDedupeRoutes(db: Db) {
           response: {
             200: dedupeResolveResponseSchema,
             400: errorResponseSchema,
+            401: errorResponseSchema,
+            403: errorResponseSchema,
             404: errorResponseSchema,
             500: errorResponseSchema,
           },
         },
       },
       async (req) => {
+        const admin = requireAdmin(req);
         const body = resolveBody.parse(req.body);
-        return resolveQueueItem(db, req.params.id, body.action, {
-          reviewerUserId: req.viewer ?? undefined,
+        const result = await resolveQueueItem(db, req.params.id, body.action, {
+          reviewerUserId: admin.id,
           reason: body.reason,
         });
+
+        // Audit log action (FN-93)
+        await logAdminAction(db, {
+          actorId: admin.id,
+          action: body.action === 'merge' ? 'catalog.merge' : 'catalog.dismiss_duplicate',
+          subjectType: 'dedupe_queue',
+          subjectId: req.params.id,
+          reason: body.reason,
+          payload: {
+            queueId: req.params.id,
+            action: body.action,
+            mergeId: result.merge_id ?? result.mergeId,
+          },
+        });
+
+        return result;
       },
     );
 
@@ -154,12 +178,26 @@ export function adminDedupeRoutes(db: Db) {
       },
       async (req) => {
         const body = reportBody.parse(req.body);
-        return queueReportedDuplicate(db, {
+        const reporterId = req.admin?.id ?? req.viewer ?? undefined;
+        const result = await queueReportedDuplicate(db, {
           survivorId: body.survivor_id,
           loserId: body.loser_id,
           reason: body.reason,
-          reporterUserId: req.viewer ?? undefined,
+          reporterUserId: reporterId,
         });
+
+        if (req.admin) {
+          await logAdminAction(db, {
+            actorId: req.admin.id,
+            action: 'catalog.report_duplicate',
+            subjectType: 'work',
+            subjectId: body.survivor_id,
+            reason: body.reason,
+            payload: { loserId: body.loser_id, queueId: result.id },
+          });
+        }
+
+        return result;
       },
     );
 
@@ -179,11 +217,13 @@ export function adminDedupeRoutes(db: Db) {
           },
           response: {
             200: mergeListResponseSchema,
+            401: errorResponseSchema,
             500: errorResponseSchema,
           },
         },
       },
       async (req) => {
+        requireModerator(req);
         const query = mergesQuery.parse(req.query);
         const data = await getRecentMerges(db, query);
         return { data };
@@ -196,7 +236,7 @@ export function adminDedupeRoutes(db: Db) {
         schema: {
           tags: ['Admin Dedupe'],
           summary: 'Undo work merge',
-          description: 'Reverses a work merge within 30 days, restoring the loser and original reads.',
+          description: 'Reverses a work merge within 30 days, restoring the loser and original reads. Requires administrator role.',
           params: {
             type: 'object',
             properties: {
@@ -207,6 +247,8 @@ export function adminDedupeRoutes(db: Db) {
           response: {
             200: undoMergeResponseSchema,
             400: errorResponseSchema,
+            401: errorResponseSchema,
+            403: errorResponseSchema,
             404: errorResponseSchema,
             409: errorResponseSchema,
             500: errorResponseSchema,
@@ -214,7 +256,24 @@ export function adminDedupeRoutes(db: Db) {
         },
       },
       async (req) => {
-        return undoMerge(db, req.params.id);
+        const admin = requireAdmin(req);
+        const result = await undoMerge(db, req.params.id);
+
+        // Audit log action (FN-93)
+        await logAdminAction(db, {
+          actorId: admin.id,
+          action: 'catalog.undo_merge',
+          subjectType: 'work',
+          subjectId: result.survivor_id,
+          reason: 'Reversed merge within 30-day window',
+          payload: {
+            mergeId: req.params.id,
+            loserId: result.loser_id,
+            restored: result.restored,
+          },
+        });
+
+        return result;
       },
     );
 
@@ -222,7 +281,12 @@ export function adminDedupeRoutes(db: Db) {
     // Server-Rendered Admin Review UI (PRD §3715–§3721)
     // -----------------------------------------------------------------------
 
-    app.get('/admin/merges', async (_req, reply) => {
+    app.get('/admin/merges', async (req, reply) => {
+      if (!req.admin) {
+        return reply.redirect('/admin/login');
+      }
+
+      const isAdmin = req.admin.role === 'admin';
       const [queueItems, recentMerges] = await Promise.all([
         getDedupeQueue(db, { status: 'pending', limit: 20 }),
         getRecentMerges(db, { limit: 15 }),
@@ -263,7 +327,7 @@ export function adminDedupeRoutes(db: Db) {
       justify-content: space-between;
       align-items: center;
     }
-    h1 { font-size: 22px; color: var(--text-bright); font-weight: 600; }
+    h1 { font-size: 22px; color: var(--text-bright); margin-bottom: 4px; }
     .badge {
       display: inline-block;
       padding: 2px 8px;
@@ -347,10 +411,20 @@ export function adminDedupeRoutes(db: Db) {
       <h1>Flyleaf Admin — Catalog Merges</h1>
       <p class="meta">Review fuzzy duplicate candidates (PRD §40.3 Stage 3/4) &amp; reverse merges within 30 days</p>
     </div>
-    <div>
+    <div style="display: flex; align-items: center; gap: 14px;">
       <span class="badge badge-stage3">${queueItems.length} Queued</span>
+      <a href="/admin/audit-log" style="color: var(--accent); text-decoration: none; font-size: 13px; font-weight: 500;">Audit Trail</a>
+      <div style="display: flex; align-items: center; gap: 6px; background: rgba(255, 255, 255, 0.05); border: 1px solid var(--border); padding: 4px 10px; border-radius: 16px; font-size: 12px;">
+        <span>${escapeHtml(req.admin.email)}</span>
+        <span class="badge ${isAdmin ? 'badge-success' : 'badge-stage4'}" style="font-size: 10px;">${req.admin.role.toUpperCase()}</span>
+      </div>
+      <form method="POST" action="/admin/logout" style="margin: 0;">
+        <button type="submit" class="btn-dismiss" style="padding: 4px 10px; font-size: 12px;">Sign Out</button>
+      </form>
     </div>
   </header>
+
+  ${!isAdmin ? `<div style="background: rgba(210, 153, 34, 0.15); border: 1px solid var(--warning); color: var(--warning); padding: 12px 16px; border-radius: 8px; margin-bottom: 24px; font-size: 13px;"><strong>Moderator mode:</strong> You have read-only access to review catalog duplicates. Approving merges or undoing previous merges requires an administrator role.</div>` : ''}
 
   <section>
     <h2>Review Queue</h2>
@@ -391,8 +465,13 @@ export function adminDedupeRoutes(db: Db) {
         </div>
 
         <div class="actions">
-          <button class="btn-merge" onclick="resolveCandidate('${item.id}', 'merge')">Approve Merge</button>
-          <button class="btn-dismiss" onclick="resolveCandidate('${item.id}', 'dismiss')">Dismiss</button>
+          ${
+            isAdmin
+              ? `<button class="btn-merge" onclick="resolveCandidate('${item.id}', 'merge')">Approve Merge</button>
+                 <button class="btn-dismiss" onclick="resolveCandidate('${item.id}', 'dismiss')">Dismiss</button>`
+              : `<button class="btn-dismiss" disabled title="Admin required to merge">Approve Merge (Admin Only)</button>
+                 <button class="btn-dismiss" disabled title="Admin required to dismiss">Dismiss (Admin Only)</button>`
+          }
         </div>
       </div>
     `,
@@ -402,39 +481,49 @@ export function adminDedupeRoutes(db: Db) {
   </section>
 
   <section>
-    <h2>Recent Merges (30-Day Undo Window)</h2>
+    <h2>Recent Merges (30-Day Reversible Window)</h2>
     <div class="card" style="padding: 0; overflow-x: auto;">
       <table>
         <thead>
           <tr>
-            <th>Survivor</th>
-            <th>Merged Work (Loser)</th>
-            <th>Stage</th>
-            <th>Merged Date</th>
-            <th>Reads Moved</th>
+            <th>Merged At</th>
+            <th>Survivor (Kept)</th>
+            <th>Loser (Tombstoned)</th>
+            <th>Rule</th>
+            <th>Moved</th>
+            <th>Status</th>
             <th>Action</th>
           </tr>
         </thead>
         <tbody>
           ${
             recentMerges.length === 0
-              ? '<tr><td colspan="6" style="text-align: center; color: var(--text-muted); padding: 16px;">No recent merges.</td></tr>'
+              ? '<tr><td colspan="7" class="meta" style="text-align: center; padding: 24px;">No merges recorded yet.</td></tr>'
               : recentMerges
                   .map(
                     (m) => `
-            <tr id="merge-${m.id}">
+            <tr>
+              <td class="meta" style="white-space: nowrap;">${m.merged_at.slice(0, 16).replace('T', ' ')}</td>
               <td><strong>${escapeHtml(m.survivor.title)}</strong></td>
-              <td>${escapeHtml(m.loser.title)}</td>
+              <td class="meta">${escapeHtml(m.loser.title)}</td>
               <td>Stage ${m.stage}</td>
-              <td>${m.mergedAt.slice(0, 10)}</td>
-              <td>${m.stats.readsMoved}</td>
+              <td class="meta">${m.stats.reads_moved} reads, ${m.stats.editions_moved} editions</td>
               <td>
                 ${
-                  m.undoneAt
-                    ? '<span class="badge badge-muted">Undone</span>'
-                    : m.canUndo
-                      ? `<button class="btn-undo" onclick="undoMergeAction('${m.id}')">Undo</button>`
-                      : '<span class="badge badge-muted">&gt;30 Days</span>'
+                  m.undone_at
+                    ? `<span class="badge badge-muted">Undone</span>`
+                    : m.can_undo
+                    ? `<span class="badge badge-success">Active (Reversible)</span>`
+                    : `<span class="badge badge-muted">Permanent</span>`
+                }
+              </td>
+              <td>
+                ${
+                  m.can_undo && isAdmin
+                    ? `<button class="btn-undo" onclick="undoMergeAction('${m.id}')">Undo Merge</button>`
+                    : m.can_undo
+                    ? `<span class="meta">Admin Required</span>`
+                    : `<span class="meta">—</span>`
                 }
               </td>
             </tr>

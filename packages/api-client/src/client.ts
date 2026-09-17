@@ -1,6 +1,16 @@
 // Typed Flyleaf API Client (FN-81, Architecture §6).
 
 import type {
+  Admin2faSetupResponse,
+  Admin2faVerifyRequest,
+  Admin2faVerifyResponse,
+  AdminAuditLogItem,
+  AdminAuditLogQuery,
+  AdminAuditLogResponse,
+  AdminLoginRequest,
+  AdminLoginResponse,
+  AdminMeResponse,
+  AdminViewer,
   ApiErrorResponse,
   AuthResponse,
   DedupePreviewResponse,
@@ -313,5 +323,49 @@ export class FlyleafClient {
       method: 'POST',
     });
   }
+
+  // ---------------------------------------------------------------- Admin Auth & Audit (FN-90, FN-93)
+
+  async adminLogin(data: AdminLoginRequest): Promise<AdminLoginResponse> {
+    return this.request<AdminLoginResponse>('/admin/auth/login', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async adminGetMe(): Promise<AdminViewer> {
+    const res = await this.request<AdminMeResponse>('/admin/auth/me', {
+      method: 'GET',
+    });
+    return res.admin;
+  }
+
+  async adminSetup2fa(): Promise<Admin2faSetupResponse> {
+    return this.request<Admin2faSetupResponse>('/admin/auth/2fa/setup', {
+      method: 'POST',
+    });
+  }
+
+  async adminVerify2fa(data: Admin2faVerifyRequest): Promise<Admin2faVerifyResponse> {
+    return this.request<Admin2faVerifyResponse>('/admin/auth/2fa/verify', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async getAdminAuditLog(query?: AdminAuditLogQuery): Promise<AdminAuditLogItem[]> {
+    const q = new URLSearchParams();
+    if (query?.action) q.set('action', query.action);
+    if (query?.actor_id) q.set('actor_id', query.actor_id);
+    if (query?.subject_type) q.set('subject_type', query.subject_type);
+    if (query?.limit != null) q.set('limit', String(query.limit));
+    if (query?.offset != null) q.set('offset', String(query.offset));
+    const qs = q.toString() ? `?${q.toString()}` : '';
+    const res = await this.request<AdminAuditLogResponse>(`/admin/audit-log${qs}`, {
+      method: 'GET',
+    });
+    return res.data;
+  }
 }
+
 

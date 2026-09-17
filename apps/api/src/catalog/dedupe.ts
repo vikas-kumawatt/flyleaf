@@ -338,8 +338,11 @@ export async function undoMerge(
 ): Promise<{
   undone: true;
   mergeId: string;
+  merge_id?: string;
   survivorId: string;
+  survivor_id?: string;
   loserId: string;
+  loser_id?: string;
   restored: {
     reads: number;
     editions: number;

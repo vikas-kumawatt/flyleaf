@@ -278,3 +278,67 @@ export interface UndoMergeResponse {
   };
 }
 
+// ---------------------------------------------------------------- Admin Auth & Audit (FN-90, FN-93)
+
+export type AdminRole = 'admin' | 'moderator';
+
+export interface AdminViewer {
+  id: string;
+  email: string;
+  role: AdminRole;
+}
+
+export interface AdminLoginRequest {
+  email: string;
+  password: string;
+  totp_code: string;
+}
+
+export interface AdminLoginResponse {
+  token: string;
+  admin: AdminViewer;
+}
+
+export interface AdminMeResponse {
+  admin: AdminViewer;
+}
+
+export interface Admin2faSetupResponse {
+  secret: string;
+  otpauth_uri: string;
+  backup_codes: string[];
+}
+
+export interface Admin2faVerifyRequest {
+  code: string;
+}
+
+export interface Admin2faVerifyResponse {
+  success: boolean;
+}
+
+export interface AdminAuditLogItem {
+  id: number;
+  actor_id: string;
+  actor_email: string;
+  actor_role: string;
+  action: string;
+  subject_type: string | null;
+  subject_id: string | null;
+  reason: string | null;
+  payload: Record<string, unknown>;
+  created_at: string;
+}
+
+export interface AdminAuditLogQuery {
+  action?: string;
+  actor_id?: string;
+  subject_type?: string;
+  limit?: number;
+  offset?: number;
+}
+
+export interface AdminAuditLogResponse {
+  data: AdminAuditLogItem[];
+}
+

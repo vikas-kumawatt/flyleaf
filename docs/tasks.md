@@ -214,10 +214,23 @@
   - Dedicated 17-test suite in `apps/api/src/test/hooks.test.ts`; 330 tests passing across 12 test suites in full CI. All tasks in **API contract `FN-8x`** are now complete.
 
 ### Admin (early slice) — `FN-9x` · 2d
-- [ ] FN-90 Admin auth, separate from app accounts, 2FA — 0.5d
-- [ ] FN-91 Merge review UI + undo — 0.75d
+- [x] **FN-90** Admin auth, separate from app accounts, 2FA — 0.5d
+  - Migration `0009_admin_auth.sql` introduces isolated `admin_credentials` table storing RFC 6238 TOTP secrets and SHA-256 backup codes.
+  - Zero-dependency RFC 6238 TOTP engine in `apps/api/src/admin/totp.ts` with ±1 step clock drift tolerance, base32 encoding/decoding, and backup code hashing.
+  - Role-based token isolation with `aud: 'flyleaf-admin'` and `scope: 'admin'`. Regular app tokens rejected immediately on admin routes (`admin_auth_required`).
+  - Role separation: `moderator` (read-only review access to queue & audit trail) vs `admin` (can execute and undo catalog merges).
+  - Admin login (`POST /v1/admin/auth/login`) requires valid password AND TOTP (or backup code).
+  - Server-rendered admin web console at `/admin/login`, `/admin/merges`, and `/admin/audit-log` with secure session cookies (`flyleaf_admin_session`).
+- [x] **FN-91** Merge review UI + undo — 0.75d
+  - Delivered with FN-51 & FN-90: Server-rendered dashboard (`/admin/merges`), side-by-side work comparison cards, collision forecasting, and 1-click reversible 30-day undo.
 - [ ] FN-92 Maturity override; ingestion status dashboard — 0.75d
-- [ ] FN-93 ⚠️ `admin_audit_log` on every action — 0.25d
+- [x] **FN-93** ⚠️ `admin_audit_log` on every action — 0.25d
+  - Migration `0009_admin_auth.sql` introduces `admin_audit_log` with indexes on `(created_at desc)` and `(actor_id, created_at desc)`.
+  - Non-negotiable audit logging (`logAdminAction`) automatically records every admin action: logins (`admin.login`), dedupe merges (`catalog.merge`), undos (`catalog.undo`), and dismissals (`catalog.dismiss`).
+  - Enriched audit log entries capture actor ID, email, role, target resource/subject, reason, IP address, user agent, and contextual payload diffs.
+  - Audit log query API (`GET /v1/admin/audit-log`) with filtering by `action`, `actorId`, and pagination.
+  - HTML audit trail viewer at `/admin/audit-log` with formatted JSON payloads and chronological history.
+  - 22 dedicated test cases in `apps/api/src/test/admin.test.ts`. 100% test coverage for 2FA, token isolation, role enforcement, and audit recording.
 
 **Exit:** 50 owned books findable · panel ≥90% · cross-user suite green · migrations clean in CI.
 

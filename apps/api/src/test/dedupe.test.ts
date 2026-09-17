@@ -29,6 +29,8 @@ import {
 } from '../catalog/dedupe.js';
 import { buildApp } from '../app.js';
 import { freshDrizzle } from './pg.js';
+import { createAdminUser, loginAdmin } from '../admin/auth.js';
+import { generateTotp } from '../admin/totp.js';
 
 // One database for the file, emptied between tests — the same shape as every
 // other suite here. A fresh PGlite per test costs ~2s in boot and migrations,
@@ -605,6 +607,18 @@ describe('Admin Dedupe & Merge HTTP Endpoints', () => {
     const app = await buildApp({ db });
     await app.ready();
 
+    const { secret } = await createAdminUser(db, {
+      email: 'dedupe_runner@flyleaf.app',
+      password: 'StrongAdminPass123',
+      role: 'admin',
+    });
+    const { token: adminToken } = await loginAdmin(db, {
+      email: 'dedupe_runner@flyleaf.app',
+      password: 'StrongAdminPass123',
+      totpCode: generateTotp(secret),
+    });
+    const authHeader = { Authorization: `Bearer ${adminToken}` };
+
     const a = await author(db, 'Italo Calvino');
     const w1 = await work(db, 'Invisible Cities', 350, a);
     const w2 = await work(db, 'Invisible Cities (Annotated)', 15, a);
@@ -613,6 +627,7 @@ describe('Admin Dedupe & Merge HTTP Endpoints', () => {
     const reportRes = await app.inject({
       method: 'POST',
       url: '/v1/admin/dedupe/report',
+      headers: authHeader,
       payload: {
         survivor_id: w1,
         loser_id: w2,
@@ -626,6 +641,7 @@ describe('Admin Dedupe & Merge HTTP Endpoints', () => {
     const queueRes = await app.inject({
       method: 'GET',
       url: '/v1/admin/dedupe/queue',
+      headers: authHeader,
     });
     expect(queueRes.statusCode).toBe(200);
     const queueData = JSON.parse(queueRes.payload);
@@ -635,6 +651,7 @@ describe('Admin Dedupe & Merge HTTP Endpoints', () => {
     const previewRes = await app.inject({
       method: 'GET',
       url: `/v1/admin/dedupe/preview/${w1}/${w2}`,
+      headers: authHeader,
     });
     expect(previewRes.statusCode).toBe(200);
     const previewData = JSON.parse(previewRes.payload);
@@ -644,6 +661,7 @@ describe('Admin Dedupe & Merge HTTP Endpoints', () => {
     const resolveRes = await app.inject({
       method: 'POST',
       url: `/v1/admin/dedupe/queue/${queueId}/resolve`,
+      headers: authHeader,
       payload: { action: 'merge' },
     });
     expect(resolveRes.statusCode).toBe(200);
@@ -655,6 +673,7 @@ describe('Admin Dedupe & Merge HTTP Endpoints', () => {
     const mergesRes = await app.inject({
       method: 'GET',
       url: '/v1/admin/merges',
+      headers: authHeader,
     });
     expect(mergesRes.statusCode).toBe(200);
     const mergesData = JSON.parse(mergesRes.payload);
@@ -664,6 +683,7 @@ describe('Admin Dedupe & Merge HTTP Endpoints', () => {
     const undoRes = await app.inject({
       method: 'POST',
       url: `/v1/admin/merges/${resolveData.merge_id}/undo`,
+      headers: authHeader,
     });
     expect(undoRes.statusCode).toBe(200);
     const undoData = JSON.parse(undoRes.payload);
@@ -673,10 +693,12 @@ describe('Admin Dedupe & Merge HTTP Endpoints', () => {
     const htmlRes = await app.inject({
       method: 'GET',
       url: '/admin/merges',
+      headers: { cookie: `flyleaf_admin_session=${encodeURIComponent(adminToken)}` },
     });
     expect(htmlRes.statusCode).toBe(200);
     expect(htmlRes.headers['content-type']).toContain('text/html');
     expect(htmlRes.payload).toContain('Flyleaf Admin — Catalog Merges');
+    expect(htmlRes.payload).toContain('dedupe_runner@flyleaf.app');
 
     await app.close();
   });

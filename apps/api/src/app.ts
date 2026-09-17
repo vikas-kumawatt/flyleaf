@@ -19,6 +19,8 @@ import { type IdentityService, identityRoutes } from './identity/index.js';
 import { type CatalogService, catalogRoutes } from './catalog/index.js';
 import { type ReadingService, readingRoutes } from './reading/index.js';
 import { adminDedupeRoutes } from './admin/dedupe.js';
+import { adminAuthRoutes } from './admin/routes.js';
+import { verifyAdminToken } from './admin/auth.js';
 
 export interface CoreHookOptions {
   identityLookup?: (token: string) => Promise<string | null>;
@@ -32,18 +34,48 @@ export function registerCoreHooks(app: FastifyInstance, options?: CoreHookOption
   // 1. Auth hook: populates viewer when a token is valid, leaves null otherwise.
   // Auth NEVER rejects. A guest is a legitimate caller across search, works, editions, and public reads.
   app.decorateRequest('viewer', null);
+  app.decorateRequest('admin', null);
 
   app.addHook('onRequest', async (req) => {
+    const xAdmin = req.headers['x-admin-token'];
+    const cookie = req.headers.cookie;
+    let adminCandidate: string | null = null;
+    if (typeof xAdmin === 'string' && xAdmin.trim()) {
+      adminCandidate = xAdmin.trim();
+    } else if (cookie && typeof cookie === 'string') {
+      const m = cookie.match(/(?:^|;\s*)flyleaf_admin_session=([^;]+)/);
+      if (m && m[1]) adminCandidate = decodeURIComponent(m[1].trim());
+    }
+
     const header = req.headers.authorization;
     if (header && typeof header === 'string') {
       const match = header.match(/^bearer\s+(.+)$/i);
-      if (match && match[1] && options?.identityLookup) {
-        try {
-          req.viewer = (await options.identityLookup(match[1].trim())) ?? null;
-        } catch {
-          // Never reject on auth inspection failure. Fall back to guest mode.
-          req.viewer = null;
+      if (match && match[1]) {
+        const raw = match[1].trim();
+        if (!adminCandidate) {
+          try {
+            const adminVerified = await verifyAdminToken(raw);
+            if (adminVerified) req.admin = adminVerified;
+          } catch {
+            // not an admin token
+          }
         }
+        if (options?.identityLookup) {
+          try {
+            req.viewer = (await options.identityLookup(raw)) ?? null;
+          } catch {
+            // Never reject on auth inspection failure. Fall back to guest mode.
+            req.viewer = null;
+          }
+        }
+      }
+    }
+
+    if (adminCandidate && !req.admin) {
+      try {
+        req.admin = (await verifyAdminToken(adminCandidate)) ?? null;
+      } catch {
+        req.admin = null;
       }
     }
   });
@@ -156,6 +188,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
     await app.register(readingRoutes(options.reading), { prefix: '/v1' });
   }
   if (options.db) {
+    await app.register(adminAuthRoutes(options.db));
     await app.register(adminDedupeRoutes(options.db));
   }
 
