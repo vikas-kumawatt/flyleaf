@@ -148,10 +148,17 @@ export interface Read {
   id: string;
   user_id: string;
   work_id: string;
+  edition_id?: string | null;
   status: ReadStatus;
   attempt_no: number;
+  started_at?: string | null;
+  finished_at?: string | null;
+  abandoned_at?: string | null;
+  abandoned_page?: number | null;
+  dnf_reason?: string | null;
   rating: number | null;
   hearted: boolean;
+  format_override?: string | null;
   visibility: ReadVisibility;
   title?: string;
   author_name?: string;
@@ -168,8 +175,14 @@ export interface ReadListResponse {
 export interface UpsertReadRequest {
   work_id: string;
   status: ReadStatus;
+  edition_id?: string | null;
+  started_at?: string | null;
+  finished_at?: string | null;
+  abandoned_page?: number | null;
+  dnf_reason?: string | null;
   rating?: number | null;
   hearted?: boolean | null;
+  format_override?: string | null;
   visibility?: ReadVisibility | null;
 }
 
@@ -177,7 +190,26 @@ export interface ProgressEventRequest {
   client_event_id: string;
   page?: number | null;
   percent?: number | null;
+  audio_seconds?: number | null;
   minutes?: number | null;
+  note?: string | null;
+}
+
+export interface FinishReadRequest {
+  finished_at?: string | null;
+  rating?: number | null;
+  hearted?: boolean | null;
+  format_override?: string | null;
+  review?: string | null;
+  visibility?: ReadVisibility | null;
+}
+
+export interface DnfReadRequest {
+  abandoned_page?: number | null;
+  dnf_reason?: string | null;
+  note?: string | null;
+  rating?: number | null;
+  visibility?: ReadVisibility | null;
 }
 
 // ---------------------------------------------------------------- Dedupe & Admin

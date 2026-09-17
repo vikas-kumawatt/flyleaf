@@ -9,10 +9,17 @@ export interface LocalRead {
   id: string;
   user_id: string;
   work_id: string;
+  edition_id?: string | null;
   status: string;
   attempt_no: number;
+  started_at?: string | null;
+  finished_at?: string | null;
+  abandoned_at?: string | null;
+  abandoned_page?: number | null;
+  dnf_reason?: string | null;
   rating: number | null;
   hearted: number; // 0 or 1
+  format_override?: string | null;
   visibility: string;
   title: string | null;
   author_name: string | null;
@@ -31,12 +38,14 @@ export interface LocalProgressEvent {
   at: string;
   page: number | null;
   percent: number | null;
+  audio_seconds?: number | null;
   minutes: number | null;
+  note?: string | null;
   client_event_id: string;
   synced: number; // 1 = clean, 0 = pending sync
 }
 
-export type MutationAction = 'add_progress' | 'upsert_read';
+export type MutationAction = 'add_progress' | 'upsert_read' | 'finish_read' | 'dnf_read';
 export type MutationStatus = 'pending' | 'processing' | 'dead_letter';
 
 export interface QueuedMutation {
@@ -59,10 +68,17 @@ CREATE TABLE IF NOT EXISTS reads (
   id TEXT PRIMARY KEY,
   user_id TEXT NOT NULL,
   work_id TEXT NOT NULL,
+  edition_id TEXT,
   status TEXT NOT NULL,
   attempt_no INTEGER NOT NULL DEFAULT 1,
+  started_at TEXT,
+  finished_at TEXT,
+  abandoned_at TEXT,
+  abandoned_page INTEGER,
+  dnf_reason TEXT,
   rating REAL,
   hearted INTEGER NOT NULL DEFAULT 0,
+  format_override TEXT,
   visibility TEXT NOT NULL DEFAULT 'public',
   title TEXT,
   author_name TEXT,
@@ -84,7 +100,9 @@ CREATE TABLE IF NOT EXISTS progress_events (
   at TEXT NOT NULL,
   page INTEGER,
   percent REAL,
+  audio_seconds INTEGER,
   minutes INTEGER,
+  note TEXT,
   client_event_id TEXT NOT NULL UNIQUE,
   synced INTEGER NOT NULL DEFAULT 1,
   FOREIGN KEY (read_id) REFERENCES reads(id) ON DELETE CASCADE

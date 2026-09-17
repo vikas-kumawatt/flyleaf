@@ -1,4 +1,4 @@
-// Offline-First Reading Repository (SL-10, SL-11, architecture.md §10).
+// Offline-First Reading Repository (SL-10, SL-11, SL-50, SL-51, architecture.md §10).
 //
 // Governed by: "Progress writes never block on the network."
 // Optimistic local write to SQLite -> UI updates immediately -> queued for sync.
@@ -6,7 +6,7 @@
 import * as Crypto from 'expo-crypto';
 import type { OfflineDatabase } from './db';
 import { MutationQueue } from './queue';
-import type { LocalRead } from './schema';
+import type { LocalRead, LocalProgressEvent } from './schema';
 import { api, type Read, type ReadStatus } from '@/lib/api';
 
 export class OfflineRepository {
@@ -14,16 +14,24 @@ export class OfflineRepository {
 
   constructor(private db: OfflineDatabase) {
     this.queue = new MutationQueue(db, {
-      addProgress: async (readId, page, percent, minutes, clientEventId) => {
+      addProgress: async (readId, page, percent, minutes, clientEventId, note, audioSeconds) => {
         return api.client.addProgress(readId, {
           client_event_id: clientEventId,
           page,
           percent,
           minutes,
+          note,
+          audio_seconds: audioSeconds,
         });
       },
-      upsertRead: async (workId, status, rating, hearted) => {
-        return api.setStatus(workId, status, rating, hearted);
+      upsertRead: async (workId, status, rating, hearted, extra) => {
+        return api.setStatus(workId, status, rating, hearted, extra);
+      },
+      finishRead: async (readId, payload) => {
+        return api.client.finishRead(readId, payload);
+      },
+      dnfRead: async (readId, payload) => {
+        return api.client.dnfRead(readId, payload);
       },
     });
   }
@@ -41,6 +49,8 @@ export class OfflineRepository {
     page: number | null,
     percent: number | null,
     minutes: number | null = null,
+    note: string | null = null,
+    audioSeconds: number | null = null,
   ): Promise<{ clientEventId: string }> {
     const clientEventId = Crypto.randomUUID();
     const eventId = Crypto.randomUUID();
@@ -49,9 +59,9 @@ export class OfflineRepository {
     await this.db.transaction(async (tx) => {
       // 1. Optimistic append to progress_events
       await tx.run(
-        `INSERT INTO progress_events (id, read_id, at, page, percent, minutes, client_event_id, synced)
-         VALUES (?, ?, ?, ?, ?, ?, ?, 0)`,
-        [eventId, readId, now, page, percent, minutes, clientEventId],
+        `INSERT INTO progress_events (id, read_id, at, page, percent, audio_seconds, minutes, note, client_event_id, synced)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0)`,
+        [eventId, readId, now, page, percent, audioSeconds, minutes, note, clientEventId],
       );
 
       // 2. Optimistic update to reads row
@@ -59,10 +69,11 @@ export class OfflineRepository {
         `UPDATE reads SET
           page = COALESCE(?, page),
           percent = COALESCE(?, percent),
+          started_at = COALESCE(started_at, ?),
           synced = 0,
           updated_at = ?
          WHERE id = ?`,
-        [page, percent, now, readId],
+        [page, percent, now.slice(0, 10), now, readId],
       );
 
       // 3. Enqueue mutation
@@ -70,7 +81,7 @@ export class OfflineRepository {
         'progress_event',
         readId,
         'add_progress',
-        { page, percent, minutes },
+        { page, percent, minutes, note, audio_seconds: audioSeconds },
         clientEventId,
       );
     });
@@ -82,6 +93,111 @@ export class OfflineRepository {
   }
 
   /**
+   * Finishes a read attempt atomically in SQLite and enqueues sync (SL-54).
+   */
+  async finishRead(
+    readId: string,
+    opts: {
+      finishedAt?: string;
+      rating?: number | null;
+      hearted?: boolean;
+      formatOverride?: string | null;
+      review?: string | null;
+      visibility?: string;
+    },
+  ): Promise<void> {
+    const now = new Date().toISOString();
+    const finishedAt = opts.finishedAt ?? now.slice(0, 10);
+
+    await this.db.transaction(async (tx) => {
+      await tx.run(
+        `UPDATE reads SET
+          status = 'finished',
+          finished_at = ?,
+          rating = COALESCE(?, rating),
+          hearted = COALESCE(?, hearted),
+          format_override = COALESCE(?, format_override),
+          visibility = COALESCE(?, visibility),
+          percent = 100,
+          synced = 0,
+          updated_at = ?
+         WHERE id = ?`,
+        [
+          finishedAt,
+          opts.rating ?? null,
+          opts.hearted != null ? (opts.hearted ? 1 : 0) : null,
+          opts.formatOverride ?? null,
+          opts.visibility ?? null,
+          now,
+          readId,
+        ],
+      );
+
+      await this.queue.enqueue('read', readId, 'finish_read', {
+        finished_at: finishedAt,
+        rating: opts.rating ?? null,
+        hearted: opts.hearted ?? null,
+        format_override: opts.formatOverride ?? null,
+        review: opts.review ?? null,
+        visibility: opts.visibility ?? null,
+      });
+    });
+
+    void this.queue.flush();
+  }
+
+  /**
+   * Marks a read as stopped/abandoned (DNF) in SQLite and enqueues sync (SL-55).
+   */
+  async dnfRead(
+    readId: string,
+    opts: {
+      abandonedPage?: number | null;
+      dnfReason?: string | null;
+      note?: string | null;
+      rating?: number | null;
+      visibility?: string;
+    },
+  ): Promise<void> {
+    const now = new Date().toISOString();
+    const abandonedAt = now.slice(0, 10);
+
+    await this.db.transaction(async (tx) => {
+      await tx.run(
+        `UPDATE reads SET
+          status = 'dnf',
+          abandoned_at = ?,
+          abandoned_page = COALESCE(?, page),
+          dnf_reason = ?,
+          rating = COALESCE(?, rating),
+          visibility = COALESCE(?, visibility),
+          synced = 0,
+          updated_at = ?
+         WHERE id = ?`,
+        [
+          abandonedAt,
+          opts.abandonedPage ?? null,
+          opts.dnfReason ?? null,
+          opts.rating ?? null,
+          opts.visibility ?? null,
+          now,
+          readId,
+        ],
+      );
+
+      await this.queue.enqueue('read', readId, 'dnf_read', {
+        abandoned_page: opts.abandonedPage ?? null,
+        dnf_reason: opts.dnfReason ?? null,
+        note: opts.note ?? null,
+        rating: opts.rating ?? null,
+        visibility: opts.visibility ?? null,
+      });
+    });
+
+    void this.queue.flush();
+  }
+
+  /**
    * Sets or changes reading status with optimistic local write.
    */
   async saveReadStatus(
@@ -90,7 +206,14 @@ export class OfflineRepository {
     status: string,
     rating: number | null = null,
     hearted = false,
-    meta?: { title?: string; author_name?: string; cover_id?: number | null },
+    meta?: {
+      title?: string;
+      author_name?: string;
+      cover_id?: number | null;
+      page_count?: number | null;
+      format_override?: string | null;
+      edition_id?: string | null;
+    },
   ): Promise<void> {
     const now = new Date().toISOString();
     const readId = Crypto.randomUUID();
@@ -98,37 +221,62 @@ export class OfflineRepository {
     await this.db.transaction(async (tx) => {
       // Check existing read for this work
       const existing = await tx.getFirst<LocalRead>(
-        `SELECT id, attempt_no FROM reads WHERE work_id = ? AND user_id = ? ORDER BY attempt_no DESC LIMIT 1`,
+        `SELECT id, attempt_no, status FROM reads WHERE work_id = ? AND user_id = ? ORDER BY attempt_no DESC LIMIT 1`,
         [workId, userId],
       );
 
-      if (existing) {
+      const startsNewAttempt =
+        !existing ||
+        ((existing.status === 'finished' || existing.status === 'dnf') &&
+          (status === 'reading' || status === 'want'));
+
+      if (existing && !startsNewAttempt) {
         await tx.run(
           `UPDATE reads SET
             status = ?,
             rating = COALESCE(?, rating),
             hearted = ?,
+            format_override = COALESCE(?, format_override),
+            edition_id = COALESCE(?, edition_id),
+            started_at = CASE WHEN ? = 'reading' THEN COALESCE(started_at, ?) ELSE started_at END,
             synced = 0,
             updated_at = ?
            WHERE id = ?`,
-          [status, rating, hearted ? 1 : 0, now, existing.id],
+          [
+            status,
+            rating,
+            hearted ? 1 : 0,
+            meta?.format_override ?? null,
+            meta?.edition_id ?? null,
+            status,
+            now.slice(0, 10),
+            now,
+            existing.id,
+          ],
         );
       } else {
+        const nextAttempt = (existing?.attempt_no ?? 0) + 1;
         await tx.run(
           `INSERT INTO reads (
-            id, user_id, work_id, status, attempt_no, rating, hearted, visibility,
+            id, user_id, work_id, edition_id, status, attempt_no, started_at, finished_at,
+            rating, hearted, format_override, visibility,
             title, author_name, cover_id, page, percent, page_count, synced, created_at, updated_at
-          ) VALUES (?, ?, ?, ?, 1, ?, ?, 'public', ?, ?, ?, NULL, NULL, NULL, 0, ?, ?)`,
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, 'public', ?, ?, ?, NULL, NULL, ?, 0, ?, ?)`,
           [
             readId,
             userId,
             workId,
+            meta?.edition_id ?? null,
             status,
+            nextAttempt,
+            status === 'reading' ? now.slice(0, 10) : null,
             rating,
             hearted ? 1 : 0,
+            meta?.format_override ?? null,
             meta?.title ?? null,
             meta?.author_name ?? null,
             meta?.cover_id ?? null,
+            meta?.page_count ?? null,
             now,
             now,
           ],
@@ -139,6 +287,11 @@ export class OfflineRepository {
         status,
         rating,
         hearted,
+        extra: {
+          edition_id: meta?.edition_id,
+          format_override: meta?.format_override,
+          started_at: status === 'reading' ? now.slice(0, 10) : null,
+        },
       });
     });
 
@@ -163,17 +316,26 @@ export class OfflineRepository {
 
         await tx.run(
           `INSERT OR REPLACE INTO reads (
-            id, user_id, work_id, status, attempt_no, rating, hearted, visibility,
+            id, user_id, work_id, edition_id, status, attempt_no,
+            started_at, finished_at, abandoned_at, abandoned_page, dnf_reason,
+            rating, hearted, format_override, visibility,
             title, author_name, cover_id, page, percent, page_count, synced, created_at, updated_at
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)`,
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)`,
           [
             r.id,
             r.user_id,
             r.work_id,
+            r.edition_id ?? null,
             r.status,
             r.attempt_no,
+            r.started_at ?? null,
+            r.finished_at ?? null,
+            r.abandoned_at ?? null,
+            r.abandoned_page ?? null,
+            r.dnf_reason ?? null,
             r.rating,
             r.hearted ? 1 : 0,
+            r.format_override ?? null,
             r.visibility,
             r.title ?? null,
             r.author_name ?? null,
@@ -200,6 +362,16 @@ export class OfflineRepository {
       );
     }
     return this.db.getAll<LocalRead>(`SELECT * FROM reads ORDER BY updated_at DESC`);
+  }
+
+  /**
+   * Retrieves progress events for a specific read.
+   */
+  async getProgressEvents(readId: string): Promise<LocalProgressEvent[]> {
+    return this.db.getAll<LocalProgressEvent>(
+      `SELECT * FROM progress_events WHERE read_id = ? ORDER BY at DESC`,
+      [readId],
+    );
   }
 
   async getUnsyncedCount(): Promise<number> {

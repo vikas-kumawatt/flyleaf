@@ -216,21 +216,62 @@ export const api = {
 
   reads: (status?: string) => client.getReads(status as ReadStatus | undefined),
 
-  setStatus: (workId: string, status: string, rating?: number | null, hearted?: boolean) =>
+  setStatus: (
+    workId: string,
+    status: string,
+    rating?: number | null,
+    hearted?: boolean,
+    extra?: { edition_id?: string; format_override?: string; started_at?: string },
+  ) =>
     client.createRead({
       work_id: workId,
       status: status as ReadStatus,
       rating: rating ?? null,
       hearted: hearted ?? null,
+      edition_id: extra?.edition_id ?? null,
+      format_override: extra?.format_override ?? null,
+      started_at: extra?.started_at ?? null,
     }),
 
-  addProgress: (readId: string, page: number | null, percent: number | null, minutes?: number) =>
+  addProgress: (
+    readId: string,
+    page: number | null,
+    percent: number | null,
+    minutes?: number | null,
+    note?: string | null,
+    audioSeconds?: number | null,
+  ) =>
     client.addProgress(readId, {
       client_event_id: Crypto.randomUUID(),
       page: page ?? null,
       percent: percent ?? null,
       minutes: minutes ?? null,
+      note: note ?? null,
+      audio_seconds: audioSeconds ?? null,
     }),
+
+  finishRead: (
+    readId: string,
+    data: {
+      finished_at?: string | null;
+      rating?: number | null;
+      hearted?: boolean | null;
+      format_override?: string | null;
+      review?: string | null;
+      visibility?: any;
+    },
+  ) => client.finishRead(readId, data),
+
+  dnfRead: (
+    readId: string,
+    data: {
+      abandoned_page?: number | null;
+      dnf_reason?: string | null;
+      note?: string | null;
+      rating?: number | null;
+      visibility?: any;
+    },
+  ) => client.dnfRead(readId, data),
 
   forgotPassword: (email: string) => client.forgotPassword({ email }),
 

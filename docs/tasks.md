@@ -279,14 +279,14 @@
 - [x] SL-44 Barcode scanner + permission rationale + manual fallback — 0.5d
 
 ### Reading core — `SL-5x` · 9d
-- [ ] **SL-50** reads + progress_events migrations & repos — 1d
-- [ ] **SL-51** ⚠️ `POST /reads/{id}/progress` idempotent on `client_event_id` — 0.5d
-- [ ] **SL-52** **Reading tab**: cards, slider auto-save, +10, predicted finish — 2.5d
-- [ ] **SL-53** Progress sheet: numeric entry, chips, **optional minutes**, note, quote — 1d
-- [ ] **SL-54** **Finish flow**: stars visible, heart, date, format chips, review, ≤20s — 2d
-- [ ] **SL-55** DNF flow: page pre-filled, reason chips, neutral copy — 0.75d
-- [ ] **SL-56** Re-read: new row, `attempt_no+1` — 0.5d
-- [ ] SL-57 Want-to-read queue; sort, filter, bulk — 0.75d
+- [x] **SL-50** reads + progress_events migrations & repos — 1d
+- [x] **SL-51** ⚠️ `POST /reads/{id}/progress` idempotent on `client_event_id` — 0.5d
+- [x] **SL-52** **Reading tab**: cards, slider auto-save, +10, predicted finish — 2.5d
+- [x] **SL-53** Progress sheet: numeric entry, chips, **optional minutes**, note, quote — 1d
+- [x] **SL-54** **Finish flow**: stars visible, heart, date, format chips, review, ≤20s — 2d
+- [x] **SL-55** DNF flow: page pre-filled, reason chips, neutral copy — 0.75d
+- [x] **SL-56** Re-read: new row, `attempt_no+1` — 0.5d
+- [x] SL-57 Want-to-read queue; sort, filter, bulk — 0.75d
 
 ### Ratings, reviews — `SL-6x` · 5d
 - [ ] **SL-60** Half-star control, extra hit area, haptic, `adjustable` trait — 1d

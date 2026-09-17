@@ -284,10 +284,17 @@ export const readSchema = {
     id: { type: 'string', format: 'uuid' },
     user_id: { type: 'string', format: 'uuid' },
     work_id: { type: 'string', format: 'uuid' },
+    edition_id: { type: ['string', 'null'], format: 'uuid' },
     status: { type: 'string', enum: ['want', 'reading', 'paused', 'finished', 'dnf'] },
     attempt_no: { type: 'integer' },
+    started_at: { type: ['string', 'null'] },
+    finished_at: { type: ['string', 'null'] },
+    abandoned_at: { type: ['string', 'null'] },
+    abandoned_page: { type: ['integer', 'null'] },
+    dnf_reason: { type: ['string', 'null'] },
     rating: { type: ['number', 'null'] },
     hearted: { type: 'boolean' },
+    format_override: { type: ['string', 'null'], enum: ['print', 'ebook', 'audiobook', null] },
     visibility: { type: 'string', enum: ['public', 'followers', 'private'] },
     title: { type: 'string' },
     author_name: { type: 'string' },
@@ -319,8 +326,14 @@ export const upsertReadBodySchema = {
   properties: {
     work_id: { type: 'string', format: 'uuid' },
     status: { type: 'string', enum: ['want', 'reading', 'paused', 'finished', 'dnf'] },
+    edition_id: { type: ['string', 'null'], format: 'uuid' },
+    started_at: { type: ['string', 'null'] },
+    finished_at: { type: ['string', 'null'] },
+    abandoned_page: { type: ['integer', 'null'] },
+    dnf_reason: { type: ['string', 'null'] },
     rating: { type: ['number', 'null'], minimum: 0.5, maximum: 5.0 },
     hearted: { type: ['boolean', 'null'] },
+    format_override: { type: ['string', 'null'], enum: ['print', 'ebook', 'audiobook', null] },
     visibility: { type: 'string', enum: ['public', 'followers', 'private'], default: 'public' },
   },
   required: ['work_id', 'status'],
@@ -332,9 +345,34 @@ export const progressEventBodySchema = {
     client_event_id: { type: 'string', format: 'uuid', description: 'Idempotency key' },
     page: { type: ['integer', 'null'], minimum: 0 },
     percent: { type: ['number', 'null'], minimum: 0, maximum: 100 },
+    audio_seconds: { type: ['integer', 'null'], minimum: 0 },
     minutes: { type: ['integer', 'null'], minimum: 0 },
+    note: { type: ['string', 'null'], maxLength: 280 },
   },
   required: ['client_event_id'],
+} as const;
+
+export const finishReadBodySchema = {
+  type: 'object',
+  properties: {
+    finished_at: { type: ['string', 'null'] },
+    rating: { type: ['number', 'null'], minimum: 0.5, maximum: 5.0 },
+    hearted: { type: ['boolean', 'null'] },
+    format_override: { type: ['string', 'null'], enum: ['print', 'ebook', 'audiobook', null] },
+    review: { type: ['string', 'null'] },
+    visibility: { type: 'string', enum: ['public', 'followers', 'private'], default: 'public' },
+  },
+} as const;
+
+export const dnfReadBodySchema = {
+  type: 'object',
+  properties: {
+    abandoned_page: { type: ['integer', 'null'], minimum: 0 },
+    dnf_reason: { type: ['string', 'null'] },
+    note: { type: ['string', 'null'], maxLength: 280 },
+    rating: { type: ['number', 'null'], minimum: 0.5, maximum: 5.0 },
+    visibility: { type: 'string', enum: ['public', 'followers', 'private'], default: 'public' },
+  },
 } as const;
 
 // ---------------------------------------------------------------------------

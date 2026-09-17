@@ -28,7 +28,9 @@ import type {
   DedupeReportResponse,
   DedupeResolveRequest,
   DedupeResolveResponse,
+  DnfReadRequest,
   EditionLookupResponse,
+  FinishReadRequest,
   ForgotPasswordRequest,
   LoginRequest,
   MergeListItem,
@@ -263,6 +265,20 @@ export class FlyleafClient {
 
   async addProgress(readId: string, data: ProgressEventRequest): Promise<Read> {
     return this.request<Read>(`/reads/${encodeURIComponent(readId)}/progress`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async finishRead(readId: string, data: FinishReadRequest): Promise<Read> {
+    return this.request<Read>(`/reads/${encodeURIComponent(readId)}/finish`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async dnfRead(readId: string, data: DnfReadRequest): Promise<Read> {
+    return this.request<Read>(`/reads/${encodeURIComponent(readId)}/dnf`, {
       method: 'POST',
       body: JSON.stringify(data),
     });

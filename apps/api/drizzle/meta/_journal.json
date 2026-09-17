@@ -71,6 +71,13 @@
       "when": 1788920000000,
       "tag": "0009_admin_auth",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1788930000000,
+      "tag": "0010_reading_lifecycle",
+      "breakpoints": true
     }
   ]
 }

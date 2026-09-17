@@ -1,5 +1,4 @@
-// Offline SQLite Database Driver & Connection (SL-10, architecture.md §10).
-
+import React, { useState, useEffect } from 'react';
 import * as SQLite from 'expo-sqlite';
 import { SCHEMA_SQL } from './schema';
 
@@ -72,3 +71,19 @@ export function resetDbInstance() {
   dbInstance = null;
   initPromise = null;
 }
+
+/** React hook resolving the local OfflineDatabase instance */
+export function useDatabase(): OfflineDatabase | null {
+  const [db, setDb] = React.useState<OfflineDatabase | null>(dbInstance);
+
+  React.useEffect(() => {
+    if (!db) {
+      void getOfflineDb().then((instance) => {
+        setDb(instance);
+      });
+    }
+  }, [db]);
+
+  return db;
+}
+

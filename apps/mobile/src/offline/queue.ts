@@ -24,12 +24,36 @@ export interface MutationHandler {
     percent: number | null,
     minutes: number | null,
     clientEventId: string,
+    note?: string | null,
+    audioSeconds?: number | null,
   ) => Promise<any>;
   upsertRead: (
     workId: string,
     status: string,
     rating?: number | null,
     hearted?: boolean,
+    extra?: any,
+  ) => Promise<any>;
+  finishRead?: (
+    readId: string,
+    payload: {
+      finished_at?: string | null;
+      rating?: number | null;
+      hearted?: boolean | null;
+      format_override?: string | null;
+      review?: string | null;
+      visibility?: any;
+    },
+  ) => Promise<any>;
+  dnfRead?: (
+    readId: string,
+    payload: {
+      abandoned_page?: number | null;
+      dnf_reason?: string | null;
+      note?: string | null;
+      rating?: number | null;
+      visibility?: any;
+    },
   ) => Promise<any>;
 }
 
@@ -170,6 +194,8 @@ export class MutationQueue {
           payload.percent ?? null,
           payload.minutes ?? null,
           m.client_event_id,
+          payload.note ?? null,
+          payload.audio_seconds ?? null,
         );
       } else if (m.action === 'upsert_read') {
         await this.handler.upsertRead(
@@ -177,7 +203,12 @@ export class MutationQueue {
           payload.status,
           payload.rating,
           payload.hearted,
+          payload.extra,
         );
+      } else if (m.action === 'finish_read' && this.handler.finishRead) {
+        await this.handler.finishRead(m.entity_id, payload);
+      } else if (m.action === 'dnf_read' && this.handler.dnfRead) {
+        await this.handler.dnfRead(m.entity_id, payload);
       }
 
       // Success: delete from mutation queue and mark local mirrored record synced

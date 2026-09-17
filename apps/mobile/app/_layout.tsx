@@ -48,6 +48,14 @@ function Nav() {
           name="scanner"
           options={{ presentation: 'fullScreenModal', headerShown: false }}
         />
+        <Stack.Screen
+          name="finish/[id]"
+          options={{ presentation: 'modal', headerShown: false }}
+        />
+        <Stack.Screen
+          name="dnf/[id]"
+          options={{ presentation: 'modal', headerShown: false }}
+        />
         <Stack.Screen name="profile" options={{ headerShown: false }} />
       </Stack>
     </View>

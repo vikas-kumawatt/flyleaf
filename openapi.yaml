@@ -1471,6 +1471,11 @@ paths:
                         work_id:
                           type: string
                           format: uuid
+                        edition_id:
+                          type:
+                            - "null"
+                            - string
+                          format: uuid
                         status:
                           type: string
                           enum:
@@ -1481,12 +1486,41 @@ paths:
                             - dnf
                         attempt_no:
                           type: integer
+                        started_at:
+                          type:
+                            - "null"
+                            - string
+                        finished_at:
+                          type:
+                            - "null"
+                            - string
+                        abandoned_at:
+                          type:
+                            - "null"
+                            - string
+                        abandoned_page:
+                          type:
+                            - "null"
+                            - integer
+                        dnf_reason:
+                          type:
+                            - "null"
+                            - string
                         rating:
                           type:
                             - "null"
                             - number
                         hearted:
                           type: boolean
+                        format_override:
+                          type:
+                            - "null"
+                            - string
+                          enum:
+                            - print
+                            - ebook
+                            - audiobook
+                            - null
                         visibility:
                           type: string
                           enum:
@@ -1595,6 +1629,27 @@ paths:
                     - paused
                     - finished
                     - dnf
+                edition_id:
+                  type:
+                    - string
+                    - "null"
+                  format: uuid
+                started_at:
+                  type:
+                    - string
+                    - "null"
+                finished_at:
+                  type:
+                    - string
+                    - "null"
+                abandoned_page:
+                  type:
+                    - integer
+                    - "null"
+                dnf_reason:
+                  type:
+                    - string
+                    - "null"
                 rating:
                   type:
                     - number
@@ -1605,6 +1660,15 @@ paths:
                   type:
                     - boolean
                     - "null"
+                format_override:
+                  type:
+                    - string
+                    - "null"
+                  enum:
+                    - print
+                    - ebook
+                    - audiobook
+                    - null
                 visibility:
                   type: string
                   enum:
@@ -1634,6 +1698,11 @@ paths:
                   work_id:
                     type: string
                     format: uuid
+                  edition_id:
+                    type:
+                      - "null"
+                      - string
+                    format: uuid
                   status:
                     type: string
                     enum:
@@ -1644,12 +1713,41 @@ paths:
                       - dnf
                   attempt_no:
                     type: integer
+                  started_at:
+                    type:
+                      - "null"
+                      - string
+                  finished_at:
+                    type:
+                      - "null"
+                      - string
+                  abandoned_at:
+                    type:
+                      - "null"
+                      - string
+                  abandoned_page:
+                    type:
+                      - "null"
+                      - integer
+                  dnf_reason:
+                    type:
+                      - "null"
+                      - string
                   rating:
                     type:
                       - "null"
                       - number
                   hearted:
                     type: boolean
+                  format_override:
+                    type:
+                      - "null"
+                      - string
+                    enum:
+                      - print
+                      - ebook
+                      - audiobook
+                      - null
                   visibility:
                     type: string
                     enum:
@@ -1764,6 +1862,11 @@ paths:
                   work_id:
                     type: string
                     format: uuid
+                  edition_id:
+                    type:
+                      - "null"
+                      - string
+                    format: uuid
                   status:
                     type: string
                     enum:
@@ -1774,12 +1877,41 @@ paths:
                       - dnf
                   attempt_no:
                     type: integer
+                  started_at:
+                    type:
+                      - "null"
+                      - string
+                  finished_at:
+                    type:
+                      - "null"
+                      - string
+                  abandoned_at:
+                    type:
+                      - "null"
+                      - string
+                  abandoned_page:
+                    type:
+                      - "null"
+                      - integer
+                  dnf_reason:
+                    type:
+                      - "null"
+                      - string
                   rating:
                     type:
                       - "null"
                       - number
                   hearted:
                     type: boolean
+                  format_override:
+                    type:
+                      - "null"
+                      - string
+                    enum:
+                      - print
+                      - ebook
+                      - audiobook
+                      - null
                   visibility:
                     type: string
                     enum:
@@ -1886,6 +2018,11 @@ paths:
                         work_id:
                           type: string
                           format: uuid
+                        edition_id:
+                          type:
+                            - "null"
+                            - string
+                          format: uuid
                         status:
                           type: string
                           enum:
@@ -1896,12 +2033,41 @@ paths:
                             - dnf
                         attempt_no:
                           type: integer
+                        started_at:
+                          type:
+                            - "null"
+                            - string
+                        finished_at:
+                          type:
+                            - "null"
+                            - string
+                        abandoned_at:
+                          type:
+                            - "null"
+                            - string
+                        abandoned_page:
+                          type:
+                            - "null"
+                            - integer
+                        dnf_reason:
+                          type:
+                            - "null"
+                            - string
                         rating:
                           type:
                             - "null"
                             - number
                         hearted:
                           type: boolean
+                        format_override:
+                          type:
+                            - "null"
+                            - string
+                          enum:
+                            - print
+                            - ebook
+                            - audiobook
+                            - null
                         visibility:
                           type: string
                           enum:
@@ -1991,11 +2157,21 @@ paths:
                     - "null"
                   minimum: 0
                   maximum: 100
+                audio_seconds:
+                  type:
+                    - integer
+                    - "null"
+                  minimum: 0
                 minutes:
                   type:
                     - integer
                     - "null"
                   minimum: 0
+                note:
+                  type:
+                    - string
+                    - "null"
+                  maxLength: 280
               required:
                 - client_event_id
       parameters:
@@ -2025,6 +2201,11 @@ paths:
                   work_id:
                     type: string
                     format: uuid
+                  edition_id:
+                    type:
+                      - "null"
+                      - string
+                    format: uuid
                   status:
                     type: string
                     enum:
@@ -2035,12 +2216,496 @@ paths:
                       - dnf
                   attempt_no:
                     type: integer
+                  started_at:
+                    type:
+                      - "null"
+                      - string
+                  finished_at:
+                    type:
+                      - "null"
+                      - string
+                  abandoned_at:
+                    type:
+                      - "null"
+                      - string
+                  abandoned_page:
+                    type:
+                      - "null"
+                      - integer
+                  dnf_reason:
+                    type:
+                      - "null"
+                      - string
                   rating:
                     type:
                       - "null"
                       - number
                   hearted:
                     type: boolean
+                  format_override:
+                    type:
+                      - "null"
+                      - string
+                    enum:
+                      - print
+                      - ebook
+                      - audiobook
+                      - null
+                  visibility:
+                    type: string
+                    enum:
+                      - public
+                      - followers
+                      - private
+                  title:
+                    type: string
+                  author_name:
+                    type: string
+                  cover_id:
+                    type:
+                      - "null"
+                      - integer
+                  page:
+                    type:
+                      - "null"
+                      - integer
+                  percent:
+                    type:
+                      - "null"
+                      - number
+                  page_count:
+                    type:
+                      - "null"
+                      - integer
+                required:
+                  - id
+                  - user_id
+                  - work_id
+                  - status
+                  - attempt_no
+                  - hearted
+                  - visibility
+        "401":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      code:
+                        type: string
+                        description: Machine-readable error code
+                      message:
+                        type: string
+                        description: Human-readable error description
+                      field:
+                        type: string
+                        description: Invalid field name if applicable
+                    required:
+                      - code
+                      - message
+                required:
+                  - error
+        "404":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      code:
+                        type: string
+                        description: Machine-readable error code
+                      message:
+                        type: string
+                        description: Human-readable error description
+                      field:
+                        type: string
+                        description: Invalid field name if applicable
+                    required:
+                      - code
+                      - message
+                required:
+                  - error
+        "422":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      code:
+                        type: string
+                        description: Machine-readable error code
+                      message:
+                        type: string
+                        description: Human-readable error description
+                      field:
+                        type: string
+                        description: Invalid field name if applicable
+                    required:
+                      - code
+                      - message
+                required:
+                  - error
+  /reads/{id}/finish:
+    post:
+      summary: Finish reading attempt
+      tags:
+        - Reading
+      description: Completes a read with finished_at, rating, hearted, and
+        format_override in one call (PRD §6.17).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                finished_at:
+                  type:
+                    - string
+                    - "null"
+                rating:
+                  type:
+                    - number
+                    - "null"
+                  minimum: 0.5
+                  maximum: 5
+                hearted:
+                  type:
+                    - boolean
+                    - "null"
+                format_override:
+                  type:
+                    - string
+                    - "null"
+                  enum:
+                    - print
+                    - ebook
+                    - audiobook
+                    - null
+                review:
+                  type:
+                    - string
+                    - "null"
+                visibility:
+                  type: string
+                  enum:
+                    - public
+                    - followers
+                    - private
+                  default: public
+      parameters:
+        - schema:
+            type: string
+            format: uuid
+          in: path
+          name: id
+          required: true
+          description: Resource UUID
+      security:
+        - BearerAuth: []
+      responses:
+        "200":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id:
+                    type: string
+                    format: uuid
+                  user_id:
+                    type: string
+                    format: uuid
+                  work_id:
+                    type: string
+                    format: uuid
+                  edition_id:
+                    type:
+                      - "null"
+                      - string
+                    format: uuid
+                  status:
+                    type: string
+                    enum:
+                      - want
+                      - reading
+                      - paused
+                      - finished
+                      - dnf
+                  attempt_no:
+                    type: integer
+                  started_at:
+                    type:
+                      - "null"
+                      - string
+                  finished_at:
+                    type:
+                      - "null"
+                      - string
+                  abandoned_at:
+                    type:
+                      - "null"
+                      - string
+                  abandoned_page:
+                    type:
+                      - "null"
+                      - integer
+                  dnf_reason:
+                    type:
+                      - "null"
+                      - string
+                  rating:
+                    type:
+                      - "null"
+                      - number
+                  hearted:
+                    type: boolean
+                  format_override:
+                    type:
+                      - "null"
+                      - string
+                    enum:
+                      - print
+                      - ebook
+                      - audiobook
+                      - null
+                  visibility:
+                    type: string
+                    enum:
+                      - public
+                      - followers
+                      - private
+                  title:
+                    type: string
+                  author_name:
+                    type: string
+                  cover_id:
+                    type:
+                      - "null"
+                      - integer
+                  page:
+                    type:
+                      - "null"
+                      - integer
+                  percent:
+                    type:
+                      - "null"
+                      - number
+                  page_count:
+                    type:
+                      - "null"
+                      - integer
+                required:
+                  - id
+                  - user_id
+                  - work_id
+                  - status
+                  - attempt_no
+                  - hearted
+                  - visibility
+        "401":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      code:
+                        type: string
+                        description: Machine-readable error code
+                      message:
+                        type: string
+                        description: Human-readable error description
+                      field:
+                        type: string
+                        description: Invalid field name if applicable
+                    required:
+                      - code
+                      - message
+                required:
+                  - error
+        "404":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      code:
+                        type: string
+                        description: Machine-readable error code
+                      message:
+                        type: string
+                        description: Human-readable error description
+                      field:
+                        type: string
+                        description: Invalid field name if applicable
+                    required:
+                      - code
+                      - message
+                required:
+                  - error
+        "422":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      code:
+                        type: string
+                        description: Machine-readable error code
+                      message:
+                        type: string
+                        description: Human-readable error description
+                      field:
+                        type: string
+                        description: Invalid field name if applicable
+                    required:
+                      - code
+                      - message
+                required:
+                  - error
+  /reads/{id}/dnf:
+    post:
+      summary: Mark read as stopped (DNF)
+      tags:
+        - Reading
+      description: Records abandonment respectfully with abandoned_page and dnf_reason
+        (PRD §6.18).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                abandoned_page:
+                  type:
+                    - integer
+                    - "null"
+                  minimum: 0
+                dnf_reason:
+                  type:
+                    - string
+                    - "null"
+                note:
+                  type:
+                    - string
+                    - "null"
+                  maxLength: 280
+                rating:
+                  type:
+                    - number
+                    - "null"
+                  minimum: 0.5
+                  maximum: 5
+                visibility:
+                  type: string
+                  enum:
+                    - public
+                    - followers
+                    - private
+                  default: public
+      parameters:
+        - schema:
+            type: string
+            format: uuid
+          in: path
+          name: id
+          required: true
+          description: Resource UUID
+      security:
+        - BearerAuth: []
+      responses:
+        "200":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id:
+                    type: string
+                    format: uuid
+                  user_id:
+                    type: string
+                    format: uuid
+                  work_id:
+                    type: string
+                    format: uuid
+                  edition_id:
+                    type:
+                      - "null"
+                      - string
+                    format: uuid
+                  status:
+                    type: string
+                    enum:
+                      - want
+                      - reading
+                      - paused
+                      - finished
+                      - dnf
+                  attempt_no:
+                    type: integer
+                  started_at:
+                    type:
+                      - "null"
+                      - string
+                  finished_at:
+                    type:
+                      - "null"
+                      - string
+                  abandoned_at:
+                    type:
+                      - "null"
+                      - string
+                  abandoned_page:
+                    type:
+                      - "null"
+                      - integer
+                  dnf_reason:
+                    type:
+                      - "null"
+                      - string
+                  rating:
+                    type:
+                      - "null"
+                      - number
+                  hearted:
+                    type: boolean
+                  format_override:
+                    type:
+                      - "null"
+                      - string
+                    enum:
+                      - print
+                      - ebook
+                      - audiobook
+                      - null
                   visibility:
                     type: string
                     enum:

@@ -396,15 +396,24 @@ export const reads = pgTable('reads', {
   attemptNo: integer('attempt_no').notNull().default(1),
   startedAt: date('started_at'),
   finishedAt: date('finished_at'),
+  abandonedAt: date('abandoned_at'),
+  abandonedPage: integer('abandoned_page'),
+  dnfReason: text('dnf_reason'),
   rating: numeric('rating', { precision: 2, scale: 1 }),   // NULLABLE by design
   hearted: boolean('hearted').notNull().default(false),
+  formatOverride: text('format_override'),
+  source: text('source').notNull().default('app'),
   visibility: text('visibility').notNull().default('public'),
+  likeCount: integer('like_count').notNull().default(0),
+  commentCount: integer('comment_count').notNull().default(0),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 }, (t) => [
   unique('reads_user_work_attempt').on(t.userId, t.workId, t.attemptNo),
   check('reads_status_ck', sql`${t.status} IN ('want','reading','paused','finished','dnf')`),
   check('reads_visibility_ck', sql`${t.visibility} IN ('public','followers','private')`),
+  check('reads_format_override_ck', sql`${t.formatOverride} IS NULL OR ${t.formatOverride} IN ('print','ebook','audiobook')`),
+  check('reads_source_ck', sql`${t.source} IN ('app','import')`),
   // Half stars, and only half stars. Enforced in the database because the API
   // is not the only thing that will ever write here (imports, admin, backfill).
   check('reads_rating_ck',
@@ -413,6 +422,7 @@ export const reads = pgTable('reads', {
     sql`${t.finishedAt} IS NULL OR ${t.startedAt} IS NULL OR ${t.finishedAt} >= ${t.startedAt}`),
   index('reads_user_status_idx').on(t.userId, t.status, t.updatedAt),
   index('reads_user_visibility_idx').on(t.userId, t.visibility, t.status, t.updatedAt),
+  index('reads_work_finished_idx').on(t.workId).where(sql`${t.status} = 'finished'`),
 ]);
 
 /** APPEND-ONLY. Current position is always the latest row (PRD §8.3). */
@@ -422,11 +432,14 @@ export const progressEvents = pgTable('progress_events', {
   at: timestamp('at', { withTimezone: true }).notNull().defaultNow(),
   page: integer('page'),
   percent: numeric('percent', { precision: 5, scale: 2 }),
+  audioSeconds: integer('audio_seconds'),
   minutes: integer('minutes'),
+  note: text('note'),
   // The entire offline story in one column. Replay is safe.
   clientEventId: uuid('client_event_id').notNull().unique(),
 }, (t) => [
   index('progress_events_read_idx').on(t.readId, t.at),
+  check('progress_events_note_ck', sql`${t.note} IS NULL OR char_length(${t.note}) <= 280`),
 ]);
 
 // ---------------------------------------------------------------------------
