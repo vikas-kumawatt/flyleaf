@@ -39,6 +39,7 @@ import type {
   Profile,
   ProgressEventRequest,
   Read,
+  ReadingStats,
   ReadListResponse,
   ReadStatus,
   RefreshRequest,
@@ -52,6 +53,7 @@ import type {
   StandardResponse,
   ToggleLikeResponse,
   UndoMergeResponse,
+  UpdateProfileRequest,
   UpdateReviewRequest,
   UpsertReadRequest,
   User,
@@ -216,6 +218,19 @@ export class FlyleafClient {
     });
   }
 
+  async getMyProfile(): Promise<Profile> {
+    return this.request<Profile>('/me/profile', {
+      method: 'GET',
+    });
+  }
+
+  async updateProfile(data: UpdateProfileRequest): Promise<Profile> {
+    return this.request<Profile>('/me/profile', {
+      method: 'PATCH',
+      body: JSON.stringify(data),
+    });
+  }
+
   // ---------------------------------------------------------------- Catalog
 
   async search(q: string, limit = 20): Promise<Work[]> {
@@ -287,6 +302,20 @@ export class FlyleafClient {
     return this.request<Read>(`/reads/${encodeURIComponent(readId)}/dnf`, {
       method: 'POST',
       body: JSON.stringify(data),
+    });
+  }
+
+  async getMyStats(year?: number | string): Promise<ReadingStats> {
+    const q = year !== undefined ? `?year=${encodeURIComponent(String(year))}` : '';
+    return this.request<ReadingStats>(`/me/stats${q}`, {
+      method: 'GET',
+    });
+  }
+
+  async getUserStats(userId: string, year?: number | string): Promise<ReadingStats> {
+    const q = year !== undefined ? `?year=${encodeURIComponent(String(year))}` : '';
+    return this.request<ReadingStats>(`/users/${encodeURIComponent(userId)}/stats${q}`, {
+      method: 'GET',
     });
   }
 

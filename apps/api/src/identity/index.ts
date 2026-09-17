@@ -6,16 +6,23 @@
 
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import { hash as argonHash, verify as argonVerify } from '@node-rs/argon2';
-import { and, eq, gt, isNull, sql } from 'drizzle-orm';
+import { and, eq, gt, isNull, inArray, sql } from 'drizzle-orm';
 import * as jose from 'jose';
 import { z } from 'zod';
 import type { FastifyInstance } from 'fastify';
 
 import { config, type Db, type RateLimiter, type EmailSender, ConsoleEmailSender } from '../platform/index.js';
-import { users, profiles, refreshTokens, emailVerificationTokens, passwordResetTokens } from '../db/schema.js';
+import { users, profiles, works, refreshTokens, emailVerificationTokens, passwordResetTokens } from '../db/schema.js';
 import { ApiError, requireViewer } from '../http.js';
 import { isCommonPassword } from './common-passwords.js';
 import { canView } from '../authorization/index.js';
+
+export type ProfileFavourite = {
+  id: string;
+  title: string;
+  author_name: string;
+  cover_id: number | null;
+};
 
 export type Profile = {
   id: string;
@@ -26,6 +33,8 @@ export type Profile = {
   isPrivate: boolean;
   followerCount: number;
   followingCount: number;
+  favourite_work_ids: string[];
+  favourites: ProfileFavourite[];
   createdAt: Date;
 };
 
@@ -372,6 +381,7 @@ export class IdentityService {
         isPrivate: profiles.isPrivate,
         followerCount: profiles.followerCount,
         followingCount: profiles.followingCount,
+        favouriteWorkIds: profiles.favouriteWorkIds,
         createdAt: profiles.createdAt,
       })
       .from(users)
@@ -389,7 +399,89 @@ export class IdentityService {
 
     if (!allowed) return null;
 
-    return row;
+    let favourites: ProfileFavourite[] = [];
+    const favIds = (row.favouriteWorkIds ?? []) as string[];
+    if (favIds.length > 0) {
+      const favRows = await this.db
+        .select({
+          id: works.id,
+          title: works.title,
+          coverId: works.olCoverId,
+          authorName: sql<string>`COALESCE((
+            SELECT a.name
+            FROM work_authors wa JOIN authors a ON a.id = wa.author_id
+            WHERE wa.work_id = works.id
+            ORDER BY wa.position, a.name
+            LIMIT 1
+          ), 'Unknown Author')`.as('author_name'),
+        })
+        .from(works)
+        .where(inArray(works.id, favIds));
+
+      const byId = new Map(favRows.map((r) => [r.id, r]));
+      favourites = favIds
+        .map((id) => byId.get(id))
+        .filter((r): r is NonNullable<typeof r> => Boolean(r))
+        .map((r) => ({
+          id: r.id,
+          title: r.title,
+          author_name: r.authorName,
+          cover_id: r.coverId,
+        }));
+    }
+
+    return {
+      id: row.id,
+      username: row.username,
+      displayName: row.displayName,
+      bio: row.bio,
+      avatarKey: row.avatarKey,
+      isPrivate: row.isPrivate,
+      followerCount: row.followerCount,
+      followingCount: row.followingCount,
+      favourite_work_ids: favIds,
+      favourites,
+      createdAt: row.createdAt,
+    };
+  }
+
+  async updateProfile(
+    userId: string,
+    data: {
+      displayName?: string | null;
+      bio?: string | null;
+      isPrivate?: boolean;
+      favouriteWorkIds?: string[];
+    },
+  ): Promise<Profile> {
+      if (data.bio !== undefined && data.bio !== null && data.bio.length > 160) {
+        throw ApiError.unprocessable('bio_too_long', 'Bio must not exceed 160 characters.', 'bio');
+      }
+      if (data.displayName !== undefined && data.displayName !== null && data.displayName.length > 100) {
+        throw ApiError.unprocessable('display_name_too_long', 'Display name must not exceed 100 characters.', 'displayName');
+      }
+      if (data.favouriteWorkIds !== undefined) {
+        if (data.favouriteWorkIds.length > 4) {
+          throw ApiError.unprocessable('too_many_favourites', 'You can pick at most 4 favourite books.', 'favouriteWorkIds');
+        }
+      }
+
+      const updates: Record<string, any> = {};
+      if (data.displayName !== undefined) updates.displayName = data.displayName;
+      if (data.bio !== undefined) updates.bio = data.bio;
+      if (data.isPrivate !== undefined) updates.isPrivate = data.isPrivate;
+      if (data.favouriteWorkIds !== undefined) updates.favouriteWorkIds = data.favouriteWorkIds;
+
+      if (Object.keys(updates).length > 0) {
+        await this.db
+          .update(profiles)
+          .set(updates)
+          .where(eq(profiles.userId, userId));
+      }
+
+      const updated = await this.getProfile(userId, userId);
+      if (!updated) throw ApiError.notFound('Profile not found.');
+      return updated;
   }
 
   async sendVerificationEmail(userId: string, email: string): Promise<void> {
@@ -630,6 +722,8 @@ import {
   revokeSessionResponseSchema,
   userSchema,
   profileSchema,
+  updateProfileBodySchema,
+  updateProfileResponseSchema,
   idParamSchema,
   errorResponseSchema,
 } from '../contract/schemas.js';
@@ -916,6 +1010,51 @@ export function identityRoutes(service: IdentityService) {
         const user = await service.get(viewer);
         if (!user) throw ApiError.notFound('No such account.');
         return user;
+      },
+    );
+
+    app.get(
+      '/me/profile',
+      {
+        schema: {
+          tags: ['Auth'],
+          summary: 'Get my profile',
+          description: 'Returns the full profile and favourite books for the authenticated viewer.',
+          security: [{ BearerAuth: [] }],
+          response: {
+            200: profileSchema,
+            401: errorResponseSchema,
+            404: errorResponseSchema,
+          },
+        },
+      },
+      async (req) => {
+        const viewer = requireViewer(req);
+        const profile = await service.getProfile(viewer, viewer);
+        if (!profile) throw ApiError.notFound('Profile not found.');
+        return profile;
+      },
+    );
+
+    app.patch(
+      '/me/profile',
+      {
+        schema: {
+          tags: ['Auth'],
+          summary: 'Update my profile',
+          description: 'Updates bio, display name, privacy, or 4 favourite books for the authenticated viewer (PRD §6.38, §6.39).',
+          security: [{ BearerAuth: [] }],
+          body: updateProfileBodySchema,
+          response: {
+            200: updateProfileResponseSchema,
+            401: errorResponseSchema,
+            422: errorResponseSchema,
+          },
+        },
+      },
+      async (req) => {
+        const viewer = requireViewer(req);
+        return service.updateProfile(viewer, req.body as any);
       },
     );
 

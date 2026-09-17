@@ -27,11 +27,23 @@ import {
   type CreateReviewRequest,
   type UpdateReviewRequest,
   type WorkReviewsResponse,
+  type ProfileFavourite,
+  type UpdateProfileRequest,
+  type MonthlyPaceItem,
+  type ExtremeBook,
+  type MostReadAuthor,
+  type ReadingStats,
 } from '@flyleaf/api-client';
 
 export type {
   User,
   Profile,
+  ProfileFavourite,
+  UpdateProfileRequest,
+  MonthlyPaceItem,
+  ExtremeBook,
+  MostReadAuthor,
+  ReadingStats,
   Edition,
   EditionDetail,
   EditionLookupResponse,
@@ -217,6 +229,11 @@ export const api = {
   },
 
   me: () => client.getMe(),
+  myProfile: () => client.getMyProfile(),
+  updateProfile: (data: UpdateProfileRequest) => client.updateProfile(data),
+  userProfile: (userId: string) => client.getUserProfile(userId),
+  myStats: (year?: string) => client.getMyStats(year),
+  userStats: (userId: string, year?: string) => client.getUserStats(userId, year),
 
   search: (q: string) => client.search(q),
 

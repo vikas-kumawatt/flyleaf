@@ -12,7 +12,7 @@ import { z } from 'zod';
 import type { FastifyInstance } from 'fastify';
 
 import type { Db } from '../platform/index.js';
-import { reads, works, progressEvents, profiles } from '../db/schema.js';
+import { reads, works, progressEvents, profiles, editions } from '../db/schema.js';
 import { ApiError, requireViewer } from '../http.js';
 import { canView, type Visibility, VISIBILITIES } from '../authorization/index.js';
 import {
@@ -24,6 +24,8 @@ import {
   progressEventBodySchema,
   finishReadBodySchema,
   dnfReadBodySchema,
+  readingStatsQuerySchema,
+  readingStatsResponseSchema,
   errorResponseSchema,
 } from '../contract/schemas.js';
 
@@ -479,10 +481,318 @@ export class ReadingService {
     if (!read) throw ApiError.notFound('No such read.');
     return read;
   }
+
+  async getStats(
+    viewer: string | null,
+    userId: string,
+    yearParam?: string,
+  ): Promise<any> {
+    const [profile] = await this.db
+        .select({ isPrivate: profiles.isPrivate })
+        .from(profiles)
+        .where(eq(profiles.userId, userId))
+        .limit(1);
+
+      if (!profile) throw ApiError.notFound('User not found.');
+
+      const allowed = canView({
+        viewer,
+        ownerId: userId,
+        isOwnerPrivate: profile.isPrivate,
+      });
+      if (!allowed) throw ApiError.notFound('User not found.');
+
+      const currentYear = new Date().getFullYear();
+      const yearStr = yearParam && (yearParam === 'all' || /^\d{4}$/.test(yearParam)) ? yearParam : String(currentYear);
+      const isAllTime = yearStr === 'all';
+      const selectedYear = isAllTime ? null : Number(yearStr);
+
+      const userReads = await this.db
+        .select({
+          id: reads.id,
+          workId: reads.workId,
+          editionId: reads.editionId,
+          status: reads.status,
+          startedAt: reads.startedAt,
+          finishedAt: reads.finishedAt,
+          abandonedAt: reads.abandonedAt,
+          rating: reads.rating,
+          formatOverride: reads.formatOverride,
+          title: works.title,
+          coverId: sql<number | null>`COALESCE(
+            ${editions.olCoverId},
+            ${works.olCoverId},
+            (SELECT e.ol_cover_id FROM editions e WHERE e.work_id = works.id AND e.ol_cover_id IS NOT NULL LIMIT 1)
+          )`.as('cover_id'),
+          pageCount: sql<number | null>`COALESCE(
+            ${editions.pageCount},
+            (SELECT e.page_count FROM editions e WHERE e.work_id = works.id AND e.page_count IS NOT NULL LIMIT 1)
+          )`.as('page_count'),
+          authorName: sql<string>`COALESCE((
+            SELECT a.name
+            FROM work_authors wa JOIN authors a ON a.id = wa.author_id
+            WHERE wa.work_id = works.id
+            ORDER BY wa.position, a.name
+            LIMIT 1
+          ), 'Unknown Author')`.as('author_name'),
+          visibility: reads.visibility,
+        })
+        .from(reads)
+        .innerJoin(works, eq(reads.workId, works.id))
+        .leftJoin(editions, eq(reads.editionId, editions.id))
+        .where(eq(reads.userId, userId));
+
+      const visibleReads = userReads.filter((r) =>
+        canView({
+          viewer,
+          ownerId: userId,
+          visibility: r.visibility as Visibility,
+          isOwnerPrivate: profile.isPrivate,
+        })
+      );
+
+      const finishedInYear = visibleReads.filter((r) => {
+        if (r.status !== 'finished') return false;
+        if (isAllTime) return true;
+        if (!r.finishedAt) return false;
+        return new Date(r.finishedAt).getFullYear() === selectedYear;
+      });
+
+      const dnfInYear = visibleReads.filter((r) => {
+        if (r.status !== 'dnf') return false;
+        if (isAllTime) return true;
+        const d = r.abandonedAt ? new Date(r.abandonedAt).getFullYear() : null;
+        return d === selectedYear;
+      });
+
+      const monthlyPace = Array.from({ length: 12 }, (_, i) => ({
+        month: i + 1,
+        books: 0,
+        pages: 0,
+      }));
+
+      for (const r of finishedInYear) {
+        if (r.finishedAt) {
+          const m = new Date(r.finishedAt).getMonth();
+          const item = monthlyPace[m];
+          if (item) {
+            item.books += 1;
+            item.pages += r.pageCount ?? 0;
+          }
+        }
+      }
+
+      const booksCount = finishedInYear.length;
+      const pagesCount = finishedInYear.reduce((acc, r) => acc + (r.pageCount ?? 0), 0);
+
+      const audioQuery = await this.db.execute<{ total_seconds: string | number }>(sql`
+        SELECT COALESCE(SUM(pe.audio_seconds), 0) as total_seconds
+        FROM progress_events pe
+        JOIN reads r ON pe.read_id = r.id
+        WHERE r.user_id = ${userId}
+        ${selectedYear ? sql`AND EXTRACT(YEAR FROM pe.at) = ${selectedYear}` : sql``}
+      `);
+      const audioRows = (audioQuery as any)?.rows ?? (audioQuery as any);
+      const audioSeconds = Number(audioRows?.[0]?.total_seconds ?? 0);
+      const audioHours = Math.round((audioSeconds / 3600) * 10) / 10;
+
+      const ratedReads = finishedInYear.filter((r) => r.rating !== null);
+      const avgRating =
+        ratedReads.length > 0
+          ? Math.round(
+              (ratedReads.reduce((sum, r) => sum + Number(r.rating), 0) / ratedReads.length) * 100
+            ) / 100
+          : null;
+
+      const ratingDistribution: Record<string, number> = { '5': 0, '4': 0, '3': 0, '2': 0, '1': 0 };
+      for (const r of ratedReads) {
+        const rounded = Math.min(5, Math.max(1, Math.round(Number(r.rating))));
+        const key = String(rounded);
+        ratingDistribution[key] = (ratingDistribution[key] ?? 0) + 1;
+      }
+
+      const formatBreakdown = { print: 0, ebook: 0, audiobook: 0 };
+      for (const r of finishedInYear) {
+        const fmt = r.formatOverride ?? 'print';
+        if (fmt === 'ebook') {
+          formatBreakdown.ebook += 1;
+        } else if (fmt === 'audiobook') {
+          formatBreakdown.audiobook += 1;
+        } else {
+          formatBreakdown.print += 1;
+        }
+      }
+
+      const booksWithPages = finishedInYear.filter((r) => (r.pageCount ?? 0) > 0);
+      booksWithPages.sort((a, b) => (b.pageCount ?? 0) - (a.pageCount ?? 0));
+
+      const longest = booksWithPages[0];
+      const longestBook = longest ? {
+        work_id: longest.workId,
+        title: longest.title,
+        author_name: longest.authorName,
+        page_count: longest.pageCount,
+        cover_id: longest.coverId,
+      } : null;
+
+      const shortest = booksWithPages[booksWithPages.length - 1];
+      const shortestBook = shortest ? {
+        work_id: shortest.workId,
+        title: shortest.title,
+        author_name: shortest.authorName,
+        page_count: shortest.pageCount,
+        cover_id: shortest.coverId,
+      } : null;
+
+      const authorCounts = new Map<string, number>();
+      for (const r of finishedInYear) {
+        if (r.authorName) {
+          authorCounts.set(r.authorName, (authorCounts.get(r.authorName) ?? 0) + 1);
+        }
+      }
+      let mostReadAuthor: { name: string; count: number } | null = null;
+      for (const [name, count] of authorCounts.entries()) {
+        if (!mostReadAuthor || count > mostReadAuthor.count) {
+          mostReadAuthor = { name, count };
+        }
+      }
+
+      const dnfCount = dnfInYear.length;
+      const totalFinishedOrDnf = booksCount + dnfCount;
+      const dnfRate = totalFinishedOrDnf > 0 ? Math.round((dnfCount / totalFinishedOrDnf) * 100) / 100 : 0;
+
+      const activityDatesRes = await this.db.execute<{ activity_date: string }>(sql`
+        SELECT DISTINCT to_char(pe.at, 'YYYY-MM-DD') as activity_date
+        FROM progress_events pe
+        JOIN reads r ON pe.read_id = r.id
+        WHERE r.user_id = ${userId}
+        UNION
+        SELECT DISTINCT finished_at::text as activity_date
+        FROM reads
+        WHERE user_id = ${userId} AND finished_at IS NOT NULL
+        ORDER BY activity_date DESC
+      `);
+      const activityRows = (activityDatesRes as any)?.rows ?? (activityDatesRes as any);
+      const dateStrings = (Array.isArray(activityRows) ? activityRows : []).map((r: any) => r.activity_date);
+      const { currentStreak, longestStreak } = computeStreaks(dateStrings);
+
+      return {
+        year: yearStr,
+        books_count: booksCount,
+        pages_count: pagesCount,
+        audio_hours: audioHours,
+        avg_rating: avgRating,
+        rating_distribution: ratingDistribution,
+        format_breakdown: formatBreakdown,
+        monthly_pace: monthlyPace,
+        longest_book: longestBook,
+        shortest_book: shortestBook,
+        most_read_author: mostReadAuthor,
+        dnf_count: dnfCount,
+        dnf_rate: dnfRate,
+        current_streak: currentStreak,
+        longest_streak: longestStreak,
+      };
+  }
+}
+
+export function computeStreaks(dateStrings: string[]): { currentStreak: number; longestStreak: number } {
+  if (dateStrings.length === 0) {
+    return { currentStreak: 0, longestStreak: 0 };
+  }
+
+  const uniqueDates = Array.from(new Set(dateStrings)).sort().reverse();
+  const dateObjs = uniqueDates.map((d) => new Date(`${d}T00:00:00Z`));
+
+  const todayStr = new Date().toISOString().slice(0, 10);
+  const yesterdayStr = new Date(Date.now() - 86400000).toISOString().slice(0, 10);
+
+  let currentStreak = 0;
+  if (uniqueDates.includes(todayStr) || uniqueDates.includes(yesterdayStr)) {
+    let expected = uniqueDates.includes(todayStr)
+      ? new Date(`${todayStr}T00:00:00Z`)
+      : new Date(`${yesterdayStr}T00:00:00Z`);
+
+    for (const d of dateObjs) {
+      const diffDays = Math.round((expected.getTime() - d.getTime()) / 86400000);
+      if (diffDays === 0) {
+        currentStreak++;
+        expected = new Date(expected.getTime() - 86400000);
+      } else if (diffDays > 0) {
+        break;
+      }
+    }
+  }
+
+  let longestStreak = 0;
+  let currentRun = 0;
+  let prevDate: Date | null = null;
+
+  for (const d of dateObjs) {
+    if (!prevDate) {
+      currentRun = 1;
+    } else {
+      const diff = Math.round((prevDate.getTime() - d.getTime()) / 86400000);
+      if (diff === 1) {
+        currentRun++;
+      } else {
+        currentRun = 1;
+      }
+    }
+    if (currentRun > longestStreak) {
+      longestStreak = currentRun;
+    }
+    prevDate = d;
+  }
+
+  return { currentStreak, longestStreak };
 }
 
 export function readingRoutes(service: ReadingService) {
   return async (app: FastifyInstance) => {
+    // Current user's reading stats (authenticated)
+    app.get<{ Querystring: { year?: string } }>(
+      '/me/stats',
+      {
+        schema: {
+          tags: ['Reading'],
+          summary: 'Get my reading stats',
+          description: 'Returns volume, pace, taste, extremes, and streak statistics for the authenticated viewer (PRD §6.40, SL-74).',
+          security: [{ BearerAuth: [] }],
+          querystring: readingStatsQuerySchema,
+          response: {
+            200: readingStatsResponseSchema,
+            401: errorResponseSchema,
+          },
+        },
+      },
+      async (req) => {
+        const viewer = requireViewer(req);
+        return service.getStats(viewer, viewer, req.query.year);
+      },
+    );
+
+    // Another user's reading stats
+    app.get<{ Params: { id: string }; Querystring: { year?: string } }>(
+      '/users/:id/stats',
+      {
+        schema: {
+          tags: ['Reading'],
+          summary: 'Get user reading stats',
+          description: 'Returns reading stats for a user if authorized (PRD §6.40, SL-74).',
+          params: idParamSchema,
+          querystring: readingStatsQuerySchema,
+          response: {
+            200: readingStatsResponseSchema,
+            404: errorResponseSchema,
+          },
+        },
+      },
+      async (req) => {
+        return service.getStats(req.viewer, req.params.id, req.query.year);
+      },
+    );
+
     // Current user's reads (authenticated)
     app.get<{ Querystring: { status?: string } }>(
       '/reads',

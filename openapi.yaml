@@ -925,6 +925,280 @@ paths:
                       - message
                 required:
                   - error
+  /me/profile:
+    get:
+      summary: Get my profile
+      tags:
+        - Auth
+      description: Returns the full profile and favourite books for the authenticated
+        viewer.
+      security:
+        - BearerAuth: []
+      responses:
+        "200":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id:
+                    type: string
+                    format: uuid
+                  username:
+                    type: string
+                  displayName:
+                    type:
+                      - "null"
+                      - string
+                  bio:
+                    type:
+                      - "null"
+                      - string
+                  avatarKey:
+                    type:
+                      - "null"
+                      - string
+                  isPrivate:
+                    type: boolean
+                  followerCount:
+                    type: integer
+                  followingCount:
+                    type: integer
+                  favourite_work_ids:
+                    type: array
+                    items:
+                      type: string
+                      format: uuid
+                    maxItems: 4
+                  favourites:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: string
+                          format: uuid
+                        title:
+                          type: string
+                        author_name:
+                          type: string
+                        cover_id:
+                          type:
+                            - "null"
+                            - integer
+                      required:
+                        - id
+                        - title
+                        - author_name
+                    maxItems: 4
+                  createdAt:
+                    type: string
+                    format: date-time
+                required:
+                  - id
+                  - username
+                  - isPrivate
+                  - followerCount
+                  - followingCount
+                  - createdAt
+        "401":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      code:
+                        type: string
+                        description: Machine-readable error code
+                      message:
+                        type: string
+                        description: Human-readable error description
+                      field:
+                        type: string
+                        description: Invalid field name if applicable
+                    required:
+                      - code
+                      - message
+                required:
+                  - error
+        "404":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      code:
+                        type: string
+                        description: Machine-readable error code
+                      message:
+                        type: string
+                        description: Human-readable error description
+                      field:
+                        type: string
+                        description: Invalid field name if applicable
+                    required:
+                      - code
+                      - message
+                required:
+                  - error
+    patch:
+      summary: Update my profile
+      tags:
+        - Auth
+      description: Updates bio, display name, privacy, or 4 favourite books for the
+        authenticated viewer (PRD §6.38, §6.39).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                displayName:
+                  type:
+                    - string
+                    - "null"
+                  maxLength: 100
+                bio:
+                  type:
+                    - string
+                    - "null"
+                  maxLength: 160
+                isPrivate:
+                  type: boolean
+                favouriteWorkIds:
+                  type: array
+                  items:
+                    type: string
+                    format: uuid
+                  maxItems: 4
+      security:
+        - BearerAuth: []
+      responses:
+        "200":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id:
+                    type: string
+                    format: uuid
+                  username:
+                    type: string
+                  displayName:
+                    type:
+                      - "null"
+                      - string
+                  bio:
+                    type:
+                      - "null"
+                      - string
+                  avatarKey:
+                    type:
+                      - "null"
+                      - string
+                  isPrivate:
+                    type: boolean
+                  followerCount:
+                    type: integer
+                  followingCount:
+                    type: integer
+                  favourite_work_ids:
+                    type: array
+                    items:
+                      type: string
+                      format: uuid
+                    maxItems: 4
+                  favourites:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: string
+                          format: uuid
+                        title:
+                          type: string
+                        author_name:
+                          type: string
+                        cover_id:
+                          type:
+                            - "null"
+                            - integer
+                      required:
+                        - id
+                        - title
+                        - author_name
+                    maxItems: 4
+                  createdAt:
+                    type: string
+                    format: date-time
+                required:
+                  - id
+                  - username
+                  - isPrivate
+                  - followerCount
+                  - followingCount
+                  - createdAt
+        "401":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      code:
+                        type: string
+                        description: Machine-readable error code
+                      message:
+                        type: string
+                        description: Human-readable error description
+                      field:
+                        type: string
+                        description: Invalid field name if applicable
+                    required:
+                      - code
+                      - message
+                required:
+                  - error
+        "422":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      code:
+                        type: string
+                        description: Machine-readable error code
+                      message:
+                        type: string
+                        description: Human-readable error description
+                      field:
+                        type: string
+                        description: Invalid field name if applicable
+                    required:
+                      - code
+                      - message
+                required:
+                  - error
   /users/{id}:
     get:
       summary: Get public profile
@@ -971,6 +1245,33 @@ paths:
                     type: integer
                   followingCount:
                     type: integer
+                  favourite_work_ids:
+                    type: array
+                    items:
+                      type: string
+                      format: uuid
+                    maxItems: 4
+                  favourites:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: string
+                          format: uuid
+                        title:
+                          type: string
+                        author_name:
+                          type: string
+                        cover_id:
+                          type:
+                            - "null"
+                            - integer
+                      required:
+                        - id
+                        - title
+                        - author_name
+                    maxItems: 4
                   createdAt:
                     type: string
                     format: date-time
@@ -1441,6 +1742,394 @@ paths:
                 required:
                   - error
         "422":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      code:
+                        type: string
+                        description: Machine-readable error code
+                      message:
+                        type: string
+                        description: Human-readable error description
+                      field:
+                        type: string
+                        description: Invalid field name if applicable
+                    required:
+                      - code
+                      - message
+                required:
+                  - error
+  /me/stats:
+    get:
+      summary: Get my reading stats
+      tags:
+        - Reading
+      description: Returns volume, pace, taste, extremes, and streak statistics for
+        the authenticated viewer (PRD §6.40, SL-74).
+      parameters:
+        - schema:
+            type: string
+          in: query
+          name: year
+          required: false
+      security:
+        - BearerAuth: []
+      responses:
+        "200":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  year:
+                    type: string
+                  books_count:
+                    type: integer
+                  pages_count:
+                    type: integer
+                  audio_hours:
+                    type: number
+                  avg_rating:
+                    type:
+                      - "null"
+                      - number
+                  rating_distribution:
+                    type: object
+                    properties:
+                      "1":
+                        type: integer
+                      "2":
+                        type: integer
+                      "3":
+                        type: integer
+                      "4":
+                        type: integer
+                      "5":
+                        type: integer
+                    required:
+                      - "5"
+                      - "4"
+                      - "3"
+                      - "2"
+                      - "1"
+                  format_breakdown:
+                    type: object
+                    properties:
+                      print:
+                        type: integer
+                      ebook:
+                        type: integer
+                      audiobook:
+                        type: integer
+                    required:
+                      - print
+                      - ebook
+                      - audiobook
+                  monthly_pace:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        month:
+                          type: integer
+                          minimum: 1
+                          maximum: 12
+                        books:
+                          type: integer
+                          minimum: 0
+                        pages:
+                          type: integer
+                          minimum: 0
+                      required:
+                        - month
+                        - books
+                        - pages
+                  longest_book:
+                    anyOf:
+                      - type: object
+                        properties:
+                          work_id:
+                            type: string
+                            format: uuid
+                          title:
+                            type: string
+                          author_name:
+                            type:
+                              - string
+                              - "null"
+                          page_count:
+                            type:
+                              - integer
+                              - "null"
+                          cover_id:
+                            type:
+                              - integer
+                              - "null"
+                        required:
+                          - work_id
+                          - title
+                      - type: "null"
+                  shortest_book:
+                    anyOf:
+                      - type: object
+                        properties:
+                          work_id:
+                            type: string
+                            format: uuid
+                          title:
+                            type: string
+                          author_name:
+                            type:
+                              - string
+                              - "null"
+                          page_count:
+                            type:
+                              - integer
+                              - "null"
+                          cover_id:
+                            type:
+                              - integer
+                              - "null"
+                        required:
+                          - work_id
+                          - title
+                      - type: "null"
+                  most_read_author:
+                    anyOf:
+                      - type: object
+                        properties:
+                          name:
+                            type: string
+                          count:
+                            type: integer
+                        required:
+                          - name
+                          - count
+                      - type: "null"
+                  dnf_count:
+                    type: integer
+                  dnf_rate:
+                    type: number
+                  current_streak:
+                    type: integer
+                  longest_streak:
+                    type: integer
+                required:
+                  - year
+                  - books_count
+                  - pages_count
+                  - audio_hours
+                  - rating_distribution
+                  - format_breakdown
+                  - monthly_pace
+                  - dnf_count
+                  - dnf_rate
+                  - current_streak
+                  - longest_streak
+        "401":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      code:
+                        type: string
+                        description: Machine-readable error code
+                      message:
+                        type: string
+                        description: Human-readable error description
+                      field:
+                        type: string
+                        description: Invalid field name if applicable
+                    required:
+                      - code
+                      - message
+                required:
+                  - error
+  /users/{id}/stats:
+    get:
+      summary: Get user reading stats
+      tags:
+        - Reading
+      description: Returns reading stats for a user if authorized (PRD §6.40, SL-74).
+      parameters:
+        - schema:
+            type: string
+          in: query
+          name: year
+          required: false
+        - schema:
+            type: string
+            format: uuid
+          in: path
+          name: id
+          required: true
+          description: Resource UUID
+      responses:
+        "200":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  year:
+                    type: string
+                  books_count:
+                    type: integer
+                  pages_count:
+                    type: integer
+                  audio_hours:
+                    type: number
+                  avg_rating:
+                    type:
+                      - "null"
+                      - number
+                  rating_distribution:
+                    type: object
+                    properties:
+                      "1":
+                        type: integer
+                      "2":
+                        type: integer
+                      "3":
+                        type: integer
+                      "4":
+                        type: integer
+                      "5":
+                        type: integer
+                    required:
+                      - "5"
+                      - "4"
+                      - "3"
+                      - "2"
+                      - "1"
+                  format_breakdown:
+                    type: object
+                    properties:
+                      print:
+                        type: integer
+                      ebook:
+                        type: integer
+                      audiobook:
+                        type: integer
+                    required:
+                      - print
+                      - ebook
+                      - audiobook
+                  monthly_pace:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        month:
+                          type: integer
+                          minimum: 1
+                          maximum: 12
+                        books:
+                          type: integer
+                          minimum: 0
+                        pages:
+                          type: integer
+                          minimum: 0
+                      required:
+                        - month
+                        - books
+                        - pages
+                  longest_book:
+                    anyOf:
+                      - type: object
+                        properties:
+                          work_id:
+                            type: string
+                            format: uuid
+                          title:
+                            type: string
+                          author_name:
+                            type:
+                              - string
+                              - "null"
+                          page_count:
+                            type:
+                              - integer
+                              - "null"
+                          cover_id:
+                            type:
+                              - integer
+                              - "null"
+                        required:
+                          - work_id
+                          - title
+                      - type: "null"
+                  shortest_book:
+                    anyOf:
+                      - type: object
+                        properties:
+                          work_id:
+                            type: string
+                            format: uuid
+                          title:
+                            type: string
+                          author_name:
+                            type:
+                              - string
+                              - "null"
+                          page_count:
+                            type:
+                              - integer
+                              - "null"
+                          cover_id:
+                            type:
+                              - integer
+                              - "null"
+                        required:
+                          - work_id
+                          - title
+                      - type: "null"
+                  most_read_author:
+                    anyOf:
+                      - type: object
+                        properties:
+                          name:
+                            type: string
+                          count:
+                            type: integer
+                        required:
+                          - name
+                          - count
+                      - type: "null"
+                  dnf_count:
+                    type: integer
+                  dnf_rate:
+                    type: number
+                  current_streak:
+                    type: integer
+                  longest_streak:
+                    type: integer
+                required:
+                  - year
+                  - books_count
+                  - pages_count
+                  - audio_hours
+                  - rating_distribution
+                  - format_breakdown
+                  - monthly_pace
+                  - dnf_count
+                  - dnf_rate
+                  - current_streak
+                  - longest_streak
+        "404":
           description: Default Response
           content:
             application/json:
@@ -2848,6 +3537,699 @@ paths:
                       - message
                 required:
                   - error
+  /reads/{id}/review:
+    post:
+      summary: Create or update review for a read
+      tags:
+        - reviews
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                body:
+                  type: string
+                  minLength: 1
+                  maxLength: 10000
+                has_spoilers:
+                  type: boolean
+                  default: false
+                spoiler_after_page:
+                  type:
+                    - integer
+                    - "null"
+                  minimum: 0
+                visibility:
+                  type: string
+                  enum:
+                    - public
+                    - followers
+                    - private
+                  default: public
+                rating:
+                  type:
+                    - number
+                    - "null"
+                  minimum: 0.5
+                  maximum: 5
+                hearted:
+                  type:
+                    - boolean
+                    - "null"
+              required:
+                - body
+      parameters:
+        - schema:
+            type: string
+            format: uuid
+          in: path
+          name: id
+          required: true
+      responses:
+        "200":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id:
+                    type: string
+                    format: uuid
+                  read_id:
+                    type: string
+                    format: uuid
+                  user_id:
+                    type: string
+                    format: uuid
+                  work_id:
+                    type: string
+                    format: uuid
+                  body:
+                    type: string
+                  has_spoilers:
+                    type: boolean
+                  spoiler_after_page:
+                    type:
+                      - "null"
+                      - integer
+                  visibility:
+                    type: string
+                    enum:
+                      - public
+                      - followers
+                      - private
+                  published_at:
+                    type: string
+                  edited_at:
+                    type:
+                      - "null"
+                      - string
+                  rating:
+                    type:
+                      - "null"
+                      - number
+                  hearted:
+                    type: boolean
+                  format_override:
+                    type:
+                      - "null"
+                      - string
+                  like_count:
+                    type: integer
+                  viewer_has_liked:
+                    type: boolean
+                  author:
+                    type: object
+                    properties:
+                      id:
+                        type: string
+                        format: uuid
+                      username:
+                        type: string
+                      display_name:
+                        type:
+                          - "null"
+                          - string
+                      avatar_url:
+                        type:
+                          - "null"
+                          - string
+                    required:
+                      - id
+                      - username
+                  work_title:
+                    type:
+                      - "null"
+                      - string
+                  work_author:
+                    type:
+                      - "null"
+                      - string
+                  work_cover_id:
+                    type:
+                      - "null"
+                      - integer
+                required:
+                  - id
+                  - read_id
+                  - user_id
+                  - work_id
+                  - body
+                  - has_spoilers
+                  - visibility
+                  - published_at
+                  - hearted
+                  - like_count
+                  - viewer_has_liked
+                  - author
+        "201":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id:
+                    type: string
+                    format: uuid
+                  read_id:
+                    type: string
+                    format: uuid
+                  user_id:
+                    type: string
+                    format: uuid
+                  work_id:
+                    type: string
+                    format: uuid
+                  body:
+                    type: string
+                  has_spoilers:
+                    type: boolean
+                  spoiler_after_page:
+                    type:
+                      - "null"
+                      - integer
+                  visibility:
+                    type: string
+                    enum:
+                      - public
+                      - followers
+                      - private
+                  published_at:
+                    type: string
+                  edited_at:
+                    type:
+                      - "null"
+                      - string
+                  rating:
+                    type:
+                      - "null"
+                      - number
+                  hearted:
+                    type: boolean
+                  format_override:
+                    type:
+                      - "null"
+                      - string
+                  like_count:
+                    type: integer
+                  viewer_has_liked:
+                    type: boolean
+                  author:
+                    type: object
+                    properties:
+                      id:
+                        type: string
+                        format: uuid
+                      username:
+                        type: string
+                      display_name:
+                        type:
+                          - "null"
+                          - string
+                      avatar_url:
+                        type:
+                          - "null"
+                          - string
+                    required:
+                      - id
+                      - username
+                  work_title:
+                    type:
+                      - "null"
+                      - string
+                  work_author:
+                    type:
+                      - "null"
+                      - string
+                  work_cover_id:
+                    type:
+                      - "null"
+                      - integer
+                required:
+                  - id
+                  - read_id
+                  - user_id
+                  - work_id
+                  - body
+                  - has_spoilers
+                  - visibility
+                  - published_at
+                  - hearted
+                  - like_count
+                  - viewer_has_liked
+                  - author
+  /reviews/{id}:
+    get:
+      summary: Get review detail by ID
+      tags:
+        - reviews
+      parameters:
+        - schema:
+            type: string
+            format: uuid
+          in: path
+          name: id
+          required: true
+      responses:
+        "200":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id:
+                    type: string
+                    format: uuid
+                  read_id:
+                    type: string
+                    format: uuid
+                  user_id:
+                    type: string
+                    format: uuid
+                  work_id:
+                    type: string
+                    format: uuid
+                  body:
+                    type: string
+                  has_spoilers:
+                    type: boolean
+                  spoiler_after_page:
+                    type:
+                      - "null"
+                      - integer
+                  visibility:
+                    type: string
+                    enum:
+                      - public
+                      - followers
+                      - private
+                  published_at:
+                    type: string
+                  edited_at:
+                    type:
+                      - "null"
+                      - string
+                  rating:
+                    type:
+                      - "null"
+                      - number
+                  hearted:
+                    type: boolean
+                  format_override:
+                    type:
+                      - "null"
+                      - string
+                  like_count:
+                    type: integer
+                  viewer_has_liked:
+                    type: boolean
+                  author:
+                    type: object
+                    properties:
+                      id:
+                        type: string
+                        format: uuid
+                      username:
+                        type: string
+                      display_name:
+                        type:
+                          - "null"
+                          - string
+                      avatar_url:
+                        type:
+                          - "null"
+                          - string
+                    required:
+                      - id
+                      - username
+                  work_title:
+                    type:
+                      - "null"
+                      - string
+                  work_author:
+                    type:
+                      - "null"
+                      - string
+                  work_cover_id:
+                    type:
+                      - "null"
+                      - integer
+                required:
+                  - id
+                  - read_id
+                  - user_id
+                  - work_id
+                  - body
+                  - has_spoilers
+                  - visibility
+                  - published_at
+                  - hearted
+                  - like_count
+                  - viewer_has_liked
+                  - author
+    patch:
+      summary: Update existing review
+      tags:
+        - reviews
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                body:
+                  type: string
+                  minLength: 1
+                  maxLength: 10000
+                has_spoilers:
+                  type: boolean
+                spoiler_after_page:
+                  type:
+                    - integer
+                    - "null"
+                  minimum: 0
+                visibility:
+                  type: string
+                  enum:
+                    - public
+                    - followers
+                    - private
+                rating:
+                  type:
+                    - number
+                    - "null"
+                  minimum: 0.5
+                  maximum: 5
+                hearted:
+                  type:
+                    - boolean
+                    - "null"
+      parameters:
+        - schema:
+            type: string
+            format: uuid
+          in: path
+          name: id
+          required: true
+      responses:
+        "200":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id:
+                    type: string
+                    format: uuid
+                  read_id:
+                    type: string
+                    format: uuid
+                  user_id:
+                    type: string
+                    format: uuid
+                  work_id:
+                    type: string
+                    format: uuid
+                  body:
+                    type: string
+                  has_spoilers:
+                    type: boolean
+                  spoiler_after_page:
+                    type:
+                      - "null"
+                      - integer
+                  visibility:
+                    type: string
+                    enum:
+                      - public
+                      - followers
+                      - private
+                  published_at:
+                    type: string
+                  edited_at:
+                    type:
+                      - "null"
+                      - string
+                  rating:
+                    type:
+                      - "null"
+                      - number
+                  hearted:
+                    type: boolean
+                  format_override:
+                    type:
+                      - "null"
+                      - string
+                  like_count:
+                    type: integer
+                  viewer_has_liked:
+                    type: boolean
+                  author:
+                    type: object
+                    properties:
+                      id:
+                        type: string
+                        format: uuid
+                      username:
+                        type: string
+                      display_name:
+                        type:
+                          - "null"
+                          - string
+                      avatar_url:
+                        type:
+                          - "null"
+                          - string
+                    required:
+                      - id
+                      - username
+                  work_title:
+                    type:
+                      - "null"
+                      - string
+                  work_author:
+                    type:
+                      - "null"
+                      - string
+                  work_cover_id:
+                    type:
+                      - "null"
+                      - integer
+                required:
+                  - id
+                  - read_id
+                  - user_id
+                  - work_id
+                  - body
+                  - has_spoilers
+                  - visibility
+                  - published_at
+                  - hearted
+                  - like_count
+                  - viewer_has_liked
+                  - author
+    delete:
+      summary: Delete review
+      tags:
+        - reviews
+      parameters:
+        - schema:
+            type: string
+            format: uuid
+          in: path
+          name: id
+          required: true
+      responses:
+        "204":
+          description: Default Response
+  /works/{id}/reviews:
+    get:
+      summary: List reviews for a work with friends-first ranking
+      tags:
+        - reviews
+      parameters:
+        - schema:
+            type: string
+            enum:
+              - friends
+              - likes
+              - newest
+              - highest
+              - lowest
+            default: friends
+          in: query
+          name: sort
+          required: false
+        - schema:
+            type: number
+            minimum: 0.5
+            maximum: 5
+          in: query
+          name: rating
+          required: false
+        - schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 20
+          in: query
+          name: limit
+          required: false
+        - schema:
+            type: integer
+            minimum: 0
+            default: 0
+          in: query
+          name: offset
+          required: false
+        - schema:
+            type: string
+            format: uuid
+          in: path
+          name: id
+          required: true
+      responses:
+        "200":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: string
+                          format: uuid
+                        read_id:
+                          type: string
+                          format: uuid
+                        user_id:
+                          type: string
+                          format: uuid
+                        work_id:
+                          type: string
+                          format: uuid
+                        body:
+                          type: string
+                        has_spoilers:
+                          type: boolean
+                        spoiler_after_page:
+                          type:
+                            - "null"
+                            - integer
+                        visibility:
+                          type: string
+                          enum:
+                            - public
+                            - followers
+                            - private
+                        published_at:
+                          type: string
+                        edited_at:
+                          type:
+                            - "null"
+                            - string
+                        rating:
+                          type:
+                            - "null"
+                            - number
+                        hearted:
+                          type: boolean
+                        format_override:
+                          type:
+                            - "null"
+                            - string
+                        like_count:
+                          type: integer
+                        viewer_has_liked:
+                          type: boolean
+                        author:
+                          type: object
+                          properties:
+                            id:
+                              type: string
+                              format: uuid
+                            username:
+                              type: string
+                            display_name:
+                              type:
+                                - "null"
+                                - string
+                            avatar_url:
+                              type:
+                                - "null"
+                                - string
+                          required:
+                            - id
+                            - username
+                        work_title:
+                          type:
+                            - "null"
+                            - string
+                        work_author:
+                          type:
+                            - "null"
+                            - string
+                        work_cover_id:
+                          type:
+                            - "null"
+                            - integer
+                      required:
+                        - id
+                        - read_id
+                        - user_id
+                        - work_id
+                        - body
+                        - has_spoilers
+                        - visibility
+                        - published_at
+                        - hearted
+                        - like_count
+                        - viewer_has_liked
+                        - author
+                  total:
+                    type: integer
+                required:
+                  - data
+                  - total
+  /reads/{id}/like:
+    post:
+      summary: Toggle like on a read
+      tags:
+        - reviews
+      parameters:
+        - schema:
+            type: string
+            format: uuid
+          in: path
+          name: id
+          required: true
+      responses:
+        "200":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  liked:
+                    type: boolean
+                  like_count:
+                    type: integer
+                required:
+                  - liked
+                  - like_count
   /admin/dedupe/queue:
     get:
       summary: List dedupe review queue

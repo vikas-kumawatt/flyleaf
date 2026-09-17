@@ -39,6 +39,17 @@ export const userSchema = {
   required: ['id', 'email', 'username'],
 } as const;
 
+export const profileFavouriteSchema = {
+  type: 'object',
+  properties: {
+    id: { type: 'string', format: 'uuid' },
+    title: { type: 'string' },
+    author_name: { type: 'string' },
+    cover_id: { type: ['integer', 'null'] },
+  },
+  required: ['id', 'title', 'author_name'],
+} as const;
+
 export const profileSchema = {
   type: 'object',
   properties: {
@@ -50,10 +61,36 @@ export const profileSchema = {
     isPrivate: { type: 'boolean' },
     followerCount: { type: 'integer' },
     followingCount: { type: 'integer' },
+    favourite_work_ids: {
+      type: 'array',
+      items: { type: 'string', format: 'uuid' },
+      maxItems: 4,
+    },
+    favourites: {
+      type: 'array',
+      items: profileFavouriteSchema,
+      maxItems: 4,
+    },
     createdAt: { type: 'string', format: 'date-time' },
   },
   required: ['id', 'username', 'isPrivate', 'followerCount', 'followingCount', 'createdAt'],
 } as const;
+
+export const updateProfileBodySchema = {
+  type: 'object',
+  properties: {
+    displayName: { type: ['string', 'null'], maxLength: 100 },
+    bio: { type: ['string', 'null'], maxLength: 160 },
+    isPrivate: { type: 'boolean' },
+    favouriteWorkIds: {
+      type: 'array',
+      items: { type: 'string', format: 'uuid' },
+      maxItems: 4,
+    },
+  },
+} as const;
+
+export const updateProfileResponseSchema = profileSchema;
 
 export const registerBodySchema = {
   type: 'object',
@@ -376,6 +413,108 @@ export const dnfReadBodySchema = {
     rating: { type: ['number', 'null'], minimum: 0.5, maximum: 5.0 },
     visibility: { type: 'string', enum: ['public', 'followers', 'private'], default: 'public' },
   },
+} as const;
+
+// ---------------------------------------------------------------- stats (SL-74)
+
+export const monthlyPaceItemSchema = {
+  type: 'object',
+  properties: {
+    month: { type: 'integer', minimum: 1, maximum: 12 },
+    books: { type: 'integer', minimum: 0 },
+    pages: { type: 'integer', minimum: 0 },
+  },
+  required: ['month', 'books', 'pages'],
+} as const;
+
+export const extremeBookSchema = {
+  type: 'object',
+  properties: {
+    work_id: { type: 'string', format: 'uuid' },
+    title: { type: 'string' },
+    author_name: { type: ['string', 'null'] },
+    page_count: { type: ['integer', 'null'] },
+    cover_id: { type: ['integer', 'null'] },
+  },
+  required: ['work_id', 'title'],
+} as const;
+
+export const readingStatsQuerySchema = {
+  type: 'object',
+  properties: {
+    year: { type: 'string' },
+  },
+} as const;
+
+export const readingStatsResponseSchema = {
+  type: 'object',
+  properties: {
+    year: { type: 'string' },
+    books_count: { type: 'integer' },
+    pages_count: { type: 'integer' },
+    audio_hours: { type: 'number' },
+    avg_rating: { type: ['number', 'null'] },
+    rating_distribution: {
+      type: 'object',
+      properties: {
+        '5': { type: 'integer' },
+        '4': { type: 'integer' },
+        '3': { type: 'integer' },
+        '2': { type: 'integer' },
+        '1': { type: 'integer' },
+      },
+      required: ['5', '4', '3', '2', '1'],
+    },
+    format_breakdown: {
+      type: 'object',
+      properties: {
+        print: { type: 'integer' },
+        ebook: { type: 'integer' },
+        audiobook: { type: 'integer' },
+      },
+      required: ['print', 'ebook', 'audiobook'],
+    },
+    monthly_pace: {
+      type: 'array',
+      items: monthlyPaceItemSchema,
+    },
+    longest_book: {
+      anyOf: [extremeBookSchema, { type: 'null' }],
+    },
+    shortest_book: {
+      anyOf: [extremeBookSchema, { type: 'null' }],
+    },
+    most_read_author: {
+      anyOf: [
+        {
+          type: 'object',
+          properties: {
+            name: { type: 'string' },
+            count: { type: 'integer' },
+          },
+          required: ['name', 'count'],
+        },
+        { type: 'null' },
+      ],
+    },
+    dnf_count: { type: 'integer' },
+    dnf_rate: { type: 'number' },
+    current_streak: { type: 'integer' },
+    longest_streak: { type: 'integer' },
+  },
+  required: [
+    'year',
+    'books_count',
+    'pages_count',
+    'audio_hours',
+    'rating_distribution',
+    'format_breakdown',
+    'monthly_pace',
+    'dnf_count',
+    'dnf_rate',
+    'current_streak',
+    'longest_streak',
+  ],
 } as const;
 
 // ---------------------------------------------------------------- reviews & social (SL-63, SL-64)

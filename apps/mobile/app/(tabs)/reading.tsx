@@ -31,6 +31,7 @@ import { api, type Read } from '@/lib/api';
 import { predictFinishDate } from '@/lib/readingVelocity';
 import { ProgressSlider } from '@/ui/ProgressSlider';
 import { ProgressSheet } from '@/ui/ProgressSheet';
+import { DiaryView } from '@/ui/DiaryView';
 import {
   Button,
   Card,
@@ -845,56 +846,7 @@ export default function ReadingScreen() {
         {/* SECTION 3: DIARY (SL-70 preview / Finished books)                          */}
         {/* ========================================================================= */}
         {section === 'diary' && (
-          <View style={{ gap: space[4] }}>
-            {finishedReads.length === 0 ? (
-              <EmptyState
-                title="Your diary is waiting for its first entry"
-                subtitle="Finished books will automatically appear here with your rating, finish date, and review."
-                action={
-                  <Button
-                    label="Log what you're reading"
-                    variant="primary"
-                    onPress={() => setSection('reading')}
-                  />
-                }
-              />
-            ) : (
-              <View style={{ gap: space[3] }}>
-                {finishedReads.map((r) => (
-                  <Card key={r.id} onPress={() => router.push(`/work/${r.work_id}` as any)}>
-                    <View style={sheet.rowTop}>
-                      <Cover coverId={r.cover_id} title={r.title ?? ''} size="m" />
-                      <View style={{ flex: 1, gap: 2 }}>
-                        <Txt variant="title" numberOfLines={1}>
-                          {r.title}
-                        </Txt>
-                        <Txt variant="caption" color="muted">
-                          {r.author_name}
-                        </Txt>
-                        <View style={[sheet.row, { gap: space[2], marginTop: space[1] }]}>
-                          {r.rating && (
-                            <Txt variant="caption" color="accent" style={{ fontWeight: '700' }}>
-                              ★ {r.rating.toFixed(1)}
-                            </Txt>
-                          )}
-                          {r.hearted === 1 && (
-                            <Txt variant="caption" color="heart">
-                              ♥
-                            </Txt>
-                          )}
-                          {r.finished_at && (
-                            <Txt variant="micro" color="muted">
-                              Finished {r.finished_at}
-                            </Txt>
-                          )}
-                        </View>
-                      </View>
-                    </View>
-                  </Card>
-                ))}
-              </View>
-            )}
-          </View>
+          <DiaryView reads={reads} />
         )}
       </ScrollView>
 

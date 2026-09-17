@@ -313,11 +313,46 @@
   - Social review ranking algorithm in `apps/api/src/reviews/index.ts` balancing social proximity (0.35 weight), engagement (0.20), comments (0.10), recency decay (0.15), and quality length (0.10). Zero contract drift in OpenAPI specification.
 
 ### Diary, Wall, Profile, Stats — `SL-7x` · 7d
-- [ ] **SL-70** Diary — **list · grid · calendar**, year jump, filters — 2.5d
-- [ ] **SL-71** **The Wall**: 3-col grid, filters incl. Hearted, 2-col below 340dp — 1.5d
-- [ ] **SL-72** Profile: favourites, stats strip, currently reading, Diary, reviews — 2d
-- [ ] SL-73 Favourites picker (4, ordered, drag) — 0.5d
-- [ ] SL-74 Basic stats: volume, temporal, taste, extremes — 0.5d
+- [x] **SL-70** Diary — **list · grid · calendar**, year jump, filters — 2.5d
+  - Delivered `apps/mobile/src/ui/DiaryView.tsx` and standalone screen `apps/mobile/app/diary.tsx`, embedded into Reading tab (`apps/mobile/app/(tabs)/reading.tsx`) and Profile screen (`apps/mobile/app/(tabs)/profile.tsx`).
+  - Three distinct viewing modes:
+    1. **List view**: Chronological timeline grouped by month/year with finish date badges, book covers, titles, authors, star ratings, and hearted markers.
+    2. **Grid view**: Visual cover shelf/posters with rating chips and finish dates.
+    3. **Calendar view**: Heatmap calendar matrix showing month days with dot indicators for reading completions, month navigation, and tap-to-inspect date drawer.
+  - Year jump selector (`All Time`, `2026`, `2025`...) with auto-computed years from read history, quick-toggle format filter (`print`, `ebook`, `audiobook`), star rating filter (`5★+`, `4★+`, `3★+`), and Hearted-only filter toggle.
+  - Volume summary bar displaying total books, pages read, and audio hours for the active filter slice.
+- [x] **SL-71** **The Wall**: 3-col grid, filters incl. Hearted, 2-col below 340dp — 1.5d
+  - Dedicated screen at `apps/mobile/app/wall.tsx` and parameterized user wall at `apps/mobile/app/wall/[id].tsx`.
+  - Responsive column layout using window width measurement: renders 3 columns on standard mobile devices and seamlessly collapses to 2 columns on screens under 340dp width.
+  - Filter and sort controls: Hearted toggle pill (`♥ Hearted`), Year selector pills, Rating filters (`5★+`, `4★+`, `3★+`), Format selector pills (`Print`, `Ebook`, `Audiobook`), and Sort menu (`Finished (newest)`, `Rating (highest)`, `Title (A-Z)`).
+  - High-density poster aesthetic with fluid aspect ratio covers (`aspectRatio: 2 / 3`), subtle rating badges, and instant navigation to book details.
+- [x] **SL-72** Profile: favourites, stats strip, currently reading, Diary, reviews — 2d
+  - Complete profile screen at `apps/mobile/app/(tabs)/profile.tsx` and public profile viewer at `apps/mobile/app/user/[id].tsx` respecting privacy settings.
+  - Profile features:
+    - User avatar badge, display name, handle (`@username`), bio, join date, and follow counts.
+    - 4 Ordered Favourites cover shelf with direct link to edit in `app/profile/favourites.tsx`.
+    - Annual Stats Strip hero card (books read, pages read, audio hours, daily streak) with shortcut button to full stats.
+    - Currently Reading carousel shelf with reading progress bars and 1-tap logging access.
+    - The Wall thumbnail preview strip linking to full Wall screen.
+    - Diary preview strip showing recent read entries with shortcut to full Diary.
+    - Recent Reviews section with star ratings, text previews, and likes.
+    - In-app Profile Editor modal for updating display name and bio (enforcing 160 char limit).
+- [x] **SL-73** Favourites picker (4, ordered, drag) — 0.5d
+  - Standalone manager screen at `apps/mobile/app/profile/favourites.tsx`.
+  - Exactly 4 ordered slots (`#1` through `#4`) displaying book cover, title, author, and move Up/Down reordering controls with haptic feedback.
+  - Remove button to free up slots; Add button opening live catalog search modal to find and select works from user's history or catalog.
+  - Direct integration with `PATCH /v1/me/profile` sending ordered `favourites: [{ work_id, position }]` payload.
+- [x] **SL-74** Basic stats: volume, temporal, taste, extremes — 0.5d
+  - Dedicated stats screen at `apps/mobile/app/stats.tsx` and user stats at `apps/mobile/app/stats/[id].tsx`.
+  - Comprehensive statistical insights:
+    - **Volume & Habit**: Books finished, pages read, audio hours, and reading habit daily/longest streaks.
+    - **Temporal Pace**: 12-month interactive bar chart tracking books and pages read per month.
+    - **Taste & Ratings**: Average star rating and rating distribution histogram (1★ to 5★).
+    - **Format Breakdown**: Percentage and count split across print, ebook, and audiobook editions.
+    - **Reading Extremes**: Longest book read, shortest book read, and most read author with book counts.
+    - **Did Not Finish (DNF)**: Abandoned book count and DNF rate percentage.
+  - Backend aggregation service in `apps/api/src/reading/index.ts` and `apps/api/src/identity/index.ts` with `GET /v1/me/stats`, `GET /v1/users/:id/stats`, `GET /v1/me/profile`, and `PATCH /v1/me/profile`.
+  - 8 backend tests in `apps/api/src/test/profile-stats.test.ts` and 9 mobile unit tests in `apps/mobile/src/lib/__tests__/profile-stats.test.ts`. 100% green CI pipeline.
 
 ### Instrumentation — `SL-8x` · 2d
 - [ ] **SL-80** ⚠️ `events` table + client emitter — 0.5d

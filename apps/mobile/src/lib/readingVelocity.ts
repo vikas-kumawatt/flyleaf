@@ -90,7 +90,7 @@ export function predictFinishDate(input: PredictionInput): string {
     if (startedAt) {
       const startMs = new Date(startedAt).getTime();
       const daysSinceStart = Math.max(0.5, (now - startMs) / (1000 * 60 * 60 * 24));
-      percentPerDay = percent / daysSinceStart;
+      percentPerDay = Math.round((percent / daysSinceStart) * 100) / 100;
     }
 
     if (percentPerDay == null || percentPerDay <= 0) {
@@ -98,7 +98,7 @@ export function predictFinishDate(input: PredictionInput): string {
     }
 
     const clampedPercentSpeed = Math.max(1, Math.min(100, percentPerDay));
-    const daysLeft = Math.max(1, Math.ceil(percentLeft / clampedPercentSpeed));
+    const daysLeft = Math.max(1, Math.ceil(Math.round((percentLeft / clampedPercentSpeed) * 1e4) / 1e4));
 
     return formatDaysLeft(daysLeft, now);
   }

@@ -19,6 +19,13 @@ export interface User {
   username: string;
 }
 
+export interface ProfileFavourite {
+  id: string;
+  title: string;
+  author_name: string;
+  cover_id?: number | null;
+}
+
 export interface Profile {
   id: string;
   username: string;
@@ -28,7 +35,63 @@ export interface Profile {
   isPrivate: boolean;
   followerCount: number;
   followingCount: number;
+  favourite_work_ids?: string[];
+  favourites?: ProfileFavourite[];
   createdAt: string;
+}
+
+export interface UpdateProfileRequest {
+  displayName?: string | null;
+  bio?: string | null;
+  isPrivate?: boolean;
+  favouriteWorkIds?: string[];
+}
+
+export interface MonthlyPaceItem {
+  month: number;
+  books: number;
+  pages: number;
+}
+
+export interface ExtremeBook {
+  work_id: string;
+  title: string;
+  author_name?: string | null;
+  page_count?: number | null;
+  cover_id?: number | null;
+}
+
+export interface MostReadAuthor {
+  name: string;
+  count: number;
+}
+
+export interface ReadingStats {
+  year: string;
+  books_count: number;
+  pages_count: number;
+  audio_hours: number;
+  avg_rating?: number | null;
+  rating_distribution: {
+    '5': number;
+    '4': number;
+    '3': number;
+    '2': number;
+    '1': number;
+  };
+  format_breakdown: {
+    print: number;
+    ebook: number;
+    audiobook: number;
+  };
+  monthly_pace: MonthlyPaceItem[];
+  longest_book?: ExtremeBook | null;
+  shortest_book?: ExtremeBook | null;
+  most_read_author?: MostReadAuthor | null;
+  dnf_count: number;
+  dnf_rate: number;
+  current_streak: number;
+  longest_streak: number;
 }
 
 export interface RegisterRequest {

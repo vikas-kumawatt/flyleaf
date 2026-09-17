@@ -87,12 +87,13 @@ export function Txt({
 }
 
 // ---------------------------------------------------------------- Button
-export type ButtonVariant = 'primary' | 'secondary' | 'tertiary' | 'text' | 'destructive';
+export type ButtonVariant = 'primary' | 'secondary' | 'tertiary' | 'text' | 'destructive' | 'outline';
 
 export function Button({
   label,
   onPress,
   variant = 'primary',
+  size = 'md',
   disabled,
   loading,
   style,
@@ -100,6 +101,7 @@ export function Button({
   label: string;
   onPress: () => void;
   variant?: ButtonVariant;
+  size?: 'sm' | 'md' | 'lg';
   disabled?: boolean;
   loading?: boolean;
   style?: StyleProp<ViewStyle>;
@@ -107,9 +109,9 @@ export function Button({
   const c = useTheme();
 
   const baseStyle: ViewStyle = {
-    minHeight: 48,
+    minHeight: size === 'sm' ? 36 : 48,
     minWidth: 44,
-    paddingHorizontal: space[4],
+    paddingHorizontal: size === 'sm' ? space[2] : space[4],
     borderRadius: radius.md,
     alignItems: 'center',
     justifyContent: 'center',
@@ -123,6 +125,12 @@ export function Button({
       backgroundColor: c.accent,
     },
     secondary: {
+      ...baseStyle,
+      backgroundColor: 'transparent',
+      borderWidth: 1,
+      borderColor: c.accent,
+    },
+    outline: {
       ...baseStyle,
       backgroundColor: 'transparent',
       borderWidth: 1,
@@ -149,6 +157,7 @@ export function Button({
   const textColors: Record<ButtonVariant, string> = {
     primary: c.ground,
     secondary: c.accent,
+    outline: c.accent,
     tertiary: c.accent,
     text: c.accent,
     destructive: c.critical,
@@ -223,12 +232,12 @@ export function Cover({
   coverId?: number | null;
   title?: string;
   author?: string;
-  size?: keyof typeof cover;
+  size?: keyof typeof cover | 'fluid';
   style?: StyleProp<ViewStyle>;
 }) {
   const c = useTheme();
-  const dims = cover[size];
-  const remote = coverUrl(coverId, size === 'xl' || size === 'l' ? 'L' : size === 'm' ? 'M' : 'S');
+  const dims = size === 'fluid' ? { width: '100%' as DimensionValue, height: '100%' as DimensionValue } : cover[size];
+  const remote = coverUrl(coverId, size === 'xl' || size === 'l' ? 'L' : size === 'm' || size === 'fluid' ? 'M' : 'S');
 
   return (
     <View
@@ -647,13 +656,24 @@ export function SegmentedControl<T extends string>({
   selected,
   onSelect,
   labels,
+  options,
+  value,
+  onChange,
 }: {
-  values: readonly T[];
-  selected: T;
-  onSelect: (v: T) => void;
+  values?: readonly T[];
+  selected?: T;
+  onSelect?: (v: T) => void;
   labels?: Record<T, string>;
+  options?: { value: T; label: string }[];
+  value?: T;
+  onChange?: (v: T) => void;
 }) {
   const c = useTheme();
+  const actualValues = values ?? (options ? options.map((o) => o.value) : []);
+  const actualSelected = selected ?? value!;
+  const handleSelect = onSelect ?? onChange ?? (() => {});
+  const labelMap = labels ?? (options ? Object.fromEntries(options.map((o) => [o.value, o.label])) : {});
+
   return (
     <View
       style={{
@@ -664,14 +684,14 @@ export function SegmentedControl<T extends string>({
       }}
       accessibilityRole="radiogroup"
     >
-      {values.map((val) => {
-        const isSelected = selected === val;
+      {actualValues.map((val) => {
+        const isSelected = actualSelected === val;
         return (
           <Pressable
             key={val}
             onPress={() => {
               void Haptics.selectionAsync();
-              onSelect(val);
+              handleSelect(val);
             }}
             accessibilityRole="radio"
             accessibilityState={{ selected: isSelected }}
@@ -696,7 +716,7 @@ export function SegmentedControl<T extends string>({
                 },
               ]}
             >
-              {labels?.[val] ?? val}
+              {(labelMap as Record<string, string>)?.[val] ?? val}
             </Text>
           </Pressable>
         );
@@ -859,9 +879,9 @@ export function BottomSheet({
   );
 }
 
-// Layout helper styles
 export const sheet = StyleSheet.create({
   pad: { padding: space[4], gap: space[4] },
   row: { flexDirection: 'row', alignItems: 'center', gap: space[3] },
   rowTop: { flexDirection: 'row', alignItems: 'flex-start', gap: space[3] },
+  rowBetween: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
 });
