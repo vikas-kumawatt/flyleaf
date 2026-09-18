@@ -15,7 +15,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { PgBoss, fromPglite } from 'pg-boss';
 import type { PGlite } from '@electric-sql/pglite';
 import {
-  JOBS_SCHEMA, QUEUES, makeBoss, pingHandler, dedupeJobHandler, registerQueues, sendInTx, type JobLog,
+  JOBS_SCHEMA, QUEUES, makeBoss, pingHandler, dedupeJobHandler, reconcileShelvesJobHandler, registerQueues, sendInTx, type JobLog,
 } from '../jobs/index.js';
 import { freshDb, freshDrizzle } from './pg.js';
 import type { Db } from '../platform/index.js';
@@ -85,6 +85,16 @@ describe('the handler itself', () => {
       stage3Queued: 0,
     });
   });
+
+  it('runs reconcileShelves via reconcileShelvesJobHandler', async () => {
+    const { db } = await freshDrizzle();
+    const result = await reconcileShelvesJobHandler(
+      [{ id: '1', name: QUEUES.reconcileShelves, data: {} }] as never,
+      db,
+    );
+    expect(result.reconciled).toBe(true);
+    expect(result.workedAt).toBeTruthy();
+  });
 });
 
 describe('a job goes all the way round', () => {
@@ -129,6 +139,28 @@ describe('a job goes all the way round', () => {
     expect(log.lines).toContainEqual(
       expect.objectContaining({
         obj: expect.objectContaining({ queue: QUEUES.catalogDedupe }),
+        msg: 'job handled',
+      }),
+    );
+  }, 60_000);
+
+  it('enqueues and processes shelves.reconcile job when worker has db', async () => {
+    const { db, client } = await freshDrizzle();
+    const log = recordingLog();
+    const boss = await bossOn(client, { work: true, log, db });
+
+    const id = await boss.send(QUEUES.reconcileShelves, {});
+    expect(id).toBeTruthy();
+
+    const job = await settled(boss, id!, QUEUES.reconcileShelves);
+    expect(job.state).toBe('completed');
+    expect(job.output).toMatchObject({
+      reconciled: true,
+    });
+
+    expect(log.lines).toContainEqual(
+      expect.objectContaining({
+        obj: expect.objectContaining({ queue: QUEUES.reconcileShelves }),
         msg: 'job handled',
       }),
     );

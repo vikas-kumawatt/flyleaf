@@ -388,7 +388,12 @@
 
 ## Phase 2 — Shelves & lists · `SH` · 10d
 
-- [ ] SH-01 shelves + shelf_items migrations, counters — 0.5d
+- [x] **SH-01** shelves + shelf_items migrations, counters — 0.5d
+  - Migration `0013_shelves.sql` creating `shelves`, `shelf_items`, and `shelf_saves` tables with Drizzle schema and TypeScript models in `apps/api/src/db/schema.ts`.
+  - Schema constraints: shelf name length (char_length <= 60), per-entry note length (char_length <= 280), privacy enum (`public`, `followers`, `private`), unique slug per user `(user_id, slug)`, duplicate work prevention per shelf `PRIMARY KEY (shelf_id, work_id)`, and cascade deletions.
+  - Denormalized counter triggers: `update_shelf_item_count_and_covers()` maintaining `item_count` and up to 4-cover mosaic `cover_work_ids`, and `update_shelf_save_count()` maintaining `save_count`.
+  - Nightly reconciliation procedure `reconcile_shelf_counters()` and scheduled background job `QUEUES.reconcileShelves` (`shelves.reconcile`) in `apps/api/src/jobs/index.ts`.
+  - 11 database tests in `apps/api/src/test/shelves-migration.test.ts` and 2 background job tests in `apps/api/src/test/jobs.test.ts`. 100% green CI pipeline on real PostgreSQL.
 - [ ] SH-02 Create/edit: name, description, privacy, ranked toggle — 1d
 - [ ] SH-03 Shelf detail: ranked numbering, per-entry notes, mosaic cover — 1.5d
 - [ ] SH-04 Add-to-shelf from book page, search, long-press — 1d

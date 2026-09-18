@@ -658,4 +658,62 @@ export const events = pgTable('events', {
   index('events_user_at_idx').on(t.userId, t.at),
 ]);
 
+// ---------------------------------------------------------------------------
+// 9. Shelves & Lists (Architecture §3.5, PRD §15, SH-01)
+// ---------------------------------------------------------------------------
+
+export const shelves = pgTable('shelves', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  userId: uuid('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  name: text('name').notNull(),
+  slug: text('slug').notNull(),
+  description: text('description'),
+  isRanked: boolean('is_ranked').notNull().default(false),
+  privacy: text('privacy').notNull().default('public'),
+  coverWorkIds: uuid('cover_work_ids').array().notNull().default(sql`'{}'::uuid[]`),
+  itemCount: integer('item_count').notNull().default(0),
+  saveCount: integer('save_count').notNull().default(0),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  deletedAt: timestamp('deleted_at', { withTimezone: true }),
+}, (t) => [
+  check('shelves_name_length_ck', sql`char_length(${t.name}) <= 60`),
+  check('shelves_privacy_ck', sql`${t.privacy} IN ('public','followers','private')`),
+  unique('shelves_user_slug_unq').on(t.userId, t.slug),
+  index('shelves_user_idx').on(t.userId, t.createdAt),
+  index('shelves_privacy_idx').on(t.privacy),
+  index('shelves_save_count_idx').on(t.saveCount),
+]);
+
+export const shelfItems = pgTable('shelf_items', {
+  shelfId: uuid('shelf_id').notNull().references(() => shelves.id, { onDelete: 'cascade' }),
+  workId: uuid('work_id').notNull().references(() => works.id, { onDelete: 'cascade' }),
+  position: integer('position').notNull().default(0),
+  note: text('note'),
+  addedAt: timestamp('added_at', { withTimezone: true }).notNull().defaultNow(),
+  addedBy: uuid('added_by').references(() => users.id, { onDelete: 'set null' }),
+}, (t) => [
+  primaryKey({ columns: [t.shelfId, t.workId] }),
+  check('shelf_items_note_length_ck', sql`${t.note} IS NULL OR char_length(${t.note}) <= 280`),
+  index('shelf_items_order_idx').on(t.shelfId, t.position),
+  index('shelf_items_work_idx').on(t.workId),
+]);
+
+export const shelfSaves = pgTable('shelf_saves', {
+  shelfId: uuid('shelf_id').notNull().references(() => shelves.id, { onDelete: 'cascade' }),
+  userId: uuid('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [
+  primaryKey({ columns: [t.shelfId, t.userId] }),
+  index('shelf_saves_user_idx').on(t.userId, t.createdAt),
+  index('shelf_saves_shelf_idx').on(t.shelfId),
+]);
+
+export type Shelf = typeof shelves.$inferSelect;
+export type NewShelf = typeof shelves.$inferInsert;
+export type ShelfItem = typeof shelfItems.$inferSelect;
+export type NewShelfItem = typeof shelfItems.$inferInsert;
+export type ShelfSave = typeof shelfSaves.$inferSelect;
+export type NewShelfSave = typeof shelfSaves.$inferInsert;
+
+
 

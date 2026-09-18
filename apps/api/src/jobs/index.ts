@@ -51,12 +51,19 @@ export const QUEUES = {
    * Stages 1–2 auto-merge, Stage 3 queued for review.
    */
   catalogDedupe: 'catalog.dedupe',
+  /**
+   * Nightly shelves reconciliation (Architecture §3.9, SH-01).
+   * Reconciles item_count, save_count, and cover_work_ids.
+   */
+  reconcileShelves: 'shelves.reconcile',
 } as const;
 
 export type QueueName = (typeof QUEUES)[keyof typeof QUEUES];
 
 export type PingRequest = { note?: string };
 export type PingResult = { pong: true; note: string; workedAt: string };
+
+export type ReconcileShelvesResult = { reconciled: true; workedAt: string };
 
 export type DedupeJobRequest = {
   limit?: number;
@@ -92,6 +99,18 @@ export async function dedupeJobHandler(
     limit: data.limit,
     dryRun: data.dryRun,
   });
+}
+
+/**
+ * Shelves reconciliation background job handler (Architecture §3.9, SH-01).
+ * Reconciles item_count, save_count, and cover_work_ids via SQL procedure.
+ */
+export async function reconcileShelvesJobHandler(
+  _jobs: Job<void>[],
+  db: Db,
+): Promise<ReconcileShelvesResult> {
+  await db.execute(sql`SELECT reconcile_shelf_counters();`);
+  return { reconciled: true, workedAt: new Date().toISOString() };
 }
 
 /**
@@ -152,6 +171,19 @@ export async function registerQueues(boss: PgBoss, log: JobLog, db?: Db): Promis
           stage3Queued: result.stage3Queued,
           merged: result.merged,
           skipped: result.skipped,
+        },
+        'job handled',
+      );
+      return result;
+    });
+
+    await boss.work<void, ReconcileShelvesResult>(QUEUES.reconcileShelves, async (jobs) => {
+      const result = await reconcileShelvesJobHandler(jobs, db);
+      log.info(
+        {
+          queue: QUEUES.reconcileShelves,
+          ids: jobs.map((j) => j.id),
+          reconciled: result.reconciled,
         },
         'job handled',
       );
