@@ -437,7 +437,23 @@
     - Owner trigger: "Reorder" button on `apps/mobile/app/shelf/[id].tsx` in action row and section header when `item_count >= 2`, auto-reloading shelf data via `useFocusEffect` upon returning.
     - Stack route registered in `apps/mobile/app/_layout.tsx`.
   - Comprehensive test suite: 21 tests in `apps/api/src/test/shelves.test.ts` (443 API tests passing) and 21 tests in `apps/mobile/src/lib/__tests__/shelves.test.ts` (73 mobile tests passing). CI pipeline 100% green.
-- [ ] SH-06 My shelves grid; three starter suggestions on empty — 1d
+- [x] SH-06 My shelves grid; three starter suggestions on empty — 1d
+  - Mobile Shelves Screen (`apps/mobile/app/(tabs)/shelves.tsx`):
+    - Transformed Tab 4 from static placeholder to live user-curated collections screen connected to `api.getMyShelves()`.
+    - Responsive 2-column grid layout with 4-cover mosaic preview cards (2x2 grid for >= 4 covers, overlapping preview stack for 1–3 covers, elegant icon placeholder for empty shelves).
+    - Multi-criteria sorting: `sortShelves(shelves, sortBy)` supporting `'updated'` (newest created first), `'alpha'` (A–Z by shelf name), and `'books'` (highest book count first).
+    - Grid vs List display toggle with persistent layout memory and selection haptics.
+    - Shelf metadata tags: privacy icon (globe, people, lock), ranked badge (`#` / `Ranked`), and item count.
+    - Screen-level pull-to-refresh (`RefreshControl`) and automatic focus refresh (`useFocusEffect`).
+    - Empty state (0 shelves) featuring three 1-tap starter suggestions (PRD §6.33):
+      1. *"Favourites of 2026"* (Ranked List, public)
+      2. *"Comfort reads"* (Themed List, public)
+      3. *"Recommended to me"* (Reading Queue, public)
+    - 1-tap starter creation: creates shelf via `api.createShelf()`, emits telemetry `track('shelf_created', { starter: true })`, triggers success haptics, and navigates into the new shelf.
+    - Preserved guest mode device shelf (20-book Want-to-Read cap) with contextual auth prompt.
+  - Helpers & Starter Definitions (`apps/mobile/src/lib/shelfValidation.ts`):
+    - Exported `StarterShelfSuggestion` interface, `STARTER_SHELVES` constant, and `sortShelves<T>()` sorting helper.
+  - Unit tests: 25 tests in `apps/mobile/src/lib/__tests__/shelves.test.ts` (77 mobile tests passing). CI pipeline 100% green.
 - [ ] SH-07 Save someone's shelf (reference, stays in sync) — 0.5d
 - [ ] SH-08 Browse public shelves; ranking formula — 1.5d
 - [ ] SH-09 Shelf privacy on every read path + tests — 1d

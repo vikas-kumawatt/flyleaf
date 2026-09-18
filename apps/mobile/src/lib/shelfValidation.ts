@@ -106,4 +106,72 @@ export function repositionItem<T>(list: T[], fromIndex: number, targetPosition: 
   return moveItemInArray(list, fromIndex, toIndex);
 }
 
+// Starter Shelves & Sorting (SH-06, PRD §6.33, §15.3)
+
+export interface StarterShelfSuggestion {
+  id: string;
+  name: string;
+  description: string;
+  is_ranked: boolean;
+  privacy: 'public' | 'followers' | 'private';
+  tagline: string;
+  badge: string;
+  icon: 'trophy-outline' | 'heart-outline' | 'chatbubbles-outline';
+}
+
+export const STARTER_SHELVES: StarterShelfSuggestion[] = [
+  {
+    id: 'starter_favourites_2026',
+    name: 'Favourites of 2026',
+    description: 'My personal favourites and top reads of the year.',
+    is_ranked: true,
+    privacy: 'public',
+    tagline: 'Ranked list of the best books you read this year',
+    badge: 'Ranked List',
+    icon: 'trophy-outline',
+  },
+  {
+    id: 'starter_comfort_reads',
+    name: 'Comfort reads',
+    description: 'Books to return to when you need warmth, solace, and familiar magic.',
+    is_ranked: false,
+    privacy: 'public',
+    tagline: 'Stories that feel like a warm cup of tea and a blanket',
+    badge: 'Themed List',
+    icon: 'heart-outline',
+  },
+  {
+    id: 'starter_recommended_to_me',
+    name: 'Recommended to me',
+    description: 'Books recommended by friends, book clubs, podcasts, and fellow readers.',
+    is_ranked: false,
+    privacy: 'public',
+    tagline: 'Reading queue for recommendations and word-of-mouth gems',
+    badge: 'Reading Queue',
+    icon: 'chatbubbles-outline',
+  },
+];
+
+export type ShelfSortOption = 'updated' | 'alpha' | 'books';
+
+export function sortShelves<T extends { name: string; created_at: string; item_count: number }>(
+  shelves: T[],
+  sortBy: ShelfSortOption,
+): T[] {
+  const copy = [...shelves];
+  switch (sortBy) {
+    case 'updated':
+      return copy.sort(
+        (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime(),
+      );
+    case 'alpha':
+      return copy.sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }));
+    case 'books':
+      return copy.sort((a, b) => b.item_count - a.item_count);
+    default:
+      return copy;
+  }
+}
+
+
 

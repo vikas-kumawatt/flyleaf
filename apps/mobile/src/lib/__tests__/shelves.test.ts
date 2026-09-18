@@ -7,6 +7,8 @@ import {
   validateShelfName,
   moveItemInArray,
   repositionItem,
+  STARTER_SHELVES,
+  sortShelves,
 } from '../shelfValidation.js';
 
 describe('Shelf Form Validation (SH-02)', () => {
@@ -202,5 +204,67 @@ describe('Shelf Reordering Helpers (SH-05, PRD §6.36, §46.2)', () => {
     assert.deepEqual(repositionItem(['A', 'B'], 5, 1), ['A', 'B']);
   });
 });
+
+describe('Starter Shelves & Grid Sorting (SH-06, PRD §6.33)', () => {
+  test('STARTER_SHELVES provides the 3 required starter lists with valid parameters', () => {
+    assert.equal(STARTER_SHELVES.length, 3);
+    const [favs, comfort, recs] = STARTER_SHELVES;
+
+    assert.equal(favs!.name, 'Favourites of 2026');
+    assert.equal(favs!.is_ranked, true);
+    assert.equal(favs!.privacy, 'public');
+    assert.ok(favs!.description.length > 0);
+
+    assert.equal(comfort!.name, 'Comfort reads');
+    assert.equal(comfort!.is_ranked, false);
+    assert.equal(comfort!.privacy, 'public');
+    assert.ok(comfort!.description.length > 0);
+
+    assert.equal(recs!.name, 'Recommended to me');
+    assert.equal(recs!.is_ranked, false);
+    assert.equal(recs!.privacy, 'public');
+    assert.ok(recs!.description.length > 0);
+  });
+
+  test('sortShelves sorts shelves by updated (newest created_at first)', () => {
+    const list = [
+      { name: 'Shelf B', created_at: '2026-01-01T00:00:00Z', item_count: 5 },
+      { name: 'Shelf C', created_at: '2026-03-01T00:00:00Z', item_count: 2 },
+      { name: 'Shelf A', created_at: '2026-02-01T00:00:00Z', item_count: 10 },
+    ];
+    const sorted = sortShelves(list, 'updated');
+    assert.deepEqual(
+      sorted.map((s) => s.name),
+      ['Shelf C', 'Shelf A', 'Shelf B'],
+    );
+  });
+
+  test('sortShelves sorts shelves alphabetically by name (A to Z)', () => {
+    const list = [
+      { name: 'Sci-Fi Gems', created_at: '2026-01-01T00:00:00Z', item_count: 5 },
+      { name: 'All-Time Best', created_at: '2026-03-01T00:00:00Z', item_count: 2 },
+      { name: 'Mystery Thrillers', created_at: '2026-02-01T00:00:00Z', item_count: 10 },
+    ];
+    const sorted = sortShelves(list, 'alpha');
+    assert.deepEqual(
+      sorted.map((s) => s.name),
+      ['All-Time Best', 'Mystery Thrillers', 'Sci-Fi Gems'],
+    );
+  });
+
+  test('sortShelves sorts shelves by book count (most books first)', () => {
+    const list = [
+      { name: 'Shelf A', created_at: '2026-01-01T00:00:00Z', item_count: 3 },
+      { name: 'Shelf B', created_at: '2026-03-01T00:00:00Z', item_count: 42 },
+      { name: 'Shelf C', created_at: '2026-02-01T00:00:00Z', item_count: 15 },
+    ];
+    const sorted = sortShelves(list, 'books');
+    assert.deepEqual(
+      sorted.map((s) => s.name),
+      ['Shelf B', 'Shelf C', 'Shelf A'],
+    );
+  });
+});
+
 
 
