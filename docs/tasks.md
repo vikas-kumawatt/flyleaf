@@ -355,9 +355,28 @@
   - 8 backend tests in `apps/api/src/test/profile-stats.test.ts` and 9 mobile unit tests in `apps/mobile/src/lib/__tests__/profile-stats.test.ts`. 100% green CI pipeline.
 
 ### Instrumentation — `SL-8x` · 2d
-- [ ] **SL-80** ⚠️ `events` table + client emitter — 0.5d
-- [ ] **SL-81** ⚠️ **Instrument the §4.4 budgets**: progress duration, finish duration, tap counts, abandonment — 1d
-- [ ] SL-82 Sentry, app + API — 0.5d
+- [x] **SL-80** ⚠️ `events` table + client emitter — 0.5d
+  - Created migration `apps/api/drizzle/0012_events.sql` declaring PostgreSQL `events` table (`id bigserial`, `name text`, `user_id uuid`, `session_id uuid`, `platform text`, `app_version text`, `properties jsonb`, `at timestamptz`) with composite indexes on `(name, at desc)` and `(user_id, at desc)`.
+  - Registered route `POST /v1/events` in `apps/api/src/telemetry/index.ts` accepting batched telemetry events with payload validation and optional bearer auth extraction.
+  - Implemented client event emitter and memory queue in `apps/mobile/src/lib/events.ts`:
+    - 30-minute idle session lifetime with automatic UUID v4 rotation.
+    - Automatic periodic flush (15s timer) and threshold-triggered flush (>= 20 events).
+    - AppState lifecycle hook flushing events when app moves to background.
+    - Offline resilience: retained events on network failure (prepended up to 200 items).
+- [x] **SL-81** ⚠️ **Instrument the §4.4 budgets**: progress duration, finish duration, tap counts, abandonment — 1d
+  - Built real-time budget instrumenter in `apps/mobile/src/lib/budgetTracker.ts` measuring the 5 non-negotiable PRD §4.4 interaction budgets:
+    1. `progress_updated`: duration from Reading tab focus to save (budget: p75 < 5s). Integrated into slider release, quick add, and progress sheet.
+    2. `book_logged`: tap count from impression to shelved (budget: p75 <= 2 taps). Integrated into work detail and reading queue.
+    3. `finish_completed`: duration from Finish tap to save (budget: p75 < 20s). Integrated into Finish flow modal (`FinishScreen`) and review composer.
+    4. `finish_flow_abandoned`: tracks flow abandonment when user dismisses without saving (budget: < 8% abandonment).
+    5. `log_sheet_completed`: duration from `+` FAB or Update sheet tap to save (budget: p75 < 15s).
+  - Admin budget analytics endpoint `GET /v1/admin/telemetry/budgets` computing PostgreSQL `percentile_cont(0.75)` for progress, finish, and log sheet durations, tap counts, and flow abandonment rate.
+  - 10 mobile unit tests covering event queuing, session rotation, and all 5 budget events in `apps/mobile/src/lib/__tests__/telemetry-budgets.test.ts`.
+- [x] **SL-82** Sentry, app + API — 0.5d
+  - API Sentry integration in `apps/api/src/telemetry/sentry.ts` and `apps/api/src/app.ts`: custom Fastify 500 error hook capturing unhandled exceptions with automatic redaction of sensitive headers (`authorization`, `cookie`, `secret`, `password`, `token`, `totp`).
+  - Mobile Sentry wrapper in `apps/mobile/src/lib/sentry.ts` with exception formatting, platform tagging, and graceful fallback.
+  - Global `ErrorBoundary` in `apps/mobile/src/ui/ErrorBoundary.tsx` wrapping the application root in `apps/mobile/app/_layout.tsx` with user-friendly recovery screen and error reporting.
+  - 7 backend tests in `apps/api/src/test/telemetry.test.ts` covering event ingestion, budget calculation, moderator role gating, and Sentry context sanitization. 100% green CI pipeline.
 
 **Exit:** two books tracked end to end on your own phone · finish p75 <20s · offline verified · a11y pass on the core flows.
 

@@ -23,6 +23,8 @@ import { adminDedupeRoutes } from './admin/dedupe.js';
 import { adminAuthRoutes } from './admin/routes.js';
 import { adminCatalogRoutes } from './admin/catalog-routes.js';
 import { verifyAdminToken } from './admin/auth.js';
+import { telemetryRoutes } from './telemetry/index.js';
+import { captureApiException } from './telemetry/sentry.js';
 
 export interface CoreHookOptions {
   identityLookup?: (token: string) => Promise<string | null>;
@@ -120,6 +122,16 @@ export function registerCoreHooks(app: FastifyInstance, options?: CoreHookOption
     }
 
     req.log.error({ err }, 'unhandled');
+    void captureApiException(err, {
+      requestId: req.id,
+      userId: req.viewer ?? req.admin?.id ?? undefined,
+      route: req.routeOptions?.url,
+      method: req.method,
+      headers: req.headers,
+      query: req.query as any,
+      params: req.params as any,
+      body: req.body as any,
+    });
     return reply
       .status(500)
       .send({ error: { code: 'internal', message: 'Something went wrong.' } });
@@ -195,6 +207,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
     await app.register(adminAuthRoutes(options.db));
     await app.register(adminDedupeRoutes(options.db));
     await app.register(adminCatalogRoutes(options.db));
+    await app.register(telemetryRoutes(options.db));
   }
 
   return app;

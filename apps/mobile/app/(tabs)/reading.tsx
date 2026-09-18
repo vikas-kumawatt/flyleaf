@@ -20,7 +20,7 @@ import {
   Alert,
   Text,
 } from 'react-native';
-import { useRouter } from 'expo-router';
+import { useRouter, useFocusEffect } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as Haptics from 'expo-haptics';
 import { useSession } from '@/lib/session';
@@ -29,6 +29,7 @@ import { OfflineRepository } from '@/offline/repository';
 import type { LocalRead } from '@/offline/schema';
 import { api, type Read } from '@/lib/api';
 import { predictFinishDate } from '@/lib/readingVelocity';
+import { budgetTracker } from '@/lib/budgetTracker';
 import { ProgressSlider } from '@/ui/ProgressSlider';
 import { ProgressSheet } from '@/ui/ProgressSheet';
 import { DiaryView } from '@/ui/DiaryView';
@@ -68,6 +69,13 @@ export default function ReadingScreen() {
   const [sortBy, setSortBy] = useState<'added' | 'title' | 'author' | 'shortest'>('added');
   const [bulkMode, setBulkMode] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+
+  // Track Reading tab focus for §4.4 progress budget measurement
+  useFocusEffect(
+    useCallback(() => {
+      budgetTracker.startReadingTab();
+    }, [])
+  );
 
   // Load local reads immediately, then reconcile with server
   const loadReads = useCallback(async () => {
@@ -142,6 +150,7 @@ export default function ReadingScreen() {
   const handleSliderRelease = async (read: LocalRead, newPage: number, newPercent: number) => {
     if (!db) return;
     const repo = new OfflineRepository(db);
+    budgetTracker.recordProgressSaved({ method: 'slider', deltaPages: Math.max(0, newPage - (read.page ?? 0)) });
     // Optimistically update local state immediately
     setReads((prev) =>
       prev.map((r) =>
@@ -156,6 +165,7 @@ export default function ReadingScreen() {
   const handleAddTenPages = async (read: LocalRead) => {
     if (!db) return;
     void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    budgetTracker.recordProgressSaved({ method: 'quick_add', deltaPages: 10 });
     const repo = new OfflineRepository(db);
     const currentPage = read.page ?? 0;
     const pageCount = read.page_count;
@@ -175,6 +185,7 @@ export default function ReadingScreen() {
   const handleStartReading = async (read: LocalRead) => {
     if (!db || !user) return;
     void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    budgetTracker.recordBookLogged({ tapCount: 2, source: 'reading_tab', targetStatus: 'reading' });
     const repo = new OfflineRepository(db);
     await repo.saveReadStatus(read.work_id, user.id, 'reading', null, false, {
       title: read.title ?? undefined,
@@ -195,6 +206,15 @@ export default function ReadingScreen() {
     quote: string | null;
   }) => {
     if (!sheetRead || !db) return;
+    budgetTracker.recordProgressSaved({
+      method: 'sheet',
+      deltaPages: data.page != null && sheetRead.page != null ? Math.max(0, data.page - sheetRead.page) : 0,
+    });
+    budgetTracker.recordLogSheetCompleted(sheetRead.id, {
+      deltaPages: data.page != null && sheetRead.page != null ? Math.max(0, data.page - sheetRead.page) : 0,
+      hadNote: Boolean(data.note),
+      hadMinutes: Boolean(data.minutes),
+    });
     const repo = new OfflineRepository(db);
     setReads((prev) =>
       prev.map((r) =>
@@ -633,6 +653,7 @@ export default function ReadingScreen() {
                             variant="secondary"
                             onPress={() => {
                               void Haptics.selectionAsync();
+                              budgetTracker.startLogSheet(read.id);
                               setSheetRead(read);
                             }}
                             style={{ minHeight: 36, paddingHorizontal: space[3] }}

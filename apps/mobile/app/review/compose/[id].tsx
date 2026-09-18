@@ -27,6 +27,7 @@ import { api, type Work } from '@/lib/api';
 import { useDatabase } from '@/offline/db';
 import { OfflineRepository } from '@/offline/repository';
 import type { LocalRead } from '@/offline/schema';
+import { budgetTracker } from '@/lib/budgetTracker';
 import { Button, Card, Cover, Heart, Screen, SegmentedControl, Stars, Txt, sheet } from '@/ui/components';
 import { radius, space, useTheme } from '@/ui/tokens';
 
@@ -50,9 +51,26 @@ export default function ReviewComposerScreen() {
   const [visibility, setVisibility] = useState<'public' | 'followers' | 'private'>('public');
   const [submitting, setSubmitting] = useState(false);
   const [draftSavedToast, setDraftSavedToast] = useState(false);
+  const submittingRef = useRef(false);
+  const bodyRef = useRef(body);
+  bodyRef.current = body;
 
   const draftKey = `review_draft_${id}`;
   const autosaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // §4.4 Finish & review budget tracking
+  useEffect(() => {
+    if (id) {
+      budgetTracker.startFinishFlow(id);
+    }
+    return () => {
+      if (!submittingRef.current && id) {
+        budgetTracker.recordFinishAbandoned(id, {
+          stage: bodyRef.current.trim().length > 0 ? 'review' : 'rating',
+        });
+      }
+    };
+  }, [id]);
 
   // 1. Load book & read info
   useEffect(() => {
@@ -175,6 +193,15 @@ export default function ReviewComposerScreen() {
 
       // Clear draft on successful post
       await SecureStore.deleteItemAsync(draftKey).catch(() => {});
+
+      submittingRef.current = true;
+      budgetTracker.recordFinishCompleted(targetReadId, {
+        hadRating: rating != null,
+        hadReview: trimmed.length > 0,
+        hearted,
+        format: read?.format_override,
+        pageCount: read?.page_count,
+      });
 
       router.back();
     } catch (err: any) {

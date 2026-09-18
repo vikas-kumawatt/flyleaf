@@ -25,6 +25,7 @@ import * as Haptics from 'expo-haptics';
 import { useDatabase } from '@/offline/db';
 import { OfflineRepository } from '@/offline/repository';
 import type { LocalRead } from '@/offline/schema';
+import { budgetTracker } from '@/lib/budgetTracker';
 import { Button, Card, Cover, Heart, Screen, Stars, Txt, sheet } from '@/ui/components';
 import { radius, space, useTheme } from '@/ui/tokens';
 
@@ -48,9 +49,26 @@ export default function FinishScreen() {
   const [visibility, setVisibility] = useState<'public' | 'followers' | 'private'>('public');
   const [reviewExpanded, setReviewExpanded] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const submittingRef = useRef(false);
+  const reviewRef = useRef(review);
+  reviewRef.current = review;
 
   const draftKey = `draft_review_${id}`;
   const autosaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // §4.4 Finish flow budget tracking: start timestamp and abandonment check
+  useEffect(() => {
+    if (id) {
+      budgetTracker.startFinishFlow(id);
+    }
+    return () => {
+      if (!submittingRef.current && id) {
+        budgetTracker.recordFinishAbandoned(id, {
+          stage: reviewRef.current.trim().length > 0 ? 'review' : 'rating',
+        });
+      }
+    };
+  }, [id]);
 
   // Load read record from SQLite
   useEffect(() => {
@@ -129,6 +147,15 @@ export default function FinishScreen() {
 
       // Clear draft
       await SecureStore.deleteItemAsync(draftKey).catch(() => {});
+
+      submittingRef.current = true;
+      budgetTracker.recordFinishCompleted(readId, {
+        hadRating: rating != null,
+        hadReview: review.trim().length > 0,
+        hearted,
+        format,
+        pageCount: read?.page_count,
+      });
 
       router.back();
     } catch (err: any) {

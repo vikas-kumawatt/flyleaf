@@ -21,6 +21,7 @@ import type {
   AdminViewer,
   ApiErrorResponse,
   AuthResponse,
+  BudgetMetricsResponse,
   CreateReviewRequest,
   DedupePreviewResponse,
   DedupeQueueItem,
@@ -36,6 +37,7 @@ import type {
   LoginRequest,
   MergeListItem,
   MergeListResponse,
+  PostEventsResponse,
   Profile,
   ProgressEventRequest,
   Read,
@@ -51,6 +53,7 @@ import type {
   Session,
   SessionListResponse,
   StandardResponse,
+  TelemetryEvent,
   ToggleLikeResponse,
   UndoMergeResponse,
   UpdateProfileRequest,
@@ -511,6 +514,21 @@ export class FlyleafClient {
 
   async adminGetIngestStatus(): Promise<AdminIngestStatusResponse> {
     return this.request<AdminIngestStatusResponse>('/admin/ingest/status', {
+      method: 'GET',
+    });
+  }
+
+  // ---------------------------------------------------------------- Telemetry (SL-80, SL-81)
+
+  async postEvents(events: TelemetryEvent[]): Promise<PostEventsResponse> {
+    return this.request<PostEventsResponse>('/events', {
+      method: 'POST',
+      body: JSON.stringify({ events }),
+    });
+  }
+
+  async getBudgetMetrics(): Promise<BudgetMetricsResponse> {
+    return this.request<BudgetMetricsResponse>('/admin/telemetry/budgets', {
       method: 'GET',
     });
   }

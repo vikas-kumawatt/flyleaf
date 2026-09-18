@@ -640,3 +640,22 @@ export const follows = pgTable('follows', {
   index('follows_followee_idx').on(t.followeeId, t.state),
 ]);
 
+// ---------------------------------------------------------------------------
+// 7. Telemetry & Analytics (architecture.md §3.7, PRD §28.1, SL-80)
+// ---------------------------------------------------------------------------
+
+export const events = pgTable('events', {
+  id: bigserial('id', { mode: 'number' }).primaryKey(),
+  name: text('name').notNull(),
+  userId: uuid('user_id').references(() => users.id, { onDelete: 'set null' }),
+  sessionId: uuid('session_id'),
+  platform: text('platform'),
+  appVersion: text('app_version'),
+  properties: jsonb('properties').notNull().default({}),
+  at: timestamp('at', { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [
+  index('events_name_at_idx').on(t.name, t.at),
+  index('events_user_at_idx').on(t.userId, t.at),
+]);
+
+

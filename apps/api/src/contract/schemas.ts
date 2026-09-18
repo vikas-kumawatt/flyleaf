@@ -1139,5 +1139,108 @@ export const adminIngestStatusResponseSchema = {
   required: ['last_run', 'recent_runs', 'runs_summary', 'catalog', 'maturity_breakdown', 'telemetry'],
 } as const;
 
+// ---------------------------------------------------------------------------
+// 9. Telemetry & Budgets (SL-80, SL-81, PRD §4.4, §28.1)
+// ---------------------------------------------------------------------------
+
+export const eventItemSchema = {
+  type: 'object',
+  properties: {
+    name: { type: 'string', minLength: 1, maxLength: 100 },
+    session_id: { type: ['string', 'null'], format: 'uuid' },
+    platform: { type: ['string', 'null'], maxLength: 50 },
+    app_version: { type: ['string', 'null'], maxLength: 50 },
+    properties: { type: 'object', additionalProperties: true },
+    at: { type: ['string', 'null'], format: 'date-time' },
+  },
+  required: ['name'],
+} as const;
+
+export const postEventsBatchBodySchema = {
+  type: 'object',
+  properties: {
+    events: {
+      type: 'array',
+      items: eventItemSchema,
+      minItems: 1,
+      maxItems: 100,
+    },
+  },
+  required: ['events'],
+} as const;
+
+export const postEventsResponseSchema = {
+  type: 'object',
+  properties: {
+    accepted: { type: 'integer' },
+  },
+  required: ['accepted'],
+} as const;
+
+export const budgetMetricsResponseSchema = {
+  type: 'object',
+  properties: {
+    progress_updated: {
+      type: 'object',
+      properties: {
+        p75_duration_ms: { type: ['number', 'null'] },
+        budget_ms: { type: 'number' },
+        sample_count: { type: 'integer' },
+        passing: { type: 'boolean' },
+      },
+      required: ['p75_duration_ms', 'budget_ms', 'sample_count', 'passing'],
+    },
+    book_logged: {
+      type: 'object',
+      properties: {
+        p75_tap_count: { type: ['number', 'null'] },
+        budget_taps: { type: 'number' },
+        sample_count: { type: 'integer' },
+        passing: { type: 'boolean' },
+      },
+      required: ['p75_tap_count', 'budget_taps', 'sample_count', 'passing'],
+    },
+    finish_completed: {
+      type: 'object',
+      properties: {
+        p75_duration_seconds: { type: ['number', 'null'] },
+        budget_seconds: { type: 'number' },
+        sample_count: { type: 'integer' },
+        passing: { type: 'boolean' },
+      },
+      required: ['p75_duration_seconds', 'budget_seconds', 'sample_count', 'passing'],
+    },
+    log_sheet_completed: {
+      type: 'object',
+      properties: {
+        p75_duration_ms: { type: ['number', 'null'] },
+        budget_ms: { type: 'number' },
+        sample_count: { type: 'integer' },
+        passing: { type: 'boolean' },
+      },
+      required: ['p75_duration_ms', 'budget_ms', 'sample_count', 'passing'],
+    },
+    finish_flow_abandoned: {
+      type: 'object',
+      properties: {
+        abandonment_rate: { type: 'number' },
+        abandoned_count: { type: 'integer' },
+        completed_count: { type: 'integer' },
+        budget_max_rate: { type: 'number' },
+        passing: { type: 'boolean' },
+      },
+      required: ['abandonment_rate', 'abandoned_count', 'completed_count', 'budget_max_rate', 'passing'],
+    },
+  },
+  required: [
+    'progress_updated',
+    'book_logged',
+    'finish_completed',
+    'log_sheet_completed',
+    'finish_flow_abandoned',
+  ],
+} as const;
+
+
 
 

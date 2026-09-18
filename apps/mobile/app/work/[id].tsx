@@ -23,6 +23,7 @@ import { api, type Work, type Review } from '@/lib/api';
 import { useSession } from '@/lib/session';
 import { useGuestShelf } from '@/lib/guest';
 import { useActionGate } from '@/ui/ActionGate';
+import { budgetTracker } from '@/lib/budgetTracker';
 import {
   Button,
   Card,
@@ -147,6 +148,12 @@ export default function WorkScreen() {
 
   // Status control handler (SL-31, SL-32, SL-41)
   const setStatus = async (status: string) => {
+    budgetTracker.recordBookLogged({
+      tapCount: 2,
+      source: 'work_detail',
+      targetStatus: status,
+    });
+
     if (!user) {
       if (status === 'want') {
         if (savedInGuestShelf) {

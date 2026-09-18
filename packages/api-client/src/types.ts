@@ -639,4 +639,59 @@ export interface AdminIngestStatusResponse {
   };
 }
 
+// ---------------------------------------------------------------- Telemetry (SL-80, SL-81)
+
+export interface TelemetryEvent {
+  name: string;
+  session_id?: string | null;
+  platform?: string | null;
+  app_version?: string | null;
+  properties?: Record<string, any>;
+  at?: string | null;
+}
+
+export interface PostEventsBatchRequest {
+  events: TelemetryEvent[];
+}
+
+export interface PostEventsResponse {
+  accepted: number;
+}
+
+export interface BudgetMetricItem {
+  sample_count: number;
+  passing: boolean;
+}
+
+export interface DurationBudgetMetric extends BudgetMetricItem {
+  p75_duration_ms: number | null;
+  budget_ms: number;
+}
+
+export interface TapBudgetMetric extends BudgetMetricItem {
+  p75_tap_count: number | null;
+  budget_taps: number;
+}
+
+export interface SecondsBudgetMetric extends BudgetMetricItem {
+  p75_duration_seconds: number | null;
+  budget_seconds: number;
+}
+
+export interface AbandonmentBudgetMetric extends BudgetMetricItem {
+  abandonment_rate: number;
+  abandoned_count: number;
+  completed_count: number;
+  budget_max_rate: number;
+}
+
+export interface BudgetMetricsResponse {
+  progress_updated: DurationBudgetMetric;
+  book_logged: TapBudgetMetric;
+  finish_completed: SecondsBudgetMetric;
+  log_sheet_completed: DurationBudgetMetric;
+  finish_flow_abandoned: AbandonmentBudgetMetric;
+}
+
+
 

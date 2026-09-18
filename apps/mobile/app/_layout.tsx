@@ -1,6 +1,5 @@
-// Root layout: initializes fonts, gesture handler, theme, queries, offline sync, and session (SL-01, SL-02, SL-03, SL-05, SL-14).
-
 import 'react-native-gesture-handler';
+import { useEffect } from 'react';
 import { View } from 'react-native';
 import { Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
@@ -17,6 +16,9 @@ import { SyncProvider } from '@/offline/sync';
 import { SyncIndicator } from '@/ui/SyncIndicator';
 import { ActionGateProvider } from '@/ui/ActionGate';
 import { ThemeProvider, useTheme, useThemeContext } from '@/ui/tokens';
+import { ErrorBoundary } from '@/ui/ErrorBoundary';
+import { initTelemetry } from '@/lib/events';
+import { initMobileSentry } from '@/lib/sentry';
 
 function Nav() {
   const c = useTheme();
@@ -91,20 +93,28 @@ export default function RootLayout() {
     Archivo_600SemiBold,
   });
 
+  useEffect(() => {
+    initMobileSentry();
+    const cleanup = initTelemetry();
+    return cleanup;
+  }, []);
+
   return (
-    <SafeAreaProvider>
-      <ThemeProvider>
-        <ThemedStatusBar />
-        <AppQueryProvider>
-          <SessionProvider>
-            <SyncProvider>
-              <ActionGateProvider>
-                <Nav />
-              </ActionGateProvider>
-            </SyncProvider>
-          </SessionProvider>
-        </AppQueryProvider>
-      </ThemeProvider>
-    </SafeAreaProvider>
+    <ErrorBoundary>
+      <SafeAreaProvider>
+        <ThemeProvider>
+          <ThemedStatusBar />
+          <AppQueryProvider>
+            <SessionProvider>
+              <SyncProvider>
+                <ActionGateProvider>
+                  <Nav />
+                </ActionGateProvider>
+              </SyncProvider>
+            </SessionProvider>
+          </AppQueryProvider>
+        </ThemeProvider>
+      </SafeAreaProvider>
+    </ErrorBoundary>
   );
 }

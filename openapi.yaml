@@ -6370,6 +6370,255 @@ paths:
       responses:
         "200":
           description: Default Response
+  /events:
+    post:
+      summary: Ingest client telemetry events (SL-80)
+      tags:
+        - Telemetry
+      description: Accepts a batch of up to 100 client events. User ID is attached
+        automatically if authenticated.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                events:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      name:
+                        type: string
+                        minLength: 1
+                        maxLength: 100
+                      session_id:
+                        type:
+                          - string
+                          - "null"
+                        format: uuid
+                      platform:
+                        type:
+                          - string
+                          - "null"
+                        maxLength: 50
+                      app_version:
+                        type:
+                          - string
+                          - "null"
+                        maxLength: 50
+                      properties:
+                        type: object
+                        additionalProperties: true
+                      at:
+                        type:
+                          - string
+                          - "null"
+                        format: date-time
+                    required:
+                      - name
+                  minItems: 1
+                  maxItems: 100
+              required:
+                - events
+      responses:
+        "202":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  accepted:
+                    type: integer
+                required:
+                  - accepted
+        "400":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      code:
+                        type: string
+                        description: Machine-readable error code
+                      message:
+                        type: string
+                        description: Human-readable error description
+                      field:
+                        type: string
+                        description: Invalid field name if applicable
+                    required:
+                      - code
+                      - message
+                required:
+                  - error
+  /admin/telemetry/budgets:
+    get:
+      summary: PRD §4.4 Interaction Budgets p75 Performance (SL-81)
+      tags:
+        - Admin
+        - Telemetry
+      description: Returns p75 durations, tap counts, and abandonment rates evaluated
+        against non-negotiable budgets.
+      responses:
+        "200":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  progress_updated:
+                    type: object
+                    properties:
+                      p75_duration_ms:
+                        type:
+                          - "null"
+                          - number
+                      budget_ms:
+                        type: number
+                      sample_count:
+                        type: integer
+                      passing:
+                        type: boolean
+                    required:
+                      - p75_duration_ms
+                      - budget_ms
+                      - sample_count
+                      - passing
+                  book_logged:
+                    type: object
+                    properties:
+                      p75_tap_count:
+                        type:
+                          - "null"
+                          - number
+                      budget_taps:
+                        type: number
+                      sample_count:
+                        type: integer
+                      passing:
+                        type: boolean
+                    required:
+                      - p75_tap_count
+                      - budget_taps
+                      - sample_count
+                      - passing
+                  finish_completed:
+                    type: object
+                    properties:
+                      p75_duration_seconds:
+                        type:
+                          - "null"
+                          - number
+                      budget_seconds:
+                        type: number
+                      sample_count:
+                        type: integer
+                      passing:
+                        type: boolean
+                    required:
+                      - p75_duration_seconds
+                      - budget_seconds
+                      - sample_count
+                      - passing
+                  log_sheet_completed:
+                    type: object
+                    properties:
+                      p75_duration_ms:
+                        type:
+                          - "null"
+                          - number
+                      budget_ms:
+                        type: number
+                      sample_count:
+                        type: integer
+                      passing:
+                        type: boolean
+                    required:
+                      - p75_duration_ms
+                      - budget_ms
+                      - sample_count
+                      - passing
+                  finish_flow_abandoned:
+                    type: object
+                    properties:
+                      abandonment_rate:
+                        type: number
+                      abandoned_count:
+                        type: integer
+                      completed_count:
+                        type: integer
+                      budget_max_rate:
+                        type: number
+                      passing:
+                        type: boolean
+                    required:
+                      - abandonment_rate
+                      - abandoned_count
+                      - completed_count
+                      - budget_max_rate
+                      - passing
+                required:
+                  - progress_updated
+                  - book_logged
+                  - finish_completed
+                  - log_sheet_completed
+                  - finish_flow_abandoned
+        "401":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      code:
+                        type: string
+                        description: Machine-readable error code
+                      message:
+                        type: string
+                        description: Human-readable error description
+                      field:
+                        type: string
+                        description: Invalid field name if applicable
+                    required:
+                      - code
+                      - message
+                required:
+                  - error
+        "403":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      code:
+                        type: string
+                        description: Machine-readable error code
+                      message:
+                        type: string
+                        description: Human-readable error description
+                      field:
+                        type: string
+                        description: Invalid field name if applicable
+                    required:
+                      - code
+                      - message
+                required:
+                  - error
   /healthz:
     get:
       summary: Liveness probe

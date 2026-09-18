@@ -17,6 +17,7 @@ import { adminDedupeRoutes } from '../admin/dedupe.js';
 import { adminAuthRoutes } from '../admin/routes.js';
 import { adminCatalogRoutes } from '../admin/catalog-routes.js';
 import { reviewsPlugin } from '../reviews/index.js';
+import { telemetryRoutes } from '../telemetry/index.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -41,6 +42,7 @@ export async function buildOpenApiSpec(): Promise<object> {
   await app.register(adminDedupeRoutes(mockDb));
   await app.register(adminAuthRoutes(mockDb));
   await app.register(adminCatalogRoutes(mockDb));
+  await app.register(telemetryRoutes(mockDb));
 
   // System endpoints
   app.get(

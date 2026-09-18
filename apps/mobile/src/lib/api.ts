@@ -33,6 +33,9 @@ import {
   type ExtremeBook,
   type MostReadAuthor,
   type ReadingStats,
+  type TelemetryEvent,
+  type PostEventsResponse,
+  type BudgetMetricsResponse,
 } from '@flyleaf/api-client';
 
 export type {
@@ -44,6 +47,9 @@ export type {
   ExtremeBook,
   MostReadAuthor,
   ReadingStats,
+  TelemetryEvent,
+  PostEventsResponse,
+  BudgetMetricsResponse,
   Edition,
   EditionDetail,
   EditionLookupResponse,
@@ -390,6 +396,9 @@ export const api = {
       ],
     };
   },
+
+  postEvents: (events: TelemetryEvent[]) => client.postEvents(events),
+  getBudgetMetrics: () => client.getBudgetMetrics(),
 };
 
 export interface AuthorDetail {
