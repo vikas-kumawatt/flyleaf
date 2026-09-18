@@ -838,4 +838,159 @@ describe('SH-03: Shelf Detail & Items (GET /v1/shelves/:id/items, POST /v1/shelv
     });
     expect(updatedShelf.json().shelf.cover_ids).toEqual([1003, 1001, 1002]);
   });
+
+  it('saves and unsaves someone else\'s shelf with dynamic sync (SH-07)', async () => {
+    // 1. Unauthenticated requests fail with 401
+    const unauthSave = await app.inject({
+      method: 'POST',
+      url: `/v1/shelves/00000000-0000-0000-0000-000000000001/save`,
+    });
+    expect(unauthSave.statusCode).toBe(401);
+
+    const unauthSavedList = await app.inject({
+      method: 'GET',
+      url: '/v1/shelves/saved',
+    });
+    expect(unauthSavedList.statusCode).toBe(401);
+
+    // 2. Alice creates a public shelf with WORK_1
+    const aliceShelfRes = await app.inject({
+      method: 'POST',
+      url: '/v1/shelves',
+      headers: authHeader(USER_ALICE),
+      payload: {
+        name: 'Alice Curated Reads',
+        description: 'Top picks by Alice',
+        privacy: 'public',
+      },
+    });
+    const shelfId = aliceShelfRes.json().shelf.id;
+    await app.inject({
+      method: 'POST',
+      url: `/v1/shelves/${shelfId}/items`,
+      headers: authHeader(USER_ALICE),
+      payload: { work_id: WORK_1 },
+    });
+
+    // 3. Alice cannot save her own shelf (400 cannot_save_own_shelf)
+    const ownSaveRes = await app.inject({
+      method: 'POST',
+      url: `/v1/shelves/${shelfId}/save`,
+      headers: authHeader(USER_ALICE),
+    });
+    expect(ownSaveRes.statusCode).toBe(400);
+    expect(ownSaveRes.json().error.code).toBe('cannot_save_own_shelf');
+
+    // 4. Bob cannot save a private shelf he cannot view (404)
+    const privateShelfRes = await app.inject({
+      method: 'POST',
+      url: '/v1/shelves',
+      headers: authHeader(USER_ALICE),
+      payload: { name: 'Alice Private Secret', privacy: 'private' },
+    });
+    const privateShelfId = privateShelfRes.json().shelf.id;
+    const savePrivateRes = await app.inject({
+      method: 'POST',
+      url: `/v1/shelves/${privateShelfId}/save`,
+      headers: authHeader(USER_BOB),
+    });
+    expect(savePrivateRes.statusCode).toBe(404);
+
+    // 5. Bob saves Alice's public shelf -> 200, saved: true, save_count: 1
+    const bobSaveRes = await app.inject({
+      method: 'POST',
+      url: `/v1/shelves/${shelfId}/save`,
+      headers: authHeader(USER_BOB),
+    });
+    expect(bobSaveRes.statusCode).toBe(200);
+    expect(bobSaveRes.json()).toEqual({
+      saved: true,
+      shelf_id: shelfId,
+      save_count: 1,
+    });
+
+    // Bob saving again is idempotent
+    const bobSaveAgain = await app.inject({
+      method: 'POST',
+      url: `/v1/shelves/${shelfId}/save`,
+      headers: authHeader(USER_BOB),
+    });
+    expect(bobSaveAgain.statusCode).toBe(200);
+    expect(bobSaveAgain.json().save_count).toBe(1);
+
+    // Verify Bob's GET /v1/shelves/:id shows is_saved: true and save_count: 1
+    const bobViewRes = await app.inject({
+      method: 'GET',
+      url: `/v1/shelves/${shelfId}`,
+      headers: authHeader(USER_BOB),
+    });
+    expect(bobViewRes.json().shelf.is_saved).toBe(true);
+    expect(bobViewRes.json().shelf.save_count).toBe(1);
+
+    // 6. Bob lists his saved shelves via GET /v1/shelves/saved
+    const bobSavedList = await app.inject({
+      method: 'GET',
+      url: '/v1/shelves/saved',
+      headers: authHeader(USER_BOB),
+    });
+    expect(bobSavedList.statusCode).toBe(200);
+    const savedList = bobSavedList.json().shelves;
+    const bobSavedEntry = savedList.find((s: any) => s.id === shelfId);
+    expect(bobSavedEntry).toBeDefined();
+    expect(bobSavedEntry.name).toBe('Alice Curated Reads');
+    expect(bobSavedEntry.owner.username).toBe('alice');
+    expect(bobSavedEntry.item_count).toBe(1);
+    expect(bobSavedEntry.is_saved).toBe(true);
+
+    // 7. Dynamic Sync verification: Alice adds WORK_2 to her shelf
+    await app.inject({
+      method: 'POST',
+      url: `/v1/shelves/${shelfId}/items`,
+      headers: authHeader(USER_ALICE),
+      payload: { work_id: WORK_2 },
+    });
+
+    // Bob queries his saved shelves again -> automatically reflects the new book!
+    const bobSavedListSynced = await app.inject({
+      method: 'GET',
+      url: '/v1/shelves/saved',
+      headers: authHeader(USER_BOB),
+    });
+    const syncedList = bobSavedListSynced.json().shelves;
+    const syncedEntry = syncedList.find((s: any) => s.id === shelfId);
+    expect(syncedEntry).toBeDefined();
+    expect(syncedEntry.item_count).toBe(2);
+    expect(syncedEntry.cover_work_ids).toEqual([WORK_1, WORK_2]);
+
+    // 8. Bob unsaves the shelf via DELETE /v1/shelves/:id/save
+    const bobUnsaveRes = await app.inject({
+      method: 'DELETE',
+      url: `/v1/shelves/${shelfId}/save`,
+      headers: authHeader(USER_BOB),
+    });
+    expect(bobUnsaveRes.statusCode).toBe(200);
+    expect(bobUnsaveRes.json()).toEqual({
+      saved: false,
+      shelf_id: shelfId,
+      save_count: 0,
+    });
+
+    // Bob lists saved shelves again -> shelfId is no longer present
+    const bobEmptySavedList = await app.inject({
+      method: 'GET',
+      url: '/v1/shelves/saved',
+      headers: authHeader(USER_BOB),
+    });
+    expect(bobEmptySavedList.json().shelves.some((s: any) => s.id === shelfId)).toBe(false);
+
+    // GET /v1/shelves/:id from Bob now shows is_saved: false and save_count: 0
+    const bobViewAfterUnsave = await app.inject({
+      method: 'GET',
+      url: `/v1/shelves/${shelfId}`,
+      headers: authHeader(USER_BOB),
+    });
+    expect(bobViewAfterUnsave.json().shelf.is_saved).toBe(false);
+    expect(bobViewAfterUnsave.json().shelf.save_count).toBe(0);
+  });
 });
+

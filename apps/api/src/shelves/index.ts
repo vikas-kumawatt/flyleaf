@@ -44,6 +44,8 @@ import {
   updateShelfItemBodySchema,
   reorderShelfBodySchema,
   reorderShelfResponseSchema,
+  saveShelfResponseSchema,
+  savedShelvesResponseSchema,
 } from '../contract/schemas.js';
 
 export interface ShelfOwner {
@@ -734,6 +736,160 @@ export class ShelvesService {
     return { reordered: true, shelf_id: shelfId, count: workIds.length };
   }
 
+  async save(
+    viewer: string,
+    shelfId: string,
+  ): Promise<{ saved: true; shelf_id: string; save_count: number }> {
+    const shelf = await this.get(viewer, shelfId);
+
+    if (shelf.user_id === viewer) {
+      throw new ApiError(400, 'cannot_save_own_shelf', 'You cannot save your own shelf.');
+    }
+
+    await this.db
+      .insert(shelfSaves)
+      .values({
+        shelfId,
+        userId: viewer,
+      })
+      .onConflictDoNothing();
+
+    const [updated] = await this.db
+      .select({ saveCount: shelves.saveCount })
+      .from(shelves)
+      .where(eq(shelves.id, shelfId))
+      .limit(1);
+
+    return {
+      saved: true,
+      shelf_id: shelfId,
+      save_count: updated?.saveCount ?? shelf.save_count,
+    };
+  }
+
+  async unsave(
+    viewer: string,
+    shelfId: string,
+  ): Promise<{ saved: false; shelf_id: string; save_count: number }> {
+    const [shelf] = await this.db
+      .select({ id: shelves.id, saveCount: shelves.saveCount })
+      .from(shelves)
+      .where(and(eq(shelves.id, shelfId), sql`${shelves.deletedAt} IS NULL`))
+      .limit(1);
+
+    if (!shelf) {
+      throw ApiError.notFound('Shelf not found.');
+    }
+
+    await this.db
+      .delete(shelfSaves)
+      .where(and(eq(shelfSaves.shelfId, shelfId), eq(shelfSaves.userId, viewer)));
+
+    const [updated] = await this.db
+      .select({ saveCount: shelves.saveCount })
+      .from(shelves)
+      .where(eq(shelves.id, shelfId))
+      .limit(1);
+
+    return {
+      saved: false,
+      shelf_id: shelfId,
+      save_count: updated?.saveCount ?? Math.max(0, shelf.saveCount - 1),
+    };
+  }
+
+  async getSavedShelves(viewer: string): Promise<{ shelves: ShelfDetail[] }> {
+    const rows = await this.db
+      .select({
+        shelf: shelves,
+        savedAt: shelfSaves.createdAt,
+      })
+      .from(shelfSaves)
+      .innerJoin(shelves, eq(shelfSaves.shelfId, shelves.id))
+      .where(and(eq(shelfSaves.userId, viewer), sql`${shelves.deletedAt} IS NULL`))
+      .orderBy(sql`${shelfSaves.createdAt} DESC`);
+
+    if (rows.length === 0) {
+      return { shelves: [] };
+    }
+
+    const allCoverWorkIds = new Set<string>();
+    const ownerIds = new Set<string>();
+    for (const r of rows) {
+      ownerIds.add(r.shelf.userId);
+      if (r.shelf.coverWorkIds) {
+        for (const wid of r.shelf.coverWorkIds) {
+          allCoverWorkIds.add(wid);
+        }
+      }
+    }
+
+    const coversMap = new Map<string, number | null>();
+    if (allCoverWorkIds.size > 0) {
+      const coverRows = await this.db
+        .select({ id: works.id, coverId: works.olCoverId })
+        .from(works)
+        .where(inArray(works.id, Array.from(allCoverWorkIds)));
+      for (const cr of coverRows) {
+        coversMap.set(cr.id, cr.coverId);
+      }
+    }
+
+    const ownersMap = new Map<string, ShelfOwner>();
+    for (const ownerId of ownerIds) {
+      try {
+        const owner = await this.getOwnerProfile(ownerId);
+        ownersMap.set(ownerId, owner);
+      } catch {
+        ownersMap.set(ownerId, {
+          id: ownerId,
+          username: 'user',
+          displayName: null,
+          avatarKey: null,
+        });
+      }
+    }
+
+    const followRows = await this.db
+      .select({ followeeId: follows.followeeId })
+      .from(follows)
+      .where(
+        and(
+          eq(follows.followerId, viewer),
+          eq(follows.state, 'accepted'),
+          inArray(follows.followeeId, Array.from(ownerIds)),
+        ),
+      );
+    const followedOwners = new Set(followRows.map((f) => f.followeeId));
+
+    const result: ShelfDetail[] = [];
+    for (const r of rows) {
+      const shelf = r.shelf;
+      const isOwner = shelf.userId === viewer;
+      const isFollower = followedOwners.has(shelf.userId);
+
+      if (shelf.privacy === 'private' && !isOwner) {
+        continue;
+      }
+      if (shelf.privacy === 'followers' && !isOwner && !isFollower) {
+        continue;
+      }
+
+      const owner = ownersMap.get(shelf.userId) || {
+        id: shelf.userId,
+        username: 'user',
+        displayName: null,
+        avatarKey: null,
+      };
+
+      const coverIds = (shelf.coverWorkIds || []).map((wid) => coversMap.get(wid) ?? null);
+      result.push(this.formatShelf(shelf, owner, true, coverIds));
+    }
+
+    return { shelves: result };
+  }
+
+
   private async getOwnerProfile(userId: string): Promise<ShelfOwner> {
     const [row] = await this.db
       .select({
@@ -828,6 +984,26 @@ export const shelvesPlugin: FastifyPluginAsync<{ db: Db }> = async (fastify, opt
       const viewer = requireViewer(request);
       const { work_id } = (request.query as { work_id?: string }) || {};
       const result = await service.getMyShelves(viewer, work_id);
+      return reply.send(result);
+    },
+  );
+
+  fastify.get(
+    '/shelves/saved',
+    {
+      schema: {
+        tags: ['Shelves'],
+        summary: 'List shelves saved by viewer',
+        description: 'Returns shelves saved/bookmarked by the authenticated user (SH-07).',
+        response: {
+          200: savedShelvesResponseSchema,
+          401: errorResponseSchema,
+        },
+      },
+    },
+    async (request, reply) => {
+      const viewer = requireViewer(request);
+      const result = await service.getSavedShelves(viewer);
       return reply.send(result);
     },
   );
@@ -1031,4 +1207,52 @@ export const shelvesPlugin: FastifyPluginAsync<{ db: Db }> = async (fastify, opt
       return reply.send(result);
     },
   );
+
+  fastify.post(
+    '/shelves/:id/save',
+    {
+      schema: {
+        tags: ['Shelves'],
+        summary: 'Save a shelf to library',
+        description: "Saves another user's shelf as a reference to viewer's library (SH-07). Shelf updates remain dynamically synced.",
+        params: idParamSchema,
+        response: {
+          200: saveShelfResponseSchema,
+          400: errorResponseSchema,
+          401: errorResponseSchema,
+          404: errorResponseSchema,
+        },
+      },
+    },
+    async (request, reply) => {
+      const viewer = requireViewer(request);
+      const { id } = request.params as { id: string };
+      const result = await service.save(viewer, id);
+      return reply.send(result);
+    },
+  );
+
+  fastify.delete(
+    '/shelves/:id/save',
+    {
+      schema: {
+        tags: ['Shelves'],
+        summary: 'Unsave a shelf from library',
+        description: "Removes a previously saved shelf from viewer's library (SH-07).",
+        params: idParamSchema,
+        response: {
+          200: saveShelfResponseSchema,
+          401: errorResponseSchema,
+          404: errorResponseSchema,
+        },
+      },
+    },
+    async (request, reply) => {
+      const viewer = requireViewer(request);
+      const { id } = request.params as { id: string };
+      const result = await service.unsave(viewer, id);
+      return reply.send(result);
+    },
+  );
 };
+

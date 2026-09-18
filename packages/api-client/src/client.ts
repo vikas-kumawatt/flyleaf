@@ -74,6 +74,8 @@ import type {
   UpdateShelfItemRequest,
   ReorderShelfRequest,
   ReorderShelfResponse,
+  SaveShelfResponse,
+  SavedShelvesResponse,
   Work,
   WorkReviewsQuery,
   WorkReviewsResponse,
@@ -630,6 +632,24 @@ export class FlyleafClient {
     return this.request<ReorderShelfResponse>(`/shelves/${encodeURIComponent(id)}/order`, {
       method: 'PUT',
       body: JSON.stringify(data),
+    });
+  }
+
+  async saveShelf(id: string): Promise<SaveShelfResponse> {
+    return this.request<SaveShelfResponse>(`/shelves/${encodeURIComponent(id)}/save`, {
+      method: 'POST',
+    });
+  }
+
+  async unsaveShelf(id: string): Promise<SaveShelfResponse> {
+    return this.request<SaveShelfResponse>(`/shelves/${encodeURIComponent(id)}/save`, {
+      method: 'DELETE',
+    });
+  }
+
+  async getSavedShelves(): Promise<SavedShelvesResponse> {
+    return this.request<SavedShelvesResponse>('/shelves/saved', {
+      method: 'GET',
     });
   }
 }

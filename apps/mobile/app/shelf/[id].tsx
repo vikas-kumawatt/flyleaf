@@ -43,6 +43,7 @@ export default function ShelfDetailScreen() {
   const [items, setItems] = useState<ShelfItem[]>([]);
   const [isSaved, setIsSaved] = useState(false);
   const [saveCount, setSaveCount] = useState(0);
+  const [saving, setSaving] = useState(false);
 
   const isOwner = Boolean(user?.id && shelf?.user_id === user.id);
 
@@ -98,13 +99,37 @@ export default function ShelfDetailScreen() {
     }
   };
 
-  const handleToggleSave = () => {
+  const handleToggleSave = async () => {
+    if (!shelf || !id || saving) return;
+    if (!user) {
+      Alert.alert('Sign In Required', 'Please sign in to save shelves to your library.');
+      return;
+    }
+    const prevSaved = isSaved;
+    const prevCount = saveCount;
+    const nextSaved = !prevSaved;
+
     void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-    const nextSaved = !isSaved;
     setIsSaved(nextSaved);
     setSaveCount((prev) => (nextSaved ? prev + 1 : Math.max(0, prev - 1)));
-    if (nextSaved) {
-      track('shelf_saved', { shelf_id: shelf?.id });
+    setSaving(true);
+
+    try {
+      if (nextSaved) {
+        const res = await api.saveShelf(shelf.id);
+        setSaveCount(res.save_count);
+        track('shelf_saved', { shelf_id: shelf.id });
+      } else {
+        const res = await api.unsaveShelf(shelf.id);
+        setSaveCount(res.save_count);
+        track('shelf_unsaved', { shelf_id: shelf.id });
+      }
+    } catch (err: any) {
+      setIsSaved(prevSaved);
+      setSaveCount(prevCount);
+      Alert.alert('Unable to Update Shelf', err?.message || 'Failed to save or unsave shelf.');
+    } finally {
+      setSaving(false);
     }
   };
 

@@ -814,6 +814,12 @@ export interface ReorderShelfResponse {
   count: number;
 }
 
+export interface SaveShelfResponse {
+  saved: boolean;
+  shelf_id: string;
+  save_count: number;
+}
 
-
-
+export interface SavedShelvesResponse {
+  shelves: Shelf[];
+}

@@ -27,7 +27,7 @@ import * as Haptics from 'expo-haptics';
 import { useSession } from '@/lib/session';
 import { useGuestShelf } from '@/lib/guest';
 import { useActionGate } from '@/ui/ActionGate';
-import { api, type ShelfWithWorkState } from '@/lib/api';
+import { api, type ShelfWithWorkState, type Shelf } from '@/lib/api';
 import {
   STARTER_SHELVES,
   type StarterShelfSuggestion,
@@ -62,6 +62,8 @@ export default function ShelvesScreen() {
   // Shelves state
   const [shelves, setShelves] = useState<ShelfWithWorkState[]>([]);
   const [loading, setLoading] = useState(false);
+  const [savedShelves, setSavedShelves] = useState<Shelf[]>([]);
+  const [savedLoading, setSavedLoading] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [sortBy, setSortBy] = useState<ShelfSortOption>('updated');
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
@@ -83,18 +85,44 @@ export default function ShelvesScreen() {
     }
   }, [user]);
 
+  // Load saved shelves
+  const loadSavedShelves = useCallback(async () => {
+    if (!user) return;
+    try {
+      setSavedLoading(true);
+      const res = await api.getSavedShelves();
+      setSavedShelves(res.shelves || []);
+      track('shelves_viewed', { tab: 'saved', count: res.shelves?.length ?? 0 });
+    } catch {
+      // Fallback silently if network offline
+    } finally {
+      setSavedLoading(false);
+      setRefreshing(false);
+    }
+  }, [user]);
+
   // Reload data on screen focus
   useFocusEffect(
     useCallback(() => {
       if (user) {
-        void loadShelves();
+        if (shelfFilter === 'mine') {
+          void loadShelves();
+        } else if (shelfFilter === 'saved') {
+          void loadSavedShelves();
+        }
       }
-    }, [user, loadShelves]),
+    }, [user, shelfFilter, loadShelves, loadSavedShelves]),
   );
 
   const onRefresh = () => {
     setRefreshing(true);
-    void loadShelves();
+    if (shelfFilter === 'mine') {
+      void loadShelves();
+    } else if (shelfFilter === 'saved') {
+      void loadSavedShelves();
+    } else {
+      setRefreshing(false);
+    }
   };
 
   const handleNewList = () => {
@@ -181,7 +209,15 @@ export default function ShelvesScreen() {
           selected={shelfFilter}
           onSelect={(val) => {
             setShelfFilter(val);
-            track('shelves_viewed', { tab: val, count: shelves.length });
+            if (val === 'saved' && user && savedShelves.length === 0) {
+              void loadSavedShelves();
+            } else if (val === 'mine' && user && shelves.length === 0) {
+              void loadShelves();
+            }
+            track('shelves_viewed', {
+              tab: val,
+              count: val === 'mine' ? shelves.length : val === 'saved' ? savedShelves.length : 0,
+            });
           }}
           labels={{
             mine: 'My shelves',
@@ -732,10 +768,325 @@ export default function ShelvesScreen() {
         )}
 
         {shelfFilter === 'saved' && (
-          <EmptyState
-            title="No saved shelves yet"
-            subtitle="Save curated lists and collections from fellow readers to keep them organized in your library."
-          />
+          <>
+            {!user ? (
+              <Card
+                style={{
+                  backgroundColor: c.surface,
+                  padding: space[4],
+                  gap: space[3],
+                  alignItems: 'center',
+                }}
+              >
+                <View
+                  style={[
+                    styles.starterIconBubble,
+                    { backgroundColor: c.accentSoft, width: 48, height: 48, borderRadius: 24 },
+                  ]}
+                >
+                  <Ionicons name="bookmark" size={24} color={c.accent} />
+                </View>
+                <Txt variant="title" style={{ textAlign: 'center', fontSize: 17 }}>
+                  Save shelves you love
+                </Txt>
+                <Txt
+                  variant="caption"
+                  color="muted"
+                  style={{ textAlign: 'center', lineHeight: 20 }}
+                >
+                  Sign in to bookmark curated reading lists and collections from fellow readers. Saved
+                  shelves stay dynamically in sync as curators update them.
+                </Txt>
+                <Button
+                  label="Sign in / Sign up"
+                  variant="primary"
+                  onPress={() =>
+                    promptAuth({
+                      title: 'Sign in to save shelves',
+                      subtitle:
+                        'Keep curated reading lists from other readers bookmarked in your library.',
+                    })
+                  }
+                  style={{ width: '100%', marginTop: space[2] }}
+                />
+              </Card>
+            ) : savedLoading && savedShelves.length === 0 ? (
+              <View style={styles.centerContainer}>
+                <ActivityIndicator size="large" color={c.accent} />
+                <Txt style={{ color: c.muted, marginTop: space[3], fontSize: 13 }}>
+                  Loading saved shelves...
+                </Txt>
+              </View>
+            ) : savedShelves.length === 0 ? (
+              <EmptyState
+                title="No saved shelves yet"
+                subtitle="Discover reading lists curated by fellow readers and tap &quot;Save Shelf&quot; to keep them in your library. They'll stay automatically in sync."
+              />
+            ) : (
+              <View style={{ gap: space[3] }}>
+                {/* Controls Bar: Count and View Mode */}
+                <View style={styles.controlsBar}>
+                  <Txt style={{ color: c.muted, fontSize: 13, fontWeight: '600' }}>
+                    {savedShelves.length} {savedShelves.length === 1 ? 'saved shelf' : 'saved shelves'}
+                  </Txt>
+
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: space[2] }}>
+                    <Pressable
+                      accessibilityRole="button"
+                      accessibilityLabel={`Switch to ${viewMode === 'grid' ? 'list' : 'grid'} view`}
+                      onPress={() => {
+                        void Haptics.selectionAsync();
+                        setViewMode((m) => (m === 'grid' ? 'list' : 'grid'));
+                      }}
+                      style={[
+                        styles.viewModeButton,
+                        { backgroundColor: c.surface, borderColor: c.line },
+                      ]}
+                    >
+                      <Ionicons
+                        name={viewMode === 'grid' ? 'list' : 'grid-outline'}
+                        size={15}
+                        color={c.ink}
+                      />
+                    </Pressable>
+                  </View>
+                </View>
+
+                {/* Saved Shelves Grid / List */}
+                {viewMode === 'grid' ? (
+                  <View style={styles.gridContainer}>
+                    {savedShelves.map((shelf) => {
+                      const coverIds = (shelf.cover_ids || []).filter(
+                        (cid): cid is number => cid !== null,
+                      );
+                      const curatorName =
+                        shelf.owner.displayName || shelf.owner.username || 'Curator';
+                      return (
+                        <Pressable
+                          key={shelf.id}
+                          onPress={() => {
+                            void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                            router.push(`/shelf/${shelf.id}` as any);
+                          }}
+                          accessibilityRole="button"
+                          accessibilityLabel={`Saved shelf ${shelf.name} by ${curatorName}, ${shelf.item_count} books`}
+                          style={({ pressed }) => [
+                            styles.gridCard,
+                            {
+                              width: cardWidth,
+                              backgroundColor: c.surface,
+                              borderColor: c.line,
+                              opacity: pressed ? 0.85 : 1,
+                            },
+                          ]}
+                        >
+                          {/* Mosaic Top */}
+                          <View
+                            style={[
+                              styles.gridMosaicContainer,
+                              { backgroundColor: c.surface2, borderColor: c.line },
+                            ]}
+                          >
+                            {coverIds.length >= 4 ? (
+                              <View style={styles.mosaic2x2}>
+                                {coverIds.slice(0, 4).map((cid, i) => (
+                                  <View key={i} style={styles.mosaic2x2Cell}>
+                                    <Cover coverId={cid} size="xs" />
+                                  </View>
+                                ))}
+                              </View>
+                            ) : coverIds.length > 0 ? (
+                              <View style={styles.mosaicSingleOrStack}>
+                                {coverIds.map((cid, i) => (
+                                  <View
+                                    key={i}
+                                    style={{
+                                      marginRight: -space[2],
+                                      zIndex: 10 - i,
+                                      shadowColor: '#000',
+                                      shadowOffset: { width: 0, height: 1 },
+                                      shadowOpacity: 0.15,
+                                      shadowRadius: 2,
+                                    }}
+                                  >
+                                    <Cover coverId={cid} size="s" />
+                                  </View>
+                                ))}
+                              </View>
+                            ) : (
+                              <View style={styles.mosaicEmptyCell}>
+                                <Ionicons name="albums-outline" size={28} color={c.muted} />
+                              </View>
+                            )}
+                          </View>
+
+                          {/* Shelf Details */}
+                          <View style={styles.gridDetails}>
+                            <Txt numberOfLines={2} style={[styles.gridTitle, { color: c.ink }]}>
+                              {shelf.name}
+                            </Txt>
+
+                            {/* Curator attribution */}
+                            <View style={styles.curatorRow}>
+                              <View
+                                style={[
+                                  styles.curatorAvatar,
+                                  { backgroundColor: c.accentSoft },
+                                ]}
+                              >
+                                <Txt
+                                  style={{
+                                    color: c.accent,
+                                    fontSize: 9,
+                                    fontWeight: '700',
+                                  }}
+                                >
+                                  {curatorName.charAt(0).toUpperCase()}
+                                </Txt>
+                              </View>
+                              <Txt
+                                numberOfLines={1}
+                                style={[styles.curatorText, { color: c.muted }]}
+                              >
+                                by <Txt style={{ color: c.ink, fontWeight: '600' }}>{curatorName}</Txt>
+                              </Txt>
+                            </View>
+
+                            <View style={styles.gridMetaRow}>
+                              <Txt style={{ color: c.muted, fontSize: 11 }}>
+                                {shelf.item_count} {shelf.item_count === 1 ? 'book' : 'books'}
+                              </Txt>
+                              {shelf.is_ranked && (
+                                <View style={[styles.rankTag, { backgroundColor: c.accentSoft }]}>
+                                  <Txt
+                                    style={{
+                                      color: c.accent,
+                                      fontSize: 10,
+                                      fontWeight: '700',
+                                    }}
+                                  >
+                                    Ranked
+                                  </Txt>
+                                </View>
+                              )}
+                            </View>
+                          </View>
+                        </Pressable>
+                      );
+                    })}
+                  </View>
+                ) : (
+                  <View style={{ gap: space[3] }}>
+                    {savedShelves.map((shelf) => {
+                      const coverIds = (shelf.cover_ids || []).filter(
+                        (cid): cid is number => cid !== null,
+                      );
+                      const curatorName =
+                        shelf.owner.displayName || shelf.owner.username || 'Curator';
+                      return (
+                        <Card
+                          key={shelf.id}
+                          onPress={() => {
+                            void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                            router.push(`/shelf/${shelf.id}` as any);
+                          }}
+                          style={{ padding: space[3] }}
+                        >
+                          <View style={sheet.rowTop}>
+                            {/* Mosaic preview */}
+                            <View
+                              style={[
+                                styles.listMosaic,
+                                { backgroundColor: c.surface2, borderColor: c.line },
+                              ]}
+                            >
+                              {coverIds.length >= 4 ? (
+                                <View style={styles.listMosaicGrid}>
+                                  {coverIds.slice(0, 4).map((cid, i) => (
+                                    <View key={i} style={styles.listMosaicCell}>
+                                      <Cover coverId={cid} size="xs" />
+                                    </View>
+                                  ))}
+                                </View>
+                              ) : coverIds.length > 0 ? (
+                                <Cover coverId={coverIds[0]} size="s" />
+                              ) : (
+                                <Ionicons name="albums-outline" size={24} color={c.muted} />
+                              )}
+                            </View>
+
+                            {/* Details */}
+                            <View style={{ flex: 1, marginLeft: space[3], gap: 4 }}>
+                              <View style={[sheet.row, { justifyContent: 'space-between' }]}>
+                                <Txt
+                                  numberOfLines={1}
+                                  style={[styles.listTitle, { color: c.ink }]}
+                                >
+                                  {shelf.name}
+                                </Txt>
+                                {shelf.is_ranked && (
+                                  <View
+                                    style={[styles.rankPill, { backgroundColor: c.accentSoft }]}
+                                  >
+                                    <Txt
+                                      style={{ color: c.accent, fontSize: 11, fontWeight: '700' }}
+                                    >
+                                      Ranked
+                                    </Txt>
+                                  </View>
+                                )}
+                              </View>
+
+                              {/* Curator attribution */}
+                              <View style={styles.curatorRow}>
+                                <View
+                                  style={[
+                                    styles.curatorAvatar,
+                                    { backgroundColor: c.accentSoft },
+                                  ]}
+                                >
+                                  <Txt
+                                    style={{
+                                      color: c.accent,
+                                      fontSize: 9,
+                                      fontWeight: '700',
+                                    }}
+                                  >
+                                    {curatorName.charAt(0).toUpperCase()}
+                                  </Txt>
+                                </View>
+                                <Txt
+                                  numberOfLines={1}
+                                  style={[styles.curatorText, { color: c.muted }]}
+                                >
+                                  by <Txt style={{ color: c.ink, fontWeight: '600' }}>{curatorName}</Txt>
+                                </Txt>
+                              </View>
+
+                              {shelf.description ? (
+                                <Txt numberOfLines={2} style={{ color: c.muted, fontSize: 12 }}>
+                                  {shelf.description}
+                                </Txt>
+                              ) : null}
+
+                              <View style={[sheet.row, { gap: space[3], marginTop: 2 }]}>
+                                <Txt style={{ color: c.muted, fontSize: 11 }}>
+                                  {shelf.item_count} {shelf.item_count === 1 ? 'book' : 'books'}
+                                </Txt>
+                                <Txt style={{ color: c.muted, fontSize: 11 }}>
+                                  {shelf.save_count} {shelf.save_count === 1 ? 'save' : 'saves'}
+                                </Txt>
+                              </View>
+                            </View>
+                          </View>
+                        </Card>
+                      );
+                    })}
+                  </View>
+                )}
+              </View>
+            )}
+          </>
         )}
 
         {shelfFilter === 'discover' && (
@@ -916,5 +1267,22 @@ const styles = StyleSheet.create({
     paddingHorizontal: 6,
     paddingVertical: 1,
     borderRadius: radius.pill,
+  },
+  curatorRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    marginVertical: 2,
+  },
+  curatorAvatar: {
+    width: 16,
+    height: 16,
+    borderRadius: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  curatorText: {
+    fontSize: 11,
+    flex: 1,
   },
 });

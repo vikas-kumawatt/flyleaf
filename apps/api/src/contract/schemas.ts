@@ -1508,6 +1508,28 @@ export const reorderShelfResponseSchema = {
   required: ['reordered', 'shelf_id', 'count'],
 } as const;
 
+export const saveShelfResponseSchema = {
+  type: 'object',
+  properties: {
+    saved: { type: 'boolean' },
+    shelf_id: { type: 'string', format: 'uuid' },
+    save_count: { type: 'integer', minimum: 0 },
+  },
+  required: ['saved', 'shelf_id', 'save_count'],
+} as const;
+
+export const savedShelvesResponseSchema = {
+  type: 'object',
+  properties: {
+    shelves: {
+      type: 'array',
+      items: shelfSchema,
+    },
+  },
+  required: ['shelves'],
+} as const;
+
+
 
 
 

@@ -53,6 +53,8 @@ import {
   type UpdateShelfItemRequest,
   type ReorderShelfRequest,
   type ReorderShelfResponse,
+  type SaveShelfResponse,
+  type SavedShelvesResponse,
 } from '@flyleaf/api-client';
 
 export type {
@@ -84,6 +86,8 @@ export type {
   UpdateShelfItemRequest,
   ReorderShelfRequest,
   ReorderShelfResponse,
+  SaveShelfResponse,
+  SavedShelvesResponse,
   Edition,
   EditionDetail,
   EditionLookupResponse,
@@ -447,6 +451,9 @@ export const api = {
   updateShelfItem: (shelfId: string, workId: string, data: UpdateShelfItemRequest) =>
     client.updateShelfItem(shelfId, workId, data),
   reorderShelf: (id: string, data: ReorderShelfRequest) => client.reorderShelf(id, data),
+  saveShelf: (id: string) => client.saveShelf(id),
+  unsaveShelf: (id: string) => client.unsaveShelf(id),
+  getSavedShelves: () => client.getSavedShelves(),
 };
 
 export interface AuthorDetail {

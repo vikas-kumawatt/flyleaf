@@ -453,8 +453,32 @@
     - Preserved guest mode device shelf (20-book Want-to-Read cap) with contextual auth prompt.
   - Helpers & Starter Definitions (`apps/mobile/src/lib/shelfValidation.ts`):
     - Exported `StarterShelfSuggestion` interface, `STARTER_SHELVES` constant, and `sortShelves<T>()` sorting helper.
-  - Unit tests: 25 tests in `apps/mobile/src/lib/__tests__/shelves.test.ts` (77 mobile tests passing). CI pipeline 100% green.
-- [ ] SH-07 Save someone's shelf (reference, stays in sync) — 0.5d
+- [x] SH-07 Save someone's shelf (reference, stays in sync) — 0.5d
+  - Backend endpoints & reference semantics (`apps/api/src/shelves/index.ts`):
+    - `POST /v1/shelves/:id/save`: Idempotently saves another reader's shelf as a reference record in `shelf_saves(shelf_id, user_id)` (PRD §6.34, §15.6). Rejects self-saves with HTTP 400 (`cannot_save_own_shelf`). Unauthorized viewing returns HTTP 404 to prevent resource enumeration.
+    - `DELETE /v1/shelves/:id/save`: Un-saves shelf from caller's library and decrements counter.
+    - `GET /v1/shelves/saved`: Lists all shelves saved by authenticated viewer with owner details, joined 4-cover previews, and dynamic book counts.
+    - Dynamic Sync: Because saves reference the original `shelves.id` directly rather than cloning records, all additions, removals, notes, and reorderings by the curator reflect immediately for all savers with zero sync lag.
+    - Database trigger `shelf_saves_counter_trigger` maintains atomic `shelves.save_count` on INSERT/DELETE.
+  - OpenAPI & Typed Client:
+    - Added `saveShelfResponseSchema` and `savedShelvesResponseSchema` to `apps/api/src/contract/schemas.ts`. Zero contract drift verified (`npm run spec:check`).
+    - Added `SaveShelfResponse` and `SavedShelvesResponse` in `packages/api-client/src/types.ts`.
+    - Added `saveShelf`, `unsaveShelf`, and `getSavedShelves` in `packages/api-client/src/client.ts`. Re-exported in `apps/mobile/src/lib/api.ts`.
+  - Mobile UI Integration:
+    - Shelf Detail Screen (`apps/mobile/app/shelf/[id].tsx`):
+      - Wired "Save Shelf" / "Saved to Library" primary button to live `api.saveShelf` and `api.unsaveShelf` endpoints.
+      - Optimistic UI updates with haptics (`Haptics.ImpactFeedbackStyle.Medium`) and automatic rollback with alert on failure.
+      - Telemetry events emitted: `shelf_saved` and `shelf_unsaved`.
+    - Shelves Screen (`apps/mobile/app/(tabs)/shelves.tsx`):
+      - Live **Saved** tab wired to `api.getSavedShelves()`.
+      - Responsive 2-column mosaic grid with 4-cover preview cards, curator attribution (`by @username`), book count, and rank badges.
+      - Grid vs List display toggle support.
+      - Guest state with contextual auth prompt to save shelves.
+      - Empty state when no shelves have been saved yet.
+      - Auto-fetch on tab select, screen focus (`useFocusEffect`), and pull-to-refresh (`RefreshControl`).
+  - Verification:
+    - Comprehensive backend integration tests in `apps/api/src/test/shelves.test.ts` (unauthenticated rejection, self-save prohibition, private shelf isolation, idempotency, counter trigger, dynamic book sync verification).
+    - 444 API tests passing, 77 mobile tests passing. Full 9-step CI pipeline green.
 - [ ] SH-08 Browse public shelves; ranking formula — 1.5d
 - [ ] SH-09 Shelf privacy on every read path + tests — 1d
 - [ ] SH-10 Share a shelf — 1d
