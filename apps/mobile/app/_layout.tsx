@@ -73,6 +73,8 @@ function Nav() {
         <Stack.Screen name="stats" options={{ presentation: 'card', headerShown: false }} />
         <Stack.Screen name="stats/[id]" options={{ presentation: 'card', headerShown: false }} />
         <Stack.Screen name="profile/favourites" options={{ presentation: 'modal', headerShown: false }} />
+        <Stack.Screen name="shelf/create" options={{ presentation: 'modal', headerShown: false }} />
+        <Stack.Screen name="shelf/[id]/edit" options={{ presentation: 'modal', headerShown: false }} />
         <Stack.Screen name="user/[id]" options={{ presentation: 'card', headerShown: false }} />
       </Stack>
     </View>

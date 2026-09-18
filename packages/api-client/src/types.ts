@@ -693,5 +693,55 @@ export interface BudgetMetricsResponse {
   finish_flow_abandoned: AbandonmentBudgetMetric;
 }
 
+// ---------------------------------------------------------------- Shelves (SH-01, SH-02)
+
+export type ShelfPrivacy = 'public' | 'followers' | 'private';
+
+export interface ShelfOwner {
+  id: string;
+  username: string;
+  displayName: string | null;
+  avatarKey: string | null;
+}
+
+export interface Shelf {
+  id: string;
+  user_id: string;
+  name: string;
+  slug: string;
+  description: string | null;
+  is_ranked: boolean;
+  privacy: ShelfPrivacy;
+  cover_work_ids: string[];
+  item_count: number;
+  save_count: number;
+  created_at: string;
+  owner: ShelfOwner;
+}
+
+export interface ShelfResponse {
+  shelf: Shelf;
+}
+
+export interface CreateShelfRequest {
+  name: string;
+  description?: string | null;
+  is_ranked?: boolean;
+  privacy?: ShelfPrivacy;
+}
+
+export interface UpdateShelfRequest {
+  name?: string;
+  description?: string | null;
+  is_ranked?: boolean;
+  privacy?: ShelfPrivacy;
+}
+
+export interface DeleteShelfResponse {
+  deleted: boolean;
+  id: string;
+}
+
+
 
 

@@ -4,7 +4,7 @@ A reading tracker. Log what you read, rate it in half-stars, see it on a profile
 
 **Stack:** TypeScript · Node 22 · Fastify 5 · Drizzle · Postgres 18 · pg-boss · Expo SDK 57 · React Native 0.86 · expo-sqlite. Full locked stack in [`docs/architecture.md`](docs/architecture.md) §0.
 
-**Where it is:** Phase 0 (Foundation) and **Phase 1 (Solo loop)** are **100% complete**. All exit criteria met: 3.2M books findable, relevance panel at 99.5%, cross-user authorization suite green, two books tracked end-to-end on phone, finish budget p75 < 20s, offline verified with SQLite mutation queue and crash/restart recovery, a11y pass on core flows, 422 API tests + 52 mobile tests passing, migrations clean on real Postgres, 0 OpenAPI contract drift. Currently in **Phase 2 (Shelves & lists)** — `SH-01` (shelves + shelf_items migrations and triggers) is complete. Live state is always [`docs/tasks.md`](docs/tasks.md).
+**Where it is:** Phase 0 (Foundation) and **Phase 1 (Solo loop)** are **100% complete**. All exit criteria met: 3.2M books findable, relevance panel at 99.5%, cross-user authorization suite green, two books tracked end-to-end on phone, finish budget p75 < 20s, offline verified with SQLite mutation queue and crash/restart recovery, a11y pass on core flows, 434 API tests + 61 mobile tests passing, migrations clean on real Postgres, 0 OpenAPI contract drift. Currently in **Phase 2 (Shelves & lists)** — `SH-01` (shelves + shelf_items migrations and triggers) and `SH-02` (create/edit shelf: name, description, privacy, ranked toggle, soft delete) are complete. Live state is always [`docs/tasks.md`](docs/tasks.md).
 
 ## The documents
 
@@ -50,7 +50,7 @@ sign up / guest  →  search 3.2M books / barcode scan  →  book detail & editi
 
 **Telemetry & Budgets:** Built-in instrumentation for PRD §4.4 interaction budgets (finish p75 < 20s, progress p75 < 5s, book shelved <= 2 taps, log sheet p75 < 15s, abandonment < 8%) and Sentry integration with sensitive context redaction.
 
-**Shelves Foundation (SH-01):** `shelves`, `shelf_items`, and `shelf_saves` tables with check constraints, denormalized counters (`item_count`, `save_count`, 4-cover mosaic), and a nightly reconciliation worker job.
+**Shelves & Lists (SH-01, SH-02):** `shelves`, `shelf_items`, and `shelf_saves` tables with check constraints, denormalized counters (`item_count`, `save_count`, 4-cover mosaic), nightly reconciliation worker job, per-user unique slugs with auto-disambiguation, strict 3-tier privacy (public, followers, private) returning 404 on access denial, 30-day soft delete, and mobile create/edit screens with ranked warning.
 
 Behind it: the full Open Library catalog, ISBN lookup, dedupe pipeline, a background worker, and CI that runs everything below on every push.
 
@@ -420,11 +420,14 @@ flyleaf/
     │   ├── log.tsx             Update progress sheet (slider, quick increments)
     │   ├── diary.tsx           Chronological reading diary
     │   ├── wall.tsx            Visual cover mosaic wall
-    │   └── stats.tsx           Reading velocity and annual statistics
-    ├── src/
-    │   ├── offline/            db.ts, schema.ts, queue.ts, repository.ts (SQLite mirror & FIFO queue)
-    │   ├── lib/                api client, guest mode, budgets, velocity, sentry
-    │   └── ui/                 tokens, typography, buttons, covers, error boundary
+    │   ├── stats.tsx           Reading velocity and annual statistics
+    │   ├── shelf/
+    │   │   ├── create.tsx      Create shelf (name, description, privacy, ranked toggle)
+    │   │   └── [id]/edit.tsx   Edit shelf (ranked warning, 30-day soft delete)
+    │   └── src/
+    │       ├── offline/            db.ts, schema.ts, queue.ts, repository.ts (SQLite mirror & FIFO queue)
+    │       ├── lib/                api client, guest mode, budgets, velocity, sentry
+    │       └── ui/                 tokens, typography, buttons, covers, error boundary
     └── eas.json                development · preview · production profiles
 ```
 
@@ -465,6 +468,10 @@ flyleaf/
 | GET | `/users/{id}/reviews` | **yes** |
 | POST | `/events` | **yes** |
 | GET | `/admin/telemetry/budgets` | moderator+ |
+| POST | `/shelves` | no |
+| GET | `/shelves/{id}` | **yes** |
+| PATCH | `/shelves/{id}` | no |
+| DELETE | `/shelves/{id}` | no |
 
 ### Admin API (prefixed `/admin`)
 

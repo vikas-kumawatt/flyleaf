@@ -394,7 +394,14 @@
   - Denormalized counter triggers: `update_shelf_item_count_and_covers()` maintaining `item_count` and up to 4-cover mosaic `cover_work_ids`, and `update_shelf_save_count()` maintaining `save_count`.
   - Nightly reconciliation procedure `reconcile_shelf_counters()` and scheduled background job `QUEUES.reconcileShelves` (`shelves.reconcile`) in `apps/api/src/jobs/index.ts`.
   - 11 database tests in `apps/api/src/test/shelves-migration.test.ts` and 2 background job tests in `apps/api/src/test/jobs.test.ts`. 100% green CI pipeline on real PostgreSQL.
-- [ ] SH-02 Create/edit: name, description, privacy, ranked toggle — 1d
+- [x] **SH-02** Create/edit: name, description, privacy, ranked toggle — 1d
+  - Backend `ShelvesService` (`create`, `get`, `update`, `delete`, `generateUniqueSlug`) and Fastify route plugin registered at `/v1/shelves`.
+  - Enforced per-user unique URL slugs with collision disambiguation (`slug`, `slug-1`, `slug-2`) per PRD §15.2.
+  - Strict privacy authorization using centralized `canView()` matrix (public, followers-only, private) with 404 returned on denial to prevent shelf enumeration.
+  - 30-day soft deletion lifecycle (`deleted_at`) hiding deleted shelves from readers.
+  - Full OpenAPI contract synchronization with schemas in `apps/api/src/contract/schemas.ts`, updated `openapi.yaml` (0 drift), and typed client methods in `@flyleaf/api-client` (`createShelf`, `getShelf`, `updateShelf`, `deleteShelf`).
+  - Native mobile screens in `apps/mobile/app/shelf/create.tsx` and `apps/mobile/app/shelf/[id]/edit.tsx` with name (1–60 chars), description (<= 2000 chars), privacy radio picker, ranked toggle with warning confirmation on unranking, and 30-day soft deletion flow.
+  - Comprehensive test suite: 12 tests in `apps/api/src/test/shelves.test.ts` and 9 validation unit tests in `apps/mobile/src/lib/__tests__/shelves.test.ts`. CI pipeline 100% green.
 - [ ] SH-03 Shelf detail: ranked numbering, per-entry notes, mosaic cover — 1.5d
 - [ ] SH-04 Add-to-shelf from book page, search, long-press — 1d
 - [ ] SH-05 Reorder: drag + **"move to position" alternative** — 1d

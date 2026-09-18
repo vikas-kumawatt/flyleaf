@@ -1,0 +1,378 @@
+// Tests for Shelves API & Service (SH-01, SH-02).
+// Governed by:
+//   - PRD §6.35 (Create / edit shelf)
+//   - PRD §15.2–15.6 (Constraints, privacy, unique slug per user, soft delete)
+//   - Architecture §4 (Authorization, 404 for forbidden access)
+
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import type { FastifyInstance } from 'fastify';
+import { freshDrizzle } from './pg.js';
+import { buildApp } from '../app.js';
+import { users, profiles, follows, shelves } from '../db/schema.js';
+import type { Db } from '../platform/index.js';
+
+let app: FastifyInstance;
+let db: Db;
+
+const USER_ALICE = '11111111-1111-1111-1111-111111111111';
+const USER_BOB = '22222222-2222-2222-2222-222222222222';
+const USER_CHARLIE = '33333333-3333-3333-3333-333333333333';
+
+function authHeader(userId: string) {
+  return { authorization: `Bearer test-token-${userId}` };
+}
+
+beforeAll(async () => {
+  const context = await freshDrizzle();
+  db = context.db;
+
+  // Insert mock users
+  await db.insert(users).values([
+    { id: USER_ALICE, email: 'alice@flyleaf.test', passwordHash: 'hash', dateOfBirth: '2000-01-01' },
+    { id: USER_BOB, email: 'bob@flyleaf.test', passwordHash: 'hash', dateOfBirth: '2000-01-01' },
+    { id: USER_CHARLIE, email: 'charlie@flyleaf.test', passwordHash: 'hash', dateOfBirth: '2000-01-01' },
+  ]);
+
+  await db.insert(profiles).values([
+    { userId: USER_ALICE, username: 'alice', displayName: 'Alice' },
+    { userId: USER_BOB, username: 'bob', displayName: 'Bob' },
+    { userId: USER_CHARLIE, username: 'charlie', displayName: 'Charlie' },
+  ]);
+
+  // Bob follows Alice (accepted)
+  await db.insert(follows).values([
+    { followerId: USER_BOB, followeeId: USER_ALICE, state: 'accepted' },
+  ]);
+
+  // Mock identity lookup for test tokens
+  const identityMock = {
+    lookup: async (token: string) => {
+      if (token.startsWith('test-token-')) {
+        return token.replace('test-token-', '');
+      }
+      return null;
+    },
+  } as any;
+
+  app = await buildApp({
+    db,
+    identity: identityMock,
+  });
+});
+
+afterAll(async () => {
+  await app.close();
+});
+
+describe('SH-02: POST /v1/shelves (Create Shelf)', () => {
+  it('creates a shelf with name, description, privacy, and ranked toggle', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v1/shelves',
+      headers: authHeader(USER_ALICE),
+      payload: {
+        name: 'Top 10 Sci-Fi Novels',
+        description: 'My curated ranking of sci-fi masterpieces.',
+        is_ranked: true,
+        privacy: 'public',
+      },
+    });
+
+    expect(res.statusCode).toBe(201);
+    const body = res.json();
+    expect(body.shelf).toMatchObject({
+      user_id: USER_ALICE,
+      name: 'Top 10 Sci-Fi Novels',
+      slug: 'top-10-sci-fi-novels',
+      description: 'My curated ranking of sci-fi masterpieces.',
+      is_ranked: true,
+      privacy: 'public',
+      item_count: 0,
+      save_count: 0,
+      owner: {
+        id: USER_ALICE,
+        username: 'alice',
+      },
+    });
+    expect(body.shelf.id).toBeTruthy();
+    expect(body.shelf.cover_work_ids).toEqual([]);
+  });
+
+  it('rejects unauthenticated requests with 401', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v1/shelves',
+      payload: { name: 'Anonymous Shelf' },
+    });
+    expect(res.statusCode).toBe(401);
+  });
+
+  it('validates name constraints (empty or > 60 chars)', async () => {
+    const resEmpty = await app.inject({
+      method: 'POST',
+      url: '/v1/shelves',
+      headers: authHeader(USER_ALICE),
+      payload: { name: '   ' },
+    });
+    expect(resEmpty.statusCode).toBe(400);
+
+    const resLong = await app.inject({
+      method: 'POST',
+      url: '/v1/shelves',
+      headers: authHeader(USER_ALICE),
+      payload: { name: 'A'.repeat(61) },
+    });
+    expect(resLong.statusCode).toBe(422);
+  });
+
+  it('validates privacy enum', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v1/shelves',
+      headers: authHeader(USER_ALICE),
+      payload: { name: 'Bad Privacy', privacy: 'secret' },
+    });
+    expect(res.statusCode).toBe(422);
+  });
+
+  it('disambiguates duplicate slugs for the same user', async () => {
+    // First shelf
+    const res1 = await app.inject({
+      method: 'POST',
+      url: '/v1/shelves',
+      headers: authHeader(USER_ALICE),
+      payload: { name: 'Best Fantasy' },
+    });
+    expect(res1.statusCode).toBe(201);
+    expect(res1.json().shelf.slug).toBe('best-fantasy');
+
+    // Second shelf with same name by Alice
+    const res2 = await app.inject({
+      method: 'POST',
+      url: '/v1/shelves',
+      headers: authHeader(USER_ALICE),
+      payload: { name: 'Best Fantasy' },
+    });
+    expect(res2.statusCode).toBe(201);
+    expect(res2.json().shelf.slug).toBe('best-fantasy-1');
+
+    // Third shelf with same name by Alice
+    const res3 = await app.inject({
+      method: 'POST',
+      url: '/v1/shelves',
+      headers: authHeader(USER_ALICE),
+      payload: { name: 'Best Fantasy' },
+    });
+    expect(res3.statusCode).toBe(201);
+    expect(res3.json().shelf.slug).toBe('best-fantasy-2');
+
+    // Bob can use 'best-fantasy' without collision
+    const resBob = await app.inject({
+      method: 'POST',
+      url: '/v1/shelves',
+      headers: authHeader(USER_BOB),
+      payload: { name: 'Best Fantasy' },
+    });
+    expect(resBob.statusCode).toBe(201);
+    expect(resBob.json().shelf.slug).toBe('best-fantasy');
+  });
+});
+
+describe('SH-02: GET /v1/shelves/:id (Read Shelf & Authorization)', () => {
+  let publicShelfId: string;
+  let followersShelfId: string;
+  let privateShelfId: string;
+
+  beforeAll(async () => {
+    // Create shelves for Alice
+    const pRes = await app.inject({
+      method: 'POST',
+      url: '/v1/shelves',
+      headers: authHeader(USER_ALICE),
+      payload: { name: 'Alice Public', privacy: 'public' },
+    });
+    publicShelfId = pRes.json().shelf.id;
+
+    const fRes = await app.inject({
+      method: 'POST',
+      url: '/v1/shelves',
+      headers: authHeader(USER_ALICE),
+      payload: { name: 'Alice Followers', privacy: 'followers' },
+    });
+    followersShelfId = fRes.json().shelf.id;
+
+    const prRes = await app.inject({
+      method: 'POST',
+      url: '/v1/shelves',
+      headers: authHeader(USER_ALICE),
+      payload: { name: 'Alice Private', privacy: 'private' },
+    });
+    privateShelfId = prRes.json().shelf.id;
+  });
+
+  it('allows public shelves to be viewed by guest and any user', async () => {
+    // Guest (no token)
+    const resGuest = await app.inject({
+      method: 'GET',
+      url: `/v1/shelves/${publicShelfId}`,
+    });
+    expect(resGuest.statusCode).toBe(200);
+    expect(resGuest.json().shelf.name).toBe('Alice Public');
+
+    // Other user (Charlie)
+    const resCharlie = await app.inject({
+      method: 'GET',
+      url: `/v1/shelves/${publicShelfId}`,
+      headers: authHeader(USER_CHARLIE),
+    });
+    expect(resCharlie.statusCode).toBe(200);
+  });
+
+  it('enforces followers-only privacy (Bob can view, Charlie/Guest cannot)', async () => {
+    // Bob is an accepted follower of Alice
+    const resBob = await app.inject({
+      method: 'GET',
+      url: `/v1/shelves/${followersShelfId}`,
+      headers: authHeader(USER_BOB),
+    });
+    expect(resBob.statusCode).toBe(200);
+
+    // Charlie is not a follower -> 404 (never 403)
+    const resCharlie = await app.inject({
+      method: 'GET',
+      url: `/v1/shelves/${followersShelfId}`,
+      headers: authHeader(USER_CHARLIE),
+    });
+    expect(resCharlie.statusCode).toBe(404);
+
+    // Guest -> 404
+    const resGuest = await app.inject({
+      method: 'GET',
+      url: `/v1/shelves/${followersShelfId}`,
+    });
+    expect(resGuest.statusCode).toBe(404);
+  });
+
+  it('enforces private privacy (Alice can view, others get 404)', async () => {
+    // Alice (owner) can view
+    const resAlice = await app.inject({
+      method: 'GET',
+      url: `/v1/shelves/${privateShelfId}`,
+      headers: authHeader(USER_ALICE),
+    });
+    expect(resAlice.statusCode).toBe(200);
+
+    // Bob receives 404
+    const resBob = await app.inject({
+      method: 'GET',
+      url: `/v1/shelves/${privateShelfId}`,
+      headers: authHeader(USER_BOB),
+    });
+    expect(resBob.statusCode).toBe(404);
+
+    // Guest receives 404
+    const resGuest = await app.inject({
+      method: 'GET',
+      url: `/v1/shelves/${privateShelfId}`,
+    });
+    expect(resGuest.statusCode).toBe(404);
+  });
+});
+
+describe('SH-02: PATCH /v1/shelves/:id (Update Shelf)', () => {
+  it('allows owner to update name, description, privacy, and is_ranked', async () => {
+    // Create shelf
+    const createRes = await app.inject({
+      method: 'POST',
+      url: '/v1/shelves',
+      headers: authHeader(USER_ALICE),
+      payload: { name: 'Initial Shelf Name', is_ranked: false, privacy: 'public' },
+    });
+    const shelfId = createRes.json().shelf.id;
+
+    // Update
+    const patchRes = await app.inject({
+      method: 'PATCH',
+      url: `/v1/shelves/${shelfId}`,
+      headers: authHeader(USER_ALICE),
+      payload: {
+        name: 'Updated Shelf Name',
+        description: 'New description text',
+        is_ranked: true,
+        privacy: 'followers',
+      },
+    });
+
+    expect(patchRes.statusCode).toBe(200);
+    const updated = patchRes.json().shelf;
+    expect(updated.name).toBe('Updated Shelf Name');
+    expect(updated.slug).toBe('updated-shelf-name');
+    expect(updated.description).toBe('New description text');
+    expect(updated.is_ranked).toBe(true);
+    expect(updated.privacy).toBe('followers');
+  });
+
+  it('forbids non-owner from updating shelf (returns 404)', async () => {
+    const createRes = await app.inject({
+      method: 'POST',
+      url: '/v1/shelves',
+      headers: authHeader(USER_ALICE),
+      payload: { name: 'Alice Protected Shelf' },
+    });
+    const shelfId = createRes.json().shelf.id;
+
+    const patchRes = await app.inject({
+      method: 'PATCH',
+      url: `/v1/shelves/${shelfId}`,
+      headers: authHeader(USER_BOB),
+      payload: { name: 'Hacked by Bob' },
+    });
+    expect(patchRes.statusCode).toBe(404);
+  });
+});
+
+describe('SH-02: DELETE /v1/shelves/:id (Soft Delete)', () => {
+  it('allows owner to soft-delete shelf and hides it from readers', async () => {
+    const createRes = await app.inject({
+      method: 'POST',
+      url: '/v1/shelves',
+      headers: authHeader(USER_ALICE),
+      payload: { name: 'Shelf to Delete', privacy: 'public' },
+    });
+    const shelfId = createRes.json().shelf.id;
+
+    // Delete shelf
+    const delRes = await app.inject({
+      method: 'DELETE',
+      url: `/v1/shelves/${shelfId}`,
+      headers: authHeader(USER_ALICE),
+    });
+    expect(delRes.statusCode).toBe(200);
+    expect(delRes.json()).toEqual({ deleted: true, id: shelfId });
+
+    // Non-owner and guests now receive 404
+    const getRes = await app.inject({
+      method: 'GET',
+      url: `/v1/shelves/${shelfId}`,
+      headers: authHeader(USER_BOB),
+    });
+    expect(getRes.statusCode).toBe(404);
+  });
+
+  it('forbids non-owner from deleting shelf', async () => {
+    const createRes = await app.inject({
+      method: 'POST',
+      url: '/v1/shelves',
+      headers: authHeader(USER_ALICE),
+      payload: { name: 'Alice Shelf Cannot Delete' },
+    });
+    const shelfId = createRes.json().shelf.id;
+
+    const delRes = await app.inject({
+      method: 'DELETE',
+      url: `/v1/shelves/${shelfId}`,
+      headers: authHeader(USER_CHARLIE),
+    });
+    expect(delRes.statusCode).toBe(404);
+  });
+});

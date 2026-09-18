@@ -36,6 +36,13 @@ import {
   type TelemetryEvent,
   type PostEventsResponse,
   type BudgetMetricsResponse,
+  type Shelf,
+  type ShelfOwner,
+  type ShelfPrivacy,
+  type CreateShelfRequest,
+  type UpdateShelfRequest,
+  type ShelfResponse,
+  type DeleteShelfResponse,
 } from '@flyleaf/api-client';
 
 export type {
@@ -50,6 +57,13 @@ export type {
   TelemetryEvent,
   PostEventsResponse,
   BudgetMetricsResponse,
+  Shelf,
+  ShelfOwner,
+  ShelfPrivacy,
+  CreateShelfRequest,
+  UpdateShelfRequest,
+  ShelfResponse,
+  DeleteShelfResponse,
   Edition,
   EditionDetail,
   EditionLookupResponse,
@@ -399,6 +413,12 @@ export const api = {
 
   postEvents: (events: TelemetryEvent[]) => client.postEvents(events),
   getBudgetMetrics: () => client.getBudgetMetrics(),
+
+  // Shelves (SH-01, SH-02)
+  createShelf: (data: CreateShelfRequest) => client.createShelf(data),
+  getShelf: (id: string) => client.getShelf(id),
+  updateShelf: (id: string, data: UpdateShelfRequest) => client.updateShelf(id, data),
+  deleteShelf: (id: string) => client.deleteShelf(id),
 };
 
 export interface AuthorDetail {

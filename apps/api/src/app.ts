@@ -25,6 +25,7 @@ import { adminCatalogRoutes } from './admin/catalog-routes.js';
 import { verifyAdminToken } from './admin/auth.js';
 import { telemetryRoutes } from './telemetry/index.js';
 import { captureApiException } from './telemetry/sentry.js';
+import { shelvesPlugin } from './shelves/index.js';
 
 export interface CoreHookOptions {
   identityLookup?: (token: string) => Promise<string | null>;
@@ -208,6 +209,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
     await app.register(adminDedupeRoutes(options.db));
     await app.register(adminCatalogRoutes(options.db));
     await app.register(telemetryRoutes(options.db));
+    await app.register(shelvesPlugin, { prefix: '/v1', db: options.db });
   }
 
   return app;

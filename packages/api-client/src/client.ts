@@ -61,6 +61,11 @@ import type {
   UpsertReadRequest,
   User,
   VerifyEmailRequest,
+  Shelf,
+  ShelfResponse,
+  CreateShelfRequest,
+  UpdateShelfRequest,
+  DeleteShelfResponse,
   Work,
   WorkReviewsQuery,
   WorkReviewsResponse,
@@ -530,6 +535,34 @@ export class FlyleafClient {
   async getBudgetMetrics(): Promise<BudgetMetricsResponse> {
     return this.request<BudgetMetricsResponse>('/admin/telemetry/budgets', {
       method: 'GET',
+    });
+  }
+
+  // ---------------------------------------------------------------- Shelves (SH-01, SH-02)
+
+  async createShelf(data: CreateShelfRequest): Promise<ShelfResponse> {
+    return this.request<ShelfResponse>('/shelves', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async getShelf(id: string): Promise<ShelfResponse> {
+    return this.request<ShelfResponse>(`/shelves/${encodeURIComponent(id)}`, {
+      method: 'GET',
+    });
+  }
+
+  async updateShelf(id: string, data: UpdateShelfRequest): Promise<ShelfResponse> {
+    return this.request<ShelfResponse>(`/shelves/${encodeURIComponent(id)}`, {
+      method: 'PATCH',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async deleteShelf(id: string): Promise<DeleteShelfResponse> {
+    return this.request<DeleteShelfResponse>(`/shelves/${encodeURIComponent(id)}`, {
+      method: 'DELETE',
     });
   }
 }

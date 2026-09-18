@@ -1241,6 +1241,94 @@ export const budgetMetricsResponseSchema = {
   ],
 } as const;
 
+// ---------------------------------------------------------------- shelves (SH-01, SH-02)
+
+export const shelfPrivacyEnum = ['public', 'followers', 'private'] as const;
+
+export const shelfOwnerSchema = {
+  type: 'object',
+  properties: {
+    id: { type: 'string', format: 'uuid' },
+    username: { type: 'string' },
+    displayName: { type: ['string', 'null'] },
+    avatarKey: { type: ['string', 'null'] },
+  },
+  required: ['id', 'username'],
+} as const;
+
+export const shelfSchema = {
+  type: 'object',
+  properties: {
+    id: { type: 'string', format: 'uuid' },
+    user_id: { type: 'string', format: 'uuid' },
+    name: { type: 'string' },
+    slug: { type: 'string' },
+    description: { type: ['string', 'null'] },
+    is_ranked: { type: 'boolean' },
+    privacy: { type: 'string', enum: shelfPrivacyEnum },
+    cover_work_ids: {
+      type: 'array',
+      items: { type: 'string', format: 'uuid' },
+    },
+    item_count: { type: 'integer' },
+    save_count: { type: 'integer' },
+    created_at: { type: 'string', format: 'date-time' },
+    owner: shelfOwnerSchema,
+  },
+  required: [
+    'id',
+    'user_id',
+    'name',
+    'slug',
+    'is_ranked',
+    'privacy',
+    'cover_work_ids',
+    'item_count',
+    'save_count',
+    'created_at',
+    'owner',
+  ],
+} as const;
+
+export const createShelfBodySchema = {
+  type: 'object',
+  properties: {
+    name: { type: 'string', minLength: 1, maxLength: 60 },
+    description: { type: ['string', 'null'], maxLength: 2000 },
+    is_ranked: { type: 'boolean' },
+    privacy: { type: 'string', enum: shelfPrivacyEnum },
+  },
+  required: ['name'],
+} as const;
+
+export const updateShelfBodySchema = {
+  type: 'object',
+  properties: {
+    name: { type: 'string', minLength: 1, maxLength: 60 },
+    description: { type: ['string', 'null'], maxLength: 2000 },
+    is_ranked: { type: 'boolean' },
+    privacy: { type: 'string', enum: shelfPrivacyEnum },
+  },
+} as const;
+
+export const shelfResponseSchema = {
+  type: 'object',
+  properties: {
+    shelf: shelfSchema,
+  },
+  required: ['shelf'],
+} as const;
+
+export const deleteShelfResponseSchema = {
+  type: 'object',
+  properties: {
+    deleted: { type: 'boolean', enum: [true] },
+    id: { type: 'string', format: 'uuid' },
+  },
+  required: ['deleted', 'id'],
+} as const;
+
+
 
 
 
