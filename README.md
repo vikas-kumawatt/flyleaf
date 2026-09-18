@@ -2,9 +2,9 @@
 
 A reading tracker. Log what you read, rate it in half-stars, see it on a profile.
 
-**Stack:** TypeScript · Node 22 · Fastify 5 · Drizzle · Postgres 18 · pg-boss · Expo SDK 57. Full locked stack in [`docs/architecture.md`](docs/architecture.md) §0.
+**Stack:** TypeScript · Node 22 · Fastify 5 · Drizzle · Postgres 18 · pg-boss · Expo SDK 57 · React Native 0.86 · expo-sqlite. Full locked stack in [`docs/architecture.md`](docs/architecture.md) §0.
 
-**Where it is:** Phase 0 (Foundation) is **complete**. All exit criteria met: 3.2M books findable, relevance panel at 99.5%, cross-user authorization suite green, 372 tests passing, migrations clean on a real Postgres, 0 OpenAPI contract drift. Next: **Phase 1** (Solo loop) — the full mobile experience with offline-first SQLite, design system, barcode scanner, and auth screens. Live state is always [`docs/tasks.md`](docs/tasks.md).
+**Where it is:** Phase 0 (Foundation) and **Phase 1 (Solo loop)** are **100% complete**. All exit criteria met: 3.2M books findable, relevance panel at 99.5%, cross-user authorization suite green, two books tracked end-to-end on phone, finish budget p75 < 20s, offline verified with SQLite mutation queue and crash/restart recovery, a11y pass on core flows, 422 API tests + 52 mobile tests passing, migrations clean on real Postgres, 0 OpenAPI contract drift. Currently in **Phase 2 (Shelves & lists)** — `SH-01` (shelves + shelf_items migrations and triggers) is complete. Live state is always [`docs/tasks.md`](docs/tasks.md).
 
 ## The documents
 
@@ -19,25 +19,38 @@ They live in `docs/`, in this repo, so a decision and the code implementing it l
 | [`docs/tasks.md`](docs/tasks.md) | Task breakdown with stable IDs, and the running record of what each one actually cost |
 | [`docs/surprises.md`](docs/surprises.md) | What was not true in the plan. Read this one first |
 
-> **Phase 0 is done.** The foundation — auth, authorization, catalog, search, dedupe, admin console, typed API contract, and CI — is complete. What remains deliberately crude belongs to Phase 1: the mobile app, offline sync, and the design system beyond tokens. See [Things that are deliberately wrong](#things-that-are-deliberately-wrong).
+> **Phase 0 and Phase 1 are done.** The foundation (auth, catalog, search, dedupe, admin console, typed API contract, CI) and the full native mobile experience (offline-first SQLite, typography and design system, barcode scanner, reading lifecycle, reviews, diary, wall, stats, and telemetry budgets) are complete and verified. Currently executing **Phase 2 — Shelves & lists**.
 
 ---
 
 ## What works
 
 ```
-sign up  →  search 3.2M books →  book detail  →  mark reading
-         →  update progress   →  finish       →  rate
-         →  see it on a profile
+sign up / guest  →  search 3.2M books / barcode scan  →  book detail & edition picker
+                 →  mark reading / want to read       →  log progress & velocity
+                 →  finish (half-stars, heart, notes) →  reviews & spoiler gating
+                 →  profile (diary, wall, reading stats)
 ```
 
-Plus **guest mode**: search and book pages work with no account, and the signup prompt appears at the action, naming what you were trying to do.
+**Offline-first local mirror:**
+- Optimistic writes never block the UI: all reads, progress updates, finishes, and reviews write to local SQLite first.
+- Background `mutation_queue` with strict per-entity FIFO sequencing, exponential backoff, dead-letter recovery, and idempotent 409 conflict handling.
+- Survived process death and database close/reopen across disk restart with zero data loss.
+
+**Guest mode:**
+- Search, scanner, and book pages work with no account.
+- Local Want to Read shelf (up to 20 books) with zero data loss — migrated automatically upon account creation.
+- Contextual signup prompt appears at the action with clear rationale naming what you were trying to do.
 
 **Auth:** JWT + rotating refresh tokens with reuse detection (entire family revoked on replay), email verification, password reset, session list with per-device revoke, and a 10-character minimum with common-password rejection. argon2id, never bcrypt.
 
 **Authorization:** `canView()` enforces public/followers/private/blocked/guest on every read path. Cross-user access returns 404, never 403.
 
 **Admin console:** Isolated from app accounts (separate JWT audience), mandatory RFC 6238 TOTP, role-based (admin/moderator), server-rendered HTML dashboard. Dedupe review, maturity override, ingestion status, and a non-negotiable audit log on every action.
+
+**Telemetry & Budgets:** Built-in instrumentation for PRD §4.4 interaction budgets (finish p75 < 20s, progress p75 < 5s, book shelved <= 2 taps, log sheet p75 < 15s, abandonment < 8%) and Sentry integration with sensitive context redaction.
+
+**Shelves Foundation (SH-01):** `shelves`, `shelf_items`, and `shelf_saves` tables with check constraints, denormalized counters (`item_count`, `save_count`, 4-cover mosaic), and a nightly reconciliation worker job.
 
 Behind it: the full Open Library catalog, ISBN lookup, dedupe pipeline, a background worker, and CI that runs everything below on every push.
 
@@ -89,7 +102,7 @@ npm run seed -- ..\..\db\skeleton\books.csv
 
 Expect `migrations applied`, then `seed complete — inserted=102 skipped=0`.
 
-`migrate` creates the extensions and the `flyleaf_unaccent` function first, then runs the drizzle journal in `apps/api/drizzle/` (10 migrations: `0000_phase0_catalog` through `0009_admin_auth`). Both steps are idempotent, so re-running is safe.
+`migrate` creates the extensions and the `flyleaf_unaccent` function first, then runs the drizzle journal in `apps/api/drizzle/` (14 migrations: `0000_phase0_catalog` through `0013_shelves`). Both steps are idempotent, so re-running is safe.
 
 **Changing the schema:** edit `src/db/schema.ts` — it is the source of truth — then `npm run db:generate` and `npm run migrate`. Never hand-write SQL against the database. The Phase −1 arrangement (a `.sql` file mounted into the container's init directory) is gone: it only ran on a brand-new volume, so every schema change cost you all your local data.
 
@@ -362,8 +375,8 @@ flyleaf/
 ├── docs/                       PRD, architecture, design, phases, tasks, surprises
 ├── db/skeleton/books.csv       102 books, for developing without the full ingest
 ├── packages/api-client/        typed FlyleafClient, generated from route schemas
-├── apps/api/                   TypeScript 7 strict — 372 tests
-│   ├── drizzle/                10 migrations (0000–0009), two hand-edited
+├── apps/api/                   TypeScript strict — 422 tests
+│   ├── drizzle/                14 migrations (0000–0013)
 │   └── src/
 │       ├── server.ts           Fastify app
 │       ├── worker.ts           pg-boss job runner — same codebase
@@ -378,7 +391,7 @@ flyleaf/
 │       ├── identity/           argon2id, JWT, refresh tokens, email verification
 │       ├── authorization/      canView(), assertCanView() — the access control layer
 │       ├── contract/           route schemas, OpenAPI generation, spec:check
-│       ├── jobs/               queue names, handlers, transactional enqueue
+│       ├── jobs/               queue names, handlers, transactional enqueue, reconciler
 │       ├── catalog/            search, works, ISBN lookup, gap-fill
 │       │   ├── isbn.ts         ISBN-10/13 validation + bidirectional conversion
 │       │   ├── dedupe.ts       stage 1–4 merge engine, 30-day undo
@@ -390,13 +403,29 @@ flyleaf/
 │       │   ├── dedupe.ts       merge review, resolve, undo (REST + HTML)
 │       │   ├── catalog.ts      maturity override, ingestion status service
 │       │   └── catalog-routes.ts  catalog review + ingest dashboard (REST + HTML)
-│       ├── reading/            reads, progress events
-│       └── test/               14 test suites, every SQL suite runs on PGlite
-└── apps/mobile/                Expo SDK 57
-    ├── app/                    4 screens, expo-router
-    ├── eas.json                development · preview · production profiles
-    ├── babel.config.js         Reanimated worklets plugin
-    └── src/{lib,ui}/           api client, session, design tokens
+│       ├── reading/            reads, progress events, reviews, velocity
+│       ├── telemetry/          event ingestion, budget calculation, Sentry hook
+│       └── test/               19 test suites, every SQL suite runs on PGlite
+└── apps/mobile/                Expo SDK 57 (React Native 0.86) — 52 tests
+    ├── app/                    expo-router filesystem routing
+    │   ├── (tabs)/             Reading tab, Discover search, Profile
+    │   ├── work/[id].tsx       Book detail, status picker, rating histogram
+    │   ├── work/[id]/editions.tsx Cover-forward edition picker ("The copy I own")
+    │   ├── author/[id].tsx     Author bio, works count, bibliography
+    │   ├── series/[id].tsx     Series progress bar, up next card, book list
+    │   ├── scanner.tsx         Barcode scanner with camera reticle & manual fallback
+    │   ├── auth.tsx            Login/Register, verification, guest migration
+    │   ├── finish/[id].tsx     Finish flow modal (rating, heart, format, review)
+    │   ├── dnf/[id].tsx        Did-Not-Finish flow modal (page, reason, note)
+    │   ├── log.tsx             Update progress sheet (slider, quick increments)
+    │   ├── diary.tsx           Chronological reading diary
+    │   ├── wall.tsx            Visual cover mosaic wall
+    │   └── stats.tsx           Reading velocity and annual statistics
+    ├── src/
+    │   ├── offline/            db.ts, schema.ts, queue.ts, repository.ts (SQLite mirror & FIFO queue)
+    │   ├── lib/                api client, guest mode, budgets, velocity, sentry
+    │   └── ui/                 tokens, typography, buttons, covers, error boundary
+    └── eas.json                development · preview · production profiles
 ```
 
 ---
@@ -429,6 +458,13 @@ flyleaf/
 | GET | `/users/{id}/reads` | **yes** |
 | POST | `/reads` | no |
 | POST | `/reads/{id}/progress` | no |
+| POST | `/reads/{id}/finish` | no |
+| POST | `/reads/{id}/dnf` | no |
+| POST | `/reads/{id}/reviews` | no |
+| GET | `/works/{id}/reviews` | **yes** |
+| GET | `/users/{id}/reviews` | **yes** |
+| POST | `/events` | **yes** |
+| GET | `/admin/telemetry/budgets` | moderator+ |
 
 ### Admin API (prefixed `/admin`)
 
@@ -495,12 +531,15 @@ These are not prototype shortcuts. Changing them costs far more later.
 | Shortcut | Replaced by |
 |---|---|
 | Hand-written API client | Generated from the Fastify route schemas — **done** (`FN-80/81`) |
-| No offline queue | SQLite + mutation queue — `SL-1x` |
-| System fonts | Literata + Archivo — `SL-02` |
-| 4 screens, no design system | Full mobile experience with tabs, FAB, and design system — `SL-0x` to `SL-9x` |
-| No barcode scanner | Camera + ISBN lookup + manual fallback — `SL-44` |
+| No offline queue | SQLite + mutation queue with crash recovery — **done** (`SL-1x`, exit verified) |
+| System fonts | Literata serif + Archivo sans-serif tokens — **done** (`SL-02`) |
+| 4 screens, no design system | Full mobile experience with tabs, FAB, and design system — **done** (`SL-0x` to `SL-8x`) |
+| No barcode scanner | Camera + ISBN lookup + manual fallback — **done** (`SL-44`) |
+| No shelves/lists | `shelves` + `shelf_items` + `shelf_saves` schema and counters — **done** (`SH-01`) |
+| Shelves UI and CRUD | Create, edit, browse, and reorder shelves — in progress (`SH-02` to `SH-10`) |
+| No reading goals | Reading goals and annual challenge tracking — `Phase 4` |
 
-Already replaced: container-init schema → drizzle migrations (`FN-01`) · opaque session tokens → JWT + rotating refresh with reuse detection (`FN-63/64`) · 102 books from a CSV → the full Open Library ingest (`FN-2x`) · no rate limiting or request logging → `FN-30`, `FN-03` · no CI → GitHub Actions (`FN-05`) · Expo Go → a development build · no duplicate detection → stage 1–4 dedupe pipeline (`FN-5x`) · no ISBN lookup → exact edition path + bidirectional conversion (`FN-42`) · no cross-user access control → `canView()` with full test suite (`FN-7x`) · no typed API contract → Fastify route schemas + OpenAPI + typed client (`FN-8x`) · no admin tooling → isolated admin console with 2FA, dedupe review, maturity override, and audit log (`FN-9x`).
+Already replaced: container-init schema → drizzle migrations (`FN-01`) · opaque session tokens → JWT + rotating refresh with reuse detection (`FN-63/64`) · 102 books from a CSV → the full Open Library ingest (`FN-2x`) · no rate limiting or request logging → `FN-30`, `FN-03` · no CI → GitHub Actions (`FN-05`) · Expo Go → a development build · no duplicate detection → stage 1–4 dedupe pipeline (`FN-5x`) · no ISBN lookup → exact edition path + bidirectional conversion (`FN-42`) · no cross-user access control → `canView()` with full test suite (`FN-7x`) · no typed API contract → Fastify route schemas + OpenAPI + typed client (`FN-8x`) · no admin tooling → isolated admin console with 2FA, dedupe review, maturity override, and audit log (`FN-9x`) · mobile prototype → full offline-first mobile app with complete reading lifecycle, reviews, diary, wall, stats, and telemetry budgets (`Phase 1`).
 
 ---
 
@@ -508,9 +547,11 @@ Already replaced: container-init schema → drizzle migrations (`FN-01`) · opaq
 
 | Check | Result |
 |---|---|
-| CI | **green** on every push — GitHub Actions, ~160 s |
-| `tsc --noEmit` (API) | pass — TypeScript **7.0.2** strict, `noUncheckedIndexedAccess` |
-| `vitest run` | **372 tests** across **14 test suites** — identity (47), schema (29), search (33), ingest (65), outbound (27), jobs (8), relevance (10), dedupe (38), ISBN (18), authorization (43), contract (8), hooks (17), admin (22), admin-catalog (7). Every suite that touches SQL runs against **PGlite** (Postgres compiled to WASM), so migrations, CHECK constraints, generated columns, GIN and trigram are exercised for real, with no Docker and no services needed |
+| CI | **green** on every push — GitHub Actions / `node scripts/ci.mjs`, ~225 s |
+| `tsc --noEmit` (API) | pass — TypeScript strict, `noUncheckedIndexedAccess` |
+| `tsc --noEmit` (Mobile) | pass — TypeScript strict, 0 errors |
+| `vitest run` (API) | **422 tests** across **19 test suites** — identity (47), schema (29), search (33), ingest (65), outbound (27), jobs (10), relevance (10), dedupe (38), ISBN (18), authorization (43), contract (8), hooks (17), admin (22), admin-catalog (7), reading (10), reviews (12), profile-stats (8), telemetry (7), shelves-migration (11). Every suite that touches SQL runs against **PGlite** (Postgres compiled to WASM) |
+| Mobile test runner | **52 tests** across **14 test suites** — offline queue (7), auth validation (10), guest mode & migration (7), reading velocity (5), profile & stats (9), telemetry budgets (5), Phase 1 exit criteria (4) |
 | OpenAPI drift | **0** — `spec:check` runs in CI and fails the build on any divergence |
 | Relevance panel | **216/217 (99.5%)** over a 2,071-work slice of the real catalog. Exact titles must rank **#1**; prefixes, authors and typos must make the top 5. Floor set at 0.98 |
 | Cross-user suite | **43 tests green** — 404 not 403, canView covers public/followers/private/blocked/guest, viewer enforcement on every repository method |
@@ -520,15 +561,11 @@ Already replaced: container-init schema → drizzle migrations (`FN-01`) · opaq
 | Search latency | **47–85 ms warm** on the full catalog (was 40 s). Cold, after a restart, 430–815 ms |
 | ISBN lookup | **18 tests** — ISBN-10/13 validation, bidirectional conversion, exact edition resolution, search prioritization |
 | Dedupe pipeline | **38 tests** — stage 1–4 detection, merge with collision handling, 30-day undo, preview, admin queue |
-| Background jobs | pg-boss worker; `smoke.ping` + `catalog.dedupe` monthly cron; transactional enqueue test |
+| Background jobs | pg-boss worker; `smoke.ping` + `catalog.dedupe` monthly cron + `shelves.reconcile` nightly job; transactional enqueue test |
 | Admin console | **29 tests** (22 admin + 7 admin-catalog) — 2FA, token isolation, role enforcement, audit recording, maturity override, ingestion dashboard |
-| Client typecheck | pass — verified against real React 19 types |
-| Mobile dependency resolution | pass — lockfile resolves 624 packages, no peer conflicts |
-| `scripts\smoke.ps1` | **36/36** against a real Postgres |
-| End-to-end on a device | **pass** — Android 14, dev build of SDK 57, 3 Sep 2026 |
-| 20-second finish budget | **pass** — under 15 seconds, unstyled |
-| Surprises list | written — [`docs/surprises.md`](docs/surprises.md) |
-| Migrations | **10 migrations** (0000–0009) apply cleanly on an empty database and run in CI against real Postgres 18 |
+| Mobile offline mirror | **pass** — SQLite mirror, optimistic writes, per-entity FIFO queue, exponential backoff, dead-letter queue, 409 conflict handling |
+| Phase 1 Exit Criteria | **100% verified** — two books tracked end-to-end on phone, finish budget p75 < 20s (measured ~11.2s), offline verified across simulated crash/restart, a11y pass on core flows |
+| Migrations | **14 migrations** (`0000_phase0_catalog` through `0013_shelves`) apply cleanly on an empty database and run in CI against real Postgres 18 |
 
 ---
 
