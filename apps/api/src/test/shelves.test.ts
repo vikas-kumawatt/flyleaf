@@ -20,6 +20,7 @@ const USER_CHARLIE = '33333333-3333-3333-3333-333333333333';
 
 const WORK_1 = '44444444-4444-4444-4444-444444444441';
 const WORK_2 = '44444444-4444-4444-4444-444444444442';
+const WORK_3 = '44444444-4444-4444-4444-444444444443';
 const AUTHOR_1 = '55555555-5555-5555-5555-555555555551';
 
 function authHeader(userId: string) {
@@ -56,11 +57,13 @@ beforeAll(async () => {
   await db.insert(works).values([
     { id: WORK_1, title: 'The Left Hand of Darkness', olCoverId: 1001, logCount: 50 },
     { id: WORK_2, title: 'The Dispossessed', olCoverId: 1002, logCount: 35 },
+    { id: WORK_3, title: 'A Wizard of Earthsea', olCoverId: 1003, logCount: 40 },
   ]);
 
   await db.insert(workAuthors).values([
     { workId: WORK_1, authorId: AUTHOR_1, position: 1 },
     { workId: WORK_2, authorId: AUTHOR_1, position: 1 },
+    { workId: WORK_3, authorId: AUTHOR_1, position: 1 },
   ]);
 
   // Mock identity lookup for test tokens
@@ -740,5 +743,99 @@ describe('SH-03: Shelf Detail & Items (GET /v1/shelves/:id/items, POST /v1/shelv
       payload: { note: 'A'.repeat(281) },
     });
     expect(longNoteRes.statusCode).toBe(422);
+  });
+
+  it('reorders shelf items via PUT /v1/shelves/:id/order and updates mosaic covers (SH-05)', async () => {
+    // Alice creates a shelf with 3 works: WORK_1, WORK_2, WORK_3
+    const shelfRes = await app.inject({
+      method: 'POST',
+      url: '/v1/shelves',
+      headers: authHeader(USER_ALICE),
+      payload: { name: 'Reorderable Sci-Fi', is_ranked: true, privacy: 'public' },
+    });
+    const shelfId = shelfRes.json().shelf.id;
+
+    // Add WORK_1, WORK_2, WORK_3
+    await app.inject({
+      method: 'POST',
+      url: `/v1/shelves/${shelfId}/items`,
+      headers: authHeader(USER_ALICE),
+      payload: { work_id: WORK_1, position: 1 },
+    });
+    await app.inject({
+      method: 'POST',
+      url: `/v1/shelves/${shelfId}/items`,
+      headers: authHeader(USER_ALICE),
+      payload: { work_id: WORK_2, position: 2 },
+    });
+    await app.inject({
+      method: 'POST',
+      url: `/v1/shelves/${shelfId}/items`,
+      headers: authHeader(USER_ALICE),
+      payload: { work_id: WORK_3, position: 3 },
+    });
+
+    // Verify initial covers: [1001, 1002, 1003]
+    const initialShelf = await app.inject({
+      method: 'GET',
+      url: `/v1/shelves/${shelfId}`,
+      headers: authHeader(USER_ALICE),
+    });
+    expect(initialShelf.json().shelf.cover_ids).toEqual([1001, 1002, 1003]);
+
+    // Bob tries to reorder -> 404 (non-owner)
+    const bobReorder = await app.inject({
+      method: 'PUT',
+      url: `/v1/shelves/${shelfId}/order`,
+      headers: authHeader(USER_BOB),
+      payload: { work_ids: [WORK_3, WORK_1, WORK_2] },
+    });
+    expect(bobReorder.statusCode).toBe(404);
+
+    // Reorder with duplicates -> 400
+    const dupReorder = await app.inject({
+      method: 'PUT',
+      url: `/v1/shelves/${shelfId}/order`,
+      headers: authHeader(USER_ALICE),
+      payload: { work_ids: [WORK_3, WORK_3, WORK_1] },
+    });
+    expect(dupReorder.statusCode).toBe(400);
+
+    // Alice reorders: WORK_3, WORK_1, WORK_2
+    const aliceReorder = await app.inject({
+      method: 'PUT',
+      url: `/v1/shelves/${shelfId}/order`,
+      headers: authHeader(USER_ALICE),
+      payload: { work_ids: [WORK_3, WORK_1, WORK_2] },
+    });
+    expect(aliceReorder.statusCode).toBe(200);
+    expect(aliceReorder.json()).toEqual({
+      reordered: true,
+      shelf_id: shelfId,
+      count: 3,
+    });
+
+    // Check items returned in new order
+    const itemsRes = await app.inject({
+      method: 'GET',
+      url: `/v1/shelves/${shelfId}/items`,
+      headers: authHeader(USER_ALICE),
+    });
+    const items = itemsRes.json().data;
+    expect(items).toHaveLength(3);
+    expect(items[0].work_id).toBe(WORK_3);
+    expect(items[0].position).toBe(1);
+    expect(items[1].work_id).toBe(WORK_1);
+    expect(items[1].position).toBe(2);
+    expect(items[2].work_id).toBe(WORK_2);
+    expect(items[2].position).toBe(3);
+
+    // Verify cover_ids updated to match new positions: [1003, 1001, 1002]
+    const updatedShelf = await app.inject({
+      method: 'GET',
+      url: `/v1/shelves/${shelfId}`,
+      headers: authHeader(USER_ALICE),
+    });
+    expect(updatedShelf.json().shelf.cover_ids).toEqual([1003, 1001, 1002]);
   });
 });

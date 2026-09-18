@@ -72,6 +72,8 @@ import type {
   MyShelvesResponse,
   DeleteShelfItemResponse,
   UpdateShelfItemRequest,
+  ReorderShelfRequest,
+  ReorderShelfResponse,
   Work,
   WorkReviewsQuery,
   WorkReviewsResponse,
@@ -622,6 +624,13 @@ export class FlyleafClient {
         body: JSON.stringify(data),
       },
     );
+  }
+
+  async reorderShelf(id: string, data: ReorderShelfRequest): Promise<ReorderShelfResponse> {
+    return this.request<ReorderShelfResponse>(`/shelves/${encodeURIComponent(id)}/order`, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    });
   }
 }
 

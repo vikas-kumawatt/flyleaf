@@ -20,7 +20,7 @@ import {
   Alert,
   RefreshControl,
 } from 'react-native';
-import { useLocalSearchParams, useRouter } from 'expo-router';
+import { useLocalSearchParams, useRouter, useFocusEffect } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
@@ -73,9 +73,11 @@ export default function ShelfDetailScreen() {
     }
   }, [id, user?.id, router]);
 
-  useEffect(() => {
-    loadData();
-  }, [loadData]);
+  useFocusEffect(
+    useCallback(() => {
+      void loadData();
+    }, [loadData]),
+  );
 
   const onRefresh = () => {
     setRefreshing(true);
@@ -298,12 +300,22 @@ export default function ShelfDetailScreen() {
                 style={{ flex: 1 }}
               />
             ) : (
-              <Button
-                variant="secondary"
-                label="Edit Shelf"
-                onPress={() => router.push(`/shelf/${shelf.id}/edit` as any)}
-                style={{ flex: 1 }}
-              />
+              <View style={{ flex: 1, flexDirection: 'row', gap: space[2] }}>
+                <Button
+                  variant="secondary"
+                  label="Edit Shelf"
+                  onPress={() => router.push(`/shelf/${shelf.id}/edit` as any)}
+                  style={{ flex: 1 }}
+                />
+                {items.length >= 2 && (
+                  <Button
+                    variant="outline"
+                    label="Reorder"
+                    onPress={() => router.push(`/shelf/${shelf.id}/reorder` as any)}
+                    style={{ paddingHorizontal: space[3] }}
+                  />
+                )}
+              </View>
             )}
             <Button
               variant="outline"
@@ -318,9 +330,23 @@ export default function ShelfDetailScreen() {
         <View style={styles.itemsSection}>
           <View style={styles.sectionHeader}>
             <Txt style={[styles.sectionTitle, { color: c.ink }]}>Books on this shelf</Txt>
-            <Txt style={{ color: c.muted, fontSize: 13 }}>
-              {items.length} of {shelf.item_count}
-            </Txt>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: space[3] }}>
+              {isOwner && items.length >= 2 && (
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel="Reorder books"
+                  hitSlop={8}
+                  onPress={() => router.push(`/shelf/${shelf.id}/reorder` as any)}
+                  style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}
+                >
+                  <Ionicons name="swap-vertical" size={14} color={c.accent} />
+                  <Txt style={{ color: c.accent, fontSize: 13, fontWeight: '600' }}>Reorder</Txt>
+                </Pressable>
+              )}
+              <Txt style={{ color: c.muted, fontSize: 13 }}>
+                {items.length} of {shelf.item_count}
+              </Txt>
+            </View>
           </View>
 
           {items.length === 0 ? (

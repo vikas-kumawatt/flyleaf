@@ -7964,6 +7964,153 @@ paths:
                       - message
                 required:
                   - error
+  /shelves/{id}/order:
+    put:
+      summary: Reorder shelf items
+      tags:
+        - Shelves
+      description: Updates sequential positions for items in a shelf. Only the shelf
+        owner can reorder items (SH-05).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                work_ids:
+                  type: array
+                  items:
+                    type: string
+                    format: uuid
+                  minItems: 1
+              required:
+                - work_ids
+      parameters:
+        - schema:
+            type: string
+            format: uuid
+          in: path
+          name: id
+          required: true
+          description: Resource UUID
+      responses:
+        "200":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  reordered:
+                    type: boolean
+                    enum:
+                      - true
+                  shelf_id:
+                    type: string
+                    format: uuid
+                  count:
+                    type: integer
+                required:
+                  - reordered
+                  - shelf_id
+                  - count
+        "400":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      code:
+                        type: string
+                        description: Machine-readable error code
+                      message:
+                        type: string
+                        description: Human-readable error description
+                      field:
+                        type: string
+                        description: Invalid field name if applicable
+                    required:
+                      - code
+                      - message
+                required:
+                  - error
+        "401":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      code:
+                        type: string
+                        description: Machine-readable error code
+                      message:
+                        type: string
+                        description: Human-readable error description
+                      field:
+                        type: string
+                        description: Invalid field name if applicable
+                    required:
+                      - code
+                      - message
+                required:
+                  - error
+        "404":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      code:
+                        type: string
+                        description: Machine-readable error code
+                      message:
+                        type: string
+                        description: Human-readable error description
+                      field:
+                        type: string
+                        description: Invalid field name if applicable
+                    required:
+                      - code
+                      - message
+                required:
+                  - error
+        "422":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      code:
+                        type: string
+                        description: Machine-readable error code
+                      message:
+                        type: string
+                        description: Human-readable error description
+                      field:
+                        type: string
+                        description: Invalid field name if applicable
+                    required:
+                      - code
+                      - message
+                required:
+                  - error
   /healthz:
     get:
       summary: Liveness probe

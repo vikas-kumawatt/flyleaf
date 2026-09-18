@@ -1486,6 +1486,28 @@ export const updateShelfItemBodySchema = {
   },
 } as const;
 
+export const reorderShelfBodySchema = {
+  type: 'object',
+  properties: {
+    work_ids: {
+      type: 'array',
+      items: { type: 'string', format: 'uuid' },
+      minItems: 1,
+    },
+  },
+  required: ['work_ids'],
+} as const;
+
+export const reorderShelfResponseSchema = {
+  type: 'object',
+  properties: {
+    reordered: { type: 'boolean', enum: [true] },
+    shelf_id: { type: 'string', format: 'uuid' },
+    count: { type: 'integer' },
+  },
+  required: ['reordered', 'shelf_id', 'count'],
+} as const;
+
 
 
 

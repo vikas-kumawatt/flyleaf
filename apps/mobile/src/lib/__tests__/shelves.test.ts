@@ -1,6 +1,13 @@
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
-import { validateShelfForm, validateShelfNote, formatShelfRank, validateShelfName } from '../shelfValidation.js';
+import {
+  validateShelfForm,
+  validateShelfNote,
+  formatShelfRank,
+  validateShelfName,
+  moveItemInArray,
+  repositionItem,
+} from '../shelfValidation.js';
 
 describe('Shelf Form Validation (SH-02)', () => {
   test('accepts valid shelf details', () => {
@@ -141,4 +148,59 @@ describe('Add-to-Shelf & Shelf Name Helpers (SH-04)', () => {
     assert.equal(removedShelves[1]!.item_count, 2);
   });
 });
+
+describe('Shelf Reordering Helpers (SH-05, PRD §6.36, §46.2)', () => {
+  test('moveItemInArray moves an item forward', () => {
+    const list = ['A', 'B', 'C', 'D'];
+    const result = moveItemInArray(list, 0, 2);
+    assert.deepEqual(result, ['B', 'C', 'A', 'D']);
+  });
+
+  test('moveItemInArray moves an item backward', () => {
+    const list = ['A', 'B', 'C', 'D'];
+    const result = moveItemInArray(list, 3, 1);
+    assert.deepEqual(result, ['A', 'D', 'B', 'C']);
+  });
+
+  test('moveItemInArray handles no-op when fromIndex equals toIndex', () => {
+    const list = ['A', 'B', 'C'];
+    const result = moveItemInArray(list, 1, 1);
+    assert.deepEqual(result, ['A', 'B', 'C']);
+  });
+
+  test('moveItemInArray gracefully returns shallow copy on out-of-bounds', () => {
+    const list = ['A', 'B', 'C'];
+    assert.deepEqual(moveItemInArray(list, -1, 1), ['A', 'B', 'C']);
+    assert.deepEqual(moveItemInArray(list, 0, 10), ['A', 'B', 'C']);
+    assert.deepEqual(moveItemInArray(list, 5, 0), ['A', 'B', 'C']);
+  });
+
+  test('repositionItem moves item to 1-indexed target position', () => {
+    const list = ['First', 'Second', 'Third', 'Fourth'];
+    // Move 'First' (idx 0) to position #3
+    const res1 = repositionItem(list, 0, 3);
+    assert.deepEqual(res1, ['Second', 'Third', 'First', 'Fourth']);
+
+    // Move 'Fourth' (idx 3) to position #1
+    const res2 = repositionItem(list, 3, 1);
+    assert.deepEqual(res2, ['Fourth', 'First', 'Second', 'Third']);
+  });
+
+  test('repositionItem clamps target position within [1, list.length]', () => {
+    const list = ['A', 'B', 'C'];
+    // Target position 0 or negative clamps to 1
+    assert.deepEqual(repositionItem(list, 2, 0), ['C', 'A', 'B']);
+    assert.deepEqual(repositionItem(list, 2, -5), ['C', 'A', 'B']);
+
+    // Target position beyond length clamps to last position
+    assert.deepEqual(repositionItem(list, 0, 99), ['B', 'C', 'A']);
+  });
+
+  test('repositionItem handles edge cases like empty array or invalid index', () => {
+    assert.deepEqual(repositionItem([], 0, 1), []);
+    assert.deepEqual(repositionItem(['A', 'B'], -1, 1), ['A', 'B']);
+    assert.deepEqual(repositionItem(['A', 'B'], 5, 1), ['A', 'B']);
+  });
+});
+
 

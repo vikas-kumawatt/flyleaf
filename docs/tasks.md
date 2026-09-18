@@ -427,7 +427,16 @@
     - Discover search results (`apps/mobile/app/(tabs)/discover.tsx`): `onLongPress` gesture on book cards and bookmark shortcut button.
     - `Card` component (`apps/mobile/src/ui/components.tsx`): `onLongPress` prop support.
   - Comprehensive test suite: 20 tests in `apps/api/src/test/shelves.test.ts` (442 API tests passing) and 14 tests in `apps/mobile/src/lib/__tests__/shelves.test.ts` (66 mobile tests passing). CI pipeline 100% green.
-- [ ] SH-05 Reorder: drag + **"move to position" alternative** — 1d
+- [x] SH-05 Reorder: drag + **"move to position" alternative** — 1d
+  - Backend API: `PUT /v1/shelves/:id/order` taking `{ work_ids: string[] }`, updating `shelf_items.position` sequentially (1..N) within a single transaction, rejecting duplicate work IDs (400), strictly enforcing owner authorization (404 on non-owner/missing), and triggering DB triggers to recompute `cover_work_ids` (4-cover mosaic).
+  - Schema & Typed Client: Added `reorderShelfBodySchema` and `reorderShelfResponseSchema` in Fastify contract, regenerated `openapi.yaml` (0 contract drift verified), and exposed `client.reorderShelf(id, { work_ids })` in `@flyleaf/api-client`.
+  - Mobile Reorder UI & Helpers:
+    - Array manipulation helpers: `moveItemInArray<T>` and `repositionItem<T>` (1-indexed clamped position) in `apps/mobile/src/lib/shelfValidation.ts`.
+    - Dedicated screen: `apps/mobile/app/shelf/[id]/reorder.tsx` featuring rank badges (`#1..#N`), book covers, step Up/Down buttons, pan drag handle with light haptics, and an accessible "Move to Position" modal dialog (PRD §6.36, §46.2, `design.md` §256) with numeric input and quick jump buttons (`Top #1`, `Middle #mid`, `Bottom #N`).
+    - Save flow: calls `api.reorderShelf`, records telemetry `track('shelf_reordered', { shelf_id, count })`, triggers success haptics, and prompts confirmation before discarding unsaved edits.
+    - Owner trigger: "Reorder" button on `apps/mobile/app/shelf/[id].tsx` in action row and section header when `item_count >= 2`, auto-reloading shelf data via `useFocusEffect` upon returning.
+    - Stack route registered in `apps/mobile/app/_layout.tsx`.
+  - Comprehensive test suite: 21 tests in `apps/api/src/test/shelves.test.ts` (443 API tests passing) and 21 tests in `apps/mobile/src/lib/__tests__/shelves.test.ts` (73 mobile tests passing). CI pipeline 100% green.
 - [ ] SH-06 My shelves grid; three starter suggestions on empty — 1d
 - [ ] SH-07 Save someone's shelf (reference, stays in sync) — 0.5d
 - [ ] SH-08 Browse public shelves; ranking formula — 1.5d

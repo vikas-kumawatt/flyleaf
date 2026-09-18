@@ -71,3 +71,39 @@ export function validateShelfName(name?: string | null): { isValid: boolean; err
   return { isValid: true };
 }
 
+/**
+ * Moves an item within an array from fromIndex to toIndex (0-indexed).
+ * Returns a new array. If indices are out of bounds or identical, returns a shallow copy.
+ */
+export function moveItemInArray<T>(list: T[], fromIndex: number, toIndex: number): T[] {
+  if (
+    fromIndex === toIndex ||
+    fromIndex < 0 ||
+    fromIndex >= list.length ||
+    toIndex < 0 ||
+    toIndex >= list.length
+  ) {
+    return [...list];
+  }
+  const next = [...list];
+  const [item] = next.splice(fromIndex, 1);
+  if (item !== undefined) {
+    next.splice(toIndex, 0, item);
+  }
+  return next;
+}
+
+/**
+ * Moves an item at fromIndex (0-indexed) to a target 1-indexed position (1..N).
+ * The target position is clamped between 1 and list.length.
+ */
+export function repositionItem<T>(list: T[], fromIndex: number, targetPosition: number): T[] {
+  if (!list.length || fromIndex < 0 || fromIndex >= list.length) {
+    return [...list];
+  }
+  const clampedPosition = Math.max(1, Math.min(list.length, Math.floor(targetPosition)));
+  const toIndex = clampedPosition - 1;
+  return moveItemInArray(list, fromIndex, toIndex);
+}
+
+

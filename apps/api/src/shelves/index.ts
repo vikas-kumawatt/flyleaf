@@ -42,6 +42,8 @@ import {
   shelfItemParamSchema,
   deleteShelfItemResponseSchema,
   updateShelfItemBodySchema,
+  reorderShelfBodySchema,
+  reorderShelfResponseSchema,
 } from '../contract/schemas.js';
 
 export interface ShelfOwner {
@@ -697,6 +699,41 @@ export class ShelvesService {
     return item;
   }
 
+  async reorder(
+    viewer: string,
+    shelfId: string,
+    workIds: string[],
+  ): Promise<{ reordered: true; shelf_id: string; count: number }> {
+    const [shelf] = await this.db
+      .select({ id: shelves.id, userId: shelves.userId })
+      .from(shelves)
+      .where(and(eq(shelves.id, shelfId), sql`${shelves.deletedAt} IS NULL`))
+      .limit(1);
+
+    if (!shelf || shelf.userId !== viewer) {
+      throw ApiError.notFound('Shelf not found.');
+    }
+
+    const uniqueIds = new Set(workIds);
+    if (uniqueIds.size !== workIds.length) {
+      throw new ApiError(400, 'duplicate_work_ids', 'work_ids array cannot contain duplicate IDs.', 'work_ids');
+    }
+
+    await this.db.transaction(async (tx) => {
+      for (let i = 0; i < workIds.length; i++) {
+        const wid = workIds[i];
+        if (wid) {
+          await tx
+            .update(shelfItems)
+            .set({ position: i + 1 })
+            .where(and(eq(shelfItems.shelfId, shelfId), eq(shelfItems.workId, wid)));
+        }
+      }
+    });
+
+    return { reordered: true, shelf_id: shelfId, count: workIds.length };
+  }
+
   private async getOwnerProfile(userId: string): Promise<ShelfOwner> {
     const [row] = await this.db
       .select({
@@ -965,6 +1002,33 @@ export const shelvesPlugin: FastifyPluginAsync<{ db: Db }> = async (fastify, opt
       const { id, workId } = request.params as { id: string; workId: string };
       const item = await service.updateItem(viewer, id, workId, request.body as UpdateShelfItemInput);
       return reply.send({ item });
+    },
+  );
+
+  fastify.put(
+    '/shelves/:id/order',
+    {
+      schema: {
+        tags: ['Shelves'],
+        summary: 'Reorder shelf items',
+        description: 'Updates sequential positions for items in a shelf. Only the shelf owner can reorder items (SH-05).',
+        params: idParamSchema,
+        body: reorderShelfBodySchema,
+        response: {
+          200: reorderShelfResponseSchema,
+          400: errorResponseSchema,
+          401: errorResponseSchema,
+          404: errorResponseSchema,
+          422: errorResponseSchema,
+        },
+      },
+    },
+    async (request, reply) => {
+      const viewer = requireViewer(request);
+      const { id } = request.params as { id: string };
+      const { work_ids } = request.body as { work_ids: string[] };
+      const result = await service.reorder(viewer, id, work_ids);
+      return reply.send(result);
     },
   );
 };

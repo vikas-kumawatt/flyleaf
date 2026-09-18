@@ -76,6 +76,7 @@ function Nav() {
         <Stack.Screen name="shelf/[id]" options={{ presentation: 'card', headerShown: false }} />
         <Stack.Screen name="shelf/create" options={{ presentation: 'modal', headerShown: false }} />
         <Stack.Screen name="shelf/[id]/edit" options={{ presentation: 'modal', headerShown: false }} />
+        <Stack.Screen name="shelf/[id]/reorder" options={{ presentation: 'modal', headerShown: false }} />
         <Stack.Screen name="user/[id]" options={{ presentation: 'card', headerShown: false }} />
       </Stack>
     </View>

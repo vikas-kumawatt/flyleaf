@@ -804,6 +804,16 @@ export interface UpdateShelfItemRequest {
   position?: number;
 }
 
+export interface ReorderShelfRequest {
+  work_ids: string[];
+}
+
+export interface ReorderShelfResponse {
+  reordered: boolean;
+  shelf_id: string;
+  count: number;
+}
+
 
 
 
