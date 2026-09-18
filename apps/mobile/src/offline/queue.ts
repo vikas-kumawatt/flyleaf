@@ -138,7 +138,7 @@ export class MutationQueue {
    * Flushes eligible mutations with per-entity FIFO ordering.
    * Independent entities can process in parallel.
    */
-  async flush(): Promise<{ processed: number; succeeded: number; failed: number }> {
+  async flush(force = false): Promise<{ processed: number; succeeded: number; failed: number }> {
     if (this.processing || !this.handler) {
       return { processed: 0, succeeded: 0, failed: 0 };
     }
@@ -150,10 +150,12 @@ export class MutationQueue {
     try {
       const now = new Date().toISOString();
       const eligible = await this.db.getAll<QueuedMutation>(
-        `SELECT * FROM mutation_queue
-         WHERE status = 'pending' AND (next_retry_at IS NULL OR next_retry_at <= ?)
-         ORDER BY created_at ASC`,
-        [now],
+        force
+          ? `SELECT * FROM mutation_queue WHERE status = 'pending' ORDER BY created_at ASC`
+          : `SELECT * FROM mutation_queue
+             WHERE status = 'pending' AND (next_retry_at IS NULL OR next_retry_at <= ?)
+             ORDER BY created_at ASC`,
+        force ? [] : [now],
       );
 
       if (eligible.length === 0) {

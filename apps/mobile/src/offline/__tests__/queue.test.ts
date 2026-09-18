@@ -20,49 +20,8 @@ import { SCHEMA_SQL, type QueuedMutation, type LocalRead } from '../schema';
 import { MutationQueue, type MutationHandler } from '../queue';
 import { FlyleafApiError } from '@flyleaf/api-client';
 
-export class NodeSqliteDriver implements OfflineDatabase {
-  constructor(private db: DatabaseSync) {}
-
-  async exec(sql: string): Promise<void> {
-    this.db.exec(sql);
-  }
-
-  async run(sql: string, params: any[] = []): Promise<{ rowsAffected: number; lastInsertRowId?: number }> {
-    const stmt = this.db.prepare(sql);
-    const res = stmt.run(...params);
-    return {
-      rowsAffected: Number(res.changes),
-      lastInsertRowId: Number(res.lastInsertRowid),
-    };
-  }
-
-  async getAll<T = any>(sql: string, params: any[] = []): Promise<T[]> {
-    const stmt = this.db.prepare(sql);
-    return stmt.all(...params) as T[];
-  }
-
-  async getFirst<T = any>(sql: string, params: any[] = []): Promise<T | null> {
-    const stmt = this.db.prepare(sql);
-    const row = stmt.get(...params);
-    return (row ?? null) as T | null;
-  }
-
-  async transaction<T>(action: (tx: OfflineDatabase) => Promise<T>): Promise<T> {
-    this.db.exec('BEGIN');
-    try {
-      const res = await action(this);
-      this.db.exec('COMMIT');
-      return res;
-    } catch (e) {
-      this.db.exec('ROLLBACK');
-      throw e;
-    }
-  }
-
-  async close(): Promise<void> {
-    this.db.close();
-  }
-}
+import { NodeSqliteDriver } from './sqlite-driver';
+export { NodeSqliteDriver };
 
 describe('Offline Mutation Queue & Mirroring', () => {
   let db: NodeSqliteDriver;

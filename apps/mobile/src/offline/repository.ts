@@ -3,18 +3,34 @@
 // Governed by: "Progress writes never block on the network."
 // Optimistic local write to SQLite -> UI updates immediately -> queued for sync.
 
-import * as Crypto from 'expo-crypto';
 import type { OfflineDatabase } from './db';
-import { MutationQueue } from './queue';
+import { MutationQueue, type MutationHandler } from './queue';
 import type { LocalRead, LocalProgressEvent } from './schema';
-import { api, type Read, type ReadStatus } from '@/lib/api';
+import type { Read, ReadStatus } from '@/lib/api';
+
+function randomUUID(): string {
+  if (typeof crypto !== 'undefined' && crypto?.randomUUID) {
+    try {
+      return crypto.randomUUID();
+    } catch {
+      // Fallback
+    }
+  }
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
+    const r = (Math.random() * 16) | 0;
+    const v = c === 'x' ? r : (r & 0x3) | 0x8;
+    return v.toString(16);
+  });
+}
 
 export class OfflineRepository {
   private queue: MutationQueue;
 
-  constructor(private db: OfflineDatabase) {
-    this.queue = new MutationQueue(db, {
+  constructor(private db: OfflineDatabase, handler?: MutationHandler) {
+    this.queue = new MutationQueue(db, handler || {
       addProgress: async (readId, page, percent, minutes, clientEventId, note, audioSeconds) => {
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
+        const { api } = require('@/lib/api');
         return api.client.addProgress(readId, {
           client_event_id: clientEventId,
           page,
@@ -25,15 +41,23 @@ export class OfflineRepository {
         });
       },
       upsertRead: async (workId, status, rating, hearted, extra) => {
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
+        const { api } = require('@/lib/api');
         return api.setStatus(workId, status, rating, hearted, extra);
       },
       finishRead: async (readId, payload) => {
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
+        const { api } = require('@/lib/api');
         return api.client.finishRead(readId, payload);
       },
       dnfRead: async (readId, payload) => {
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
+        const { api } = require('@/lib/api');
         return api.client.dnfRead(readId, payload);
       },
       saveReview: async (readId, payload) => {
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
+        const { api } = require('@/lib/api');
         return api.client.createReview(readId, payload);
       },
     });
@@ -55,8 +79,8 @@ export class OfflineRepository {
     note: string | null = null,
     audioSeconds: number | null = null,
   ): Promise<{ clientEventId: string }> {
-    const clientEventId = Crypto.randomUUID();
-    const eventId = Crypto.randomUUID();
+    const clientEventId = randomUUID();
+    const eventId = randomUUID();
     const now = new Date().toISOString();
 
     await this.db.transaction(async (tx) => {
@@ -219,7 +243,7 @@ export class OfflineRepository {
     },
   ): Promise<void> {
     const now = new Date().toISOString();
-    const readId = Crypto.randomUUID();
+    const readId = randomUUID();
 
     await this.db.transaction(async (tx) => {
       // Check existing read for this work
