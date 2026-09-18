@@ -46,7 +46,16 @@ import {
   reorderShelfResponseSchema,
   saveShelfResponseSchema,
   savedShelvesResponseSchema,
+  browseShelvesQuerySchema,
+  browseShelvesResponseSchema,
 } from '../contract/schemas.js';
+
+export interface BrowseShelvesInput {
+  query?: string;
+  sort?: 'ranked' | 'popular' | 'recent';
+  limit?: number;
+  offset?: number;
+}
 
 export interface ShelfOwner {
   id: string;
@@ -889,6 +898,229 @@ export class ShelvesService {
     return { shelves: result };
   }
 
+  async browse(
+    viewer: string | null,
+    input: BrowseShelvesInput,
+  ): Promise<{ shelves: ShelfDetail[]; total: number }> {
+    const limit = Math.min(50, Math.max(1, input.limit ?? 20));
+    const offset = Math.max(0, input.offset ?? 0);
+    const sort = input.sort ?? 'ranked';
+    const query = input.query?.trim();
+
+    // 1. Fetch candidate public shelves that are not soft-deleted
+    const whereConditions = [
+      eq(shelves.privacy, 'public'),
+      sql`${shelves.deletedAt} IS NULL`,
+    ];
+
+    if (query && query.length > 0) {
+      const pattern = `%${query}%`;
+      whereConditions.push(
+        sql`(${shelves.name} ILIKE ${pattern} OR (${shelves.description} IS NOT NULL AND ${shelves.description} ILIKE ${pattern}))`,
+      );
+    }
+
+    const candidateShelves = await this.db
+      .select()
+      .from(shelves)
+      .where(and(...whereConditions));
+
+    if (candidateShelves.length === 0) {
+      return { shelves: [], total: 0 };
+    }
+
+    const shelfIds = candidateShelves.map((s) => s.id);
+    const ownerIds = Array.from(new Set(candidateShelves.map((s) => s.userId)));
+
+    // 2. Fetch social proximity (if viewer is authenticated)
+    const followedOwners = new Set<string>();
+    if (viewer) {
+      const followedRows = await this.db
+        .select({ followeeId: follows.followeeId })
+        .from(follows)
+        .where(
+          and(
+            eq(follows.followerId, viewer),
+            eq(follows.state, 'accepted'),
+            inArray(follows.followeeId, ownerIds),
+          ),
+        );
+      for (const r of followedRows) {
+        followedOwners.add(r.followeeId);
+      }
+    }
+
+    // 3. Fetch note presence to compute curation quality
+    const notesRows = await this.db
+      .select({ shelfId: shelfItems.shelfId })
+      .from(shelfItems)
+      .where(
+        and(
+          inArray(shelfItems.shelfId, shelfIds),
+          sql`${shelfItems.note} IS NOT NULL AND char_length(trim(${shelfItems.note})) > 0`,
+        ),
+      )
+      .groupBy(shelfItems.shelfId);
+    const shelvesWithNotes = new Set(notesRows.map((r) => r.shelfId));
+
+    // 4. Compute scores and sort
+    const scoredShelves = candidateShelves.map((shelf) => {
+      // Social proximity
+      let socialProximity = 0;
+      if (viewer) {
+        if (shelf.userId === viewer) {
+          socialProximity = 0.5;
+        } else if (followedOwners.has(shelf.userId)) {
+          socialProximity = 1.0;
+        }
+      }
+
+      // Curation quality composite (PRD §15.5):
+      // - has description (+0.25)
+      // - has per-entry notes (+0.25)
+      // - item count between 5 and 100 (+0.30; 1–4 items: +0.15; >100 items: +0.10)
+      // - cover art completeness (+0.20)
+      let curationQuality = 0;
+      if (shelf.description && shelf.description.trim().length > 0) {
+        curationQuality += 0.25;
+      }
+      if (shelvesWithNotes.has(shelf.id)) {
+        curationQuality += 0.25;
+      }
+      if (shelf.itemCount >= 5 && shelf.itemCount <= 100) {
+        curationQuality += 0.30;
+      } else if (shelf.itemCount >= 1 && shelf.itemCount < 5) {
+        curationQuality += 0.15;
+      } else if (shelf.itemCount > 100) {
+        curationQuality += 0.10;
+      }
+      const coverCount = shelf.coverWorkIds?.length ?? 0;
+      if (coverCount >= Math.min(4, Math.max(1, shelf.itemCount))) {
+        curationQuality += 0.20;
+      }
+
+      // Freshness: rational decay over 30 days
+      const ageInDays = Math.max(0, (Date.now() - shelf.createdAt.getTime()) / (1000 * 60 * 60 * 24));
+      const freshness = 1 / (1 + ageInDays / 30);
+
+      // Saves and views
+      const savesScore = Math.log1p(Math.max(0, shelf.saveCount));
+      const viewsScore = 0;
+
+      // Formula from PRD §15.5
+      const shelfScore =
+        0.30 * savesScore +
+        0.20 * viewsScore +
+        0.20 * socialProximity +
+        0.15 * curationQuality +
+        0.15 * freshness;
+
+      return {
+        shelf,
+        shelfScore,
+      };
+    });
+
+    if (sort === 'popular') {
+      scoredShelves.sort((a, b) => {
+        if (b.shelf.saveCount !== a.shelf.saveCount) {
+          return b.shelf.saveCount - a.shelf.saveCount;
+        }
+        return b.shelf.createdAt.getTime() - a.shelf.createdAt.getTime();
+      });
+    } else if (sort === 'recent') {
+      scoredShelves.sort((a, b) => b.shelf.createdAt.getTime() - a.shelf.createdAt.getTime());
+    } else {
+      // 'ranked' (PRD §15.5)
+      scoredShelves.sort((a, b) => {
+        if (Math.abs(b.shelfScore - a.shelfScore) > 0.0001) {
+          return b.shelfScore - a.shelfScore;
+        }
+        if (b.shelf.saveCount !== a.shelf.saveCount) {
+          return b.shelf.saveCount - a.shelf.saveCount;
+        }
+        return b.shelf.createdAt.getTime() - a.shelf.createdAt.getTime();
+      });
+    }
+
+    const total = scoredShelves.length;
+    const paged = scoredShelves.slice(offset, offset + limit);
+
+    if (paged.length === 0) {
+      return { shelves: [], total };
+    }
+
+    // 5. Hydrate covers, owners, and is_saved for paged shelves
+    const pagedCoverWorkIds = new Set<string>();
+    const pagedOwnerIds = new Set<string>();
+    const pagedShelfIds = paged.map((p) => p.shelf.id);
+
+    for (const p of paged) {
+      pagedOwnerIds.add(p.shelf.userId);
+      if (p.shelf.coverWorkIds) {
+        for (const wid of p.shelf.coverWorkIds) {
+          pagedCoverWorkIds.add(wid);
+        }
+      }
+    }
+
+    const coversMap = new Map<string, number | null>();
+    if (pagedCoverWorkIds.size > 0) {
+      const coverRows = await this.db
+        .select({ id: works.id, coverId: works.olCoverId })
+        .from(works)
+        .where(inArray(works.id, Array.from(pagedCoverWorkIds)));
+      for (const cr of coverRows) {
+        coversMap.set(cr.id, cr.coverId);
+      }
+    }
+
+    const ownersMap = new Map<string, ShelfOwner>();
+    for (const ownerId of pagedOwnerIds) {
+      try {
+        const owner = await this.getOwnerProfile(ownerId);
+        ownersMap.set(ownerId, owner);
+      } catch {
+        ownersMap.set(ownerId, {
+          id: ownerId,
+          username: 'reader',
+          displayName: null,
+          avatarKey: null,
+        });
+      }
+    }
+
+    const savedShelfIds = new Set<string>();
+    if (viewer) {
+      const savedRows = await this.db
+        .select({ shelfId: shelfSaves.shelfId })
+        .from(shelfSaves)
+        .where(
+          and(
+            eq(shelfSaves.userId, viewer),
+            inArray(shelfSaves.shelfId, pagedShelfIds),
+          ),
+        );
+      for (const sr of savedRows) {
+        savedShelfIds.add(sr.shelfId);
+      }
+    }
+
+    const result: ShelfDetail[] = [];
+    for (const p of paged) {
+      const shelf = p.shelf;
+      const owner = ownersMap.get(shelf.userId) || {
+        id: shelf.userId,
+        username: 'reader',
+        displayName: null,
+        avatarKey: null,
+      };
+      const coverIds = (shelf.coverWorkIds || []).map((wid) => coversMap.get(wid) ?? null);
+      result.push(this.formatShelf(shelf, owner, savedShelfIds.has(shelf.id), coverIds));
+    }
+
+    return { shelves: result, total };
+  }
 
   private async getOwnerProfile(userId: string): Promise<ShelfOwner> {
     const [row] = await this.db
@@ -1004,6 +1236,26 @@ export const shelvesPlugin: FastifyPluginAsync<{ db: Db }> = async (fastify, opt
     async (request, reply) => {
       const viewer = requireViewer(request);
       const result = await service.getSavedShelves(viewer);
+      return reply.send(result);
+    },
+  );
+
+  fastify.get(
+    '/shelves/browse',
+    {
+      schema: {
+        tags: ['Shelves'],
+        summary: 'Browse and discover public shelves',
+        description: 'Discovers public shelves ranked by multi-signal curation formula (PRD §15.5) or sorted by saves / recency.',
+        querystring: browseShelvesQuerySchema,
+        response: {
+          200: browseShelvesResponseSchema,
+        },
+      },
+    },
+    async (request, reply) => {
+      const query = (request.query as BrowseShelvesInput) || {};
+      const result = await service.browse(request.viewer, query);
       return reply.send(result);
     },
   );

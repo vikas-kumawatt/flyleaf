@@ -76,6 +76,8 @@ import type {
   ReorderShelfResponse,
   SaveShelfResponse,
   SavedShelvesResponse,
+  BrowseShelvesQuery,
+  BrowseShelvesResponse,
   Work,
   WorkReviewsQuery,
   WorkReviewsResponse,
@@ -649,6 +651,18 @@ export class FlyleafClient {
 
   async getSavedShelves(): Promise<SavedShelvesResponse> {
     return this.request<SavedShelvesResponse>('/shelves/saved', {
+      method: 'GET',
+    });
+  }
+
+  async browseShelves(params?: BrowseShelvesQuery): Promise<BrowseShelvesResponse> {
+    const q = new URLSearchParams();
+    if (params?.query) q.set('query', params.query);
+    if (params?.sort) q.set('sort', params.sort);
+    if (params?.limit != null) q.set('limit', String(params.limit));
+    if (params?.offset != null) q.set('offset', String(params.offset));
+    const qs = q.toString() ? `?${q.toString()}` : '';
+    return this.request<BrowseShelvesResponse>(`/shelves/browse${qs}`, {
       method: 'GET',
     });
   }

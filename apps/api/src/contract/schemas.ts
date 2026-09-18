@@ -1529,8 +1529,24 @@ export const savedShelvesResponseSchema = {
   required: ['shelves'],
 } as const;
 
+export const browseShelvesQuerySchema = {
+  type: 'object',
+  properties: {
+    query: { type: 'string', maxLength: 100 },
+    sort: { type: 'string', enum: ['ranked', 'popular', 'recent'], default: 'ranked' },
+    limit: { type: 'integer', minimum: 1, maximum: 50, default: 20 },
+    offset: { type: 'integer', minimum: 0, default: 0 },
+  },
+} as const;
 
-
-
-
-
+export const browseShelvesResponseSchema = {
+  type: 'object',
+  properties: {
+    shelves: {
+      type: 'array',
+      items: shelfSchema,
+    },
+    total: { type: 'integer', minimum: 0 },
+  },
+  required: ['shelves', 'total'],
+} as const;

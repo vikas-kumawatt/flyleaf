@@ -7042,6 +7042,137 @@ paths:
                       - message
                 required:
                   - error
+  /shelves/browse:
+    get:
+      summary: Browse and discover public shelves
+      tags:
+        - Shelves
+      description: Discovers public shelves ranked by multi-signal curation formula
+        (PRD §15.5) or sorted by saves / recency.
+      parameters:
+        - schema:
+            type: string
+            maxLength: 100
+          in: query
+          name: query
+          required: false
+        - schema:
+            type: string
+            enum:
+              - ranked
+              - popular
+              - recent
+            default: ranked
+          in: query
+          name: sort
+          required: false
+        - schema:
+            type: integer
+            minimum: 1
+            maximum: 50
+            default: 20
+          in: query
+          name: limit
+          required: false
+        - schema:
+            type: integer
+            minimum: 0
+            default: 0
+          in: query
+          name: offset
+          required: false
+      responses:
+        "200":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  shelves:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: string
+                          format: uuid
+                        user_id:
+                          type: string
+                          format: uuid
+                        name:
+                          type: string
+                        slug:
+                          type: string
+                        description:
+                          type:
+                            - "null"
+                            - string
+                        is_ranked:
+                          type: boolean
+                        privacy:
+                          type: string
+                          enum:
+                            - public
+                            - followers
+                            - private
+                        cover_work_ids:
+                          type: array
+                          items:
+                            type: string
+                            format: uuid
+                        cover_ids:
+                          type: array
+                          items:
+                            type:
+                              - "null"
+                              - integer
+                        item_count:
+                          type: integer
+                        save_count:
+                          type: integer
+                        is_saved:
+                          type: boolean
+                        created_at:
+                          type: string
+                          format: date-time
+                        owner:
+                          type: object
+                          properties:
+                            id:
+                              type: string
+                              format: uuid
+                            username:
+                              type: string
+                            displayName:
+                              type:
+                                - "null"
+                                - string
+                            avatarKey:
+                              type:
+                                - "null"
+                                - string
+                          required:
+                            - id
+                            - username
+                      required:
+                        - id
+                        - user_id
+                        - name
+                        - slug
+                        - is_ranked
+                        - privacy
+                        - cover_work_ids
+                        - item_count
+                        - save_count
+                        - created_at
+                        - owner
+                  total:
+                    type: integer
+                    minimum: 0
+                required:
+                  - shelves
+                  - total
   /shelves/{id}:
     get:
       summary: Get shelf by ID

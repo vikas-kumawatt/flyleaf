@@ -9,11 +9,12 @@
 // 5. Guest device shelf with 20-book cap and contextual signup prompts.
 // 6. Pull-to-refresh and auto-refresh on screen focus.
 
-import React, { useState, useCallback, useMemo } from 'react';
+import React, { useState, useCallback, useMemo, useEffect } from 'react';
 import {
   View,
   ScrollView,
   Pressable,
+  TextInput,
   ActivityIndicator,
   RefreshControl,
   useWindowDimensions,
@@ -69,6 +70,13 @@ export default function ShelvesScreen() {
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
   const [creatingStarterId, setCreatingStarterId] = useState<string | null>(null);
 
+  // Curated (Public browse - SH-08) state
+  const [browseShelvesList, setBrowseShelvesList] = useState<Shelf[]>([]);
+  const [browseLoading, setBrowseLoading] = useState(false);
+  const [browseQuery, setBrowseQuery] = useState('');
+  const [browseSort, setBrowseSort] = useState<'ranked' | 'popular' | 'recent'>('ranked');
+  const [browseTotal, setBrowseTotal] = useState(0);
+
   // Load authenticated user shelves
   const loadShelves = useCallback(async () => {
     if (!user) return;
@@ -101,17 +109,51 @@ export default function ShelvesScreen() {
     }
   }, [user]);
 
+  // Load curated public shelves (SH-08)
+  const loadBrowseShelves = useCallback(
+    async (queryOverride?: string, sortOverride?: 'ranked' | 'popular' | 'recent') => {
+      try {
+        setBrowseLoading(true);
+        const q = queryOverride !== undefined ? queryOverride : browseQuery;
+        const s = sortOverride !== undefined ? sortOverride : browseSort;
+        const res = await api.browseShelves({
+          query: q.trim().length > 0 ? q.trim() : undefined,
+          sort: s,
+          limit: 30,
+        });
+        setBrowseShelvesList(res.shelves || []);
+        setBrowseTotal(res.total ?? 0);
+        track('shelves_viewed', { tab: 'discover', count: res.shelves?.length ?? 0 });
+      } catch {
+        // Fallback silently if network offline
+      } finally {
+        setBrowseLoading(false);
+        setRefreshing(false);
+      }
+    },
+    [browseQuery, browseSort],
+  );
+
+  // Debounced search / filter for Curated tab
+  useEffect(() => {
+    if (shelfFilter !== 'discover') return;
+    const timer = setTimeout(() => {
+      void loadBrowseShelves(browseQuery, browseSort);
+    }, 250);
+    return () => clearTimeout(timer);
+  }, [browseQuery, browseSort, shelfFilter, loadBrowseShelves]);
+
   // Reload data on screen focus
   useFocusEffect(
     useCallback(() => {
-      if (user) {
-        if (shelfFilter === 'mine') {
-          void loadShelves();
-        } else if (shelfFilter === 'saved') {
-          void loadSavedShelves();
-        }
+      if (shelfFilter === 'mine' && user) {
+        void loadShelves();
+      } else if (shelfFilter === 'saved' && user) {
+        void loadSavedShelves();
+      } else if (shelfFilter === 'discover') {
+        void loadBrowseShelves();
       }
-    }, [user, shelfFilter, loadShelves, loadSavedShelves]),
+    }, [user, shelfFilter, loadShelves, loadSavedShelves, loadBrowseShelves]),
   );
 
   const onRefresh = () => {
@@ -120,6 +162,8 @@ export default function ShelvesScreen() {
       void loadShelves();
     } else if (shelfFilter === 'saved') {
       void loadSavedShelves();
+    } else if (shelfFilter === 'discover') {
+      void loadBrowseShelves();
     } else {
       setRefreshing(false);
     }
@@ -213,10 +257,17 @@ export default function ShelvesScreen() {
               void loadSavedShelves();
             } else if (val === 'mine' && user && shelves.length === 0) {
               void loadShelves();
+            } else if (val === 'discover' && browseShelvesList.length === 0) {
+              void loadBrowseShelves();
             }
             track('shelves_viewed', {
               tab: val,
-              count: val === 'mine' ? shelves.length : val === 'saved' ? savedShelves.length : 0,
+              count:
+                val === 'mine'
+                  ? shelves.length
+                  : val === 'saved'
+                    ? savedShelves.length
+                    : browseShelvesList.length,
             });
           }}
           labels={{
@@ -234,7 +285,7 @@ export default function ShelvesScreen() {
           gap: space[4],
         }}
         refreshControl={
-          user ? (
+          user || shelfFilter === 'discover' ? (
             <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={c.accent} />
           ) : undefined
         }
@@ -1090,10 +1141,401 @@ export default function ShelvesScreen() {
         )}
 
         {shelfFilter === 'discover' && (
-          <EmptyState
-            title="Curated reading lists"
-            subtitle="Explore book club selections, award winners, and themed reading lists curated by the community."
-          />
+          <View style={{ gap: space[3] }}>
+            {/* Search Bar */}
+            <View
+              style={{
+                flexDirection: 'row',
+                alignItems: 'center',
+                backgroundColor: c.surface,
+                borderRadius: radius.md,
+                borderWidth: 1,
+                borderColor: c.line,
+                paddingHorizontal: space[3],
+                height: 44,
+              }}
+            >
+              <Ionicons
+                name="search-outline"
+                size={18}
+                color={browseLoading ? c.accent : c.muted}
+                style={{ marginRight: space[2] }}
+              />
+              <TextInput
+                value={browseQuery}
+                onChangeText={setBrowseQuery}
+                placeholder="Search curated shelves..."
+                placeholderTextColor={c.muted}
+                autoCorrect={false}
+                autoCapitalize="none"
+                returnKeyType="search"
+                accessibilityLabel="Search curated shelves"
+                style={{
+                  flex: 1,
+                  color: c.ink,
+                  fontSize: 14,
+                  paddingVertical: 0,
+                }}
+              />
+              {browseQuery.length > 0 && (
+                <Pressable
+                  onPress={() => setBrowseQuery('')}
+                  accessibilityRole="button"
+                  accessibilityLabel="Clear shelf search"
+                  hitSlop={8}
+                >
+                  <Ionicons name="close-circle" size={16} color={c.muted} />
+                </Pressable>
+              )}
+            </View>
+
+            {/* Controls Bar: Sort Pills & View Mode */}
+            <View style={styles.controlsBar}>
+              {/* Sort Pills */}
+              <View style={[styles.sortPillGroup, { backgroundColor: c.surface2 }]}>
+                <Pressable
+                  onPress={() => {
+                    void Haptics.selectionAsync();
+                    setBrowseSort('ranked');
+                  }}
+                  style={[
+                    styles.sortPill,
+                    browseSort === 'ranked' && { backgroundColor: c.surface },
+                  ]}
+                >
+                  <Txt
+                    style={{
+                      fontSize: 11,
+                      fontWeight: browseSort === 'ranked' ? '700' : '500',
+                      color: browseSort === 'ranked' ? c.ink : c.muted,
+                    }}
+                  >
+                    Featured
+                  </Txt>
+                </Pressable>
+                <Pressable
+                  onPress={() => {
+                    void Haptics.selectionAsync();
+                    setBrowseSort('popular');
+                  }}
+                  style={[
+                    styles.sortPill,
+                    browseSort === 'popular' && { backgroundColor: c.surface },
+                  ]}
+                >
+                  <Txt
+                    style={{
+                      fontSize: 11,
+                      fontWeight: browseSort === 'popular' ? '700' : '500',
+                      color: browseSort === 'popular' ? c.ink : c.muted,
+                    }}
+                  >
+                    Popular
+                  </Txt>
+                </Pressable>
+                <Pressable
+                  onPress={() => {
+                    void Haptics.selectionAsync();
+                    setBrowseSort('recent');
+                  }}
+                  style={[
+                    styles.sortPill,
+                    browseSort === 'recent' && { backgroundColor: c.surface },
+                  ]}
+                >
+                  <Txt
+                    style={{
+                      fontSize: 11,
+                      fontWeight: browseSort === 'recent' ? '700' : '500',
+                      color: browseSort === 'recent' ? c.ink : c.muted,
+                    }}
+                  >
+                    Recent
+                  </Txt>
+                </Pressable>
+              </View>
+
+              {/* View Mode Toggle */}
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel={`Switch to ${viewMode === 'grid' ? 'list' : 'grid'} view`}
+                onPress={() => {
+                  void Haptics.selectionAsync();
+                  setViewMode((m) => (m === 'grid' ? 'list' : 'grid'));
+                }}
+                style={[
+                  styles.viewModeButton,
+                  { backgroundColor: c.surface, borderColor: c.line },
+                ]}
+              >
+                <Ionicons
+                  name={viewMode === 'grid' ? 'list' : 'grid-outline'}
+                  size={15}
+                  color={c.ink}
+                />
+              </Pressable>
+            </View>
+
+            {browseLoading && browseShelvesList.length === 0 ? (
+              <View style={styles.centerContainer}>
+                <ActivityIndicator size="large" color={c.accent} />
+                <Txt style={{ color: c.muted, marginTop: space[3], fontSize: 13 }}>
+                  Loading curated shelves...
+                </Txt>
+              </View>
+            ) : browseShelvesList.length === 0 ? (
+              <EmptyState
+                title={browseQuery ? `No shelves found for "${browseQuery}"` : 'No curated shelves yet'}
+                subtitle={
+                  browseQuery
+                    ? 'Try checking for typos or searching with different keywords.'
+                    : 'Explore book club selections, award winners, and themed reading lists curated by fellow readers.'
+                }
+              />
+            ) : viewMode === 'grid' ? (
+              <View style={styles.gridContainer}>
+                {browseShelvesList.map((shelf) => {
+                  const coverIds = (shelf.cover_ids || []).filter(
+                    (cid): cid is number => cid !== null,
+                  );
+                  const curatorName =
+                    shelf.owner.displayName || shelf.owner.username || 'Curator';
+
+                  return (
+                    <Pressable
+                      key={shelf.id}
+                      onPress={() => {
+                        void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                        router.push(`/shelf/${shelf.id}` as any);
+                      }}
+                      accessibilityRole="button"
+                      accessibilityLabel={`Curated shelf ${shelf.name} by ${curatorName}, ${shelf.item_count} books`}
+                      style={({ pressed }) => [
+                        styles.gridCard,
+                        {
+                          width: cardWidth,
+                          backgroundColor: c.surface,
+                          borderColor: c.line,
+                          opacity: pressed ? 0.85 : 1,
+                        },
+                      ]}
+                    >
+                      {/* Mosaic Card Top */}
+                      <View
+                        style={[
+                          styles.gridMosaicContainer,
+                          { backgroundColor: c.surface2, borderColor: c.line },
+                        ]}
+                      >
+                        {coverIds.length >= 4 ? (
+                          <View style={styles.mosaic2x2}>
+                            {coverIds.slice(0, 4).map((cid, i) => (
+                              <View key={i} style={styles.mosaic2x2Cell}>
+                                <Cover coverId={cid} size="xs" />
+                              </View>
+                            ))}
+                          </View>
+                        ) : coverIds.length > 0 ? (
+                          <View style={styles.mosaicSingleOrStack}>
+                            {coverIds.map((cid, i) => (
+                              <View
+                                key={i}
+                                style={{
+                                  marginRight: -space[2],
+                                  zIndex: 10 - i,
+                                  shadowColor: '#000',
+                                  shadowOffset: { width: 0, height: 1 },
+                                  shadowOpacity: 0.15,
+                                  shadowRadius: 2,
+                                }}
+                              >
+                                <Cover coverId={cid} size="s" />
+                              </View>
+                            ))}
+                          </View>
+                        ) : (
+                          <View style={styles.mosaicEmptyCell}>
+                            <Ionicons name="albums-outline" size={28} color={c.muted} />
+                          </View>
+                        )}
+                      </View>
+
+                      {/* Shelf Details */}
+                      <View style={styles.gridDetails}>
+                        <Txt numberOfLines={2} style={[styles.gridTitle, { color: c.ink }]}>
+                          {shelf.name}
+                        </Txt>
+
+                        {/* Curator attribution */}
+                        <View style={styles.curatorRow}>
+                          <View
+                            style={[
+                              styles.curatorAvatar,
+                              { backgroundColor: c.accentSoft },
+                            ]}
+                          >
+                            <Txt
+                              style={{
+                                color: c.accent,
+                                fontSize: 9,
+                                fontWeight: '700',
+                              }}
+                            >
+                              {curatorName.charAt(0).toUpperCase()}
+                            </Txt>
+                          </View>
+                          <Txt
+                            numberOfLines={1}
+                            style={[styles.curatorText, { color: c.muted }]}
+                          >
+                            by <Txt style={{ color: c.ink, fontWeight: '600' }}>{curatorName}</Txt>
+                          </Txt>
+                        </View>
+
+                        <View style={styles.gridMetaRow}>
+                          <Txt style={{ color: c.muted, fontSize: 11 }}>
+                            {shelf.item_count} {shelf.item_count === 1 ? 'book' : 'books'}
+                          </Txt>
+                          {shelf.is_ranked ? (
+                            <View style={[styles.rankTag, { backgroundColor: c.accentSoft }]}>
+                              <Txt
+                                style={{
+                                  color: c.accent,
+                                  fontSize: 10,
+                                  fontWeight: '700',
+                                }}
+                              >
+                                Ranked
+                              </Txt>
+                            </View>
+                          ) : shelf.save_count > 0 ? (
+                            <Txt style={{ color: c.muted, fontSize: 10 }}>
+                              {shelf.save_count} {shelf.save_count === 1 ? 'save' : 'saves'}
+                            </Txt>
+                          ) : null}
+                        </View>
+                      </View>
+                    </Pressable>
+                  );
+                })}
+              </View>
+            ) : (
+              <View style={{ gap: space[3] }}>
+                {browseShelvesList.map((shelf) => {
+                  const coverIds = (shelf.cover_ids || []).filter(
+                    (cid): cid is number => cid !== null,
+                  );
+                  const curatorName =
+                    shelf.owner.displayName || shelf.owner.username || 'Curator';
+
+                  return (
+                    <Card
+                      key={shelf.id}
+                      onPress={() => {
+                        void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                        router.push(`/shelf/${shelf.id}` as any);
+                      }}
+                      style={{ padding: space[3] }}
+                    >
+                      <View style={sheet.rowTop}>
+                        {/* Left mosaic thumbnail */}
+                        <View
+                          style={[
+                            styles.listMosaic,
+                            { backgroundColor: c.surface2, borderColor: c.line },
+                          ]}
+                        >
+                          {coverIds.length >= 4 ? (
+                            <View style={styles.listMosaicGrid}>
+                              {coverIds.slice(0, 4).map((cid, i) => (
+                                <View key={i} style={styles.listMosaicCell}>
+                                  <Cover coverId={cid} size="xs" />
+                                </View>
+                              ))}
+                            </View>
+                          ) : coverIds.length > 0 ? (
+                            <Cover coverId={coverIds[0]} size="s" />
+                          ) : (
+                            <Ionicons name="albums-outline" size={24} color={c.muted} />
+                          )}
+                        </View>
+
+                        {/* Right details */}
+                        <View
+                          style={{
+                            flex: 1,
+                            marginLeft: space[3],
+                            justifyContent: 'space-between',
+                          }}
+                        >
+                          <View style={[sheet.row, { justifyContent: 'space-between' }]}>
+                            <Txt
+                              numberOfLines={1}
+                              style={[styles.listTitle, { color: c.ink }]}
+                            >
+                              {shelf.name}
+                            </Txt>
+                            {shelf.is_ranked && (
+                              <View
+                                style={[styles.rankPill, { backgroundColor: c.accentSoft }]}
+                              >
+                                <Txt
+                                  style={{ color: c.accent, fontSize: 11, fontWeight: '700' }}
+                                >
+                                  Ranked
+                                </Txt>
+                              </View>
+                            )}
+                          </View>
+
+                          {/* Curator attribution */}
+                          <View style={styles.curatorRow}>
+                            <View
+                              style={[
+                                styles.curatorAvatar,
+                                { backgroundColor: c.accentSoft },
+                              ]}
+                            >
+                              <Txt
+                                style={{
+                                  color: c.accent,
+                                  fontSize: 9,
+                                  fontWeight: '700',
+                                }}
+                              >
+                                {curatorName.charAt(0).toUpperCase()}
+                              </Txt>
+                            </View>
+                            <Txt
+                              numberOfLines={1}
+                              style={[styles.curatorText, { color: c.muted }]}
+                            >
+                              by <Txt style={{ color: c.ink, fontWeight: '600' }}>{curatorName}</Txt>
+                            </Txt>
+                          </View>
+
+                          {shelf.description ? (
+                            <Txt numberOfLines={2} style={{ color: c.muted, fontSize: 12 }}>
+                              {shelf.description}
+                            </Txt>
+                          ) : null}
+
+                          <View style={[sheet.row, { gap: space[3], marginTop: 2 }]}>
+                            <Txt style={{ color: c.muted, fontSize: 11 }}>
+                              {shelf.item_count} {shelf.item_count === 1 ? 'book' : 'books'}
+                            </Txt>
+                            <Txt style={{ color: c.muted, fontSize: 11 }}>
+                              {shelf.save_count} {shelf.save_count === 1 ? 'save' : 'saves'}
+                            </Txt>
+                          </View>
+                        </View>
+                      </View>
+                    </Card>
+                  );
+                })}
+              </View>
+            )}
+          </View>
         )}
       </ScrollView>
     </Screen>

@@ -55,6 +55,8 @@ import {
   type ReorderShelfResponse,
   type SaveShelfResponse,
   type SavedShelvesResponse,
+  type BrowseShelvesQuery,
+  type BrowseShelvesResponse,
 } from '@flyleaf/api-client';
 
 export type {
@@ -88,6 +90,8 @@ export type {
   ReorderShelfResponse,
   SaveShelfResponse,
   SavedShelvesResponse,
+  BrowseShelvesQuery,
+  BrowseShelvesResponse,
   Edition,
   EditionDetail,
   EditionLookupResponse,
@@ -454,6 +458,7 @@ export const api = {
   saveShelf: (id: string) => client.saveShelf(id),
   unsaveShelf: (id: string) => client.unsaveShelf(id),
   getSavedShelves: () => client.getSavedShelves(),
+  browseShelves: (params?: BrowseShelvesQuery) => client.browseShelves(params),
 };
 
 export interface AuthorDetail {

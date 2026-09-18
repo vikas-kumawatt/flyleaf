@@ -479,7 +479,36 @@
   - Verification:
     - Comprehensive backend integration tests in `apps/api/src/test/shelves.test.ts` (unauthenticated rejection, self-save prohibition, private shelf isolation, idempotency, counter trigger, dynamic book sync verification).
     - 444 API tests passing, 77 mobile tests passing. Full 9-step CI pipeline green.
-- [ ] SH-08 Browse public shelves; ranking formula — 1.5d
+- [x] **SH-08** Browse public shelves; ranking formula — 1.5d
+  - Contract & Schema (`apps/api/src/contract/schemas.ts`):
+    - `browseShelvesQuerySchema`: validates optional `query` (max 100 chars), `sort` (`'ranked' | 'popular' | 'recent'`, default `'ranked'`), `limit` (1..50, default 20), and `offset` (minimum 0).
+    - `browseShelvesResponseSchema`: typed `shelves` array matching `shelfSchema` and `total` count.
+    - Zero OpenAPI contract drift: `openapi.yaml` verified against routes with `npm run spec:check`.
+    - Typed API client methods and response models in `@flyleaf/api-client` (`browseShelves(params?: BrowseShelvesQuery)`).
+  - Backend & Ranking Formula (`apps/api/src/shelves/index.ts`):
+    - Public shelf browsing endpoint: `GET /v1/shelves/browse`. Registered before `/shelves/:id` to prevent route shadowing.
+    - Strictly filters candidate shelves to `privacy = 'public'` and `deleted_at IS NULL`.
+    - Guest-accessible: viewer is optional; guests browse with 0 authentication required and `is_saved = false`.
+    - Case-insensitive search on `name` and `description` via ILIKE wildcard matching.
+    - Implemented PRD §15.5 multi-signal composite ranking formula:
+      `shelf_score = 0.30 * log(1 + saves) + 0.20 * log(1 + views) + 0.20 * social_proximity_to_owner + 0.15 * curation_quality + 0.15 * freshness`
+      - `curation_quality`: boosts annotated shelves (has description +0.25, has notes +0.25, optimal book count 5–100 +0.30, complete covers +0.20) and downranks unannotated raw dumps (>100 items with no notes or empty lists).
+      - `social_proximity`: boosts followed creators (1.0) and own shelves (0.5).
+      - `freshness`: rational decay over 30 days (`1 / (1 + ageInDays / 30)`).
+    - Alternate sorts: `popular` orders by `save_count DESC`, `recent` orders by `created_at DESC`.
+  - Mobile Integration:
+    - Shelves Screen (`apps/mobile/app/(tabs)/shelves.tsx`):
+      - Replaced static EmptyState on **Curated** tab (`shelfFilter === 'discover'`) with live public shelf browsing.
+      - Integrated search bar with 250ms debouncing and clear button.
+      - Sort pills: Featured (`'ranked'`), Popular (`'popular'`), Recent (`'recent'`).
+      - View mode toggle: 2-column mosaic grid with 4-cover previews and list view with curator attribution (`by @username`), book counts, and ranked badges.
+      - Dynamic pull-to-refresh accessible to both guests and authenticated readers.
+    - Discover Screen (`apps/mobile/app/(tabs)/discover.tsx`):
+      - Connected the **Lists** tab (`activeTab === 'lists'`) to live public shelves via `api.browseShelves`.
+      - Live search for curated lists when search query is active; browse mode shows featured community lists.
+  - Verification:
+    - 7 dedicated backend integration tests in `apps/api/src/test/shelves.test.ts` verifying public-only filtering, private/followers/soft-deleted exclusion, guest browsing, ILIKE search, PRD §15.5 curation quality ranking, social proximity boosting, popular/recent sorting, pagination, and save state.
+    - 452 API tests passing, 77 mobile tests passing. Full 9-step CI pipeline green.
 - [ ] SH-09 Shelf privacy on every read path + tests — 1d
 - [ ] SH-10 Share a shelf — 1d
 

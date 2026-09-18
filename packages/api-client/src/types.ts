@@ -823,3 +823,16 @@ export interface SaveShelfResponse {
 export interface SavedShelvesResponse {
   shelves: Shelf[];
 }
+
+export interface BrowseShelvesQuery {
+  query?: string;
+  sort?: 'ranked' | 'popular' | 'recent';
+  limit?: number;
+  offset?: number;
+}
+
+export interface BrowseShelvesResponse {
+  shelves: Shelf[];
+  total: number;
+}
+

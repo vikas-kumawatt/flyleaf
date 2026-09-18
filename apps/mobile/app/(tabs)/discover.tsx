@@ -15,13 +15,14 @@ import {
   TextInput,
   View,
   ScrollView,
+  ActivityIndicator,
   StyleSheet,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
-import { api, type Work } from '@/lib/api';
+import { api, type Work, type Shelf } from '@/lib/api';
 import { useSession } from '@/lib/session';
 import { useGuestShelf } from '@/lib/guest';
 import { useActionGate } from '@/ui/ActionGate';
@@ -71,6 +72,10 @@ export default function DiscoverScreen() {
   const [q, setQ] = useState('');
   const [results, setResults] = useState<Work[]>([]);
   const [loading, setLoading] = useState(false);
+  const [shelfResults, setShelfResults] = useState<Shelf[]>([]);
+  const [shelfLoading, setShelfLoading] = useState(false);
+  const [curatedLists, setCuratedLists] = useState<Shelf[]>([]);
+  const [curatedListsLoading, setCuratedListsLoading] = useState(false);
   const [recents, setRecents] = useState<string[]>(INITIAL_RECENTS);
   const [activeTab, setActiveTab] = useState<'books' | 'authors' | 'lists'>('books');
   const [formatFilter, setFormatFilter] = useState<'all' | 'print' | 'ebook' | 'audio'>('all');
@@ -92,35 +97,76 @@ export default function DiscoverScreen() {
     });
   };
 
+  // Load curated community lists when Lists tab is selected
+  useEffect(() => {
+    if (activeTab === 'lists' && curatedLists.length === 0) {
+      void (async () => {
+        try {
+          setCuratedListsLoading(true);
+          const res = await api.browseShelves({ sort: 'ranked', limit: 10 });
+          setCuratedLists(res.shelves || []);
+        } catch {
+          // Fallback silently if network offline
+        } finally {
+          setCuratedListsLoading(false);
+        }
+      })();
+    }
+  }, [activeTab, curatedLists.length]);
+
   // 250ms debounce per design.md & PRD §6.22
   useEffect(() => {
     const trimmed = q.trim();
     if (trimmed.length < 2) {
       setResults([]);
+      setShelfResults([]);
       setLoading(false);
+      setShelfLoading(false);
       return;
     }
 
-    setLoading(true);
-    const timer = setTimeout(async () => {
-      try {
-        const data = await api.search(trimmed);
-        setResults(data);
+    if (activeTab === 'lists') {
+      setShelfLoading(true);
+      const timer = setTimeout(async () => {
+        try {
+          const res = await api.browseShelves({ query: trimmed, sort: 'ranked' });
+          setShelfResults(res.shelves || []);
 
-        // Save to recents if not already there
-        setRecents((prev) => {
-          const next = [trimmed, ...prev.filter((r) => r.toLowerCase() !== trimmed.toLowerCase())];
-          return next.slice(0, MAX_RECENTS);
-        });
-      } catch {
-        setResults([]);
-      } finally {
-        setLoading(false);
-      }
-    }, 250);
+          // Save to recents if not already there
+          setRecents((prev) => {
+            const next = [trimmed, ...prev.filter((r) => r.toLowerCase() !== trimmed.toLowerCase())];
+            return next.slice(0, MAX_RECENTS);
+          });
+        } catch {
+          setShelfResults([]);
+        } finally {
+          setShelfLoading(false);
+        }
+      }, 250);
 
-    return () => clearTimeout(timer);
-  }, [q]);
+      return () => clearTimeout(timer);
+    } else {
+      setLoading(true);
+      const timer = setTimeout(async () => {
+        try {
+          const data = await api.search(trimmed);
+          setResults(data);
+
+          // Save to recents if not already there
+          setRecents((prev) => {
+            const next = [trimmed, ...prev.filter((r) => r.toLowerCase() !== trimmed.toLowerCase())];
+            return next.slice(0, MAX_RECENTS);
+          });
+        } catch {
+          setResults([]);
+        } finally {
+          setLoading(false);
+        }
+      }, 250);
+
+      return () => clearTimeout(timer);
+    }
+  }, [q, activeTab]);
 
   const handleSelectRecent = (recentQuery: string) => {
     void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
@@ -344,36 +390,282 @@ export default function DiscoverScreen() {
             </View>
           )}
 
-          {/* Curated Horizontally Scrolling Shelves (PRD §6.21) */}
-          {CURATED_SHELVES.map((shelf) => (
-            <View key={shelf.title} style={{ gap: space[3] }}>
-              <Txt variant="title">{shelf.title}</Txt>
-              <ScrollView
-                horizontal
-                showsHorizontalScrollIndicator={false}
-                contentContainerStyle={{ gap: space[4] }}
-              >
-                {shelf.books.map((book) => (
-                  <Pressable
-                    key={book.id}
-                    onPress={() => router.push(`/work/${book.id}`)}
-                    accessibilityRole="button"
-                    accessibilityLabel={`${book.title} by ${book.author}`}
-                    style={{ width: 104, gap: space[2] }}
-                  >
-                    <Cover coverId={book.cover_id} title={book.title} size="m" />
-                    <Txt variant="caption" numberOfLines={2} style={{ fontWeight: '600' }}>
-                      {book.title}
-                    </Txt>
-                    <Txt variant="micro" color="muted" numberOfLines={1}>
-                      {book.author}
-                    </Txt>
-                  </Pressable>
-                ))}
-              </ScrollView>
+          {/* Curated Community Lists or Books */}
+          {activeTab === 'lists' ? (
+            <View style={{ gap: space[3] }}>
+              <Txt variant="title">Featured Community Lists</Txt>
+              {curatedListsLoading && curatedLists.length === 0 ? (
+                <View style={{ paddingVertical: space[8], alignItems: 'center' }}>
+                  <ActivityIndicator size="large" color={c.accent} />
+                  <Txt variant="body" color="muted" style={{ marginTop: space[2] }}>
+                    Loading community lists…
+                  </Txt>
+                </View>
+              ) : curatedLists.length === 0 ? (
+                <EmptyState
+                  title="No community lists yet"
+                  subtitle="Explore lists created by other readers or create your own custom shelf."
+                />
+              ) : (
+                <View style={{ gap: space[3] }}>
+                  {curatedLists.map((shelf) => {
+                    const coverIds = (shelf.cover_ids || []).filter(
+                      (cid): cid is number => cid !== null,
+                    );
+                    const curatorName =
+                      shelf.owner?.displayName || shelf.owner?.username || 'Curator';
+                    return (
+                      <Card
+                        key={shelf.id}
+                        onPress={() => {
+                          void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                          router.push(`/shelf/${shelf.id}` as any);
+                        }}
+                        style={{ padding: space[3] }}
+                      >
+                        <View style={sheet.rowTop}>
+                          <View
+                            style={{
+                              width: 52,
+                              height: 72,
+                              borderRadius: radius.sm,
+                              backgroundColor: c.surface2,
+                              borderWidth: 1,
+                              borderColor: c.line,
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              overflow: 'hidden',
+                            }}
+                          >
+                            {coverIds.length > 0 ? (
+                              <Cover coverId={coverIds[0]} size="xs" />
+                            ) : (
+                              <Ionicons name="albums-outline" size={24} color={c.muted} />
+                            )}
+                          </View>
+                          <View
+                            style={{
+                              flex: 1,
+                              marginLeft: space[3],
+                              justifyContent: 'space-between',
+                              gap: space[1],
+                            }}
+                          >
+                            <View style={[sheet.row, { justifyContent: 'space-between' }]}>
+                              <Txt
+                                variant="title"
+                                numberOfLines={1}
+                                style={{ flex: 1, marginRight: space[2] }}
+                              >
+                                {shelf.name}
+                              </Txt>
+                              {shelf.is_ranked && (
+                                <View
+                                  style={{
+                                    backgroundColor: c.accentSoft,
+                                    paddingHorizontal: 6,
+                                    paddingVertical: 1,
+                                    borderRadius: radius.pill,
+                                  }}
+                                >
+                                  <Txt
+                                    style={{
+                                      color: c.accent,
+                                      fontSize: 10,
+                                      fontWeight: '700',
+                                    }}
+                                  >
+                                    Ranked
+                                  </Txt>
+                                </View>
+                              )}
+                            </View>
+                            <Txt variant="caption" color="muted" numberOfLines={1}>
+                              by{' '}
+                              <Txt style={{ color: c.ink, fontWeight: '600' }}>
+                                {curatorName}
+                              </Txt>
+                            </Txt>
+                            {shelf.description ? (
+                              <Txt variant="caption" color="muted" numberOfLines={2}>
+                                {shelf.description}
+                              </Txt>
+                            ) : null}
+                            <View style={[sheet.row, { gap: space[3], marginTop: 2 }]}>
+                              <Txt variant="micro" color="muted">
+                                {shelf.item_count}{' '}
+                                {shelf.item_count === 1 ? 'book' : 'books'}
+                              </Txt>
+                              {shelf.save_count > 0 && (
+                                <Txt variant="micro" color="muted">
+                                  {shelf.save_count}{' '}
+                                  {shelf.save_count === 1 ? 'save' : 'saves'}
+                                </Txt>
+                              )}
+                            </View>
+                          </View>
+                        </View>
+                      </Card>
+                    );
+                  })}
+                </View>
+              )}
             </View>
-          ))}
+          ) : (
+            CURATED_SHELVES.map((shelf) => (
+              <View key={shelf.title} style={{ gap: space[3] }}>
+                <Txt variant="title">{shelf.title}</Txt>
+                <ScrollView
+                  horizontal
+                  showsHorizontalScrollIndicator={false}
+                  contentContainerStyle={{ gap: space[4] }}
+                >
+                  {shelf.books.map((book) => (
+                    <Pressable
+                      key={book.id}
+                      onPress={() => router.push(`/work/${book.id}`)}
+                      accessibilityRole="button"
+                      accessibilityLabel={`${book.title} by ${book.author}`}
+                      style={{ width: 104, gap: space[2] }}
+                    >
+                      <Cover coverId={book.cover_id} title={book.title} size="m" />
+                      <Txt variant="caption" numberOfLines={2} style={{ fontWeight: '600' }}>
+                        {book.title}
+                      </Txt>
+                      <Txt variant="micro" color="muted" numberOfLines={1}>
+                        {book.author}
+                      </Txt>
+                    </Pressable>
+                  ))}
+                </ScrollView>
+              </View>
+            ))
+          )}
         </ScrollView>
+      ) : activeTab === 'lists' ? (
+        // Shelf Search Results
+        <FlatList
+          contentContainerStyle={{ padding: space[4], paddingBottom: space[12] }}
+          data={shelfResults}
+          keyExtractor={(item) => item.id}
+          keyboardShouldPersistTaps="handled"
+          ListEmptyComponent={
+            shelfLoading ? (
+              <View style={{ paddingVertical: space[8], alignItems: 'center' }}>
+                <ActivityIndicator size="small" color={c.accent} />
+                <Txt variant="body" color="muted" style={{ marginTop: space[2] }}>
+                  Searching curated lists…
+                </Txt>
+              </View>
+            ) : (
+              <EmptyState
+                title={`No lists found for "${q}"`}
+                subtitle="Try checking for typos or searching with different keywords."
+              />
+            )
+          }
+          renderItem={({ item: shelf }) => {
+            const coverIds = (shelf.cover_ids || []).filter(
+              (cid): cid is number => cid !== null,
+            );
+            const curatorName =
+              shelf.owner?.displayName || shelf.owner?.username || 'Curator';
+
+            return (
+              <Card
+                key={shelf.id}
+                onPress={() => {
+                  void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                  router.push(`/shelf/${shelf.id}` as any);
+                }}
+                style={{ marginBottom: space[3], padding: space[3] }}
+              >
+                <View style={sheet.rowTop}>
+                  <View
+                    style={{
+                      width: 52,
+                      height: 72,
+                      borderRadius: radius.sm,
+                      backgroundColor: c.surface2,
+                      borderWidth: 1,
+                      borderColor: c.line,
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      overflow: 'hidden',
+                    }}
+                  >
+                    {coverIds.length > 0 ? (
+                      <Cover coverId={coverIds[0]} size="xs" />
+                    ) : (
+                      <Ionicons name="albums-outline" size={24} color={c.muted} />
+                    )}
+                  </View>
+                  <View
+                    style={{
+                      flex: 1,
+                      marginLeft: space[3],
+                      justifyContent: 'space-between',
+                      gap: space[1],
+                    }}
+                  >
+                    <View style={[sheet.row, { justifyContent: 'space-between' }]}>
+                      <Txt
+                        variant="title"
+                        numberOfLines={1}
+                        style={{ flex: 1, marginRight: space[2] }}
+                      >
+                        {shelf.name}
+                      </Txt>
+                      {shelf.is_ranked && (
+                        <View
+                          style={{
+                            backgroundColor: c.accentSoft,
+                            paddingHorizontal: 6,
+                            paddingVertical: 1,
+                            borderRadius: radius.pill,
+                          }}
+                        >
+                          <Txt
+                            style={{
+                              color: c.accent,
+                              fontSize: 10,
+                              fontWeight: '700',
+                            }}
+                          >
+                            Ranked
+                          </Txt>
+                        </View>
+                      )}
+                    </View>
+                    <Txt variant="caption" color="muted" numberOfLines={1}>
+                      by{' '}
+                      <Txt style={{ color: c.ink, fontWeight: '600' }}>
+                        {curatorName}
+                      </Txt>
+                    </Txt>
+                    {shelf.description ? (
+                      <Txt variant="caption" color="muted" numberOfLines={2}>
+                        {shelf.description}
+                      </Txt>
+                    ) : null}
+                    <View style={[sheet.row, { gap: space[3], marginTop: 2 }]}>
+                      <Txt variant="micro" color="muted">
+                        {shelf.item_count}{' '}
+                        {shelf.item_count === 1 ? 'book' : 'books'}
+                      </Txt>
+                      {shelf.save_count > 0 && (
+                        <Txt variant="micro" color="muted">
+                          {shelf.save_count}{' '}
+                          {shelf.save_count === 1 ? 'save' : 'saves'}
+                        </Txt>
+                      )}
+                    </View>
+                  </View>
+                </View>
+              </Card>
+            );
+          }}
+        />
       ) : (
         // Results State
         <FlatList

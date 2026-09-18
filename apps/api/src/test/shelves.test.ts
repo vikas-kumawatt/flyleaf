@@ -21,6 +21,8 @@ const USER_CHARLIE = '33333333-3333-3333-3333-333333333333';
 const WORK_1 = '44444444-4444-4444-4444-444444444441';
 const WORK_2 = '44444444-4444-4444-4444-444444444442';
 const WORK_3 = '44444444-4444-4444-4444-444444444443';
+const WORK_4 = '44444444-4444-4444-4444-444444444444';
+const WORK_5 = '44444444-4444-4444-4444-444444444445';
 const AUTHOR_1 = '55555555-5555-5555-5555-555555555551';
 
 function authHeader(userId: string) {
@@ -58,12 +60,16 @@ beforeAll(async () => {
     { id: WORK_1, title: 'The Left Hand of Darkness', olCoverId: 1001, logCount: 50 },
     { id: WORK_2, title: 'The Dispossessed', olCoverId: 1002, logCount: 35 },
     { id: WORK_3, title: 'A Wizard of Earthsea', olCoverId: 1003, logCount: 40 },
+    { id: WORK_4, title: 'The Lathe of Heaven', olCoverId: 1004, logCount: 25 },
+    { id: WORK_5, title: 'The Tombs of Atuan', olCoverId: 1005, logCount: 30 },
   ]);
 
   await db.insert(workAuthors).values([
     { workId: WORK_1, authorId: AUTHOR_1, position: 1 },
     { workId: WORK_2, authorId: AUTHOR_1, position: 1 },
     { workId: WORK_3, authorId: AUTHOR_1, position: 1 },
+    { workId: WORK_4, authorId: AUTHOR_1, position: 1 },
+    { workId: WORK_5, authorId: AUTHOR_1, position: 1 },
   ]);
 
   // Mock identity lookup for test tokens
@@ -993,4 +999,346 @@ describe('SH-03: Shelf Detail & Items (GET /v1/shelves/:id/items, POST /v1/shelv
     expect(bobViewAfterUnsave.json().shelf.save_count).toBe(0);
   });
 });
+
+describe('SH-08: GET /v1/shelves/browse (Browse Public Shelves & Ranking Formula)', () => {
+  it('returns only public shelves, strictly excluding private, followers, and soft-deleted shelves', async () => {
+    // 1. Create public shelf
+    const pubRes = await app.inject({
+      method: 'POST',
+      url: '/v1/shelves',
+      headers: authHeader(USER_ALICE),
+      payload: { name: 'SH08 Visible Public Shelf', privacy: 'public' },
+    });
+    expect(pubRes.statusCode).toBe(201);
+    const pubShelfId = pubRes.json().shelf.id;
+
+    // 2. Create private shelf
+    const privRes = await app.inject({
+      method: 'POST',
+      url: '/v1/shelves',
+      headers: authHeader(USER_ALICE),
+      payload: { name: 'SH08 Hidden Private Shelf', privacy: 'private' },
+    });
+    expect(privRes.statusCode).toBe(201);
+
+    // 3. Create followers-only shelf
+    const followRes = await app.inject({
+      method: 'POST',
+      url: '/v1/shelves',
+      headers: authHeader(USER_ALICE),
+      payload: { name: 'SH08 Hidden Followers Shelf', privacy: 'followers' },
+    });
+    expect(followRes.statusCode).toBe(201);
+
+    // 4. Create and then soft-delete a public shelf
+    const delRes = await app.inject({
+      method: 'POST',
+      url: '/v1/shelves',
+      headers: authHeader(USER_ALICE),
+      payload: { name: 'SH08 Deleted Public Shelf', privacy: 'public' },
+    });
+    const delShelfId = delRes.json().shelf.id;
+    await app.inject({
+      method: 'DELETE',
+      url: `/v1/shelves/${delShelfId}`,
+      headers: authHeader(USER_ALICE),
+    });
+
+    // Bob browses
+    const browseRes = await app.inject({
+      method: 'GET',
+      url: '/v1/shelves/browse?query=SH08',
+      headers: authHeader(USER_BOB),
+    });
+    expect(browseRes.statusCode).toBe(200);
+    const body = browseRes.json();
+    const names = body.shelves.map((s: any) => s.name);
+
+    expect(names).toContain('SH08 Visible Public Shelf');
+    expect(names).not.toContain('SH08 Hidden Private Shelf');
+    expect(names).not.toContain('SH08 Hidden Followers Shelf');
+    expect(names).not.toContain('SH08 Deleted Public Shelf');
+  });
+
+  it('supports guest (unauthenticated) browsing and defaults is_saved to false', async () => {
+    const browseRes = await app.inject({
+      method: 'GET',
+      url: '/v1/shelves/browse?limit=10',
+    });
+    expect(browseRes.statusCode).toBe(200);
+    const body = browseRes.json();
+    expect(Array.isArray(body.shelves)).toBe(true);
+    expect(typeof body.total).toBe('number');
+
+    for (const shelf of body.shelves) {
+      expect(shelf.is_saved).toBe(false);
+      expect(shelf.privacy).toBe('public');
+    }
+  });
+
+  it('filters shelves by text search query matching name or description', async () => {
+    await app.inject({
+      method: 'POST',
+      url: '/v1/shelves',
+      headers: authHeader(USER_ALICE),
+      payload: {
+        name: 'Solarpunk Horizons',
+        description: 'Eco-fiction and optimistic green worldbuilding.',
+        privacy: 'public',
+      },
+    });
+
+    await app.inject({
+      method: 'POST',
+      url: '/v1/shelves',
+      headers: authHeader(USER_ALICE),
+      payload: {
+        name: 'Neon Cyber Dystopias',
+        description: 'High-tech low-life gritty city aesthetics.',
+        privacy: 'public',
+      },
+    });
+
+    // Search by name substring
+    const solRes = await app.inject({
+      method: 'GET',
+      url: '/v1/shelves/browse?query=Solarpunk',
+    });
+    expect(solRes.statusCode).toBe(200);
+    const solShelves = solRes.json().shelves;
+    expect(solShelves.some((s: any) => s.name === 'Solarpunk Horizons')).toBe(true);
+    expect(solShelves.some((s: any) => s.name === 'Neon Cyber Dystopias')).toBe(false);
+
+    // Search by description substring
+    const cyberRes = await app.inject({
+      method: 'GET',
+      url: '/v1/shelves/browse?query=gritty city',
+    });
+    expect(cyberRes.statusCode).toBe(200);
+    const cyberShelves = cyberRes.json().shelves;
+    expect(cyberShelves.some((s: any) => s.name === 'Neon Cyber Dystopias')).toBe(true);
+    expect(cyberShelves.some((s: any) => s.name === 'Solarpunk Horizons')).toBe(false);
+  });
+
+  it('implements PRD §15.5 curation quality ranking (curated beats unannotated dump)', async () => {
+    // Curated shelf by Charlie: has rich description, 5 books, each with a personal note
+    const curatedRes = await app.inject({
+      method: 'POST',
+      url: '/v1/shelves',
+      headers: authHeader(USER_CHARLIE),
+      payload: {
+        name: 'RankTest Curated Literature',
+        description: 'Thoughtfully annotated tour de force of philosophical science fiction.',
+        privacy: 'public',
+      },
+    });
+    const curatedId = curatedRes.json().shelf.id;
+    for (const [idx, wId] of [WORK_1, WORK_2, WORK_3, WORK_4, WORK_5].entries()) {
+      await app.inject({
+        method: 'POST',
+        url: `/v1/shelves/${curatedId}/items`,
+        headers: authHeader(USER_CHARLIE),
+        payload: { work_id: wId, note: `Insightful note on chapter ${idx + 1}` },
+      });
+    }
+
+    // Dump shelf by Charlie: no description, 1 book, no notes
+    const dumpRes = await app.inject({
+      method: 'POST',
+      url: '/v1/shelves',
+      headers: authHeader(USER_CHARLIE),
+      payload: {
+        name: 'RankTest Raw Dump',
+        privacy: 'public',
+      },
+    });
+    const dumpId = dumpRes.json().shelf.id;
+    await app.inject({
+      method: 'POST',
+      url: `/v1/shelves/${dumpId}/items`,
+      headers: authHeader(USER_CHARLIE),
+      payload: { work_id: WORK_1 },
+    });
+
+    // Browse with sort=ranked
+    const rankRes = await app.inject({
+      method: 'GET',
+      url: '/v1/shelves/browse?query=RankTest&sort=ranked',
+      headers: authHeader(USER_CHARLIE),
+    });
+    expect(rankRes.statusCode).toBe(200);
+    const list = rankRes.json().shelves;
+    const curatedIdx = list.findIndex((s: any) => s.id === curatedId);
+    const dumpIdx = list.findIndex((s: any) => s.id === dumpId);
+
+    expect(curatedIdx).toBeGreaterThanOrEqual(0);
+    expect(dumpIdx).toBeGreaterThanOrEqual(0);
+    expect(curatedIdx).toBeLessThan(dumpIdx);
+  });
+
+  it('applies social proximity boost for followed creators and own shelves', async () => {
+    // Alice created a shelf (Bob follows Alice)
+    const aliceShelfRes = await app.inject({
+      method: 'POST',
+      url: '/v1/shelves',
+      headers: authHeader(USER_ALICE),
+      payload: {
+        name: 'SocialBoost Alice Reading Guide',
+        description: 'Standard description test.',
+        privacy: 'public',
+      },
+    });
+    const aliceShelfId = aliceShelfRes.json().shelf.id;
+    await app.inject({
+      method: 'POST',
+      url: `/v1/shelves/${aliceShelfId}/items`,
+      headers: authHeader(USER_ALICE),
+      payload: { work_id: WORK_1 },
+    });
+
+    // Charlie created a shelf with identical shape (Bob does NOT follow Charlie)
+    const charlieShelfRes = await app.inject({
+      method: 'POST',
+      url: '/v1/shelves',
+      headers: authHeader(USER_CHARLIE),
+      payload: {
+        name: 'SocialBoost Charlie Reading Guide',
+        description: 'Standard description test.',
+        privacy: 'public',
+      },
+    });
+    const charlieShelfId = charlieShelfRes.json().shelf.id;
+    await app.inject({
+      method: 'POST',
+      url: `/v1/shelves/${charlieShelfId}/items`,
+      headers: authHeader(USER_CHARLIE),
+      payload: { work_id: WORK_1 },
+    });
+
+    // When Bob browses (follows Alice, not Charlie): Alice's shelf should rank ahead
+    const bobBrowse = await app.inject({
+      method: 'GET',
+      url: '/v1/shelves/browse?query=SocialBoost&sort=ranked',
+      headers: authHeader(USER_BOB),
+    });
+    expect(bobBrowse.statusCode).toBe(200);
+    const bobList = bobBrowse.json().shelves;
+    const aliceRankBob = bobList.findIndex((s: any) => s.id === aliceShelfId);
+    const charlieRankBob = bobList.findIndex((s: any) => s.id === charlieShelfId);
+    expect(aliceRankBob).toBeLessThan(charlieRankBob);
+
+    // When Charlie browses: Charlie's own shelf gets 0.5 proximity boost vs Alice's 0.0
+    const charlieBrowse = await app.inject({
+      method: 'GET',
+      url: '/v1/shelves/browse?query=SocialBoost&sort=ranked',
+      headers: authHeader(USER_CHARLIE),
+    });
+    expect(charlieBrowse.statusCode).toBe(200);
+    const charlieList = charlieBrowse.json().shelves;
+    const aliceRankCharlie = charlieList.findIndex((s: any) => s.id === aliceShelfId);
+    const charlieRankCharlie = charlieList.findIndex((s: any) => s.id === charlieShelfId);
+    expect(charlieRankCharlie).toBeLessThan(aliceRankCharlie);
+  });
+
+  it('supports sort=popular and sort=recent', async () => {
+    // Create first shelf
+    const pop1 = await app.inject({
+      method: 'POST',
+      url: '/v1/shelves',
+      headers: authHeader(USER_CHARLIE),
+      payload: { name: 'SortTest Shelf Less Popular', privacy: 'public' },
+    });
+    const pop1Id = pop1.json().shelf.id;
+
+    // Create second shelf and save it multiple times
+    const pop2 = await app.inject({
+      method: 'POST',
+      url: '/v1/shelves',
+      headers: authHeader(USER_CHARLIE),
+      payload: { name: 'SortTest Shelf More Popular', privacy: 'public' },
+    });
+    const pop2Id = pop2.json().shelf.id;
+    await app.inject({
+      method: 'POST',
+      url: `/v1/shelves/${pop2Id}/save`,
+      headers: authHeader(USER_BOB),
+    });
+
+    // sort=popular should place pop2 before pop1
+    const popRes = await app.inject({
+      method: 'GET',
+      url: '/v1/shelves/browse?query=SortTest&sort=popular',
+    });
+    const popList = popRes.json().shelves;
+    const idx1Pop = popList.findIndex((s: any) => s.id === pop1Id);
+    const idx2Pop = popList.findIndex((s: any) => s.id === pop2Id);
+    expect(idx2Pop).toBeLessThan(idx1Pop);
+
+    // sort=recent should place the more recently created shelf first
+    const recRes = await app.inject({
+      method: 'GET',
+      url: '/v1/shelves/browse?query=SortTest&sort=recent',
+    });
+    const recList = recRes.json().shelves;
+    const idx1Rec = recList.findIndex((s: any) => s.id === pop1Id);
+    const idx2Rec = recList.findIndex((s: any) => s.id === pop2Id);
+    expect(idx2Rec).toBeLessThan(idx1Rec);
+  });
+
+  it('supports pagination with limit and offset', async () => {
+    const p1 = await app.inject({
+      method: 'GET',
+      url: '/v1/shelves/browse?limit=1&offset=0',
+    });
+    expect(p1.statusCode).toBe(200);
+    const body1 = p1.json();
+    expect(body1.shelves).toHaveLength(1);
+    expect(body1.total).toBeGreaterThan(1);
+
+    const p2 = await app.inject({
+      method: 'GET',
+      url: '/v1/shelves/browse?limit=1&offset=1',
+    });
+    expect(p2.statusCode).toBe(200);
+    const body2 = p2.json();
+    expect(body2.shelves).toHaveLength(1);
+    expect(body2.shelves[0].id).not.toBe(body1.shelves[0].id);
+  });
+
+  it('marks is_saved true when the viewing user has saved the shelf', async () => {
+    const createRes = await app.inject({
+      method: 'POST',
+      url: '/v1/shelves',
+      headers: authHeader(USER_ALICE),
+      payload: { name: 'SaveFlag Shelf Unique', privacy: 'public' },
+    });
+    const sId = createRes.json().shelf.id;
+
+    // Bob saves it
+    await app.inject({
+      method: 'POST',
+      url: `/v1/shelves/${sId}/save`,
+      headers: authHeader(USER_BOB),
+    });
+
+    // Bob browses
+    const bobRes = await app.inject({
+      method: 'GET',
+      url: '/v1/shelves/browse?query=SaveFlag',
+      headers: authHeader(USER_BOB),
+    });
+    const bobShelf = bobRes.json().shelves.find((s: any) => s.id === sId);
+    expect(bobShelf.is_saved).toBe(true);
+
+    // Charlie browses -> is_saved is false
+    const charlieRes = await app.inject({
+      method: 'GET',
+      url: '/v1/shelves/browse?query=SaveFlag',
+      headers: authHeader(USER_CHARLIE),
+    });
+    const charlieShelf = charlieRes.json().shelves.find((s: any) => s.id === sId);
+    expect(charlieShelf.is_saved).toBe(false);
+  });
+});
+
 
