@@ -602,4 +602,143 @@ describe('SH-03: Shelf Detail & Items (GET /v1/shelves/:id/items, POST /v1/shelv
     });
     expect(getResCharlie.json().shelf.is_saved).toBe(false);
   });
+
+  it('retrieves user shelves via GET /v1/shelves/mine with work membership indicators (SH-04)', async () => {
+    // Unauthenticated request is rejected
+    const unauthRes = await app.inject({
+      method: 'GET',
+      url: '/v1/shelves/mine',
+    });
+    expect(unauthRes.statusCode).toBe(401);
+
+    // Create 2 shelves for Alice: one with WORK_1, one empty
+    const shelf1Res = await app.inject({
+      method: 'POST',
+      url: '/v1/shelves',
+      headers: authHeader(USER_ALICE),
+      payload: { name: 'Alice Sci-Fi', privacy: 'public' },
+    });
+    const shelf1Id = shelf1Res.json().shelf.id;
+
+    const shelf2Res = await app.inject({
+      method: 'POST',
+      url: '/v1/shelves',
+      headers: authHeader(USER_ALICE),
+      payload: { name: 'Alice Favorites', privacy: 'private' },
+    });
+    const shelf2Id = shelf2Res.json().shelf.id;
+
+    // Add WORK_1 to shelf 1
+    await app.inject({
+      method: 'POST',
+      url: `/v1/shelves/${shelf1Id}/items`,
+      headers: authHeader(USER_ALICE),
+      payload: { work_id: WORK_1, note: 'Must read sci-fi masterwork' },
+    });
+
+    // Query Alice's shelves with ?work_id=WORK_1
+    const mineRes = await app.inject({
+      method: 'GET',
+      url: `/v1/shelves/mine?work_id=${WORK_1}`,
+      headers: authHeader(USER_ALICE),
+    });
+    expect(mineRes.statusCode).toBe(200);
+    const shelvesList = mineRes.json().shelves;
+    expect(shelvesList.length).toBeGreaterThanOrEqual(2);
+
+    const s1 = shelvesList.find((s: any) => s.id === shelf1Id);
+    expect(s1).toBeDefined();
+    expect(s1.contains_work).toBe(true);
+    expect(s1.item_note).toBe('Must read sci-fi masterwork');
+
+    const s2 = shelvesList.find((s: any) => s.id === shelf2Id);
+    expect(s2).toBeDefined();
+    expect(s2.contains_work).toBe(false);
+    expect(s2.item_note).toBeNull();
+  });
+
+  it('removes item from shelf via DELETE /v1/shelves/:id/items/:workId and enforces ownership', async () => {
+    // Alice creates shelf and adds WORK_2
+    const shelfRes = await app.inject({
+      method: 'POST',
+      url: '/v1/shelves',
+      headers: authHeader(USER_ALICE),
+      payload: { name: 'Removable Items Shelf', privacy: 'public' },
+    });
+    const shelfId = shelfRes.json().shelf.id;
+
+    await app.inject({
+      method: 'POST',
+      url: `/v1/shelves/${shelfId}/items`,
+      headers: authHeader(USER_ALICE),
+      payload: { work_id: WORK_2 },
+    });
+
+    // Bob tries to remove item -> 404 (non-owner)
+    const bobRemove = await app.inject({
+      method: 'DELETE',
+      url: `/v1/shelves/${shelfId}/items/${WORK_2}`,
+      headers: authHeader(USER_BOB),
+    });
+    expect(bobRemove.statusCode).toBe(404);
+
+    // Alice removes item -> 200
+    const aliceRemove = await app.inject({
+      method: 'DELETE',
+      url: `/v1/shelves/${shelfId}/items/${WORK_2}`,
+      headers: authHeader(USER_ALICE),
+    });
+    expect(aliceRemove.statusCode).toBe(200);
+    expect(aliceRemove.json()).toEqual({
+      deleted: true,
+      shelf_id: shelfId,
+      work_id: WORK_2,
+    });
+
+    // Verifying shelf items count decreased to 0
+    const getItems = await app.inject({
+      method: 'GET',
+      url: `/v1/shelves/${shelfId}/items`,
+      headers: authHeader(USER_ALICE),
+    });
+    expect(getItems.json().total).toBe(0);
+  });
+
+  it('updates shelf item note and position via PATCH /v1/shelves/:id/items/:workId', async () => {
+    // Alice creates shelf and adds WORK_1
+    const shelfRes = await app.inject({
+      method: 'POST',
+      url: '/v1/shelves',
+      headers: authHeader(USER_ALICE),
+      payload: { name: 'Editable Notes Shelf', privacy: 'public' },
+    });
+    const shelfId = shelfRes.json().shelf.id;
+
+    await app.inject({
+      method: 'POST',
+      url: `/v1/shelves/${shelfId}/items`,
+      headers: authHeader(USER_ALICE),
+      payload: { work_id: WORK_1, note: 'Initial draft note' },
+    });
+
+    // Update note and position
+    const patchRes = await app.inject({
+      method: 'PATCH',
+      url: `/v1/shelves/${shelfId}/items/${WORK_1}`,
+      headers: authHeader(USER_ALICE),
+      payload: { note: 'Revised note with profound insight', position: 5 },
+    });
+    expect(patchRes.statusCode).toBe(200);
+    expect(patchRes.json().item.note).toBe('Revised note with profound insight');
+    expect(patchRes.json().item.position).toBe(5);
+
+    // Reject note > 280 characters
+    const longNoteRes = await app.inject({
+      method: 'PATCH',
+      url: `/v1/shelves/${shelfId}/items/${WORK_1}`,
+      headers: authHeader(USER_ALICE),
+      payload: { note: 'A'.repeat(281) },
+    });
+    expect(longNoteRes.statusCode).toBe(422);
+  });
 });

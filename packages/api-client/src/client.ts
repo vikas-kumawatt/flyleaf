@@ -69,6 +69,9 @@ import type {
   ShelfItemsResponse,
   AddShelfItemRequest,
   ShelfItemResponse,
+  MyShelvesResponse,
+  DeleteShelfItemResponse,
+  UpdateShelfItemRequest,
   Work,
   WorkReviewsQuery,
   WorkReviewsResponse,
@@ -587,6 +590,38 @@ export class FlyleafClient {
       method: 'POST',
       body: JSON.stringify(data),
     });
+  }
+
+  async getMyShelves(params?: { work_id?: string }): Promise<MyShelvesResponse> {
+    const q = new URLSearchParams();
+    if (params?.work_id) q.set('work_id', params.work_id);
+    const qs = q.toString() ? `?${q.toString()}` : '';
+    return this.request<MyShelvesResponse>(`/shelves/mine${qs}`, {
+      method: 'GET',
+    });
+  }
+
+  async removeShelfItem(shelfId: string, workId: string): Promise<DeleteShelfItemResponse> {
+    return this.request<DeleteShelfItemResponse>(
+      `/shelves/${encodeURIComponent(shelfId)}/items/${encodeURIComponent(workId)}`,
+      {
+        method: 'DELETE',
+      },
+    );
+  }
+
+  async updateShelfItem(
+    shelfId: string,
+    workId: string,
+    data: UpdateShelfItemRequest,
+  ): Promise<ShelfItemResponse> {
+    return this.request<ShelfItemResponse>(
+      `/shelves/${encodeURIComponent(shelfId)}/items/${encodeURIComponent(workId)}`,
+      {
+        method: 'PATCH',
+        body: JSON.stringify(data),
+      },
+    );
   }
 }
 

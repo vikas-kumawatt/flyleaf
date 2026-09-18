@@ -14,6 +14,7 @@ import {
   View,
   TextInput,
   Pressable,
+  Share,
   StyleSheet,
 } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
@@ -23,6 +24,7 @@ import { api, type Work, type Review } from '@/lib/api';
 import { useSession } from '@/lib/session';
 import { useGuestShelf } from '@/lib/guest';
 import { useActionGate } from '@/ui/ActionGate';
+import { AddToShelfSheet } from '@/ui/AddToShelfSheet';
 import { budgetTracker } from '@/lib/budgetTracker';
 import {
   Button,
@@ -62,6 +64,7 @@ export default function WorkScreen() {
   const [pageInput, setPageInput] = useState('');
   const [descExpanded, setDescExpanded] = useState(false);
   const [activeTab, setActiveTab] = useState<'reviews' | 'editions' | 'history'>('reviews');
+  const [shelfSheetVisible, setShelfSheetVisible] = useState(false);
 
   // Reviews state (SL-64)
   const [reviewsList, setReviewsList] = useState<Review[]>([]);
@@ -115,6 +118,18 @@ export default function WorkScreen() {
     } catch {
       // Ignore
     }
+  };
+
+  const handleOpenShelfSheet = () => {
+    if (!user) {
+      promptAuth({
+        title: 'Sign up to create shelves',
+        subtitle: 'Organize your reading with custom shelves, ranked lists, and notes.',
+      });
+      return;
+    }
+    void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    setShelfSheetVisible(true);
   };
 
   const load = async () => {
@@ -308,6 +323,59 @@ export default function WorkScreen() {
               />
             );
           })}
+        </View>
+
+        {/* Secondary Action Row (PRD §6.31, §6.34: Add to shelf & Share) */}
+        <View style={[sheet.row, { gap: space[2] }]}>
+          <Pressable
+            onPress={handleOpenShelfSheet}
+            accessibilityRole="button"
+            accessibilityLabel="Add to shelf"
+            style={[
+              sheet.row,
+              {
+                flex: 1,
+                minHeight: 44,
+                paddingHorizontal: space[3],
+                borderRadius: radius.md,
+                borderWidth: 1,
+                borderColor: c.line,
+                backgroundColor: c.surface,
+                justifyContent: 'center',
+              },
+            ]}
+          >
+            <Ionicons name="bookmark-outline" size={18} color={c.accent} style={{ marginRight: space[2] }} />
+            <Txt variant="body" color="accent" style={{ fontWeight: '600' }}>
+              Add to shelf
+            </Txt>
+          </Pressable>
+
+          <Pressable
+            onPress={() => {
+              void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+              void Share.share({
+                title: work.title,
+                message: `Check out ${work.title} by ${work.author_name} on Flyleaf!`,
+              });
+            }}
+            accessibilityRole="button"
+            accessibilityLabel="Share book"
+            style={[
+              sheet.row,
+              {
+                minHeight: 44,
+                paddingHorizontal: space[3],
+                borderRadius: radius.md,
+                borderWidth: 1,
+                borderColor: c.line,
+                backgroundColor: c.surface,
+                justifyContent: 'center',
+              },
+            ]}
+          >
+            <Ionicons name="share-outline" size={18} color={c.muted} />
+          </Pressable>
         </View>
 
         {/* 3. Rating & 5-Bar Distribution Histogram */}
@@ -798,6 +866,13 @@ export default function WorkScreen() {
           )}
         </View>
       </ScrollView>
+
+      {/* Add-to-Shelf Sheet (SH-04) */}
+      <AddToShelfSheet
+        visible={shelfSheetVisible}
+        onClose={() => setShelfSheetVisible(false)}
+        work={work}
+      />
     </Screen>
   );
 }

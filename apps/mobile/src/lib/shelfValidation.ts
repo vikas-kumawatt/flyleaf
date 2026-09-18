@@ -60,3 +60,14 @@ export function formatShelfRank(
   return `#${position ?? index + 1}`;
 }
 
+export function validateShelfName(name?: string | null): { isValid: boolean; error?: string } {
+  const trimmed = (name ?? '').trim();
+  if (!trimmed) {
+    return { isValid: false, error: 'Shelf name is required.' };
+  }
+  if (trimmed.length > 60) {
+    return { isValid: false, error: 'Shelf name cannot exceed 60 characters.' };
+  }
+  return { isValid: true };
+}
+

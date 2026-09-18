@@ -783,6 +783,27 @@ export interface ShelfItemResponse {
   item: ShelfItem;
 }
 
+export interface ShelfWithWorkState extends Shelf {
+  contains_work: boolean;
+  item_note: string | null;
+  position: number | null;
+}
+
+export interface MyShelvesResponse {
+  shelves: ShelfWithWorkState[];
+}
+
+export interface DeleteShelfItemResponse {
+  deleted: boolean;
+  shelf_id: string;
+  work_id: string;
+}
+
+export interface UpdateShelfItemRequest {
+  note?: string | null;
+  position?: number;
+}
+
 
 
 

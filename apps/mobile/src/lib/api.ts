@@ -47,6 +47,10 @@ import {
   type ShelfItemWork,
   type ShelfItemsResponse,
   type AddShelfItemRequest,
+  type ShelfWithWorkState,
+  type MyShelvesResponse,
+  type DeleteShelfItemResponse,
+  type UpdateShelfItemRequest,
 } from '@flyleaf/api-client';
 
 export type {
@@ -72,6 +76,10 @@ export type {
   ShelfItemWork,
   ShelfItemsResponse,
   AddShelfItemRequest,
+  ShelfWithWorkState,
+  MyShelvesResponse,
+  DeleteShelfItemResponse,
+  UpdateShelfItemRequest,
   Edition,
   EditionDetail,
   EditionLookupResponse,
@@ -430,6 +438,10 @@ export const api = {
   getShelfItems: (id: string, params?: { limit?: number; offset?: number }) =>
     client.getShelfItems(id, params),
   addShelfItem: (id: string, data: AddShelfItemRequest) => client.addShelfItem(id, data),
+  getMyShelves: (params?: { work_id?: string }) => client.getMyShelves(params),
+  removeShelfItem: (shelfId: string, workId: string) => client.removeShelfItem(shelfId, workId),
+  updateShelfItem: (shelfId: string, workId: string, data: UpdateShelfItemRequest) =>
+    client.updateShelfItem(shelfId, workId, data),
 };
 
 export interface AuthorDetail {

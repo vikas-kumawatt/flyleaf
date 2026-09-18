@@ -22,7 +22,10 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import { api, type Work } from '@/lib/api';
+import { useSession } from '@/lib/session';
 import { useGuestShelf } from '@/lib/guest';
+import { useActionGate } from '@/ui/ActionGate';
+import { AddToShelfSheet, type AddToShelfWork } from '@/ui/AddToShelfSheet';
 import {
   Card,
   Cover,
@@ -58,17 +61,36 @@ const CURATED_SHELVES = [
 ];
 
 export default function DiscoverScreen() {
-  const c = useTheme();
-  const router = useRouter();
   const insets = useSafeAreaInsets();
+  const router = useRouter();
+  const c = useTheme();
+  const { user } = useSession();
+  const { promptAuth } = useActionGate();
   const { isSaved } = useGuestShelf();
 
   const [q, setQ] = useState('');
+  const [results, setResults] = useState<Work[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [recents, setRecents] = useState<string[]>(INITIAL_RECENTS);
   const [activeTab, setActiveTab] = useState<'books' | 'authors' | 'lists'>('books');
   const [formatFilter, setFormatFilter] = useState<'all' | 'print' | 'ebook' | 'audio'>('all');
-  const [results, setResults] = useState<Work[]>([]);
-  const [recents, setRecents] = useState<string[]>(INITIAL_RECENTS);
-  const [loading, setLoading] = useState(false);
+  const [shelfTargetWork, setShelfTargetWork] = useState<AddToShelfWork | null>(null);
+
+  const handleOpenShelf = (work: Work | { id: string; title: string; author: string; cover_id?: number | null }) => {
+    if (!user) {
+      promptAuth({
+        title: 'Sign up to create shelves',
+        subtitle: 'Organize your reading with custom shelves, ranked lists, and notes.',
+      });
+      return;
+    }
+    setShelfTargetWork({
+      id: work.id,
+      title: work.title,
+      author_name: 'author_name' in work ? work.author_name : (work as any).author,
+      cover_id: work.cover_id,
+    });
+  };
 
   // 250ms debounce per design.md & PRD §6.22
   useEffect(() => {
@@ -399,6 +421,7 @@ export default function DiscoverScreen() {
             return (
               <Card
                 onPress={() => router.push(`/work/${item.id}`)}
+                onLongPress={() => handleOpenShelf(item)}
                 style={{ marginBottom: space[3], padding: space[3] }}
               >
                 <View style={sheet.rowTop}>
@@ -457,6 +480,20 @@ export default function DiscoverScreen() {
                           </Txt>
                         </View>
                       )}
+
+                      {/* Add to Shelf quick action (SH-04) */}
+                      <Pressable
+                        onPress={(e) => {
+                          e.stopPropagation();
+                          handleOpenShelf(item);
+                        }}
+                        hitSlop={8}
+                        accessibilityRole="button"
+                        accessibilityLabel={`Add ${item.title} to shelf`}
+                        style={{ padding: 2, marginLeft: 'auto' }}
+                      >
+                        <Ionicons name="bookmark-outline" size={18} color={c.muted} />
+                      </Pressable>
                     </View>
                   </View>
                 </View>
@@ -465,6 +502,13 @@ export default function DiscoverScreen() {
           }}
         />
       )}
+
+      {/* Add-to-Shelf Sheet (SH-04) */}
+      <AddToShelfSheet
+        visible={Boolean(shelfTargetWork)}
+        onClose={() => setShelfTargetWork(null)}
+        work={shelfTargetWork}
+      />
     </Screen>
   );
 }

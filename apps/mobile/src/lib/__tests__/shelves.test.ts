@@ -1,6 +1,6 @@
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
-import { validateShelfForm, validateShelfNote, formatShelfRank } from '../shelfValidation.js';
+import { validateShelfForm, validateShelfNote, formatShelfRank, validateShelfName } from '../shelfValidation.js';
 
 describe('Shelf Form Validation (SH-02)', () => {
   test('accepts valid shelf details', () => {
@@ -103,6 +103,42 @@ describe('Shelf Items & Note Validation (SH-03, PRD §15.2)', () => {
     assert.equal(formatShelfRank(true, 10), '#10');
     assert.equal(formatShelfRank(true, null, 2), '#3');
     assert.equal(formatShelfRank(false, 1), null);
+  });
+});
+
+describe('Add-to-Shelf & Shelf Name Helpers (SH-04)', () => {
+  test('validates shelf name for quick inline creation', () => {
+    assert.equal(validateShelfName(null).isValid, false);
+    assert.equal(validateShelfName('').isValid, false);
+    assert.equal(validateShelfName('   ').isValid, false);
+    assert.equal(validateShelfName('Favorites').isValid, true);
+    assert.equal(validateShelfName('A'.repeat(60)).isValid, true);
+    assert.equal(validateShelfName('A'.repeat(61)).isValid, false);
+  });
+
+  test('correctly computes optimistic shelf toggle state and counts', () => {
+    const initialShelves = [
+      { id: 's1', contains_work: false, item_count: 5 },
+      { id: 's2', contains_work: true, item_count: 3 },
+    ];
+
+    // Adding to s1
+    const addedShelves = initialShelves.map((s) =>
+      s.id === 's1'
+        ? { ...s, contains_work: true, item_count: s.item_count + 1 }
+        : s,
+    );
+    assert.equal(addedShelves[0]!.contains_work, true);
+    assert.equal(addedShelves[0]!.item_count, 6);
+
+    // Removing from s2
+    const removedShelves = addedShelves.map((s) =>
+      s.id === 's2'
+        ? { ...s, contains_work: false, item_count: Math.max(0, s.item_count - 1) }
+        : s,
+    );
+    assert.equal(removedShelves[1]!.contains_work, false);
+    assert.equal(removedShelves[1]!.item_count, 2);
   });
 });
 

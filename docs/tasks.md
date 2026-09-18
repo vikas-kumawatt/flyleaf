@@ -410,7 +410,23 @@
   - Full OpenAPI contract synchronization with schemas in `apps/api/src/contract/schemas.ts`, updated `openapi.yaml` (0 drift), and typed client methods in `@flyleaf/api-client` (`getShelfItems`, `addShelfItem`).
   - Native Shelf Detail screen in `apps/mobile/app/shelf/[id].tsx` with 4-cover mosaic card preview, ranked numbering pills (`#1..#N`), per-entry notes in styled callouts, owner actions (Edit Shelf), reader actions (Save/Saved toggle, Share), and contextual empty states.
   - Comprehensive test suite: 17 tests in `apps/api/src/test/shelves.test.ts` and 12 mobile unit tests in `apps/mobile/src/lib/__tests__/shelves.test.ts`. CI pipeline 100% green.
-- [ ] SH-04 Add-to-shelf from book page, search, long-press — 1d
+- [x] **SH-04** Add-to-shelf from book page, search, long-press — 1d
+  - Backend `ShelvesService` (`getMyShelves`, `removeItem`, `updateItem`) and Fastify endpoints:
+    - `GET /v1/shelves/mine`: Retrieves viewer's active shelves with optional `?work_id=:uuid` membership filter (`contains_work: boolean`, `item_note: string | null`, `position: number | null`).
+    - `DELETE /v1/shelves/:id/items/:workId`: Removes a book from a shelf, updating `item_count` and mosaic covers via DB trigger, strictly enforcing owner authorization (404 on non-owner).
+    - `PATCH /v1/shelves/:id/items/:workId`: Updates per-entry note (validating <= 280 characters) and position.
+  - Contract & Client: Schemas in `apps/api/src/contract/schemas.ts`, updated `openapi.yaml` (0 contract drift), and typed client methods in `@flyleaf/api-client` (`getMyShelves`, `removeShelfItem`, `updateShelfItem`).
+  - Native mobile `AddToShelfSheet` component (`apps/mobile/src/ui/AddToShelfSheet.tsx`):
+    - Bottom sheet displaying book thumbnail, title, and author.
+    - Checkbox toggle per shelf with instant haptics and optimistic local state updates.
+    - Per-entry note composer with character counter (max 280 chars).
+    - Inline quick shelf creation ("+ New Shelf") without leaving reading context.
+    - Contextual Guest Mode integration (`ActionGate`: *"Sign up to create shelves"*).
+  - Surface integrations:
+    - Book detail (`apps/mobile/app/work/[id].tsx`): secondary action row with prominent "Add to shelf" button.
+    - Discover search results (`apps/mobile/app/(tabs)/discover.tsx`): `onLongPress` gesture on book cards and bookmark shortcut button.
+    - `Card` component (`apps/mobile/src/ui/components.tsx`): `onLongPress` prop support.
+  - Comprehensive test suite: 20 tests in `apps/api/src/test/shelves.test.ts` (442 API tests passing) and 14 tests in `apps/mobile/src/lib/__tests__/shelves.test.ts` (66 mobile tests passing). CI pipeline 100% green.
 - [ ] SH-05 Reorder: drag + **"move to position" alternative** — 1d
 - [ ] SH-06 My shelves grid; three starter suggestions on empty — 1d
 - [ ] SH-07 Save someone's shelf (reference, stays in sync) — 0.5d

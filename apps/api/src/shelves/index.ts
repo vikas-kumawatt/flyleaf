@@ -36,6 +36,12 @@ import {
   shelfItemsResponseSchema,
   addShelfItemBodySchema,
   shelfItemResponseSchema,
+  shelfWithWorkStateSchema,
+  myShelvesQuerySchema,
+  myShelvesResponseSchema,
+  shelfItemParamSchema,
+  deleteShelfItemResponseSchema,
+  updateShelfItemBodySchema,
 } from '../contract/schemas.js';
 
 export interface ShelfOwner {
@@ -102,6 +108,17 @@ export interface ShelfItemDetail {
 
 export interface AddShelfItemInput {
   work_id: string;
+  note?: string | null;
+  position?: number;
+}
+
+export interface ShelfWithWorkState extends ShelfDetail {
+  contains_work: boolean;
+  item_note: string | null;
+  position: number | null;
+}
+
+export interface UpdateShelfItemInput {
   note?: string | null;
   position?: number;
 }
@@ -537,6 +554,149 @@ export class ShelvesService {
     return created;
   }
 
+  async getMyShelves(viewer: string, workId?: string): Promise<{ shelves: ShelfWithWorkState[] }> {
+    const rows = await this.db
+      .select()
+      .from(shelves)
+      .where(and(eq(shelves.userId, viewer), sql`${shelves.deletedAt} IS NULL`))
+      .orderBy(sql`${shelves.createdAt} DESC`);
+
+    if (rows.length === 0) {
+      return { shelves: [] };
+    }
+
+    const owner = await this.getOwnerProfile(viewer);
+
+    let workMembershipMap = new Map<string, { note: string | null; position: number }>();
+    if (workId) {
+      const itemRows = await this.db
+        .select({
+          shelfId: shelfItems.shelfId,
+          note: shelfItems.note,
+          position: shelfItems.position,
+        })
+        .from(shelfItems)
+        .where(
+          and(
+            inArray(shelfItems.shelfId, rows.map((r) => r.id)),
+            eq(shelfItems.workId, workId),
+          ),
+        );
+      for (const item of itemRows) {
+        workMembershipMap.set(item.shelfId, { note: item.note, position: item.position });
+      }
+    }
+
+    const allCoverWorkIds = Array.from(new Set(rows.flatMap((s) => s.coverWorkIds ?? [])));
+    let coverIdMap = new Map<string, number | null>();
+    if (allCoverWorkIds.length > 0) {
+      const coverRows = await this.db
+        .select({ id: works.id, coverId: works.olCoverId })
+        .from(works)
+        .where(inArray(works.id, allCoverWorkIds));
+      for (const cr of coverRows) {
+        coverIdMap.set(cr.id, cr.coverId);
+      }
+    }
+
+    const result: ShelfWithWorkState[] = rows.map((shelf) => {
+      const coverIds = (shelf.coverWorkIds ?? []).map((wid) => coverIdMap.get(wid) ?? null);
+      const membership = workMembershipMap.get(shelf.id);
+      return {
+        id: shelf.id,
+        user_id: shelf.userId,
+        name: shelf.name,
+        slug: shelf.slug,
+        description: shelf.description,
+        is_ranked: shelf.isRanked,
+        privacy: shelf.privacy as 'public' | 'followers' | 'private',
+        cover_work_ids: shelf.coverWorkIds ?? [],
+        cover_ids: coverIds,
+        item_count: shelf.itemCount,
+        save_count: shelf.saveCount,
+        is_saved: false,
+        created_at: shelf.createdAt.toISOString(),
+        owner,
+        contains_work: Boolean(membership),
+        item_note: membership?.note ?? null,
+        position: membership?.position ?? null,
+      };
+    });
+
+    return { shelves: result };
+  }
+
+  async removeItem(viewer: string, shelfId: string, workId: string): Promise<{ deleted: true; shelf_id: string; work_id: string }> {
+    const [shelf] = await this.db
+      .select({ id: shelves.id, userId: shelves.userId })
+      .from(shelves)
+      .where(and(eq(shelves.id, shelfId), sql`${shelves.deletedAt} IS NULL`))
+      .limit(1);
+
+    if (!shelf || shelf.userId !== viewer) {
+      throw ApiError.notFound('Shelf not found.');
+    }
+
+    const deleted = await this.db
+      .delete(shelfItems)
+      .where(and(eq(shelfItems.shelfId, shelfId), eq(shelfItems.workId, workId)))
+      .returning({ workId: shelfItems.workId });
+
+    if (deleted.length === 0) {
+      throw ApiError.notFound('Book not found in shelf.');
+    }
+
+    return { deleted: true, shelf_id: shelfId, work_id: workId };
+  }
+
+  async updateItem(
+    viewer: string,
+    shelfId: string,
+    workId: string,
+    input: UpdateShelfItemInput,
+  ): Promise<ShelfItemDetail> {
+    const [shelf] = await this.db
+      .select({ id: shelves.id, userId: shelves.userId })
+      .from(shelves)
+      .where(and(eq(shelves.id, shelfId), sql`${shelves.deletedAt} IS NULL`))
+      .limit(1);
+
+    if (!shelf || shelf.userId !== viewer) {
+      throw ApiError.notFound('Shelf not found.');
+    }
+
+    if (input.note && input.note.trim().length > 280) {
+      throw new ApiError(400, 'invalid_note', 'Note cannot exceed 280 characters.', 'note');
+    }
+
+    const updates: Partial<{ note: string | null; position: number }> = {};
+    if (input.note !== undefined) {
+      updates.note = input.note?.trim() || null;
+    }
+    if (input.position !== undefined) {
+      updates.position = input.position;
+    }
+
+    if (Object.keys(updates).length > 0) {
+      const updated = await this.db
+        .update(shelfItems)
+        .set(updates)
+        .where(and(eq(shelfItems.shelfId, shelfId), eq(shelfItems.workId, workId)))
+        .returning();
+
+      if (updated.length === 0) {
+        throw ApiError.notFound('Book not found in shelf.');
+      }
+    }
+
+    const items = await this.getItems(viewer, shelfId, { limit: 100 });
+    const item = items.data.find((i) => i.work_id === workId);
+    if (!item) {
+      throw ApiError.notFound('Book not found in shelf.');
+    }
+    return item;
+  }
+
   private async getOwnerProfile(userId: string): Promise<ShelfOwner> {
     const [row] = await this.db
       .select({
@@ -610,6 +770,28 @@ export const shelvesPlugin: FastifyPluginAsync<{ db: Db }> = async (fastify, opt
       const viewer = requireViewer(request);
       const shelf = await service.create(viewer, request.body as CreateShelfInput);
       return reply.status(201).send({ shelf });
+    },
+  );
+
+  fastify.get(
+    '/shelves/mine',
+    {
+      schema: {
+        tags: ['Shelves'],
+        summary: 'List current user shelves',
+        description: 'Returns all active shelves belonging to the authenticated viewer. Supports optional ?work_id to indicate membership status and note for that book (SH-04).',
+        querystring: myShelvesQuerySchema,
+        response: {
+          200: myShelvesResponseSchema,
+          401: errorResponseSchema,
+        },
+      },
+    },
+    async (request, reply) => {
+      const viewer = requireViewer(request);
+      const { work_id } = (request.query as { work_id?: string }) || {};
+      const result = await service.getMyShelves(viewer, work_id);
+      return reply.send(result);
     },
   );
 
@@ -734,6 +916,55 @@ export const shelvesPlugin: FastifyPluginAsync<{ db: Db }> = async (fastify, opt
       const { id } = request.params as { id: string };
       const item = await service.addItem(viewer, id, request.body as AddShelfItemInput);
       return reply.status(201).send({ item });
+    },
+  );
+
+  fastify.delete(
+    '/shelves/:id/items/:workId',
+    {
+      schema: {
+        tags: ['Shelves'],
+        summary: 'Remove item from shelf',
+        description: 'Removes a book from the shelf. Only the shelf owner can remove items.',
+        params: shelfItemParamSchema,
+        response: {
+          200: deleteShelfItemResponseSchema,
+          401: errorResponseSchema,
+          404: errorResponseSchema,
+        },
+      },
+    },
+    async (request, reply) => {
+      const viewer = requireViewer(request);
+      const { id, workId } = request.params as { id: string; workId: string };
+      const result = await service.removeItem(viewer, id, workId);
+      return reply.send(result);
+    },
+  );
+
+  fastify.patch(
+    '/shelves/:id/items/:workId',
+    {
+      schema: {
+        tags: ['Shelves'],
+        summary: 'Update shelf item note or position',
+        description: 'Updates note (up to 280 chars) or position for an existing item on the shelf. Only owner can update.',
+        params: shelfItemParamSchema,
+        body: updateShelfItemBodySchema,
+        response: {
+          200: shelfItemResponseSchema,
+          400: errorResponseSchema,
+          401: errorResponseSchema,
+          404: errorResponseSchema,
+          422: errorResponseSchema,
+        },
+      },
+    },
+    async (request, reply) => {
+      const viewer = requireViewer(request);
+      const { id, workId } = request.params as { id: string; workId: string };
+      const item = await service.updateItem(viewer, id, workId, request.body as UpdateShelfItemInput);
+      return reply.send({ item });
     },
   );
 };

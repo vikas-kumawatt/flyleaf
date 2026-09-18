@@ -1398,6 +1398,94 @@ export const shelfItemResponseSchema = {
   required: ['item'],
 } as const;
 
+export const shelfWithWorkStateSchema = {
+  type: 'object',
+  properties: {
+    id: { type: 'string', format: 'uuid' },
+    user_id: { type: 'string', format: 'uuid' },
+    name: { type: 'string' },
+    slug: { type: 'string' },
+    description: { type: ['string', 'null'] },
+    is_ranked: { type: 'boolean' },
+    privacy: { type: 'string', enum: shelfPrivacyEnum },
+    cover_work_ids: {
+      type: 'array',
+      items: { type: 'string', format: 'uuid' },
+    },
+    cover_ids: {
+      type: 'array',
+      items: { type: ['integer', 'null'] },
+    },
+    item_count: { type: 'integer' },
+    save_count: { type: 'integer' },
+    is_saved: { type: 'boolean' },
+    created_at: { type: 'string', format: 'date-time' },
+    owner: shelfOwnerSchema,
+    contains_work: { type: 'boolean' },
+    item_note: { type: ['string', 'null'] },
+    position: { type: ['integer', 'null'] },
+  },
+  required: [
+    'id',
+    'user_id',
+    'name',
+    'slug',
+    'is_ranked',
+    'privacy',
+    'cover_work_ids',
+    'item_count',
+    'save_count',
+    'created_at',
+    'owner',
+    'contains_work',
+  ],
+} as const;
+
+export const myShelvesQuerySchema = {
+  type: 'object',
+  properties: {
+    work_id: { type: 'string', format: 'uuid' },
+  },
+} as const;
+
+export const myShelvesResponseSchema = {
+  type: 'object',
+  properties: {
+    shelves: {
+      type: 'array',
+      items: shelfWithWorkStateSchema,
+    },
+  },
+  required: ['shelves'],
+} as const;
+
+export const shelfItemParamSchema = {
+  type: 'object',
+  properties: {
+    id: { type: 'string', format: 'uuid' },
+    workId: { type: 'string', format: 'uuid' },
+  },
+  required: ['id', 'workId'],
+} as const;
+
+export const deleteShelfItemResponseSchema = {
+  type: 'object',
+  properties: {
+    deleted: { type: 'boolean', enum: [true] },
+    shelf_id: { type: 'string', format: 'uuid' },
+    work_id: { type: 'string', format: 'uuid' },
+  },
+  required: ['deleted', 'shelf_id', 'work_id'],
+} as const;
+
+export const updateShelfItemBodySchema = {
+  type: 'object',
+  properties: {
+    note: { type: ['string', 'null'], maxLength: 280 },
+    position: { type: 'integer', minimum: 1 },
+  },
+} as const;
+
 
 
 

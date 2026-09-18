@@ -189,10 +189,12 @@ export function Button({
 export function Card({
   children,
   onPress,
+  onLongPress,
   style,
 }: {
   children: React.ReactNode;
   onPress?: () => void;
+  onLongPress?: () => void;
   style?: StyleProp<ViewStyle>;
 }) {
   const c = useTheme();
@@ -205,11 +207,21 @@ export function Card({
     gap: space[3],
   };
 
-  return onPress ? (
+  const isInteractive = Boolean(onPress || onLongPress);
+
+  return isInteractive ? (
     <Pressable
       onPress={() => {
-        void Haptics.selectionAsync();
-        onPress();
+        if (onPress) {
+          void Haptics.selectionAsync();
+          onPress();
+        }
+      }}
+      onLongPress={() => {
+        if (onLongPress) {
+          void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+          onLongPress();
+        }
       }}
       accessibilityRole="button"
       style={[cardStyle, style]}
