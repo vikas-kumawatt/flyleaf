@@ -1270,8 +1270,13 @@ export const shelfSchema = {
       type: 'array',
       items: { type: 'string', format: 'uuid' },
     },
+    cover_ids: {
+      type: 'array',
+      items: { type: ['integer', 'null'] },
+    },
     item_count: { type: 'integer' },
     save_count: { type: 'integer' },
+    is_saved: { type: 'boolean' },
     created_at: { type: 'string', format: 'date-time' },
     owner: shelfOwnerSchema,
   },
@@ -1326,6 +1331,71 @@ export const deleteShelfResponseSchema = {
     id: { type: 'string', format: 'uuid' },
   },
   required: ['deleted', 'id'],
+} as const;
+
+export const shelfItemWorkSchema = {
+  type: 'object',
+  properties: {
+    id: { type: 'string', format: 'uuid' },
+    title: { type: 'string' },
+    author_name: { type: 'string' },
+    cover_id: { type: ['integer', 'null'] },
+    first_publish_year: { type: ['integer', 'null'] },
+    log_count: { type: 'integer' },
+    rating: { type: ['number', 'null'] },
+    your_read: {
+      type: ['object', 'null'],
+      properties: {
+        status: { type: 'string' },
+        rating: { type: ['number', 'null'] },
+        hearted: { type: 'boolean' },
+      },
+    },
+  },
+  required: ['id', 'title', 'author_name', 'cover_id', 'log_count'],
+} as const;
+
+export const shelfItemSchema = {
+  type: 'object',
+  properties: {
+    shelf_id: { type: 'string', format: 'uuid' },
+    work_id: { type: 'string', format: 'uuid' },
+    position: { type: 'integer' },
+    note: { type: ['string', 'null'] },
+    added_at: { type: 'string', format: 'date-time' },
+    work: shelfItemWorkSchema,
+  },
+  required: ['shelf_id', 'work_id', 'position', 'added_at', 'work'],
+} as const;
+
+export const shelfItemsResponseSchema = {
+  type: 'object',
+  properties: {
+    data: {
+      type: 'array',
+      items: shelfItemSchema,
+    },
+    total: { type: 'integer' },
+  },
+  required: ['data', 'total'],
+} as const;
+
+export const addShelfItemBodySchema = {
+  type: 'object',
+  properties: {
+    work_id: { type: 'string', format: 'uuid' },
+    note: { type: ['string', 'null'], maxLength: 280 },
+    position: { type: 'integer', minimum: 1 },
+  },
+  required: ['work_id'],
+} as const;
+
+export const shelfItemResponseSchema = {
+  type: 'object',
+  properties: {
+    item: shelfItemSchema,
+  },
+  required: ['item'],
 } as const;
 
 

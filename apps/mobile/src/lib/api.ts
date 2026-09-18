@@ -43,6 +43,10 @@ import {
   type UpdateShelfRequest,
   type ShelfResponse,
   type DeleteShelfResponse,
+  type ShelfItem,
+  type ShelfItemWork,
+  type ShelfItemsResponse,
+  type AddShelfItemRequest,
 } from '@flyleaf/api-client';
 
 export type {
@@ -64,6 +68,10 @@ export type {
   UpdateShelfRequest,
   ShelfResponse,
   DeleteShelfResponse,
+  ShelfItem,
+  ShelfItemWork,
+  ShelfItemsResponse,
+  AddShelfItemRequest,
   Edition,
   EditionDetail,
   EditionLookupResponse,
@@ -414,11 +422,14 @@ export const api = {
   postEvents: (events: TelemetryEvent[]) => client.postEvents(events),
   getBudgetMetrics: () => client.getBudgetMetrics(),
 
-  // Shelves (SH-01, SH-02)
+  // Shelves (SH-01, SH-02, SH-03)
   createShelf: (data: CreateShelfRequest) => client.createShelf(data),
   getShelf: (id: string) => client.getShelf(id),
   updateShelf: (id: string, data: UpdateShelfRequest) => client.updateShelf(id, data),
   deleteShelf: (id: string) => client.deleteShelf(id),
+  getShelfItems: (id: string, params?: { limit?: number; offset?: number }) =>
+    client.getShelfItems(id, params),
+  addShelfItem: (id: string, data: AddShelfItemRequest) => client.addShelfItem(id, data),
 };
 
 export interface AuthorDetail {

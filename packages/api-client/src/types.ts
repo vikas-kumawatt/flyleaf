@@ -713,8 +713,10 @@ export interface Shelf {
   is_ranked: boolean;
   privacy: ShelfPrivacy;
   cover_work_ids: string[];
+  cover_ids?: (number | null)[];
   item_count: number;
   save_count: number;
+  is_saved?: boolean;
   created_at: string;
   owner: ShelfOwner;
 }
@@ -740,6 +742,45 @@ export interface UpdateShelfRequest {
 export interface DeleteShelfResponse {
   deleted: boolean;
   id: string;
+}
+
+export interface ShelfItemWork {
+  id: string;
+  title: string;
+  author_name: string;
+  cover_id: number | null;
+  first_publish_year: number | null;
+  log_count: number;
+  rating: number | null;
+  your_read?: {
+    status: string;
+    rating: number | null;
+    hearted: boolean;
+  } | null;
+}
+
+export interface ShelfItem {
+  shelf_id: string;
+  work_id: string;
+  position: number;
+  note: string | null;
+  added_at: string;
+  work: ShelfItemWork;
+}
+
+export interface ShelfItemsResponse {
+  data: ShelfItem[];
+  total: number;
+}
+
+export interface AddShelfItemRequest {
+  work_id: string;
+  note?: string | null;
+  position?: number;
+}
+
+export interface ShelfItemResponse {
+  item: ShelfItem;
 }
 
 

@@ -6690,10 +6690,18 @@ paths:
                         items:
                           type: string
                           format: uuid
+                      cover_ids:
+                        type: array
+                        items:
+                          type:
+                            - "null"
+                            - integer
                       item_count:
                         type: integer
                       save_count:
                         type: integer
+                      is_saved:
+                        type: boolean
                       created_at:
                         type: string
                         format: date-time
@@ -6831,10 +6839,18 @@ paths:
                         items:
                           type: string
                           format: uuid
+                      cover_ids:
+                        type: array
+                        items:
+                          type:
+                            - "null"
+                            - integer
                       item_count:
                         type: integer
                       save_count:
                         type: integer
+                      is_saved:
+                        type: boolean
                       created_at:
                         type: string
                         format: date-time
@@ -6971,10 +6987,18 @@ paths:
                         items:
                           type: string
                           format: uuid
+                      cover_ids:
+                        type: array
+                        items:
+                          type:
+                            - "null"
+                            - integer
                       item_count:
                         type: integer
                       save_count:
                         type: integer
+                      is_saved:
+                        type: boolean
                       created_at:
                         type: string
                         format: date-time
@@ -7140,6 +7164,349 @@ paths:
                 required:
                   - error
         "404":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      code:
+                        type: string
+                        description: Machine-readable error code
+                      message:
+                        type: string
+                        description: Human-readable error description
+                      field:
+                        type: string
+                        description: Invalid field name if applicable
+                    required:
+                      - code
+                      - message
+                required:
+                  - error
+  /shelves/{id}/items:
+    get:
+      summary: List items in shelf
+      tags:
+        - Shelves
+      description: Returns paginated items in a shelf with joined book details,
+        authors, notes, and positions (SH-03).
+      parameters:
+        - schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 50
+          in: query
+          name: limit
+          required: false
+        - schema:
+            type: integer
+            minimum: 0
+            default: 0
+          in: query
+          name: offset
+          required: false
+        - schema:
+            type: string
+            format: uuid
+          in: path
+          name: id
+          required: true
+          description: Resource UUID
+      responses:
+        "200":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        shelf_id:
+                          type: string
+                          format: uuid
+                        work_id:
+                          type: string
+                          format: uuid
+                        position:
+                          type: integer
+                        note:
+                          type:
+                            - "null"
+                            - string
+                        added_at:
+                          type: string
+                          format: date-time
+                        work:
+                          type: object
+                          properties:
+                            id:
+                              type: string
+                              format: uuid
+                            title:
+                              type: string
+                            author_name:
+                              type: string
+                            cover_id:
+                              type:
+                                - "null"
+                                - integer
+                            first_publish_year:
+                              type:
+                                - "null"
+                                - integer
+                            log_count:
+                              type: integer
+                            rating:
+                              type:
+                                - "null"
+                                - number
+                            your_read:
+                              type:
+                                - "null"
+                                - object
+                              properties:
+                                status:
+                                  type: string
+                                rating:
+                                  type:
+                                    - "null"
+                                    - number
+                                hearted:
+                                  type: boolean
+                          required:
+                            - id
+                            - title
+                            - author_name
+                            - cover_id
+                            - log_count
+                      required:
+                        - shelf_id
+                        - work_id
+                        - position
+                        - added_at
+                        - work
+                  total:
+                    type: integer
+                required:
+                  - data
+                  - total
+        "404":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      code:
+                        type: string
+                        description: Machine-readable error code
+                      message:
+                        type: string
+                        description: Human-readable error description
+                      field:
+                        type: string
+                        description: Invalid field name if applicable
+                    required:
+                      - code
+                      - message
+                required:
+                  - error
+    post:
+      summary: Add item to shelf
+      tags:
+        - Shelves
+      description: Appends a book to the shelf with an optional note and position.
+        Only owner can add items.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                work_id:
+                  type: string
+                  format: uuid
+                note:
+                  type:
+                    - string
+                    - "null"
+                  maxLength: 280
+                position:
+                  type: integer
+                  minimum: 1
+              required:
+                - work_id
+      parameters:
+        - schema:
+            type: string
+            format: uuid
+          in: path
+          name: id
+          required: true
+          description: Resource UUID
+      responses:
+        "201":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  item:
+                    type: object
+                    properties:
+                      shelf_id:
+                        type: string
+                        format: uuid
+                      work_id:
+                        type: string
+                        format: uuid
+                      position:
+                        type: integer
+                      note:
+                        type:
+                          - "null"
+                          - string
+                      added_at:
+                        type: string
+                        format: date-time
+                      work:
+                        type: object
+                        properties:
+                          id:
+                            type: string
+                            format: uuid
+                          title:
+                            type: string
+                          author_name:
+                            type: string
+                          cover_id:
+                            type:
+                              - "null"
+                              - integer
+                          first_publish_year:
+                            type:
+                              - "null"
+                              - integer
+                          log_count:
+                            type: integer
+                          rating:
+                            type:
+                              - "null"
+                              - number
+                          your_read:
+                            type:
+                              - "null"
+                              - object
+                            properties:
+                              status:
+                                type: string
+                              rating:
+                                type:
+                                  - "null"
+                                  - number
+                              hearted:
+                                type: boolean
+                        required:
+                          - id
+                          - title
+                          - author_name
+                          - cover_id
+                          - log_count
+                    required:
+                      - shelf_id
+                      - work_id
+                      - position
+                      - added_at
+                      - work
+                required:
+                  - item
+        "400":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      code:
+                        type: string
+                        description: Machine-readable error code
+                      message:
+                        type: string
+                        description: Human-readable error description
+                      field:
+                        type: string
+                        description: Invalid field name if applicable
+                    required:
+                      - code
+                      - message
+                required:
+                  - error
+        "401":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      code:
+                        type: string
+                        description: Machine-readable error code
+                      message:
+                        type: string
+                        description: Human-readable error description
+                      field:
+                        type: string
+                        description: Invalid field name if applicable
+                    required:
+                      - code
+                      - message
+                required:
+                  - error
+        "404":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      code:
+                        type: string
+                        description: Machine-readable error code
+                      message:
+                        type: string
+                        description: Human-readable error description
+                      field:
+                        type: string
+                        description: Invalid field name if applicable
+                    required:
+                      - code
+                      - message
+                required:
+                  - error
+        "409":
           description: Default Response
           content:
             application/json:

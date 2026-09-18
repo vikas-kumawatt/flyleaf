@@ -42,3 +42,21 @@ export function validateShelfForm(values: Partial<ShelfFormValues>): {
     errors,
   };
 }
+
+export function validateShelfNote(note?: string | null): { isValid: boolean; error?: string } {
+  if (!note) return { isValid: true };
+  if (note.length > 280) {
+    return { isValid: false, error: 'Note cannot exceed 280 characters.' };
+  }
+  return { isValid: true };
+}
+
+export function formatShelfRank(
+  isRanked: boolean,
+  position?: number | null,
+  index = 0,
+): string | null {
+  if (!isRanked) return null;
+  return `#${position ?? index + 1}`;
+}
+

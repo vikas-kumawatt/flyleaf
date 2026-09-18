@@ -402,7 +402,14 @@
   - Full OpenAPI contract synchronization with schemas in `apps/api/src/contract/schemas.ts`, updated `openapi.yaml` (0 drift), and typed client methods in `@flyleaf/api-client` (`createShelf`, `getShelf`, `updateShelf`, `deleteShelf`).
   - Native mobile screens in `apps/mobile/app/shelf/create.tsx` and `apps/mobile/app/shelf/[id]/edit.tsx` with name (1–60 chars), description (<= 2000 chars), privacy radio picker, ranked toggle with warning confirmation on unranking, and 30-day soft deletion flow.
   - Comprehensive test suite: 12 tests in `apps/api/src/test/shelves.test.ts` and 9 validation unit tests in `apps/mobile/src/lib/__tests__/shelves.test.ts`. CI pipeline 100% green.
-- [ ] SH-03 Shelf detail: ranked numbering, per-entry notes, mosaic cover — 1.5d
+- [x] **SH-03** Shelf detail: ranked numbering, per-entry notes, mosaic cover — 1.5d
+  - Backend `ShelvesService` (`getItems`, `addItem`) and Fastify endpoints `GET /v1/shelves/:id/items` and `POST /v1/shelves/:id/items` with 3-tier privacy authorization (404 on access denial).
+  - Enhanced `GET /v1/shelves/:id` resolving `cover_ids` (OpenLibrary integer covers) and viewer save state `is_saved`.
+  - Joined works metadata (title, author name, covers, ratings, user's read status) with sequential position ordering (`position ASC, added_at ASC`).
+  - Enforced per-entry note constraints (char_length <= 280) and unique work constraint on shelf items (409 conflict).
+  - Full OpenAPI contract synchronization with schemas in `apps/api/src/contract/schemas.ts`, updated `openapi.yaml` (0 drift), and typed client methods in `@flyleaf/api-client` (`getShelfItems`, `addShelfItem`).
+  - Native Shelf Detail screen in `apps/mobile/app/shelf/[id].tsx` with 4-cover mosaic card preview, ranked numbering pills (`#1..#N`), per-entry notes in styled callouts, owner actions (Edit Shelf), reader actions (Save/Saved toggle, Share), and contextual empty states.
+  - Comprehensive test suite: 17 tests in `apps/api/src/test/shelves.test.ts` and 12 mobile unit tests in `apps/mobile/src/lib/__tests__/shelves.test.ts`. CI pipeline 100% green.
 - [ ] SH-04 Add-to-shelf from book page, search, long-press — 1d
 - [ ] SH-05 Reorder: drag + **"move to position" alternative** — 1d
 - [ ] SH-06 My shelves grid; three starter suggestions on empty — 1d

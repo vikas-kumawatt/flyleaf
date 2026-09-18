@@ -8,7 +8,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { FastifyInstance } from 'fastify';
 import { freshDrizzle } from './pg.js';
 import { buildApp } from '../app.js';
-import { users, profiles, follows, shelves } from '../db/schema.js';
+import { users, profiles, follows, shelves, works, authors, workAuthors, shelfSaves } from '../db/schema.js';
 import type { Db } from '../platform/index.js';
 
 let app: FastifyInstance;
@@ -17,6 +17,10 @@ let db: Db;
 const USER_ALICE = '11111111-1111-1111-1111-111111111111';
 const USER_BOB = '22222222-2222-2222-2222-222222222222';
 const USER_CHARLIE = '33333333-3333-3333-3333-333333333333';
+
+const WORK_1 = '44444444-4444-4444-4444-444444444441';
+const WORK_2 = '44444444-4444-4444-4444-444444444442';
+const AUTHOR_1 = '55555555-5555-5555-5555-555555555551';
 
 function authHeader(userId: string) {
   return { authorization: `Bearer test-token-${userId}` };
@@ -42,6 +46,21 @@ beforeAll(async () => {
   // Bob follows Alice (accepted)
   await db.insert(follows).values([
     { followerId: USER_BOB, followeeId: USER_ALICE, state: 'accepted' },
+  ]);
+
+  // Seed authors and works for shelf items
+  await db.insert(authors).values([
+    { id: AUTHOR_1, name: 'Ursula K. Le Guin', olAuthorKey: 'OL123A' },
+  ]);
+
+  await db.insert(works).values([
+    { id: WORK_1, title: 'The Left Hand of Darkness', olCoverId: 1001, logCount: 50 },
+    { id: WORK_2, title: 'The Dispossessed', olCoverId: 1002, logCount: 35 },
+  ]);
+
+  await db.insert(workAuthors).values([
+    { workId: WORK_1, authorId: AUTHOR_1, position: 1 },
+    { workId: WORK_2, authorId: AUTHOR_1, position: 1 },
   ]);
 
   // Mock identity lookup for test tokens
@@ -374,5 +393,213 @@ describe('SH-02: DELETE /v1/shelves/:id (Soft Delete)', () => {
       headers: authHeader(USER_CHARLIE),
     });
     expect(delRes.statusCode).toBe(404);
+  });
+});
+
+describe('SH-03: Shelf Detail & Items (GET /v1/shelves/:id/items, POST /v1/shelves/:id/items)', () => {
+  it('adds items to a shelf with position and note, and triggers counter & cover updates', async () => {
+    // Create ranked shelf
+    const createRes = await app.inject({
+      method: 'POST',
+      url: '/v1/shelves',
+      headers: authHeader(USER_ALICE),
+      payload: { name: 'Le Guin Essentials', is_ranked: true, privacy: 'public' },
+    });
+    const shelfId = createRes.json().shelf.id;
+
+    // Add Work 1 (Position 1) with per-entry note (PRD §15.2)
+    const addRes1 = await app.inject({
+      method: 'POST',
+      url: `/v1/shelves/${shelfId}/items`,
+      headers: authHeader(USER_ALICE),
+      payload: {
+        work_id: WORK_1,
+        position: 1,
+        note: 'Start here. The worldbuilding is unmatched.',
+      },
+    });
+    expect(addRes1.statusCode).toBe(201);
+    const item1 = addRes1.json().item;
+    expect(item1).toMatchObject({
+      shelf_id: shelfId,
+      work_id: WORK_1,
+      position: 1,
+      note: 'Start here. The worldbuilding is unmatched.',
+      work: {
+        id: WORK_1,
+        title: 'The Left Hand of Darkness',
+        author_name: 'Ursula K. Le Guin',
+        cover_id: 1001,
+      },
+    });
+
+    // Add Work 2 (Position 2)
+    const addRes2 = await app.inject({
+      method: 'POST',
+      url: `/v1/shelves/${shelfId}/items`,
+      headers: authHeader(USER_ALICE),
+      payload: {
+        work_id: WORK_2,
+        position: 2,
+        note: 'An ambiguous utopia. Brilliant philosophy.',
+      },
+    });
+    expect(addRes2.statusCode).toBe(201);
+
+    // Verify GET /v1/shelves/:id has resolved cover_ids and updated item_count
+    const getShelfRes = await app.inject({
+      method: 'GET',
+      url: `/v1/shelves/${shelfId}`,
+      headers: authHeader(USER_ALICE),
+    });
+    expect(getShelfRes.statusCode).toBe(200);
+    const shelf = getShelfRes.json().shelf;
+    expect(shelf.item_count).toBe(2);
+    expect(shelf.cover_ids).toEqual([1001, 1002]);
+    expect(shelf.is_saved).toBe(false);
+
+    // Verify GET /v1/shelves/:id/items returns items in sequential position order
+    const getItemsRes = await app.inject({
+      method: 'GET',
+      url: `/v1/shelves/${shelfId}/items`,
+      headers: authHeader(USER_BOB),
+    });
+    expect(getItemsRes.statusCode).toBe(200);
+    const itemsBody = getItemsRes.json();
+    expect(itemsBody.total).toBe(2);
+    expect(itemsBody.data).toHaveLength(2);
+    expect(itemsBody.data[0].position).toBe(1);
+    expect(itemsBody.data[0].work.title).toBe('The Left Hand of Darkness');
+    expect(itemsBody.data[1].position).toBe(2);
+    expect(itemsBody.data[1].work.title).toBe('The Dispossessed');
+  });
+
+  it('rejects duplicate work on the same shelf (409 conflict)', async () => {
+    const createRes = await app.inject({
+      method: 'POST',
+      url: '/v1/shelves',
+      headers: authHeader(USER_ALICE),
+      payload: { name: 'Single Book Shelf' },
+    });
+    const shelfId = createRes.json().shelf.id;
+
+    await app.inject({
+      method: 'POST',
+      url: `/v1/shelves/${shelfId}/items`,
+      headers: authHeader(USER_ALICE),
+      payload: { work_id: WORK_1 },
+    });
+
+    // Second add of WORK_1
+    const dupRes = await app.inject({
+      method: 'POST',
+      url: `/v1/shelves/${shelfId}/items`,
+      headers: authHeader(USER_ALICE),
+      payload: { work_id: WORK_1 },
+    });
+    expect(dupRes.statusCode).toBe(409);
+  });
+
+  it('validates note length constraint (max 280 chars)', async () => {
+    const createRes = await app.inject({
+      method: 'POST',
+      url: '/v1/shelves',
+      headers: authHeader(USER_ALICE),
+      payload: { name: 'Note Constraint Shelf' },
+    });
+    const shelfId = createRes.json().shelf.id;
+
+    const longNoteRes = await app.inject({
+      method: 'POST',
+      url: `/v1/shelves/${shelfId}/items`,
+      headers: authHeader(USER_ALICE),
+      payload: {
+        work_id: WORK_1,
+        note: 'N'.repeat(281),
+      },
+    });
+    expect(longNoteRes.statusCode).toBe(422);
+  });
+
+  it('enforces privacy on GET /v1/shelves/:id/items (returns 404 for forbidden viewer)', async () => {
+    // Private shelf
+    const createRes = await app.inject({
+      method: 'POST',
+      url: '/v1/shelves',
+      headers: authHeader(USER_ALICE),
+      payload: { name: 'Alice Private Shelf', privacy: 'private' },
+    });
+    const shelfId = createRes.json().shelf.id;
+
+    await app.inject({
+      method: 'POST',
+      url: `/v1/shelves/${shelfId}/items`,
+      headers: authHeader(USER_ALICE),
+      payload: { work_id: WORK_1 },
+    });
+
+    // Bob tries to read items of private shelf -> 404
+    const getRes = await app.inject({
+      method: 'GET',
+      url: `/v1/shelves/${shelfId}/items`,
+      headers: authHeader(USER_BOB),
+    });
+    expect(getRes.statusCode).toBe(404);
+
+    // Guest tries to read items -> 404
+    const guestRes = await app.inject({
+      method: 'GET',
+      url: `/v1/shelves/${shelfId}/items`,
+    });
+    expect(guestRes.statusCode).toBe(404);
+
+    // Alice (owner) can read items
+    const ownerRes = await app.inject({
+      method: 'GET',
+      url: `/v1/shelves/${shelfId}/items`,
+      headers: authHeader(USER_ALICE),
+    });
+    expect(ownerRes.statusCode).toBe(200);
+    expect(ownerRes.json().total).toBe(1);
+  });
+
+  it('reflects is_saved boolean when reader saves a shelf', async () => {
+    const createRes = await app.inject({
+      method: 'POST',
+      url: '/v1/shelves',
+      headers: authHeader(USER_ALICE),
+      payload: { name: 'Saveable Shelf', privacy: 'public' },
+    });
+    const shelfId = createRes.json().shelf.id;
+
+    // Bob has not saved yet
+    const getRes1 = await app.inject({
+      method: 'GET',
+      url: `/v1/shelves/${shelfId}`,
+      headers: authHeader(USER_BOB),
+    });
+    expect(getRes1.json().shelf.is_saved).toBe(false);
+
+    // Insert save directly into shelf_saves
+    await db.insert(shelfSaves).values({
+      shelfId,
+      userId: USER_BOB,
+    });
+
+    // Bob queries again -> is_saved is true
+    const getRes2 = await app.inject({
+      method: 'GET',
+      url: `/v1/shelves/${shelfId}`,
+      headers: authHeader(USER_BOB),
+    });
+    expect(getRes2.json().shelf.is_saved).toBe(true);
+
+    // Charlie queries -> is_saved is false
+    const getResCharlie = await app.inject({
+      method: 'GET',
+      url: `/v1/shelves/${shelfId}`,
+      headers: authHeader(USER_CHARLIE),
+    });
+    expect(getResCharlie.json().shelf.is_saved).toBe(false);
   });
 });

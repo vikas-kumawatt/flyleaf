@@ -1,6 +1,6 @@
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
-import { validateShelfForm } from '../shelfValidation.js';
+import { validateShelfForm, validateShelfNote, formatShelfRank } from '../shelfValidation.js';
 
 describe('Shelf Form Validation (SH-02)', () => {
   test('accepts valid shelf details', () => {
@@ -83,3 +83,26 @@ describe('Shelf Form Validation (SH-02)', () => {
     }
   });
 });
+
+describe('Shelf Items & Note Validation (SH-03, PRD §15.2)', () => {
+  test('validates note within 280 characters limit', () => {
+    assert.equal(validateShelfNote(null).isValid, true);
+    assert.equal(validateShelfNote('').isValid, true);
+    assert.equal(validateShelfNote('A brief note on why this book matters.').isValid, true);
+    assert.equal(validateShelfNote('N'.repeat(280)).isValid, true);
+  });
+
+  test('rejects notes exceeding 280 characters', () => {
+    const res = validateShelfNote('N'.repeat(281));
+    assert.equal(res.isValid, false);
+    assert.equal(res.error, 'Note cannot exceed 280 characters.');
+  });
+
+  test('formats ranked shelf numbers properly', () => {
+    assert.equal(formatShelfRank(true, 1), '#1');
+    assert.equal(formatShelfRank(true, 10), '#10');
+    assert.equal(formatShelfRank(true, null, 2), '#3');
+    assert.equal(formatShelfRank(false, 1), null);
+  });
+});
+

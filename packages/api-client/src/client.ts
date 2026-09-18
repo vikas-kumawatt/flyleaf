@@ -66,6 +66,9 @@ import type {
   CreateShelfRequest,
   UpdateShelfRequest,
   DeleteShelfResponse,
+  ShelfItemsResponse,
+  AddShelfItemRequest,
+  ShelfItemResponse,
   Work,
   WorkReviewsQuery,
   WorkReviewsResponse,
@@ -563,6 +566,26 @@ export class FlyleafClient {
   async deleteShelf(id: string): Promise<DeleteShelfResponse> {
     return this.request<DeleteShelfResponse>(`/shelves/${encodeURIComponent(id)}`, {
       method: 'DELETE',
+    });
+  }
+
+  async getShelfItems(
+    id: string,
+    params?: { limit?: number; offset?: number },
+  ): Promise<ShelfItemsResponse> {
+    const q = new URLSearchParams();
+    if (params?.limit != null) q.set('limit', String(params.limit));
+    if (params?.offset != null) q.set('offset', String(params.offset));
+    const qs = q.toString() ? `?${q.toString()}` : '';
+    return this.request<ShelfItemsResponse>(`/shelves/${encodeURIComponent(id)}/items${qs}`, {
+      method: 'GET',
+    });
+  }
+
+  async addShelfItem(id: string, data: AddShelfItemRequest): Promise<ShelfItemResponse> {
+    return this.request<ShelfItemResponse>(`/shelves/${encodeURIComponent(id)}/items`, {
+      method: 'POST',
+      body: JSON.stringify(data),
     });
   }
 }
