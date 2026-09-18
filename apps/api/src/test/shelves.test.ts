@@ -1341,4 +1341,235 @@ describe('SH-08: GET /v1/shelves/browse (Browse Public Shelves & Ranking Formula
   });
 });
 
+describe('SH-10: Shelf Sharing & Vanity Slug Resolution (PRD §6.34, §15.2, §29.1)', () => {
+  it('fetches a public shelf by username and slug via GET /v1/users/:username/shelves/slug/:slug', async () => {
+    // Alice creates a public shelf
+    const createRes = await app.inject({
+      method: 'POST',
+      url: '/v1/shelves',
+      headers: authHeader(USER_ALICE),
+      payload: {
+        name: 'Cyberpunk Masterpieces',
+        description: 'High tech, low life curated collection.',
+        privacy: 'public',
+        is_ranked: true,
+      },
+    });
+    expect(createRes.statusCode).toBe(201);
+    const createdShelf = createRes.json().shelf;
+    expect(createdShelf.slug).toBe('cyberpunk-masterpieces');
+
+    // Add an item to the shelf
+    await app.inject({
+      method: 'POST',
+      url: `/v1/shelves/${createdShelf.id}/items`,
+      headers: authHeader(USER_ALICE),
+      payload: { work_id: WORK_1, note: 'Classic start' },
+    });
+
+    // Anonymous viewer accesses by username + slug
+    const res = await app.inject({
+      method: 'GET',
+      url: '/v1/users/alice/shelves/slug/cyberpunk-masterpieces',
+    });
+    expect(res.statusCode).toBe(200);
+    const body = res.json();
+    expect(body.shelf.name).toBe('Cyberpunk Masterpieces');
+    expect(body.shelf.owner.username).toBe('alice');
+    expect(body.shelf.item_count).toBe(1);
+    expect(body.shelf.cover_ids).toContain(1001);
+
+    // Alias route check
+    const aliasRes = await app.inject({
+      method: 'GET',
+      url: '/v1/shelves/by-slug/alice/cyberpunk-masterpieces',
+    });
+    expect(aliasRes.statusCode).toBe(200);
+    expect(aliasRes.json().shelf.id).toBe(createdShelf.id);
+  });
+
+  it('enforces 3-tier privacy authorization returning 404 (never 403) on forbidden access', async () => {
+    // Alice creates a followers-only shelf
+    const followersShelfRes = await app.inject({
+      method: 'POST',
+      url: '/v1/shelves',
+      headers: authHeader(USER_ALICE),
+      payload: {
+        name: 'Followers Secret Reads',
+        privacy: 'followers',
+      },
+    });
+    const followersShelf = followersShelfRes.json().shelf;
+
+    // Bob follows Alice -> 200 OK
+    const bobRes = await app.inject({
+      method: 'GET',
+      url: `/v1/users/alice/shelves/slug/${followersShelf.slug}`,
+      headers: authHeader(USER_BOB),
+    });
+    expect(bobRes.statusCode).toBe(200);
+
+    // Charlie does NOT follow Alice -> 404 Not Found (PRD Architecture §4)
+    const charlieRes = await app.inject({
+      method: 'GET',
+      url: `/v1/users/alice/shelves/slug/${followersShelf.slug}`,
+      headers: authHeader(USER_CHARLIE),
+    });
+    expect(charlieRes.statusCode).toBe(404);
+
+    // Anonymous viewer -> 404 Not Found
+    const anonRes = await app.inject({
+      method: 'GET',
+      url: `/v1/users/alice/shelves/slug/${followersShelf.slug}`,
+    });
+    expect(anonRes.statusCode).toBe(404);
+
+    // Alice creates a private shelf
+    const privateShelfRes = await app.inject({
+      method: 'POST',
+      url: '/v1/shelves',
+      headers: authHeader(USER_ALICE),
+      payload: {
+        name: 'My Diary Shelf',
+        privacy: 'private',
+      },
+    });
+    const privateShelf = privateShelfRes.json().shelf;
+
+    // Alice can view her private shelf
+    const aliceRes = await app.inject({
+      method: 'GET',
+      url: `/v1/users/alice/shelves/slug/${privateShelf.slug}`,
+      headers: authHeader(USER_ALICE),
+    });
+    expect(aliceRes.statusCode).toBe(200);
+
+    // Bob (even though follower) receives 404
+    const bobPrivateRes = await app.inject({
+      method: 'GET',
+      url: `/v1/users/alice/shelves/slug/${privateShelf.slug}`,
+      headers: authHeader(USER_BOB),
+    });
+    expect(bobPrivateRes.statusCode).toBe(404);
+  });
+
+  it('returns 404 for non-existent user, non-existent slug, or soft-deleted shelf', async () => {
+    // Non-existent user
+    const noUserRes = await app.inject({
+      method: 'GET',
+      url: '/v1/users/nonexistentuser999/shelves/slug/any-slug',
+    });
+    expect(noUserRes.statusCode).toBe(404);
+
+    // Non-existent slug for existing user
+    const noSlugRes = await app.inject({
+      method: 'GET',
+      url: '/v1/users/alice/shelves/slug/ghost-shelf-that-does-not-exist',
+    });
+    expect(noSlugRes.statusCode).toBe(404);
+
+    // Create and delete shelf
+    const delShelfRes = await app.inject({
+      method: 'POST',
+      url: '/v1/shelves',
+      headers: authHeader(USER_ALICE),
+      payload: { name: 'To Be Soft Deleted', privacy: 'public' },
+    });
+    const delShelf = delShelfRes.json().shelf;
+
+    await app.inject({
+      method: 'DELETE',
+      url: `/v1/shelves/${delShelf.id}`,
+      headers: authHeader(USER_ALICE),
+    });
+
+    const deletedGetRes = await app.inject({
+      method: 'GET',
+      url: `/v1/users/alice/shelves/slug/${delShelf.slug}`,
+    });
+    expect(deletedGetRes.statusCode).toBe(404);
+  });
+
+  it('serves server-rendered HTML landing page with Open Graph tags at /u/:username/shelves/:slug', async () => {
+    // Alice creates public shelf
+    const createRes = await app.inject({
+      method: 'POST',
+      url: '/v1/shelves',
+      headers: authHeader(USER_ALICE),
+      payload: {
+        name: 'Sci-Fi Classics Landing',
+        description: 'Epic space journeys and explorations.',
+        privacy: 'public',
+      },
+    });
+    const shelf = createRes.json().shelf;
+
+    const htmlRes = await app.inject({
+      method: 'GET',
+      url: `/u/alice/shelves/${shelf.slug}`,
+    });
+
+    expect(htmlRes.statusCode).toBe(200);
+    expect(htmlRes.headers['content-type']).toContain('text/html');
+    const body = htmlRes.body;
+    expect(body).toContain('<title>Sci-Fi Classics Landing — Curated by @alice | Flyleaf</title>');
+    expect(body).toContain('property="og:title" content="Sci-Fi Classics Landing — Curated by @alice"');
+    expect(body).toContain('property="og:description" content="Epic space journeys and explorations."');
+    expect(body).toContain('name="twitter:card" content="summary"');
+    expect(body).toContain(`property="al:ios:url" content="flyleaf://shelf/${shelf.id}"`);
+    expect(body).toContain(`property="al:android:url" content="flyleaf://shelf/${shelf.id}"`);
+    expect(body).toContain('Open in Flyleaf App');
+  });
+
+  it('serves server-rendered HTML landing page at direct /shelf/:id', async () => {
+    const createRes = await app.inject({
+      method: 'POST',
+      url: '/v1/shelves',
+      headers: authHeader(USER_ALICE),
+      payload: {
+        name: 'Direct Link Shelf',
+        description: 'Accessed via direct UUID link.',
+        privacy: 'public',
+      },
+    });
+    const shelf = createRes.json().shelf;
+
+    const htmlRes = await app.inject({
+      method: 'GET',
+      url: `/shelf/${shelf.id}`,
+    });
+
+    expect(htmlRes.statusCode).toBe(200);
+    expect(htmlRes.headers['content-type']).toContain('text/html');
+    expect(htmlRes.body).toContain('Direct Link Shelf — Curated by @alice | Flyleaf');
+    expect(htmlRes.body).toContain('Accessed via direct UUID link.');
+  });
+
+  it('returns 404 on HTML landing page for private shelves or non-existent shelves', async () => {
+    const privateRes = await app.inject({
+      method: 'POST',
+      url: '/v1/shelves',
+      headers: authHeader(USER_ALICE),
+      payload: {
+        name: 'Private Web Test',
+        privacy: 'private',
+      },
+    });
+    const shelf = privateRes.json().shelf;
+
+    const htmlRes = await app.inject({
+      method: 'GET',
+      url: `/u/alice/shelves/${shelf.slug}`,
+    });
+    expect(htmlRes.statusCode).toBe(404);
+
+    const directRes = await app.inject({
+      method: 'GET',
+      url: `/shelf/${shelf.id}`,
+    });
+    expect(directRes.statusCode).toBe(404);
+  });
+});
+
+
 

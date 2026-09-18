@@ -12,7 +12,7 @@ import { FastifyInstance, FastifyPluginAsync } from 'fastify';
 import { and, eq, sql, inArray } from 'drizzle-orm';
 import { Db } from '../platform/index.js';
 import { ApiError, requireViewer } from '../http.js';
-import { assertCanView } from '../authorization/index.js';
+import { canView, assertCanView } from '../authorization/index.js';
 import {
   shelves,
   shelfItems,
@@ -48,6 +48,8 @@ import {
   savedShelvesResponseSchema,
   browseShelvesQuerySchema,
   browseShelvesResponseSchema,
+  userShelvesResponseSchema,
+  shelfSlugParamsSchema,
 } from '../contract/schemas.js';
 
 export interface BrowseShelvesInput {
@@ -266,6 +268,7 @@ export class ShelvesService {
       viewer,
       ownerId: shelf.userId,
       visibility: shelf.privacy,
+      isOwnerPrivate: owner.isPrivate,
       isFollower,
     });
 
@@ -386,6 +389,8 @@ export class ShelvesService {
       throw ApiError.notFound('Shelf not found.');
     }
 
+    const owner = await this.getOwnerProfile(shelf.userId);
+
     let isFollower = false;
     if (viewer && viewer !== shelf.userId) {
       const [follow] = await this.db
@@ -406,6 +411,7 @@ export class ShelvesService {
       viewer,
       ownerId: shelf.userId,
       visibility: shelf.privacy,
+      isOwnerPrivate: owner.isPrivate,
       isFollower,
     });
 
@@ -844,7 +850,7 @@ export class ShelvesService {
       }
     }
 
-    const ownersMap = new Map<string, ShelfOwner>();
+    const ownersMap = new Map<string, ShelfOwner & { isPrivate: boolean }>();
     for (const ownerId of ownerIds) {
       try {
         const owner = await this.getOwnerProfile(ownerId);
@@ -855,6 +861,7 @@ export class ShelvesService {
           username: 'user',
           displayName: null,
           avatarKey: null,
+          isPrivate: false,
         });
       }
     }
@@ -874,22 +881,26 @@ export class ShelvesService {
     const result: ShelfDetail[] = [];
     for (const r of rows) {
       const shelf = r.shelf;
-      const isOwner = shelf.userId === viewer;
-      const isFollower = followedOwners.has(shelf.userId);
-
-      if (shelf.privacy === 'private' && !isOwner) {
-        continue;
-      }
-      if (shelf.privacy === 'followers' && !isOwner && !isFollower) {
-        continue;
-      }
-
       const owner = ownersMap.get(shelf.userId) || {
         id: shelf.userId,
         username: 'user',
         displayName: null,
         avatarKey: null,
+        isPrivate: false,
       };
+      const isFollower = followedOwners.has(shelf.userId);
+
+      const allowed = canView({
+        viewer,
+        ownerId: shelf.userId,
+        visibility: shelf.privacy,
+        isOwnerPrivate: owner.isPrivate,
+        isFollower,
+      });
+
+      if (!allowed) {
+        continue;
+      }
 
       const coverIds = (shelf.coverWorkIds || []).map((wid) => coversMap.get(wid) ?? null);
       result.push(this.formatShelf(shelf, owner, true, coverIds));
@@ -907,10 +918,11 @@ export class ShelvesService {
     const sort = input.sort ?? 'ranked';
     const query = input.query?.trim();
 
-    // 1. Fetch candidate public shelves that are not soft-deleted
+    // 1. Fetch candidate public shelves that are not soft-deleted and belong to public profiles
     const whereConditions = [
       eq(shelves.privacy, 'public'),
       sql`${shelves.deletedAt} IS NULL`,
+      eq(profiles.isPrivate, false),
     ];
 
     if (query && query.length > 0) {
@@ -920,10 +932,13 @@ export class ShelvesService {
       );
     }
 
-    const candidateShelves = await this.db
-      .select()
+    const candidateShelvesRows = await this.db
+      .select({ shelf: shelves })
       .from(shelves)
+      .innerJoin(profiles, eq(shelves.userId, profiles.userId))
       .where(and(...whereConditions));
+
+    const candidateShelves = candidateShelvesRows.map((r) => r.shelf);
 
     if (candidateShelves.length === 0) {
       return { shelves: [], total: 0 };
@@ -1122,13 +1137,214 @@ export class ShelvesService {
     return { shelves: result, total };
   }
 
-  private async getOwnerProfile(userId: string): Promise<ShelfOwner> {
+  async getUserShelves(
+    viewer: string | null,
+    targetUserId: string,
+  ): Promise<{ shelves: ShelfDetail[] }> {
+    const [targetUser] = await this.db
+      .select({ id: users.id })
+      .from(users)
+      .where(eq(users.id, targetUserId))
+      .limit(1);
+
+    if (!targetUser) {
+      throw ApiError.notFound('User not found.');
+    }
+
+    const owner = await this.getOwnerProfile(targetUserId);
+
+    let isFollower = false;
+    if (viewer && viewer !== targetUserId) {
+      const [follow] = await this.db
+        .select({ state: follows.state })
+        .from(follows)
+        .where(
+          and(
+            eq(follows.followerId, viewer),
+            eq(follows.followeeId, targetUserId),
+            eq(follows.state, 'accepted'),
+          ),
+        )
+        .limit(1);
+      isFollower = Boolean(follow);
+    }
+
+    // Enforce private account hierarchy: unauthorized viewers receive 404 (never 403)
+    assertCanView({
+      viewer,
+      ownerId: targetUserId,
+      visibility: 'public',
+      isOwnerPrivate: owner.isPrivate,
+      isFollower,
+    });
+
+    const rows = await this.db
+      .select()
+      .from(shelves)
+      .where(and(eq(shelves.userId, targetUserId), sql`${shelves.deletedAt} IS NULL`))
+      .orderBy(sql`${shelves.createdAt} DESC`);
+
+    const visibleShelves = rows.filter((shelf) =>
+      canView({
+        viewer,
+        ownerId: targetUserId,
+        visibility: shelf.privacy,
+        isOwnerPrivate: owner.isPrivate,
+        isFollower,
+      }),
+    );
+
+    if (visibleShelves.length === 0) {
+      return { shelves: [] };
+    }
+
+    const allCoverWorkIds = Array.from(new Set(visibleShelves.flatMap((s) => s.coverWorkIds ?? [])));
+    let coversMap = new Map<string, number | null>();
+    if (allCoverWorkIds.length > 0) {
+      const coverRows = await this.db
+        .select({ id: works.id, coverId: works.olCoverId })
+        .from(works)
+        .where(inArray(works.id, allCoverWorkIds));
+      for (const cr of coverRows) {
+        coversMap.set(cr.id, cr.coverId);
+      }
+    }
+
+    const savedShelfIds = new Set<string>();
+    if (viewer) {
+      const shelfIds = visibleShelves.map((s) => s.id);
+      const savedRows = await this.db
+        .select({ shelfId: shelfSaves.shelfId })
+        .from(shelfSaves)
+        .where(
+          and(
+            eq(shelfSaves.userId, viewer),
+            inArray(shelfSaves.shelfId, shelfIds),
+          ),
+        );
+      for (const sr of savedRows) {
+        savedShelfIds.add(sr.shelfId);
+      }
+    }
+
+    const result = visibleShelves.map((shelf) => {
+      const coverIds = (shelf.coverWorkIds || []).map((wid) => coversMap.get(wid) ?? null);
+      return this.formatShelf(shelf, owner, savedShelfIds.has(shelf.id), coverIds);
+    });
+
+    return { shelves: result };
+  }
+
+  async getBySlug(
+    viewer: string | null,
+    username: string,
+    slug: string,
+  ): Promise<ShelfDetail> {
+    const trimmedUsername = username.trim().toLowerCase();
+    const trimmedSlug = slug.trim().toLowerCase();
+
+    // 1. Look up profile by username
+    const [profile] = await this.db
+      .select({
+        userId: profiles.userId,
+        username: profiles.username,
+        displayName: profiles.displayName,
+        avatarKey: profiles.avatarKey,
+        isPrivate: profiles.isPrivate,
+      })
+      .from(profiles)
+      .where(sql`lower(${profiles.username}) = ${trimmedUsername}`)
+      .limit(1);
+
+    if (!profile) {
+      throw ApiError.notFound('Shelf not found.');
+    }
+
+    // 2. Look up shelf by user_id and slug
+    const [shelf] = await this.db
+      .select()
+      .from(shelves)
+      .where(
+        and(
+          eq(shelves.userId, profile.userId),
+          eq(shelves.slug, trimmedSlug),
+          sql`${shelves.deletedAt} IS NULL`,
+        ),
+      )
+      .limit(1);
+
+    if (!shelf) {
+      throw ApiError.notFound('Shelf not found.');
+    }
+
+    // 3. Follow status
+    let isFollower = false;
+    if (viewer && viewer !== profile.userId) {
+      const [follow] = await this.db
+        .select({ state: follows.state })
+        .from(follows)
+        .where(
+          and(
+            eq(follows.followerId, viewer),
+            eq(follows.followeeId, profile.userId),
+            eq(follows.state, 'accepted'),
+          ),
+        )
+        .limit(1);
+      isFollower = Boolean(follow);
+    }
+
+    // 4. Authorization (404 on access denial)
+    assertCanView({
+      viewer,
+      ownerId: profile.userId,
+      visibility: shelf.privacy,
+      isOwnerPrivate: profile.isPrivate,
+      isFollower,
+    });
+
+    // 5. Covers
+    let coverIds: (number | null)[] = [];
+    if (shelf.coverWorkIds && shelf.coverWorkIds.length > 0) {
+      const coverRows = await this.db
+        .select({ id: works.id, coverId: works.olCoverId })
+        .from(works)
+        .where(inArray(works.id, shelf.coverWorkIds));
+      const map = new Map(coverRows.map((r) => [r.id, r.coverId]));
+      coverIds = shelf.coverWorkIds.map((wid) => map.get(wid) ?? null);
+    }
+
+    // 6. isSaved
+    let isSaved = false;
+    if (viewer) {
+      const [saved] = await this.db
+        .select({ shelfId: shelfSaves.shelfId })
+        .from(shelfSaves)
+        .where(and(eq(shelfSaves.shelfId, shelf.id), eq(shelfSaves.userId, viewer)))
+        .limit(1);
+      isSaved = Boolean(saved);
+    }
+
+    const owner: ShelfOwner = {
+      id: profile.userId,
+      username: profile.username,
+      displayName: profile.displayName,
+      avatarKey: profile.avatarKey,
+    };
+
+    return this.formatShelf(shelf, owner, isSaved, coverIds);
+  }
+
+  private async getOwnerProfile(
+    userId: string,
+  ): Promise<ShelfOwner & { isPrivate: boolean }> {
     const [row] = await this.db
       .select({
         id: users.id,
         username: profiles.username,
         displayName: profiles.displayName,
         avatarKey: profiles.avatarKey,
+        isPrivate: profiles.isPrivate,
       })
       .from(users)
       .innerJoin(profiles, eq(profiles.userId, users.id))
@@ -1141,6 +1357,7 @@ export class ShelvesService {
         username: 'reader',
         displayName: null,
         avatarKey: null,
+        isPrivate: false,
       }
     );
   }
@@ -1506,5 +1723,243 @@ export const shelvesPlugin: FastifyPluginAsync<{ db: Db }> = async (fastify, opt
       return reply.send(result);
     },
   );
+
+  fastify.get(
+    '/users/:id/shelves',
+    {
+      schema: {
+        tags: ['Shelves'],
+        summary: 'List user shelves by user ID',
+        description: 'Returns shelves belonging to a target user, respecting viewer authorization and account privacy (SH-09).',
+        params: idParamSchema,
+        response: {
+          200: userShelvesResponseSchema,
+          404: errorResponseSchema,
+        },
+      },
+    },
+    async (request, reply) => {
+      const { id } = request.params as { id: string };
+      const result = await service.getUserShelves(request.viewer, id);
+      return reply.send(result);
+    },
+  );
+
+  fastify.get(
+    '/users/:username/shelves/slug/:slug',
+    {
+      schema: {
+        tags: ['Shelves'],
+        summary: 'Get shelf by username and slug',
+        description: 'Retrieves shelf details by creator username and URL slug (SH-10). Enforces privacy permissions (404 for unauthorized viewers).',
+        params: shelfSlugParamsSchema,
+        response: {
+          200: shelfResponseSchema,
+          404: errorResponseSchema,
+        },
+      },
+    },
+    async (request, reply) => {
+      const { username, slug } = request.params as { username: string; slug: string };
+      const shelf = await service.getBySlug(request.viewer, username, slug);
+      return reply.send({ shelf });
+    },
+  );
+
+  fastify.get(
+    '/shelves/by-slug/:username/:slug',
+    {
+      schema: {
+        tags: ['Shelves'],
+        summary: 'Get shelf by username and slug (alias)',
+        description: 'Retrieves shelf details by creator username and URL slug (SH-10).',
+        params: shelfSlugParamsSchema,
+        response: {
+          200: shelfResponseSchema,
+          404: errorResponseSchema,
+        },
+      },
+    },
+    async (request, reply) => {
+      const { username, slug } = request.params as { username: string; slug: string };
+      const shelf = await service.getBySlug(request.viewer, username, slug);
+      return reply.send({ shelf });
+    },
+  );
 };
+
+function escapeHtml(str: string): string {
+  return str
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;');
+}
+
+/**
+ * Renders server-side HTML page with Open Graph and Twitter Card tags for public link sharing (PRD §6.45, §29.1).
+ */
+export function renderShelfHtml(shelf: ShelfDetail, baseUrl = 'https://flyleaf.app'): string {
+  const canonicalUrl = `${baseUrl}/u/${encodeURIComponent(shelf.owner.username)}/shelves/${encodeURIComponent(shelf.slug)}`;
+  const title = `${escapeHtml(shelf.name)} — Curated by @${escapeHtml(shelf.owner.username)}`;
+  const description = shelf.description
+    ? escapeHtml(shelf.description)
+    : `A curated list of ${shelf.item_count} book${shelf.item_count === 1 ? '' : 's'} on Flyleaf by ${escapeHtml(shelf.owner.displayName || shelf.owner.username)}.`;
+
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>${title} | Flyleaf</title>
+  <meta name="description" content="${description}" />
+
+  <!-- Open Graph / Social Sharing -->
+  <meta property="og:site_name" content="Flyleaf" />
+  <meta property="og:type" content="books.book_list" />
+  <meta property="og:url" content="${canonicalUrl}" />
+  <meta property="og:title" content="${title}" />
+  <meta property="og:description" content="${description}" />
+
+  <!-- Twitter Card -->
+  <meta name="twitter:card" content="summary" />
+  <meta name="twitter:title" content="${title}" />
+  <meta name="twitter:description" content="${description}" />
+
+  <!-- Mobile App Links -->
+  <meta property="al:ios:url" content="flyleaf://shelf/${shelf.id}" />
+  <meta property="al:ios:app_name" content="Flyleaf" />
+  <meta property="al:android:url" content="flyleaf://shelf/${shelf.id}" />
+  <meta property="al:android:package" content="app.flyleaf.skeleton" />
+  <meta property="al:android:app_name" content="Flyleaf" />
+
+  <style>
+    :root {
+      --bg: #12100e;
+      --card-bg: #1c1815;
+      --border: #2c2520;
+      --accent: #d4a373;
+      --text: #f4ede4;
+      --text-muted: #9c8e82;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      min-height: 100vh;
+      padding: 24px;
+    }
+    .card {
+      background: var(--card-bg);
+      border: 1px solid var(--border);
+      border-radius: 20px;
+      max-width: 480px;
+      width: 100%;
+      padding: 32px;
+      box-shadow: 0 16px 48px rgba(0, 0, 0, 0.4);
+      text-align: center;
+    }
+    .badge {
+      display: inline-block;
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 1.5px;
+      font-weight: 700;
+      color: var(--accent);
+      margin-bottom: 16px;
+    }
+    h1 {
+      font-family: Georgia, serif;
+      font-size: 26px;
+      line-height: 1.3;
+      margin-bottom: 12px;
+      color: var(--text);
+    }
+    .meta {
+      font-size: 14px;
+      color: var(--text-muted);
+      margin-bottom: 20px;
+    }
+    .meta b { color: var(--text); }
+    .desc {
+      font-size: 14px;
+      line-height: 1.6;
+      color: #cfc5bb;
+      margin-bottom: 28px;
+      text-align: left;
+      background: rgba(0, 0, 0, 0.2);
+      padding: 16px;
+      border-radius: 10px;
+      border-left: 3px solid var(--accent);
+    }
+    .app-button {
+      display: inline-block;
+      background: var(--accent);
+      color: #12100e;
+      font-weight: 600;
+      font-size: 15px;
+      padding: 14px 28px;
+      border-radius: 12px;
+      text-decoration: none;
+      transition: opacity 0.2s;
+    }
+    .app-button:hover { opacity: 0.9; }
+    .footer {
+      margin-top: 24px;
+      font-size: 12px;
+      color: var(--text-muted);
+    }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <div class="badge">Flyleaf Reading List</div>
+    <h1>${escapeHtml(shelf.name)}</h1>
+    <div class="meta">
+      Curated by <b>@${escapeHtml(shelf.owner.username)}</b> · ${shelf.item_count} book${shelf.item_count === 1 ? '' : 's'}${shelf.is_ranked ? ' · Ranked list' : ''}
+    </div>
+    ${shelf.description ? `<div class="desc">${escapeHtml(shelf.description)}</div>` : ''}
+    <a href="flyleaf://shelf/${shelf.id}" class="app-button">Open in Flyleaf App</a>
+    <div class="footer">flyleaf.app — A social reading tracker</div>
+  </div>
+</body>
+</html>`;
+}
+
+/**
+ * Public Web / Open Graph landing routes for shared shelf URLs.
+ */
+export const shelvesWebPlugin: FastifyPluginAsync<{ db: Db }> = async (fastify, opts) => {
+  const service = new ShelvesService(opts.db);
+
+  fastify.get<{ Params: { username: string; slug: string } }>(
+    '/u/:username/shelves/:slug',
+    async (request, reply) => {
+      const { username, slug } = request.params;
+      const shelf = await service.getBySlug(request.viewer, username, slug);
+      if (request.headers.accept?.includes('application/json')) {
+        return reply.send({ shelf });
+      }
+      return reply.type('text/html').send(renderShelfHtml(shelf));
+    },
+  );
+
+  fastify.get<{ Params: { id: string } }>(
+    '/shelf/:id',
+    async (request, reply) => {
+      const { id } = request.params;
+      const shelf = await service.get(request.viewer, id);
+      if (request.headers.accept?.includes('application/json')) {
+        return reply.send({ shelf });
+      }
+      return reply.type('text/html').send(renderShelfHtml(shelf));
+    },
+  );
+};
+
 

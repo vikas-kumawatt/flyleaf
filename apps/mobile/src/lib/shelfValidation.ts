@@ -173,5 +173,35 @@ export function sortShelves<T extends { name: string; created_at: string; item_c
   }
 }
 
+/**
+ * Generates the canonical web URL for a shelf (PRD §15.2, §29.1).
+ */
+export function getShelfShareUrl(
+  shelf: { owner?: { username?: string | null }; slug?: string; id?: string },
+  baseUrl = 'https://flyleaf.app',
+): string {
+  const username = shelf.owner?.username;
+  const slug = shelf.slug;
+  if (username && slug) {
+    return `${baseUrl}/u/${encodeURIComponent(username)}/shelves/${encodeURIComponent(slug)}`;
+  }
+  return `${baseUrl}/shelf/${shelf.id || ''}`;
+}
+
+/**
+ * Generates the descriptive share message for a shelf (PRD §6.34, §29.1).
+ */
+export function getShelfShareMessage(shelf: {
+  name: string;
+  owner?: { displayName?: string | null; username?: string | null };
+  item_count?: number;
+}): string {
+  const curator =
+    shelf.owner?.displayName || (shelf.owner?.username ? `@${shelf.owner.username}` : 'a reader');
+  const countStr =
+    shelf.item_count != null ? ` (${shelf.item_count} book${shelf.item_count === 1 ? '' : 's'})` : '';
+  return `Check out "${shelf.name}"${countStr} on Flyleaf — curated by ${curator}.`;
+}
+
 
 

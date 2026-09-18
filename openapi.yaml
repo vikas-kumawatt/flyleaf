@@ -8548,6 +8548,388 @@ paths:
                       - message
                 required:
                   - error
+  /users/{id}/shelves:
+    get:
+      summary: List user shelves by user ID
+      tags:
+        - Shelves
+      description: Returns shelves belonging to a target user, respecting viewer
+        authorization and account privacy (SH-09).
+      parameters:
+        - schema:
+            type: string
+            format: uuid
+          in: path
+          name: id
+          required: true
+          description: Resource UUID
+      responses:
+        "200":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  shelves:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: string
+                          format: uuid
+                        user_id:
+                          type: string
+                          format: uuid
+                        name:
+                          type: string
+                        slug:
+                          type: string
+                        description:
+                          type:
+                            - "null"
+                            - string
+                        is_ranked:
+                          type: boolean
+                        privacy:
+                          type: string
+                          enum:
+                            - public
+                            - followers
+                            - private
+                        cover_work_ids:
+                          type: array
+                          items:
+                            type: string
+                            format: uuid
+                        cover_ids:
+                          type: array
+                          items:
+                            type:
+                              - "null"
+                              - integer
+                        item_count:
+                          type: integer
+                        save_count:
+                          type: integer
+                        is_saved:
+                          type: boolean
+                        created_at:
+                          type: string
+                          format: date-time
+                        owner:
+                          type: object
+                          properties:
+                            id:
+                              type: string
+                              format: uuid
+                            username:
+                              type: string
+                            displayName:
+                              type:
+                                - "null"
+                                - string
+                            avatarKey:
+                              type:
+                                - "null"
+                                - string
+                          required:
+                            - id
+                            - username
+                      required:
+                        - id
+                        - user_id
+                        - name
+                        - slug
+                        - is_ranked
+                        - privacy
+                        - cover_work_ids
+                        - item_count
+                        - save_count
+                        - created_at
+                        - owner
+                required:
+                  - shelves
+        "404":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      code:
+                        type: string
+                        description: Machine-readable error code
+                      message:
+                        type: string
+                        description: Human-readable error description
+                      field:
+                        type: string
+                        description: Invalid field name if applicable
+                    required:
+                      - code
+                      - message
+                required:
+                  - error
+  /users/{username}/shelves/slug/{slug}:
+    get:
+      summary: Get shelf by username and slug
+      tags:
+        - Shelves
+      description: Retrieves shelf details by creator username and URL slug (SH-10).
+        Enforces privacy permissions (404 for unauthorized viewers).
+      parameters:
+        - schema:
+            type: string
+          in: path
+          name: username
+          required: true
+        - schema:
+            type: string
+          in: path
+          name: slug
+          required: true
+      responses:
+        "200":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  shelf:
+                    type: object
+                    properties:
+                      id:
+                        type: string
+                        format: uuid
+                      user_id:
+                        type: string
+                        format: uuid
+                      name:
+                        type: string
+                      slug:
+                        type: string
+                      description:
+                        type:
+                          - "null"
+                          - string
+                      is_ranked:
+                        type: boolean
+                      privacy:
+                        type: string
+                        enum:
+                          - public
+                          - followers
+                          - private
+                      cover_work_ids:
+                        type: array
+                        items:
+                          type: string
+                          format: uuid
+                      cover_ids:
+                        type: array
+                        items:
+                          type:
+                            - "null"
+                            - integer
+                      item_count:
+                        type: integer
+                      save_count:
+                        type: integer
+                      is_saved:
+                        type: boolean
+                      created_at:
+                        type: string
+                        format: date-time
+                      owner:
+                        type: object
+                        properties:
+                          id:
+                            type: string
+                            format: uuid
+                          username:
+                            type: string
+                          displayName:
+                            type:
+                              - "null"
+                              - string
+                          avatarKey:
+                            type:
+                              - "null"
+                              - string
+                        required:
+                          - id
+                          - username
+                    required:
+                      - id
+                      - user_id
+                      - name
+                      - slug
+                      - is_ranked
+                      - privacy
+                      - cover_work_ids
+                      - item_count
+                      - save_count
+                      - created_at
+                      - owner
+                required:
+                  - shelf
+        "404":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      code:
+                        type: string
+                        description: Machine-readable error code
+                      message:
+                        type: string
+                        description: Human-readable error description
+                      field:
+                        type: string
+                        description: Invalid field name if applicable
+                    required:
+                      - code
+                      - message
+                required:
+                  - error
+  /shelves/by-slug/{username}/{slug}:
+    get:
+      summary: Get shelf by username and slug (alias)
+      tags:
+        - Shelves
+      description: Retrieves shelf details by creator username and URL slug (SH-10).
+      parameters:
+        - schema:
+            type: string
+          in: path
+          name: username
+          required: true
+        - schema:
+            type: string
+          in: path
+          name: slug
+          required: true
+      responses:
+        "200":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  shelf:
+                    type: object
+                    properties:
+                      id:
+                        type: string
+                        format: uuid
+                      user_id:
+                        type: string
+                        format: uuid
+                      name:
+                        type: string
+                      slug:
+                        type: string
+                      description:
+                        type:
+                          - "null"
+                          - string
+                      is_ranked:
+                        type: boolean
+                      privacy:
+                        type: string
+                        enum:
+                          - public
+                          - followers
+                          - private
+                      cover_work_ids:
+                        type: array
+                        items:
+                          type: string
+                          format: uuid
+                      cover_ids:
+                        type: array
+                        items:
+                          type:
+                            - "null"
+                            - integer
+                      item_count:
+                        type: integer
+                      save_count:
+                        type: integer
+                      is_saved:
+                        type: boolean
+                      created_at:
+                        type: string
+                        format: date-time
+                      owner:
+                        type: object
+                        properties:
+                          id:
+                            type: string
+                            format: uuid
+                          username:
+                            type: string
+                          displayName:
+                            type:
+                              - "null"
+                              - string
+                          avatarKey:
+                            type:
+                              - "null"
+                              - string
+                        required:
+                          - id
+                          - username
+                    required:
+                      - id
+                      - user_id
+                      - name
+                      - slug
+                      - is_ranked
+                      - privacy
+                      - cover_work_ids
+                      - item_count
+                      - save_count
+                      - created_at
+                      - owner
+                required:
+                  - shelf
+        "404":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      code:
+                        type: string
+                        description: Machine-readable error code
+                      message:
+                        type: string
+                        description: Human-readable error description
+                      field:
+                        type: string
+                        description: Invalid field name if applicable
+                    required:
+                      - code
+                      - message
+                required:
+                  - error
   /healthz:
     get:
       summary: Liveness probe

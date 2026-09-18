@@ -508,9 +508,52 @@
       - Live search for curated lists when search query is active; browse mode shows featured community lists.
   - Verification:
     - 7 dedicated backend integration tests in `apps/api/src/test/shelves.test.ts` verifying public-only filtering, private/followers/soft-deleted exclusion, guest browsing, ILIKE search, PRD §15.5 curation quality ranking, social proximity boosting, popular/recent sorting, pagination, and save state.
-    - 452 API tests passing, 77 mobile tests passing. Full 9-step CI pipeline green.
-- [ ] SH-09 Shelf privacy on every read path + tests — 1d
-- [ ] SH-10 Share a shelf — 1d
+- [x] **SH-09** ⚠️ **Shelf privacy on every read path + tests — 404 not 403, private account hierarchy** — 1d
+  - Security Principle & Obscurity (Architecture §4, PRD §15.2, §26.1):
+    - Enforced strict 3-tier privacy authorization (`public`, `followers`, `private`) on every read path via centralized `canView()` and `assertCanView()`.
+    - Unauthorized callers receive **404 Not Found** (`error.code: 'not_found'`), **never 403 Forbidden**, completely eliminating shelf enumeration.
+    - Soft-deleted shelves (`deleted_at IS NOT NULL`) masked with 404 for all callers except the owner.
+    - Write mutations (`PATCH`, `DELETE`, `order`, item add/edit/remove) strictly return 404 (never 403) to non-owners.
+  - Private Account Hierarchy (PRD §26.1):
+    - When an owner has a private profile (`profiles.isPrivate = true`), all their shelves (even public ones) are masked with 404 to non-followers and guests.
+    - Public shelves of private accounts are strictly excluded from public discovery (`GET /v1/shelves/browse`) via an inner join with `profiles` filtering `profiles.isPrivate = false`.
+  - Dynamic Privacy Sync in Saved Shelves:
+    - Updated `getSavedShelves()` (`GET /v1/shelves/saved`) to evaluate `canView(...)` for each shelf dynamically.
+    - Shelves immediately disappear from a reader's saved library if the curator changes shelf privacy to private or followers-only (and reader is not an accepted follower), or if the curator turns their profile private.
+  - User Shelves Endpoint (`GET /v1/users/:id/shelves`):
+    - Added Fastify route returning shelves for user profile pages according to viewer authorization.
+    - Owners see all active shelves (public, followers, private).
+    - Accepted followers see public and followers shelves.
+    - Non-followers/guests see public shelves only (or receive 404 if profile is private).
+    - Soft-deleted shelves are excluded.
+  - Contract & Typed Client:
+    - Added `userShelvesResponseSchema` to `apps/api/src/contract/schemas.ts`. Zero contract drift verified (`npm run spec:check`).
+    - Added `UserShelvesResponse` and `client.getUserShelves(userId)` to `@flyleaf/api-client`.
+    - Re-exported in `apps/mobile/src/lib/api.ts`.
+  - Comprehensive Test Matrix:
+    - 20 comprehensive unit tests in `apps/api/src/test/shelves-privacy.test.ts` covering public/followers/private tiers, private account hierarchy, soft-deleted shelves, items endpoint, profile shelves, browse discovery, saved shelves dynamic privacy, and write mutations.
+    - 472 API tests passing, 77 mobile tests passing. Full 9-step CI pipeline green.
+- [x] **SH-10** Share a shelf — 1d
+  - Canonical Vanity Web URLs & Routing (`apps/api/src/shelves/index.ts`):
+    - Added vanity slug resolution: `GET /v1/users/:username/shelves/slug/:slug` (and alias `GET /v1/shelves/by-slug/:username/:slug`) resolving public and authorized shelves by user handle and shelf slug (PRD §15.2, §29.1).
+    - Enforced 3-tier privacy authorization via `assertCanView(...)`, masking forbidden or private account shelves with 404 (never 403).
+    - Server-rendered semantic Open Graph landing pages at `GET /u/:username/shelves/:slug` and `GET /shelf/:id` with `og:title`, `og:description`, `twitter:card`, and mobile app links (`al:ios:url`, `al:android:url`).
+  - OpenAPI & Typed Client:
+    - Added `shelfSlugParamsSchema` in `apps/api/src/contract/schemas.ts`. Zero contract drift verified (`npm run spec:check`).
+    - Added `client.getShelfBySlug(username, slug)` in `@flyleaf/api-client` and re-exported in `apps/mobile/src/lib/api.ts`.
+  - Mobile Deep Linking & Share Card (`apps/mobile`):
+    - Added deep link router screen `apps/mobile/app/u/[username]/shelves/[slug].tsx` that resolves vanity URLs and redirects to the canonical shelf view (`/shelf/${id}`) while maintaining back stack.
+    - Added shelf sharing helpers `getShelfShareUrl` and `getShelfShareMessage` in `apps/mobile/src/lib/shelfValidation.ts`.
+    - Created `ShareShelfModal` (`apps/mobile/src/ui/ShareShelfModal.tsx`) with visual share card preview, watermark, 4-cover mosaic preview, native OS share sheet (`Share.share`), and one-tap "Copy Link" with instant haptic confirmation.
+    - Connected share button on Shelf Detail screen (`apps/mobile/app/shelf/[id].tsx`).
+  - Comprehensive Test Suite:
+    - 5 tests in `apps/api/src/test/shelves.test.ts` verifying slug lookups, privacy authorization, and HTML landing pages.
+    - 6 unit tests in `apps/mobile/src/lib/__tests__/shelves.test.ts` verifying canonical URL generation and share messages.
+    - 477 API tests passing, 83 mobile tests passing. Full 9-gate CI pipeline 100% green.
+
+**Phase 2 Exit Criteria Verified** (100% complete):
+- [x] A ranked list with notes can be built, reordered and shared (`SH-02`, `SH-03`, `SH-05`, `SH-10`).
+- [x] Shelf privacy respected on every read path (`SH-09`, `SH-08`, `SH-07`, `SH-03`).
 
 ---
 

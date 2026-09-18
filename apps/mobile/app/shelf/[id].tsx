@@ -28,6 +28,7 @@ import { api, type Shelf, type ShelfItem } from '@/lib/api';
 import { useSession } from '@/lib/session';
 import { track } from '@/lib/events';
 import { Button, Card, Cover, Screen, Stars, Txt } from '@/ui/components';
+import { ShareShelfModal } from '@/ui/ShareShelfModal';
 import { radius, space, useTheme } from '@/ui/tokens';
 
 export default function ShelfDetailScreen() {
@@ -44,6 +45,7 @@ export default function ShelfDetailScreen() {
   const [isSaved, setIsSaved] = useState(false);
   const [saveCount, setSaveCount] = useState(0);
   const [saving, setSaving] = useState(false);
+  const [shareModalVisible, setShareModalVisible] = useState(false);
 
   const isOwner = Boolean(user?.id && shelf?.user_id === user.id);
 
@@ -85,18 +87,10 @@ export default function ShelfDetailScreen() {
     void loadData();
   };
 
-  const handleShare = async () => {
+  const handleShare = () => {
     if (!shelf) return;
-    try {
-      void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-      track('shelf_shared', { shelf_id: shelf.id });
-      await Share.share({
-        title: shelf.name,
-        message: `Check out "${shelf.name}" on Flyleaf: A curated reading list by ${shelf.owner.displayName || shelf.owner.username}.`,
-      });
-    } catch {
-      // Ignored or dismissed
-    }
+    void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    setShareModalVisible(true);
   };
 
   const handleToggleSave = async () => {
@@ -472,6 +466,14 @@ export default function ShelfDetailScreen() {
           )}
         </View>
       </ScrollView>
+
+      {shelf && (
+        <ShareShelfModal
+          visible={shareModalVisible}
+          onClose={() => setShareModalVisible(false)}
+          shelf={shelf}
+        />
+      )}
     </Screen>
   );
 }

@@ -1550,3 +1550,24 @@ export const browseShelvesResponseSchema = {
   },
   required: ['shelves', 'total'],
 } as const;
+
+export const userShelvesResponseSchema = {
+  type: 'object',
+  properties: {
+    shelves: {
+      type: 'array',
+      items: shelfSchema,
+    },
+  },
+  required: ['shelves'],
+} as const;
+
+export const shelfSlugParamsSchema = {
+  type: 'object',
+  properties: {
+    username: { type: 'string' },
+    slug: { type: 'string' },
+  },
+  required: ['username', 'slug'],
+} as const;
+

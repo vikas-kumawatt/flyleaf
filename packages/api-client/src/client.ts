@@ -78,6 +78,7 @@ import type {
   SavedShelvesResponse,
   BrowseShelvesQuery,
   BrowseShelvesResponse,
+  UserShelvesResponse,
   Work,
   WorkReviewsQuery,
   WorkReviewsResponse,
@@ -665,6 +666,21 @@ export class FlyleafClient {
     return this.request<BrowseShelvesResponse>(`/shelves/browse${qs}`, {
       method: 'GET',
     });
+  }
+
+  async getUserShelves(userId: string): Promise<UserShelvesResponse> {
+    return this.request<UserShelvesResponse>(`/users/${encodeURIComponent(userId)}/shelves`, {
+      method: 'GET',
+    });
+  }
+
+  async getShelfBySlug(username: string, slug: string): Promise<ShelfResponse> {
+    return this.request<ShelfResponse>(
+      `/users/${encodeURIComponent(username)}/shelves/slug/${encodeURIComponent(slug)}`,
+      {
+        method: 'GET',
+      },
+    );
   }
 }
 

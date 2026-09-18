@@ -186,8 +186,8 @@ Follows, feed, likes, comments, notifications. **The solo experience must stand 
 Curation, ranked lists, per-entry notes, public shelf pages, save-someone-else's-shelf. Cheap to build, and the thing people share before there is a network to share into.
 
 ### Exit criteria
-- [ ] A ranked list with notes can be built, reordered and shared
-- [ ] Shelf privacy respected on every read path
+- [x] A ranked list with notes can be built, reordered and shared
+- [x] Shelf privacy respected on every read path
 
 ---
 

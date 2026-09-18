@@ -9,6 +9,8 @@ import {
   repositionItem,
   STARTER_SHELVES,
   sortShelves,
+  getShelfShareUrl,
+  getShelfShareMessage,
 } from '../shelfValidation.js';
 
 describe('Shelf Form Validation (SH-02)', () => {
@@ -265,6 +267,75 @@ describe('Starter Shelves & Grid Sorting (SH-06, PRD §6.33)', () => {
     );
   });
 });
+
+describe('Shelf Sharing Helpers (SH-10, PRD §6.34, §15.2, §29.1)', () => {
+  test('getShelfShareUrl produces canonical vanity URL when owner username and slug are available', () => {
+    const url = getShelfShareUrl({
+      id: 'shelf-123',
+      slug: 'cyberpunk-classics',
+      owner: { username: 'alice' },
+    });
+    assert.equal(url, 'https://flyleaf.app/u/alice/shelves/cyberpunk-classics');
+  });
+
+  test('getShelfShareUrl properly URL-encodes usernames and slugs with special characters', () => {
+    const url = getShelfShareUrl({
+      id: 'shelf-456',
+      slug: 'best-of-2026!',
+      owner: { username: 'user name' },
+    });
+    assert.equal(url, 'https://flyleaf.app/u/user%20name/shelves/best-of-2026!');
+  });
+
+  test('getShelfShareUrl falls back to direct ID URL when username or slug is missing', () => {
+    const fallbackNoUser = getShelfShareUrl({
+      id: 'shelf-999',
+      slug: 'sci-fi',
+    });
+    assert.equal(fallbackNoUser, 'https://flyleaf.app/shelf/shelf-999');
+
+    const fallbackNoSlug = getShelfShareUrl({
+      id: 'shelf-888',
+      owner: { username: 'bob' },
+    });
+    assert.equal(fallbackNoSlug, 'https://flyleaf.app/shelf/shelf-888');
+  });
+
+  test('getShelfShareMessage generates friendly message with display name and book count', () => {
+    const msg = getShelfShareMessage({
+      name: 'Favorite Sci-Fi',
+      owner: { displayName: 'Alice Wonder', username: 'alice' },
+      item_count: 5,
+    });
+    assert.equal(
+      msg,
+      'Check out "Favorite Sci-Fi" (5 books) on Flyleaf — curated by Alice Wonder.',
+    );
+  });
+
+  test('getShelfShareMessage handles singular book count and fallback handle curator', () => {
+    const msg = getShelfShareMessage({
+      name: 'Single Read',
+      owner: { username: 'soloreader' },
+      item_count: 1,
+    });
+    assert.equal(
+      msg,
+      'Check out "Single Read" (1 book) on Flyleaf — curated by @soloreader.',
+    );
+  });
+
+  test('getShelfShareMessage handles missing owner and count gracefully', () => {
+    const msg = getShelfShareMessage({
+      name: 'Anonymous List',
+    });
+    assert.equal(
+      msg,
+      'Check out "Anonymous List" on Flyleaf — curated by a reader.',
+    );
+  });
+});
+
 
 
 

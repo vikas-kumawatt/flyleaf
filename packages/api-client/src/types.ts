@@ -836,3 +836,7 @@ export interface BrowseShelvesResponse {
   total: number;
 }
 
+export interface UserShelvesResponse {
+  shelves: Shelf[];
+}
+
