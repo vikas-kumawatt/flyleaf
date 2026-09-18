@@ -715,5 +715,64 @@ export type NewShelfItem = typeof shelfItems.$inferInsert;
 export type ShelfSave = typeof shelfSaves.$inferSelect;
 export type NewShelfSave = typeof shelfSaves.$inferInsert;
 
+// ---------------------------------------------------------------------------
+// 10. Import & Export (Architecture §3.7, PRD §7.83, IM-01)
+// ---------------------------------------------------------------------------
+
+export const imports = pgTable('imports', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  userId: uuid('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  source: text('source').notNull(),
+  state: text('state').notNull().default('queued'),
+  totalRows: integer('total_rows').notNull().default(0),
+  matched: integer('matched').notNull().default(0),
+  unmatched: integer('unmatched').notNull().default(0),
+  fileKey: text('file_key'),
+  filename: text('filename'),
+  fileSizeBytes: bigint('file_size_bytes', { mode: 'number' }),
+  contentHash: text('content_hash'),
+  error: text('error'),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  finishedAt: timestamp('finished_at', { withTimezone: true }),
+}, (t) => [
+  check('imports_source_ck',
+    sql`${t.source} IN ('goodreads','storygraph','librarything','calibre','openlibrary','openreads')`),
+  check('imports_state_ck',
+    sql`${t.state} IN ('queued','processing','completed','failed')`),
+  check('imports_counts_ck',
+    sql`${t.totalRows} >= 0 AND ${t.matched} >= 0 AND ${t.unmatched} >= 0`),
+  index('imports_user_idx').on(t.userId, t.createdAt),
+  index('imports_state_idx').on(t.state),
+  index('imports_user_hash_idx').on(t.userId, t.contentHash),
+]);
+
+export const importRows = pgTable('import_rows', {
+  importId: uuid('import_id').notNull().references(() => imports.id, { onDelete: 'cascade' }),
+  rowNo: integer('row_no').notNull(),
+  raw: jsonb('raw').notNull(),
+  state: text('state').notNull(),
+  workId: uuid('work_id').references(() => works.id, { onDelete: 'set null' }),
+  editionId: uuid('edition_id').references(() => editions.id, { onDelete: 'set null' }),
+  confidence: real('confidence'),
+  failureReason: text('failure_reason'),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [
+  primaryKey({ columns: [t.importId, t.rowNo] }),
+  check('import_rows_state_ck',
+    sql`${t.state} IN ('matched','unmatched','resolved','skipped')`),
+  check('import_rows_confidence_ck',
+    sql`${t.confidence} IS NULL OR (${t.confidence} >= 0 AND ${t.confidence} <= 1)`),
+  index('import_rows_import_state_idx').on(t.importId, t.state, t.rowNo),
+  index('import_rows_work_idx').on(t.workId),
+  index('import_rows_edition_idx').on(t.editionId),
+]);
+
+export type Import = typeof imports.$inferSelect;
+export type NewImport = typeof imports.$inferInsert;
+export type ImportRow = typeof importRows.$inferSelect;
+export type NewImportRow = typeof importRows.$inferInsert;
+
+
 
 

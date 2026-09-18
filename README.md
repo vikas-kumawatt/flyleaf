@@ -4,7 +4,7 @@ A reading tracker. Log what you read, rate it in half-stars, see it on a profile
 
 **Stack:** TypeScript · Node 22 · Fastify 5 · Drizzle · Postgres 18 · pg-boss · Expo SDK 57 · React Native 0.86 · expo-sqlite. Full locked stack in [`docs/architecture.md`](docs/architecture.md) §0.
 
-**Where it is:** Phase 0 (Foundation), **Phase 1 (Solo loop)**, and **Phase 2 (Shelves & lists)** are **100% complete**. All exit criteria met: 3.2M books findable, relevance panel at 99.5%, cross-user authorization suite green, two books tracked end-to-end on phone, finish budget p75 < 20s, offline verified with SQLite mutation queue and crash/restart recovery, a11y pass on core flows, shelves and ranked lists with per-entry notes, reordering, starter suggestions, reference saves, discovery browse ranking, 404 obscure privacy matrix, canonical vanity web sharing (`https://flyleaf.app/u/{username}/shelves/{slug}`), visual share card preview, 477 API tests + 83 mobile tests passing, migrations clean on real Postgres, 0 OpenAPI contract drift. Ready for **Phase 3 (Import & export)**. Live state is always [`docs/tasks.md`](docs/tasks.md).
+**Where it is:** Phase 0 (Foundation), **Phase 1 (Solo loop)**, and **Phase 2 (Shelves & lists)** are **100% complete**. All exit criteria met: 3.2M books findable, 15.4M authors indexed, relevance panel at 99.5%, cross-user authorization suite green, two books tracked end-to-end on phone, finish budget p75 < 20s, offline verified with SQLite mutation queue and crash/restart recovery, a11y pass on core flows, shelves and ranked lists with per-entry notes, reordering, starter suggestions, reference saves, discovery browse ranking, 404 obscure privacy matrix, canonical vanity web sharing (`https://flyleaf.app/u/{username}/shelves/{slug}`), visual share card preview, 489 API tests + 83 mobile tests passing, migrations clean on real Postgres, 0 OpenAPI contract drift. Currently in **Phase 3 (Import & export)** — `IM-01` (`imports` and `import_rows` migrations, constraints, and models) complete. Live state is always [`docs/tasks.md`](docs/tasks.md).
 
 ## The documents
 
@@ -19,7 +19,7 @@ They live in `docs/`, in this repo, so a decision and the code implementing it l
 | [`docs/tasks.md`](docs/tasks.md) | Task breakdown with stable IDs, and the running record of what each one actually cost |
 | [`docs/surprises.md`](docs/surprises.md) | What was not true in the plan. Read this one first |
 
-> **Phase 0, Phase 1, and Phase 2 are done.** The foundation (auth, catalog, search, dedupe, admin console, typed API contract, CI), the full native mobile experience (offline-first SQLite, typography and design system, barcode scanner, reading lifecycle, reviews, diary, wall, stats, and telemetry budgets), and curated shelves & lists (`SH-01` through `SH-10`: ranked lists, drag/numeric reordering, starter suggestions, dynamic reference saves, discovery ranking, strict 404 privacy enforcement, and vanity URL sharing with visual cards) are complete and verified. Ready for **Phase 3 — Import & export**.
+> **Phase 0, Phase 1, and Phase 2 are done.** The foundation (auth, catalog, search, dedupe, admin console, typed API contract, CI), the full native mobile experience (offline-first SQLite, typography and design system, barcode scanner, reading lifecycle, reviews, diary, wall, stats, and telemetry budgets), and curated shelves & lists (`SH-01` through `SH-10`) are complete and verified. Currently executing **Phase 3 — Import & export** (`IM-01` complete).
 
 ---
 

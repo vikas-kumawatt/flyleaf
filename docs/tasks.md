@@ -559,7 +559,19 @@
 
 ## Phase 3 — Import & export · `IM` · 10d
 
-- [ ] **IM-01** imports + import_rows migrations — 0.5d
+- [x] **IM-01** imports + import_rows migrations — 0.5d
+  - Created migration `0014_imports.sql` and journal entry in `apps/api/drizzle/meta/_journal.json`.
+  - Defined schema models in `apps/api/src/db/schema.ts`:
+    - `imports`: Tracks upload jobs (`id`, `user_id`, `source`, `state`, `total_rows`, `matched`, `unmatched`, `file_key`, `filename`, `file_size_bytes`, `content_hash`, `error`, `created_at`, `updated_at`, `finished_at`).
+      - Constraints: `source IN ('goodreads','storygraph','librarything','calibre','openlibrary','openreads')`, `state IN ('queued','processing','completed','failed')`, `total_rows >= 0 AND matched >= 0 AND unmatched >= 0`.
+      - Indexes: `(user_id, created_at DESC)`, `(state)`, and `(user_id, content_hash)` for duplicate import detection per IM-11.
+    - `import_rows`: Stores row-by-row raw parsed CSV payloads and match states (`import_id`, `row_no`, `raw jsonb`, `state`, `work_id`, `edition_id`, `confidence`, `failure_reason`, `created_at`).
+      - Constraints: `PRIMARY KEY (import_id, row_no)`, `state IN ('matched','unmatched','resolved','skipped')`, and `confidence BETWEEN 0 AND 1`.
+      - Indexes: `(import_id, state, row_no)` for paginated unmatched review lists, and `(work_id)`, `(edition_id)`.
+      - Cascade rules: Deleting a user cascade-deletes imports and import rows; deleting an import cascade-deletes its rows; deleting a matched work/edition sets foreign key to NULL.
+  - Exported TypeScript types: `Import`, `NewImport`, `ImportRow`, `NewImportRow`.
+  - Comprehensive migration test suite in `apps/api/src/test/imports-migration.test.ts` (12 tests passing).
+  - Clean migration applied to live PostgreSQL and verified 100% green in full CI (489 API tests passing).
 - [ ] **IM-02** Upload endpoint → job ID, returns immediately — 0.5d
 - [ ] **IM-03** ⚠️ **Declarative column map, one config per source** — 1.5d
 - [ ] **IM-04** Six source maps: Goodreads, StoryGraph, LibraryThing, Calibre, OpenLibrary, OpenReads — 1.5d
