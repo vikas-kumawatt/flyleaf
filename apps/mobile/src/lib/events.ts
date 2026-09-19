@@ -26,9 +26,8 @@ let PlatformOS = 'ios';
 let AppStateModule: any = null;
 
 try {
-  const rnName = ['react', 'native'].join('-');
   // eslint-disable-next-line @typescript-eslint/no-require-imports
-  const rn = typeof require !== 'undefined' ? require(rnName) : null;
+  const rn = typeof require !== 'undefined' ? require('react-native') : null;
   if (rn?.Platform?.OS) PlatformOS = rn.Platform.OS;
   if (rn?.AppState) AppStateModule = rn.AppState;
 } catch {

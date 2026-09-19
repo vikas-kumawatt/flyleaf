@@ -6,7 +6,7 @@
     "types": ["node"],
     "paths": {
       "@/*": ["./src/*"],
-      "@flyleaf/api-client": ["../../packages/api-client/src/index.ts"]
+      "@flyleaf/api-client": ["../../packages/api-client/dist/index.d.ts"]
     }
   },
   "include": ["**/*.ts", "**/*.tsx", ".expo/types/**/*.ts", "expo-env.d.ts"]

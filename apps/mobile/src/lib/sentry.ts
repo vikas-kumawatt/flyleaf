@@ -3,15 +3,9 @@
 // Formats native exceptions, sanitizes sensitive tokens/keys, and delivers
 // to Sentry endpoint if EXPO_PUBLIC_SENTRY_DSN is configured.
 
-let PlatformOS = 'ios';
-try {
-  const rnName = ['react', 'native'].join('-');
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
-  const rn = typeof require !== 'undefined' ? require(rnName) : null;
-  if (rn?.Platform?.OS) PlatformOS = rn.Platform.OS;
-} catch {
-  PlatformOS = process.platform === 'win32' ? 'windows' : process.platform === 'darwin' ? 'ios' : 'android';
-}
+import { Platform } from 'react-native';
+
+const PlatformOS = Platform.OS;
 
 export interface MobileErrorContext {
   componentStack?: string;
