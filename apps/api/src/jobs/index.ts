@@ -36,6 +36,8 @@ export const JOBS_SCHEMA = 'pgboss';
 
 import type { Db } from '../platform/index.js';
 import { runDedupe, type DedupeReport } from '../catalog/dedupe.js';
+import { processImport } from '../imports/processor.js';
+import { DiskFileStorage, type FileStorage } from '../imports/storage.js';
 
 /**
  * Every queue, named once.
@@ -87,6 +89,9 @@ export type ProcessImportJobRequest = {
 export type ProcessImportJobResult = {
   importId: string;
   processed: boolean;
+  totalRows?: number;
+  matched?: number;
+  unmatched?: number;
   workedAt: string;
 };
 
@@ -137,13 +142,28 @@ export async function reconcileShelvesJobHandler(
  */
 export async function processImportJobHandler(
   jobs: Job<ProcessImportJobRequest>[],
-  _db: Db,
+  db: Db,
+  storage?: FileStorage,
 ): Promise<ProcessImportJobResult> {
   const job = jobs.at(-1);
   const importId = job?.data?.importId ?? '';
+  if (!importId) {
+    return {
+      importId: '',
+      processed: false,
+      workedAt: new Date().toISOString(),
+    };
+  }
+
+  const fileStorage = storage ?? new DiskFileStorage();
+  const res = await processImport(db, fileStorage, importId);
+
   return {
     importId,
-    processed: true,
+    processed: res.state === 'completed',
+    totalRows: res.totalRows,
+    matched: res.matched,
+    unmatched: res.unmatched,
     workedAt: new Date().toISOString(),
   };
 }
@@ -234,6 +254,9 @@ export async function registerQueues(boss: PgBoss, log: JobLog, db?: Db): Promis
             queue: QUEUES.processImport,
             ids: jobs.map((j) => j.id),
             importId: result.importId,
+            totalRows: result.totalRows,
+            matched: result.matched,
+            unmatched: result.unmatched,
           },
           'job handled',
         );

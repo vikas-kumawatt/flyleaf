@@ -640,7 +640,17 @@
   - Full transactional committer: `commitImportRow` and `commitImportBatch` persisting `reads`, linked `reviews` (up to 10,000 chars), custom `shelves`, and `shelf_items` with atomic counter updates, handling re-read attempt numbers (`attempt_no`).
   - 14 dedicated integration tests in `apps/api/src/test/import-committer.test.ts` (100% passing).
   - 100% green across all 9 gates in full monorepo CI (568 API tests across 26 suites, 83 mobile tests across 20 suites).
-- [ ] **IM-08** pg-boss job: chunked, resumable, progress-reported — 1d
+- [x] **IM-08** pg-boss job: chunked, resumable, progress-reported — 1d
+  - Delivered production background import processor in `apps/api/src/imports/processor.ts` (`processImport`):
+    - **Chunked processing**: Configurable chunk size (`chunkSize = 50`) for memory efficiency and short transaction holds during 5,000+ row imports (PRD §34.4, §4404).
+    - **Resumability (PRD §34.4, §4408)**: Checks existing `import_rows` for the import ID, skips already committed rows, and resumes from the exact point of interruption without duplicate reads or rows.
+    - **Progress reporting**: Atomically updates `imports` (`total_rows`, `matched`, `unmatched`, `state = 'processing'`, `updated_at = now()`) after each chunk commits, enabling live progress tracking in the client.
+    - **Data integrity**: Strictly enforces PRD AC-9 rules (ambiguous matches marked `unmatched` with `failure_reason = 'ambiguous_match'` and `work_id = null`; `My Rating = 0` normalized to `NULL`; `source = 'import'` excluded from social feeds).
+    - **Error resilience**: Missing or corrupted payloads transition `imports.state = 'failed'` with descriptive error and re-throw for pg-boss tracking.
+  - Connected `processImportJobHandler` in `apps/api/src/jobs/index.ts` with structured logging of `importId`, `matched`, `unmatched`, and `totalRows`.
+  - Exported processor from `apps/api/src/imports/index.ts`.
+  - 4 comprehensive integration tests in `apps/api/src/test/import-processor.test.ts` (100% passing).
+  - 100% green across all 9 gates in full monorepo CI (572 API tests across 27 suites, 83 mobile tests across 20 suites).
 - [ ] **IM-09** Import screen + progress banner + unmatched review list — 1.5d
 - [ ] **IM-10** CSV/JSON export, emailed link — 1d
 - [ ] IM-11 Duplicate-import detection by content hash — 0.5d

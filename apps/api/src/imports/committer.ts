@@ -240,11 +240,6 @@ export async function commitImportRow(
             workId,
             position: shelf.itemCount + 1,
           });
-
-          await db
-            .update(shelves)
-            .set({ itemCount: sql`${shelves.itemCount} + 1` })
-            .where(eq(shelves.id, shelf.id));
         }
       }
     }
