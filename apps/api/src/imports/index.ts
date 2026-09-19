@@ -25,6 +25,11 @@ import {
 import { type FileStorage, DiskFileStorage } from './storage.js';
 
 export * from './storage.js';
+export * from './types.js';
+export * from './parser.js';
+export * from './transformers.js';
+export * from './detector.js';
+export * from './configs/index.js';
 
 export const IMPORT_SOURCES = [
   'goodreads',

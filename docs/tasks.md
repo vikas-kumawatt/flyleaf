@@ -584,7 +584,23 @@
   - Added typed client methods `uploadImport()`, `getImport()`, and `listImports()` in `packages/api-client/src/client.ts` supporting standard web `Blob | File | Uint8Array`.
   - Comprehensive automated integration test suite in `apps/api/src/test/imports.test.ts` (16 tests passing).
   - Verified 100% green across full monorepo CI (all 9 gates passing in 301s).
-- [ ] **IM-03** ⚠️ **Declarative column map, one config per source** — 1.5d
+- [x] **IM-03** ⚠️ **Declarative column map, one config per source** — 1.5d
+  - Defined normalized data contracts in `apps/api/src/imports/types.ts`:
+    - `NormalizedImportRow` enforcing strict identity (`title`, `author`, `isbn`, `isbn10`, `isbn13`, `sourceId`) and reader state (`status`, `rating`, `startedAt`, `finishedAt`, `review`, `shelves`, `notes`, `readCount`, `format`, `raw`).
+    - Declarative source configuration contracts (`SourceColumnConfig`, `FieldMapping`, `HeaderDetectionConfig`, `DetectionResult`).
+  - Built pure TypeScript RFC 4180 streaming/block CSV parser (`apps/api/src/imports/parser.ts`) supporting multiline quoted fields, escaped double quotes (`""`), UTF-8 BOM removal, and whitespace tolerance.
+  - Implemented modular, composable field transformers in `apps/api/src/imports/transformers.ts`:
+    - `cleanText`: HTML entity decoding (`&amp;` → `&`), tag stripping, quote trimming.
+    - `cleanIsbn`: Cleans Goodreads formula syntax (`="0441478123"`), strips hyphens and non-ISBN characters, verifies 10/13 checksums and length.
+    - `normalizeRating`: Converts 5-star, 10-star, and quarter-star scales to half-stars (0.5..5.0); strictly maps `0` or invalid ratings to `null` per PRD AC-9 and IM-06.
+    - `mapStatus`: Maps source-specific strings to canonical reading statuses (`read`, `currently_reading`, `want_to_read`, `did_not_finish`).
+    - `parseDate`: Flexible date parser supporting YYYY/MM/DD, YYYY-MM-DD, M/D/YYYY, human dates (`15 Jan 2026`) preserving local calendar components to eliminate timezone drift.
+    - `parseShelves`: Splits delimited shelf strings (commas, pipes, slashes) and filters reserved/system shelves.
+    - `mapFormat`: Normalizes binding descriptions to canonical format (`print`, `ebook`, `audiobook`).
+  - Implemented source detector (`apps/api/src/imports/detector.ts`) scoring CSV header signatures against registered configs with confidence thresholds.
+  - Created full reference declarative source config for Goodreads (`apps/api/src/imports/configs/goodreads.ts`) mapping 16 fields cleanly.
+  - Source config registry and normalization pipeline in `apps/api/src/imports/configs/index.ts` (`normalizeRow`, `normalizeImport`).
+  - 27 unit tests in `apps/api/src/test/import-mapping.test.ts` covering parser, transformers, detector, and end-to-end Goodreads normalization. All 27 passing.
 - [ ] **IM-04** Six source maps: Goodreads, StoryGraph, LibraryThing, Calibre, OpenLibrary, OpenReads — 1.5d
 - [ ] **IM-05** ⚠️ Matching: ISBN → title+author fuzzy → **ambiguous goes unmatched, never guessed** — 2d
 - [ ] **IM-06** ⚠️ Rating normalisation; **`My Rating = 0` → NULL** — 0.5d
