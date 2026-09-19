@@ -572,7 +572,18 @@
   - Exported TypeScript types: `Import`, `NewImport`, `ImportRow`, `NewImportRow`.
   - Comprehensive migration test suite in `apps/api/src/test/imports-migration.test.ts` (12 tests passing).
   - Clean migration applied to live PostgreSQL and verified 100% green in full CI (489 API tests passing).
-- [ ] **IM-02** Upload endpoint → job ID, returns immediately — 0.5d
+- [x] **IM-02** Upload endpoint → job ID, returns immediately — 0.5d
+  - Created file storage abstraction in `apps/api/src/imports/storage.ts` supporting `DiskFileStorage` (persistent local disk directory) and `MemoryFileStorage` (fast isolated test memory).
+  - Configured `@fastify/multipart` in `apps/api/src/app.ts` with 10MB limit (PRD §6.8) and custom 413 `file_too_large` error envelope mapping.
+  - Added background job queue `processImport: 'imports.process'` and registered worker handler in `apps/api/src/jobs/index.ts`.
+  - Implemented `ImportService` and `importsPlugin` in `apps/api/src/imports/index.ts`:
+    - `POST /v1/imports`: Validates source against the 6 supported platforms (`goodreads`, `storygraph`, `librarything`, `calibre`, `openlibrary`, `openreads`), enforces non-empty file, calculates SHA-256 `content_hash`, writes `queued` import record, enqueues pg-boss task, and returns `{ id, job_id, state: 'queued', source, total_rows: 0, matched: 0, unmatched: 0, ... }` immediately per PRD AC-9.
+    - `GET /v1/imports/:id`: Status and progress inspection with strict 404 security isolation for cross-user requests.
+    - `GET /v1/imports`: Reverse-chronological list of imports for authenticated viewer.
+  - Declared OpenAPI 3.1 schemas in `apps/api/src/contract/schemas.ts` and regenerated `openapi.yaml` with 0 drift.
+  - Added typed client methods `uploadImport()`, `getImport()`, and `listImports()` in `packages/api-client/src/client.ts` supporting standard web `Blob | File | Uint8Array`.
+  - Comprehensive automated integration test suite in `apps/api/src/test/imports.test.ts` (16 tests passing).
+  - Verified 100% green across full monorepo CI (all 9 gates passing in 301s).
 - [ ] **IM-03** ⚠️ **Declarative column map, one config per source** — 1.5d
 - [ ] **IM-04** Six source maps: Goodreads, StoryGraph, LibraryThing, Calibre, OpenLibrary, OpenReads — 1.5d
 - [ ] **IM-05** ⚠️ Matching: ISBN → title+author fuzzy → **ambiguous goes unmatched, never guessed** — 2d

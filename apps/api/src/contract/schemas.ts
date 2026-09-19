@@ -1571,3 +1571,80 @@ export const shelfSlugParamsSchema = {
   required: ['username', 'slug'],
 } as const;
 
+// ---------------------------------------------------------------- imports (IM-02)
+
+export const importSourceEnum = [
+  'goodreads',
+  'storygraph',
+  'librarything',
+  'calibre',
+  'openlibrary',
+  'openreads',
+] as const;
+
+export const importStateEnum = [
+  'queued',
+  'processing',
+  'completed',
+  'failed',
+] as const;
+
+export const importResponseSchema = {
+  type: 'object',
+  properties: {
+    id: { type: 'string', format: 'uuid' },
+    job_id: { type: 'string', format: 'uuid' },
+    source: {
+      type: 'string',
+      enum: importSourceEnum,
+    },
+    state: {
+      type: 'string',
+      enum: importStateEnum,
+    },
+    total_rows: { type: 'integer' },
+    matched: { type: 'integer' },
+    unmatched: { type: 'integer' },
+    filename: { type: ['string', 'null'] },
+    file_size_bytes: { type: ['integer', 'null'] },
+    content_hash: { type: ['string', 'null'] },
+    error: { type: ['string', 'null'] },
+    created_at: { type: 'string', format: 'date-time' },
+    updated_at: { type: 'string', format: 'date-time' },
+    finished_at: { type: ['string', 'null'], format: 'date-time' },
+  },
+  required: [
+    'id',
+    'job_id',
+    'source',
+    'state',
+    'total_rows',
+    'matched',
+    'unmatched',
+    'created_at',
+    'updated_at',
+  ],
+} as const;
+
+export const importListResponseSchema = {
+  type: 'object',
+  properties: {
+    imports: {
+      type: 'array',
+      items: importResponseSchema,
+    },
+  },
+  required: ['imports'],
+} as const;
+
+export const uploadImportQuerySchema = {
+  type: 'object',
+  properties: {
+    source: {
+      type: 'string',
+      enum: importSourceEnum,
+      description: 'Source platform export format (can also be provided as a multipart form field)',
+    },
+  },
+} as const;
+

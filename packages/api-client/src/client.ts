@@ -82,6 +82,9 @@ import type {
   Work,
   WorkReviewsQuery,
   WorkReviewsResponse,
+  ImportSource,
+  ImportResponse,
+  ImportListResponse,
 } from './types.js';
 
 export class FlyleafApiError extends Error {
@@ -117,8 +120,9 @@ export class FlyleafClient {
     const token = this.getToken ? await this.getToken() : null;
     const url = `${this.baseUrl}${path.startsWith('/') ? path : `/${path}`}`;
 
+    const isFormData = typeof FormData !== 'undefined' && init.body instanceof FormData;
     const headers: Record<string, string> = {
-      ...(init.body !== undefined ? { 'Content-Type': 'application/json' } : {}),
+      ...(init.body !== undefined && !isFormData ? { 'Content-Type': 'application/json' } : {}),
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
       ...(init.headers as Record<string, string> | undefined),
     };
@@ -681,6 +685,40 @@ export class FlyleafClient {
         method: 'GET',
       },
     );
+  }
+
+  // ---------------------------------------------------------------- Imports (IM-02)
+
+  async uploadImport(
+    source: ImportSource,
+    file: Blob | File | Uint8Array | ArrayBuffer,
+    filename = 'export.csv',
+  ): Promise<ImportResponse> {
+    const formData = new FormData();
+    formData.append('source', source);
+
+    if (typeof Blob !== 'undefined' && file instanceof Blob) {
+      formData.append('file', file, filename);
+    } else {
+      formData.append('file', new Blob([file as any]), filename);
+    }
+
+    return this.request<ImportResponse>('/imports', {
+      method: 'POST',
+      body: formData,
+    });
+  }
+
+  async getImport(id: string): Promise<ImportResponse> {
+    return this.request<ImportResponse>(`/imports/${encodeURIComponent(id)}`, {
+      method: 'GET',
+    });
+  }
+
+  async listImports(): Promise<ImportListResponse> {
+    return this.request<ImportListResponse>('/imports', {
+      method: 'GET',
+    });
   }
 }
 

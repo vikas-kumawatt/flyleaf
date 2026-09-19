@@ -840,3 +840,36 @@ export interface UserShelvesResponse {
   shelves: Shelf[];
 }
 
+// ---------------------------------------------------------------- Imports (IM-02)
+
+export type ImportSource =
+  | 'goodreads'
+  | 'storygraph'
+  | 'librarything'
+  | 'calibre'
+  | 'openlibrary'
+  | 'openreads';
+
+export type ImportState = 'queued' | 'processing' | 'completed' | 'failed';
+
+export interface ImportResponse {
+  id: string;
+  job_id: string;
+  source: ImportSource;
+  state: ImportState;
+  total_rows: number;
+  matched: number;
+  unmatched: number;
+  filename?: string | null;
+  file_size_bytes?: number | null;
+  content_hash?: string | null;
+  error?: string | null;
+  created_at: string;
+  updated_at: string;
+  finished_at?: string | null;
+}
+
+export interface ImportListResponse {
+  imports: ImportResponse[];
+}
+

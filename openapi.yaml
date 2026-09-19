@@ -8930,6 +8930,444 @@ paths:
                       - message
                 required:
                   - error
+  /imports:
+    post:
+      summary: Upload export file for background import
+      tags:
+        - Imports
+      description: Uploads an export CSV from Goodreads, StoryGraph, LibraryThing,
+        Calibre, OpenLibrary, or OpenReads. Returns a job ID immediately and
+        queues processing (PRD §6.8, §24.2, AC-9, IM-02).
+      parameters:
+        - schema:
+            type: string
+            enum:
+              - goodreads
+              - storygraph
+              - librarything
+              - calibre
+              - openlibrary
+              - openreads
+          in: query
+          name: source
+          required: false
+          description: Source platform export format (can also be provided as a multipart
+            form field)
+      responses:
+        "201":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id:
+                    type: string
+                    format: uuid
+                  job_id:
+                    type: string
+                    format: uuid
+                  source:
+                    type: string
+                    enum:
+                      - goodreads
+                      - storygraph
+                      - librarything
+                      - calibre
+                      - openlibrary
+                      - openreads
+                  state:
+                    type: string
+                    enum:
+                      - queued
+                      - processing
+                      - completed
+                      - failed
+                  total_rows:
+                    type: integer
+                  matched:
+                    type: integer
+                  unmatched:
+                    type: integer
+                  filename:
+                    type:
+                      - "null"
+                      - string
+                  file_size_bytes:
+                    type:
+                      - "null"
+                      - integer
+                  content_hash:
+                    type:
+                      - "null"
+                      - string
+                  error:
+                    type:
+                      - "null"
+                      - string
+                  created_at:
+                    type: string
+                    format: date-time
+                  updated_at:
+                    type: string
+                    format: date-time
+                  finished_at:
+                    type:
+                      - "null"
+                      - string
+                    format: date-time
+                required:
+                  - id
+                  - job_id
+                  - source
+                  - state
+                  - total_rows
+                  - matched
+                  - unmatched
+                  - created_at
+                  - updated_at
+        "400":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      code:
+                        type: string
+                        description: Machine-readable error code
+                      message:
+                        type: string
+                        description: Human-readable error description
+                      field:
+                        type: string
+                        description: Invalid field name if applicable
+                    required:
+                      - code
+                      - message
+                required:
+                  - error
+        "401":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      code:
+                        type: string
+                        description: Machine-readable error code
+                      message:
+                        type: string
+                        description: Human-readable error description
+                      field:
+                        type: string
+                        description: Invalid field name if applicable
+                    required:
+                      - code
+                      - message
+                required:
+                  - error
+        "413":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      code:
+                        type: string
+                        description: Machine-readable error code
+                      message:
+                        type: string
+                        description: Human-readable error description
+                      field:
+                        type: string
+                        description: Invalid field name if applicable
+                    required:
+                      - code
+                      - message
+                required:
+                  - error
+        "422":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      code:
+                        type: string
+                        description: Machine-readable error code
+                      message:
+                        type: string
+                        description: Human-readable error description
+                      field:
+                        type: string
+                        description: Invalid field name if applicable
+                    required:
+                      - code
+                      - message
+                required:
+                  - error
+    get:
+      summary: List user import jobs
+      tags:
+        - Imports
+      description: Lists previous and active library import jobs for the authenticated
+        viewer, ordered newest first.
+      responses:
+        "200":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  imports:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: string
+                          format: uuid
+                        job_id:
+                          type: string
+                          format: uuid
+                        source:
+                          type: string
+                          enum:
+                            - goodreads
+                            - storygraph
+                            - librarything
+                            - calibre
+                            - openlibrary
+                            - openreads
+                        state:
+                          type: string
+                          enum:
+                            - queued
+                            - processing
+                            - completed
+                            - failed
+                        total_rows:
+                          type: integer
+                        matched:
+                          type: integer
+                        unmatched:
+                          type: integer
+                        filename:
+                          type:
+                            - "null"
+                            - string
+                        file_size_bytes:
+                          type:
+                            - "null"
+                            - integer
+                        content_hash:
+                          type:
+                            - "null"
+                            - string
+                        error:
+                          type:
+                            - "null"
+                            - string
+                        created_at:
+                          type: string
+                          format: date-time
+                        updated_at:
+                          type: string
+                          format: date-time
+                        finished_at:
+                          type:
+                            - "null"
+                            - string
+                          format: date-time
+                      required:
+                        - id
+                        - job_id
+                        - source
+                        - state
+                        - total_rows
+                        - matched
+                        - unmatched
+                        - created_at
+                        - updated_at
+                required:
+                  - imports
+        "401":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      code:
+                        type: string
+                        description: Machine-readable error code
+                      message:
+                        type: string
+                        description: Human-readable error description
+                      field:
+                        type: string
+                        description: Invalid field name if applicable
+                    required:
+                      - code
+                      - message
+                required:
+                  - error
+  /imports/{id}:
+    get:
+      summary: Get import job status and progress
+      tags:
+        - Imports
+      description: Retrieves the status, total rows, matched rows, and counters of a
+        reading library import job (PRD §24.2, IM-02).
+      parameters:
+        - schema:
+            type: string
+            format: uuid
+          in: path
+          name: id
+          required: true
+          description: Resource UUID
+      responses:
+        "200":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id:
+                    type: string
+                    format: uuid
+                  job_id:
+                    type: string
+                    format: uuid
+                  source:
+                    type: string
+                    enum:
+                      - goodreads
+                      - storygraph
+                      - librarything
+                      - calibre
+                      - openlibrary
+                      - openreads
+                  state:
+                    type: string
+                    enum:
+                      - queued
+                      - processing
+                      - completed
+                      - failed
+                  total_rows:
+                    type: integer
+                  matched:
+                    type: integer
+                  unmatched:
+                    type: integer
+                  filename:
+                    type:
+                      - "null"
+                      - string
+                  file_size_bytes:
+                    type:
+                      - "null"
+                      - integer
+                  content_hash:
+                    type:
+                      - "null"
+                      - string
+                  error:
+                    type:
+                      - "null"
+                      - string
+                  created_at:
+                    type: string
+                    format: date-time
+                  updated_at:
+                    type: string
+                    format: date-time
+                  finished_at:
+                    type:
+                      - "null"
+                      - string
+                    format: date-time
+                required:
+                  - id
+                  - job_id
+                  - source
+                  - state
+                  - total_rows
+                  - matched
+                  - unmatched
+                  - created_at
+                  - updated_at
+        "401":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      code:
+                        type: string
+                        description: Machine-readable error code
+                      message:
+                        type: string
+                        description: Human-readable error description
+                      field:
+                        type: string
+                        description: Invalid field name if applicable
+                    required:
+                      - code
+                      - message
+                required:
+                  - error
+        "404":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      code:
+                        type: string
+                        description: Machine-readable error code
+                      message:
+                        type: string
+                        description: Human-readable error description
+                      field:
+                        type: string
+                        description: Invalid field name if applicable
+                    required:
+                      - code
+                      - message
+                required:
+                  - error
   /healthz:
     get:
       summary: Liveness probe

@@ -26,6 +26,9 @@ import { verifyAdminToken } from './admin/auth.js';
 import { telemetryRoutes } from './telemetry/index.js';
 import { captureApiException } from './telemetry/sentry.js';
 import { shelvesPlugin, shelvesWebPlugin } from './shelves/index.js';
+import fastifyMultipart from '@fastify/multipart';
+import type { PgBoss } from 'pg-boss';
+import { importsPlugin, type FileStorage } from './imports/index.js';
 
 export interface CoreHookOptions {
   identityLookup?: (token: string) => Promise<string | null>;
@@ -122,6 +125,20 @@ export function registerCoreHooks(app: FastifyInstance, options?: CoreHookOption
       });
     }
 
+    // File size limit exceeded (PRD §6.8: >10MB)
+    if (
+      e?.code === 'FST_ERR_FILE_TOO_LARGE' ||
+      e?.code === 'FST_REQ_FILE_TOO_LARGE' ||
+      e?.statusCode === 413
+    ) {
+      return reply.status(413).send({
+        error: {
+          code: 'file_too_large',
+          message: 'File exceeds the 10MB limit. Please split your export into smaller files.',
+        },
+      });
+    }
+
     req.log.error({ err }, 'unhandled');
     void captureApiException(err, {
       requestId: req.id,
@@ -150,6 +167,8 @@ export interface BuildAppOptions {
   catalog?: CatalogService;
   reading?: ReadingService;
   reviews?: ReviewService;
+  boss?: PgBoss;
+  storage?: FileStorage;
   logger?: FastifyServerOptions['logger'];
   trustProxy?: boolean;
   bodyLimit?: number;
@@ -168,6 +187,12 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
   });
 
   await app.register(cors, { origin: true });
+  await app.register(fastifyMultipart, {
+    limits: {
+      fileSize: 10 * 1024 * 1024, // 10MB per PRD §6.8
+      files: 1,
+    },
+  });
 
   registerCoreHooks(app, {
     identityLookup: options.identity ? (token) => options.identity!.lookup(token) : undefined,
@@ -211,6 +236,12 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
     await app.register(telemetryRoutes(options.db));
     await app.register(shelvesPlugin, { prefix: '/v1', db: options.db });
     await app.register(shelvesWebPlugin, { db: options.db });
+    await app.register(importsPlugin, {
+      prefix: '/v1',
+      db: options.db,
+      boss: options.boss,
+      storage: options.storage,
+    });
   }
 
   return app;

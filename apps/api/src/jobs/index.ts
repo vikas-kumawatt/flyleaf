@@ -13,6 +13,7 @@
 // the real handlers against a real Postgres without starting a process.
 
 import { PgBoss, fromDrizzle, type Db as BossDb, type Job } from 'pg-boss';
+export type { PgBoss } from 'pg-boss';
 import { sql } from 'drizzle-orm';
 import { config } from '../platform/index.js';
 
@@ -56,6 +57,11 @@ export const QUEUES = {
    * Reconciles item_count, save_count, and cover_work_ids.
    */
   reconcileShelves: 'shelves.reconcile',
+  /**
+   * Reading library import processing job (PRD §6.8, §24.2, IM-02, IM-08).
+   * Parses uploaded CSV, matches against catalog, and populates user reads.
+   */
+  processImport: 'imports.process',
 } as const;
 
 export type QueueName = (typeof QUEUES)[keyof typeof QUEUES];
@@ -71,6 +77,18 @@ export type DedupeJobRequest = {
 };
 
 export type DedupeJobResult = DedupeReport;
+
+export type ProcessImportJobRequest = {
+  importId: string;
+  userId: string;
+  source: string;
+};
+
+export type ProcessImportJobResult = {
+  importId: string;
+  processed: boolean;
+  workedAt: string;
+};
 
 /**
  * The smoke handler.
@@ -111,6 +129,23 @@ export async function reconcileShelvesJobHandler(
 ): Promise<ReconcileShelvesResult> {
   await db.execute(sql`SELECT reconcile_shelf_counters();`);
   return { reconciled: true, workedAt: new Date().toISOString() };
+}
+
+/**
+ * Import processing background job handler (PRD §6.8, §24.2, IM-02, IM-08).
+ * Full chunked resumable processor is expanded in IM-08.
+ */
+export async function processImportJobHandler(
+  jobs: Job<ProcessImportJobRequest>[],
+  _db: Db,
+): Promise<ProcessImportJobResult> {
+  const job = jobs.at(-1);
+  const importId = job?.data?.importId ?? '';
+  return {
+    importId,
+    processed: true,
+    workedAt: new Date().toISOString(),
+  };
 }
 
 /**
@@ -189,6 +224,22 @@ export async function registerQueues(boss: PgBoss, log: JobLog, db?: Db): Promis
       );
       return result;
     });
+
+    await boss.work<ProcessImportJobRequest, ProcessImportJobResult>(
+      QUEUES.processImport,
+      async (jobs) => {
+        const result = await processImportJobHandler(jobs, db);
+        log.info(
+          {
+            queue: QUEUES.processImport,
+            ids: jobs.map((j) => j.id),
+            importId: result.importId,
+          },
+          'job handled',
+        );
+        return result;
+      },
+    );
   }
 }
 
