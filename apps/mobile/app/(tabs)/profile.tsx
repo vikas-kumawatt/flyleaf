@@ -534,6 +534,48 @@ export default function ProfileScreen() {
                 </View>
               </Card>
             </View>
+
+            {/* 7. DATA & IMPORTS (IM-09) */}
+            <View style={{ gap: space[2] }}>
+              <View style={sheet.rowBetween}>
+                <Txt variant="caption" color="muted" style={{ fontWeight: '700', letterSpacing: 0.5 }}>
+                  DATA & IMPORTS
+                </Txt>
+                <Pressable
+                  onPress={() => {
+                    void Haptics.selectionAsync();
+                    router.push('/import' as any);
+                  }}
+                  hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                >
+                  <Txt variant="caption" color="accent" style={{ fontWeight: '600' }}>
+                    Import Library →
+                  </Txt>
+                </Pressable>
+              </View>
+
+              <Card
+                onPress={() => {
+                  void Haptics.selectionAsync();
+                  router.push('/import' as any);
+                }}
+                style={{ padding: space[3] }}
+              >
+                <View style={sheet.rowBetween}>
+                  <View style={{ gap: 2, flex: 1, marginRight: space[2] }}>
+                    <Txt variant="title" style={{ fontSize: 15, fontWeight: '700' }}>
+                      Import from Goodreads & StoryGraph
+                    </Txt>
+                    <Txt variant="caption" color="muted">
+                      Bring your full reading history, ratings, and shelves into Flyleaf.
+                    </Txt>
+                  </View>
+                  <Txt variant="title" color="accent">
+                    →
+                  </Txt>
+                </View>
+              </Card>
+            </View>
           </>
         ) : (
           <EmptyState

@@ -651,7 +651,30 @@
   - Exported processor from `apps/api/src/imports/index.ts`.
   - 4 comprehensive integration tests in `apps/api/src/test/import-processor.test.ts` (100% passing).
   - 100% green across all 9 gates in full monorepo CI (572 API tests across 27 suites, 83 mobile tests across 20 suites).
-- [ ] **IM-09** Import screen + progress banner + unmatched review list — 1.5d
+- [x] **IM-09** Import screen + progress banner + unmatched review list — 1.5d
+  - Delivered end-to-end import UI, real-time progress banner, and unmatched review queue across API, client SDK, and mobile app:
+    - **Import Screen (`apps/mobile/app/import/index.tsx`)**:
+      - 6 source platform selector with custom icons and formats (Goodreads, StoryGraph, LibraryThing, Calibre, OpenLibrary, OpenReads).
+      - Dual input: direct CSV paste & web/native file picker with validation and error reporting.
+      - Integrated with Profile screen (`apps/mobile/app/(tabs)/profile.tsx`) under "DATA & IMPORTS".
+      - Import history listing previous jobs with status badges and quick review links.
+    - **Live Progress Banner (`apps/mobile/src/ui/ImportProgressBanner.tsx`)**:
+      - Real-time polling (`GET /v1/imports/:id`) every 2 seconds while queued or processing.
+      - Animated progress bar indicating percent completed (`(matched + unmatched) / totalRows`).
+      - Live counters breakdown (`matched`, `unmatched`, `total`).
+      - 1-tap "Review N unmatched" button navigating directly to the review queue.
+    - **Unmatched Review Queue (`apps/mobile/app/import/unmatched.tsx`)**:
+      - Inspect raw unparsed row details (Title, Author, Rating, Shelves, Failure reason).
+      - Real-time catalog search (`GET /v1/search`) pre-filled with raw book title to pick matching works.
+      - 1-tap "Match & Resolve": calls `POST /v1/imports/:id/rows/:rowNo/resolve`, commits read with `source = 'import'` and normalized rating (IM-06, IM-07), updates counters atomically, and removes item from queue.
+      - 1-tap "Skip Book": calls `POST /v1/imports/:id/rows/:rowNo/skip` to bypass without creating reads.
+    - **API Endpoints & Contracts**:
+      - `GET /v1/imports/:id/rows`: Paginated inspection filtered by `state` (e.g. `state=unmatched`).
+      - `POST /v1/imports/:id/rows/:rowNo/resolve`: Resolves row, commits read, updates counters.
+      - `POST /v1/imports/:id/rows/:rowNo/skip`: Skips row, updates counters.
+      - 0 contract drift verified against OpenAPI 3.1.0 (`spec:check` green).
+      - 9 dedicated integration tests in `apps/api/src/test/import-review.test.ts` (100% passing).
+  - 100% green across all 9 gates in full monorepo CI (581 API tests across 28 suites, 83 mobile tests across 20 suites).
 - [ ] **IM-10** CSV/JSON export, emailed link — 1d
 - [ ] IM-11 Duplicate-import detection by content hash — 0.5d
 - [ ] **IM-12** Import your own real library; fix what breaks — 1d

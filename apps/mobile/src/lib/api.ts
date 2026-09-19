@@ -58,6 +58,13 @@ import {
   type BrowseShelvesQuery,
   type BrowseShelvesResponse,
   type UserShelvesResponse,
+  type ImportSource,
+  type ImportResponse,
+  type ImportListResponse,
+  type ImportRowState,
+  type ImportRowItem,
+  type ImportRowsResponse,
+  type ResolveImportRowRequest,
 } from '@flyleaf/api-client';
 
 export type {
@@ -94,6 +101,13 @@ export type {
   BrowseShelvesQuery,
   BrowseShelvesResponse,
   UserShelvesResponse,
+  ImportSource,
+  ImportResponse,
+  ImportListResponse,
+  ImportRowState,
+  ImportRowItem,
+  ImportRowsResponse,
+  ResolveImportRowRequest,
   Edition,
   EditionDetail,
   EditionLookupResponse,
@@ -463,6 +477,22 @@ export const api = {
   browseShelves: (params?: BrowseShelvesQuery) => client.browseShelves(params),
   getUserShelves: (userId: string) => client.getUserShelves(userId),
   getShelfBySlug: (username: string, slug: string) => client.getShelfBySlug(username, slug),
+
+  // Imports (IM-02, IM-08, IM-09)
+  uploadImport: (
+    source: ImportSource,
+    file: Blob | File | Uint8Array | ArrayBuffer,
+    filename?: string,
+  ) => client.uploadImport(source, file, filename),
+  getImport: (id: string) => client.getImport(id),
+  listImports: () => client.listImports(),
+  getImportRows: (
+    id: string,
+    params?: { state?: ImportRowState; limit?: number; offset?: number },
+  ) => client.getImportRows(id, params),
+  resolveImportRow: (id: string, rowNo: number, data: ResolveImportRowRequest) =>
+    client.resolveImportRow(id, rowNo, data),
+  skipImportRow: (id: string, rowNo: number) => client.skipImportRow(id, rowNo),
 };
 
 export interface AuthorDetail {

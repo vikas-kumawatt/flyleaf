@@ -9368,6 +9368,433 @@ paths:
                       - message
                 required:
                   - error
+  /imports/{id}/rows:
+    get:
+      summary: List import rows with optional state filter
+      tags:
+        - Imports
+      description: Retrieves paginated import rows for review, filtered by state (e.g.
+        state=unmatched) (PRD §34.4, Architecture §3.7, IM-09).
+      parameters:
+        - schema:
+            type: string
+            enum:
+              - matched
+              - unmatched
+              - resolved
+              - skipped
+          in: query
+          name: state
+          required: false
+        - schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 50
+          in: query
+          name: limit
+          required: false
+        - schema:
+            type: integer
+            minimum: 0
+            default: 0
+          in: query
+          name: offset
+          required: false
+        - schema:
+            type: string
+            format: uuid
+          in: path
+          name: id
+          required: true
+          description: Resource UUID
+      responses:
+        "200":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  rows:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        import_id:
+                          type: string
+                          format: uuid
+                        row_no:
+                          type: integer
+                        raw:
+                          type: object
+                          additionalProperties: true
+                        state:
+                          type: string
+                          enum:
+                            - matched
+                            - unmatched
+                            - resolved
+                            - skipped
+                        work_id:
+                          type:
+                            - "null"
+                            - string
+                          format: uuid
+                        edition_id:
+                          type:
+                            - "null"
+                            - string
+                          format: uuid
+                        confidence:
+                          type:
+                            - "null"
+                            - number
+                        failure_reason:
+                          type:
+                            - "null"
+                            - string
+                        created_at:
+                          type: string
+                          format: date-time
+                      required:
+                        - import_id
+                        - row_no
+                        - raw
+                        - state
+                        - created_at
+                  total:
+                    type: integer
+                  limit:
+                    type: integer
+                  offset:
+                    type: integer
+                required:
+                  - rows
+                  - total
+                  - limit
+                  - offset
+        "401":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      code:
+                        type: string
+                        description: Machine-readable error code
+                      message:
+                        type: string
+                        description: Human-readable error description
+                      field:
+                        type: string
+                        description: Invalid field name if applicable
+                    required:
+                      - code
+                      - message
+                required:
+                  - error
+        "404":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      code:
+                        type: string
+                        description: Machine-readable error code
+                      message:
+                        type: string
+                        description: Human-readable error description
+                      field:
+                        type: string
+                        description: Invalid field name if applicable
+                    required:
+                      - code
+                      - message
+                required:
+                  - error
+  /imports/{id}/rows/{rowNo}/resolve:
+    post:
+      summary: Resolve an unmatched import row
+      tags:
+        - Imports
+      description: Resolves an unmatched import row by attaching a work ID, committing
+        the read, and updating state to resolved (PRD §34.4, §5141, IM-09).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                work_id:
+                  type: string
+                  format: uuid
+                edition_id:
+                  type: string
+                  format: uuid
+              required:
+                - work_id
+      parameters:
+        - schema:
+            type: string
+            format: uuid
+          in: path
+          name: id
+          required: true
+        - schema:
+            type: integer
+          in: path
+          name: rowNo
+          required: true
+      responses:
+        "200":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  import_id:
+                    type: string
+                    format: uuid
+                  row_no:
+                    type: integer
+                  raw:
+                    type: object
+                    additionalProperties: true
+                  state:
+                    type: string
+                    enum:
+                      - matched
+                      - unmatched
+                      - resolved
+                      - skipped
+                  work_id:
+                    type:
+                      - "null"
+                      - string
+                    format: uuid
+                  edition_id:
+                    type:
+                      - "null"
+                      - string
+                    format: uuid
+                  confidence:
+                    type:
+                      - "null"
+                      - number
+                  failure_reason:
+                    type:
+                      - "null"
+                      - string
+                  created_at:
+                    type: string
+                    format: date-time
+                required:
+                  - import_id
+                  - row_no
+                  - raw
+                  - state
+                  - created_at
+        "400":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      code:
+                        type: string
+                        description: Machine-readable error code
+                      message:
+                        type: string
+                        description: Human-readable error description
+                      field:
+                        type: string
+                        description: Invalid field name if applicable
+                    required:
+                      - code
+                      - message
+                required:
+                  - error
+        "401":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      code:
+                        type: string
+                        description: Machine-readable error code
+                      message:
+                        type: string
+                        description: Human-readable error description
+                      field:
+                        type: string
+                        description: Invalid field name if applicable
+                    required:
+                      - code
+                      - message
+                required:
+                  - error
+        "404":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      code:
+                        type: string
+                        description: Machine-readable error code
+                      message:
+                        type: string
+                        description: Human-readable error description
+                      field:
+                        type: string
+                        description: Invalid field name if applicable
+                    required:
+                      - code
+                      - message
+                required:
+                  - error
+  /imports/{id}/rows/{rowNo}/skip:
+    post:
+      summary: Skip an unmatched import row
+      tags:
+        - Imports
+      description: Marks an unmatched import row as skipped without creating a read
+        (PRD §34.4, Architecture §3.7, IM-09).
+      parameters:
+        - schema:
+            type: string
+            format: uuid
+          in: path
+          name: id
+          required: true
+        - schema:
+            type: integer
+          in: path
+          name: rowNo
+          required: true
+      responses:
+        "200":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  import_id:
+                    type: string
+                    format: uuid
+                  row_no:
+                    type: integer
+                  raw:
+                    type: object
+                    additionalProperties: true
+                  state:
+                    type: string
+                    enum:
+                      - matched
+                      - unmatched
+                      - resolved
+                      - skipped
+                  work_id:
+                    type:
+                      - "null"
+                      - string
+                    format: uuid
+                  edition_id:
+                    type:
+                      - "null"
+                      - string
+                    format: uuid
+                  confidence:
+                    type:
+                      - "null"
+                      - number
+                  failure_reason:
+                    type:
+                      - "null"
+                      - string
+                  created_at:
+                    type: string
+                    format: date-time
+                required:
+                  - import_id
+                  - row_no
+                  - raw
+                  - state
+                  - created_at
+        "401":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      code:
+                        type: string
+                        description: Machine-readable error code
+                      message:
+                        type: string
+                        description: Human-readable error description
+                      field:
+                        type: string
+                        description: Invalid field name if applicable
+                    required:
+                      - code
+                      - message
+                required:
+                  - error
+        "404":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      code:
+                        type: string
+                        description: Machine-readable error code
+                      message:
+                        type: string
+                        description: Human-readable error description
+                      field:
+                        type: string
+                        description: Invalid field name if applicable
+                    required:
+                      - code
+                      - message
+                required:
+                  - error
   /healthz:
     get:
       summary: Liveness probe

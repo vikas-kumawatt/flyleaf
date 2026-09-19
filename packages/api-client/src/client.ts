@@ -85,6 +85,10 @@ import type {
   ImportSource,
   ImportResponse,
   ImportListResponse,
+  ImportRowState,
+  ImportRowItem,
+  ImportRowsResponse,
+  ResolveImportRowRequest,
 } from './types.js';
 
 export class FlyleafApiError extends Error {
@@ -719,6 +723,46 @@ export class FlyleafClient {
     return this.request<ImportListResponse>('/imports', {
       method: 'GET',
     });
+  }
+
+  async getImportRows(
+    id: string,
+    params?: { state?: ImportRowState; limit?: number; offset?: number },
+  ): Promise<ImportRowsResponse> {
+    const q = new URLSearchParams();
+    if (params?.state) q.set('state', params.state);
+    if (params?.limit != null) q.set('limit', String(params.limit));
+    if (params?.offset != null) q.set('offset', String(params.offset));
+    const qs = q.toString() ? `?${q.toString()}` : '';
+    return this.request<ImportRowsResponse>(
+      `/imports/${encodeURIComponent(id)}/rows${qs}`,
+      {
+        method: 'GET',
+      },
+    );
+  }
+
+  async resolveImportRow(
+    id: string,
+    rowNo: number,
+    data: ResolveImportRowRequest,
+  ): Promise<ImportRowItem> {
+    return this.request<ImportRowItem>(
+      `/imports/${encodeURIComponent(id)}/rows/${encodeURIComponent(rowNo)}/resolve`,
+      {
+        method: 'POST',
+        body: JSON.stringify(data),
+      },
+    );
+  }
+
+  async skipImportRow(id: string, rowNo: number): Promise<ImportRowItem> {
+    return this.request<ImportRowItem>(
+      `/imports/${encodeURIComponent(id)}/rows/${encodeURIComponent(rowNo)}/skip`,
+      {
+        method: 'POST',
+      },
+    );
   }
 }
 

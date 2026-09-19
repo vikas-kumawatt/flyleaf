@@ -873,3 +873,29 @@ export interface ImportListResponse {
   imports: ImportResponse[];
 }
 
+export type ImportRowState = 'matched' | 'unmatched' | 'resolved' | 'skipped';
+
+export interface ImportRowItem {
+  import_id: string;
+  row_no: number;
+  raw: Record<string, unknown>;
+  state: ImportRowState;
+  work_id: string | null;
+  edition_id: string | null;
+  confidence: number | null;
+  failure_reason: string | null;
+  created_at: string;
+}
+
+export interface ImportRowsResponse {
+  rows: ImportRowItem[];
+  total: number;
+  limit: number;
+  offset: number;
+}
+
+export interface ResolveImportRowRequest {
+  work_id: string;
+  edition_id?: string;
+}
+

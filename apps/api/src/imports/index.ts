@@ -8,11 +8,11 @@
 import crypto from 'node:crypto';
 import path from 'node:path';
 import type { FastifyPluginAsync } from 'fastify';
-import { eq, desc, and } from 'drizzle-orm';
+import { eq, desc, and, sql } from 'drizzle-orm';
 import type { PgBoss } from 'pg-boss';
 
 import type { Db } from '../platform/index.js';
-import { imports, type Import } from '../db/schema.js';
+import { imports, importRows, type Import, type ImportRow } from '../db/schema.js';
 import { ApiError, requireViewer } from '../http.js';
 import { QUEUES } from '../jobs/index.js';
 import {
@@ -21,8 +21,15 @@ import {
   importResponseSchema,
   importListResponseSchema,
   uploadImportQuerySchema,
+  importRowSchema,
+  importRowsResponseSchema,
+  importRowsQuerySchema,
+  resolveImportRowBodySchema,
+  importRowParamSchema,
 } from '../contract/schemas.js';
 import { type FileStorage, DiskFileStorage } from './storage.js';
+import { SOURCE_CONFIGS, goodreadsConfig, normalizeRow } from './configs/index.js';
+import { commitImportRow } from './committer.js';
 
 export * from './storage.js';
 export * from './types.js';
@@ -78,6 +85,32 @@ export function toImportResponse(row: Import): ImportResponseItem {
     created_at: row.createdAt.toISOString(),
     updated_at: row.updatedAt.toISOString(),
     finished_at: row.finishedAt ? row.finishedAt.toISOString() : null,
+  };
+}
+
+export interface ImportRowResponseItem {
+  import_id: string;
+  row_no: number;
+  raw: Record<string, unknown>;
+  state: string;
+  work_id: string | null;
+  edition_id: string | null;
+  confidence: number | null;
+  failure_reason: string | null;
+  created_at: string;
+}
+
+export function toImportRowResponse(row: ImportRow): ImportRowResponseItem {
+  return {
+    import_id: row.importId,
+    row_no: row.rowNo,
+    raw: row.raw as Record<string, unknown>,
+    state: row.state,
+    work_id: row.workId,
+    edition_id: row.editionId,
+    confidence: row.confidence,
+    failure_reason: row.failureReason,
+    created_at: row.createdAt.toISOString(),
   };
 }
 
@@ -186,6 +219,195 @@ export class ImportService {
       .limit(Math.min(50, Math.max(1, limit)));
 
     return rows.map(toImportResponse);
+  }
+
+  async getRows(
+    userId: string,
+    importId: string,
+    query: { state?: string; limit?: number; offset?: number },
+  ): Promise<{ rows: ImportRowResponseItem[]; total: number; limit: number; offset: number }> {
+    // PRD & architecture security rule: check viewer ownership first
+    await this.get(userId, importId);
+
+    const conditions = [eq(importRows.importId, importId)];
+    if (query.state) {
+      conditions.push(eq(importRows.state, query.state));
+    }
+    const whereClause = and(...conditions);
+    const limit = Math.min(100, Math.max(1, query.limit ?? 50));
+    const offset = Math.max(0, query.offset ?? 0);
+
+    const [totalResult] = await this.db
+      .select({ count: sql<number>`count(*)` })
+      .from(importRows)
+      .where(whereClause);
+
+    const rows = await this.db
+      .select()
+      .from(importRows)
+      .where(whereClause)
+      .orderBy(importRows.rowNo)
+      .limit(limit)
+      .offset(offset);
+
+    return {
+      rows: rows.map(toImportRowResponse),
+      total: Number(totalResult?.count ?? 0),
+      limit,
+      offset,
+    };
+  }
+
+  async resolveRow(
+    userId: string,
+    importId: string,
+    rowNo: number,
+    input: { workId: string; editionId?: string },
+  ): Promise<ImportRowResponseItem> {
+    const [importRecord] = await this.db
+      .select()
+      .from(imports)
+      .where(and(eq(imports.id, importId), eq(imports.userId, userId)))
+      .limit(1);
+
+    if (!importRecord) {
+      throw ApiError.notFound('Import job not found.');
+    }
+
+    const [rowRecord] = await this.db
+      .select()
+      .from(importRows)
+      .where(and(eq(importRows.importId, importId), eq(importRows.rowNo, rowNo)))
+      .limit(1);
+
+    if (!rowRecord) {
+      throw ApiError.notFound('Import row not found.');
+    }
+
+    // Idempotent return if already resolved to this work
+    if (rowRecord.state === 'resolved' && rowRecord.workId === input.workId) {
+      return toImportRowResponse(rowRecord);
+    }
+
+    let config = SOURCE_CONFIGS[importRecord.source as ImportSource];
+    if (!config) {
+      config = goodreadsConfig;
+    }
+
+    const normalizedRow = normalizeRow(
+      config,
+      rowRecord.raw as Record<string, string>,
+      rowRecord.rowNo,
+    );
+
+    return await this.db.transaction(async (tx) => {
+      // 1. Commit to reading spine with source = 'import' and normalized rating (IM-06, IM-07)
+      await commitImportRow(tx as unknown as Db, {
+        userId,
+        importId,
+        row: normalizedRow,
+        match: {
+          state: 'matched',
+          workId: input.workId,
+          editionId: input.editionId ?? null,
+          confidence: 1.0,
+          failureReason: null,
+          strategy: null,
+        },
+      });
+
+      // 2. Update import_rows to resolved
+      const [updatedRow] = await tx
+        .update(importRows)
+        .set({
+          state: 'resolved',
+          workId: input.workId,
+          editionId: input.editionId ?? null,
+          confidence: 1.0,
+          failureReason: null,
+        })
+        .where(and(eq(importRows.importId, importId), eq(importRows.rowNo, rowNo)))
+        .returning();
+
+      // 3. Recompute/update imports counters
+      const [counts] = await tx
+        .select({
+          matched: sql<number>`count(*) FILTER (WHERE ${importRows.state} IN ('matched', 'resolved'))`,
+          unmatched: sql<number>`count(*) FILTER (WHERE ${importRows.state} = 'unmatched')`,
+        })
+        .from(importRows)
+        .where(eq(importRows.importId, importId));
+
+      await tx
+        .update(imports)
+        .set({
+          matched: Number(counts?.matched ?? 0),
+          unmatched: Number(counts?.unmatched ?? 0),
+          updatedAt: new Date(),
+        })
+        .where(eq(imports.id, importId));
+
+      return toImportRowResponse(updatedRow!);
+    });
+  }
+
+  async skipRow(
+    userId: string,
+    importId: string,
+    rowNo: number,
+  ): Promise<ImportRowResponseItem> {
+    const [importRecord] = await this.db
+      .select()
+      .from(imports)
+      .where(and(eq(imports.id, importId), eq(imports.userId, userId)))
+      .limit(1);
+
+    if (!importRecord) {
+      throw ApiError.notFound('Import job not found.');
+    }
+
+    const [rowRecord] = await this.db
+      .select()
+      .from(importRows)
+      .where(and(eq(importRows.importId, importId), eq(importRows.rowNo, rowNo)))
+      .limit(1);
+
+    if (!rowRecord) {
+      throw ApiError.notFound('Import row not found.');
+    }
+
+    if (rowRecord.state === 'skipped') {
+      return toImportRowResponse(rowRecord);
+    }
+
+    return await this.db.transaction(async (tx) => {
+      const [updatedRow] = await tx
+        .update(importRows)
+        .set({
+          state: 'skipped',
+        })
+        .where(and(eq(importRows.importId, importId), eq(importRows.rowNo, rowNo)))
+        .returning();
+
+      const [counts] = await tx
+        .select({
+          matched: sql<number>`count(*) FILTER (WHERE ${importRows.state} IN ('matched', 'resolved'))`,
+          unmatched: sql<number>`count(*) FILTER (WHERE ${importRows.state} = 'unmatched')`,
+        })
+        .from(importRows)
+        .where(eq(importRows.importId, importId));
+
+      await tx
+        .update(imports)
+        .set({
+          matched: Number(counts?.matched ?? 0),
+          unmatched: Number(counts?.unmatched ?? 0),
+          updatedAt: new Date(),
+        })
+        .where(eq(imports.id, importId));
+
+      return toImportRowResponse(updatedRow!);
+    });
   }
 }
 
@@ -308,6 +530,86 @@ export const importsPlugin: FastifyPluginAsync<ImportsPluginOptions> = async (fa
       const viewer = requireViewer(request);
       const result = await service.list(viewer);
       return reply.send({ imports: result });
+    },
+  );
+
+  fastify.get(
+    '/imports/:id/rows',
+    {
+      schema: {
+        tags: ['Imports'],
+        summary: 'List import rows with optional state filter',
+        description:
+          'Retrieves paginated import rows for review, filtered by state (e.g. state=unmatched) (PRD §34.4, Architecture §3.7, IM-09).',
+        params: idParamSchema,
+        querystring: importRowsQuerySchema,
+        response: {
+          200: importRowsResponseSchema,
+          401: errorResponseSchema,
+          404: errorResponseSchema,
+        },
+      },
+    },
+    async (request, reply) => {
+      const viewer = requireViewer(request);
+      const { id } = request.params as { id: string };
+      const query = request.query as { state?: string; limit?: number; offset?: number };
+      const result = await service.getRows(viewer, id, query);
+      return reply.send(result);
+    },
+  );
+
+  fastify.post(
+    '/imports/:id/rows/:rowNo/resolve',
+    {
+      schema: {
+        tags: ['Imports'],
+        summary: 'Resolve an unmatched import row',
+        description:
+          'Resolves an unmatched import row by attaching a work ID, committing the read, and updating state to resolved (PRD §34.4, §5141, IM-09).',
+        params: importRowParamSchema,
+        body: resolveImportRowBodySchema,
+        response: {
+          200: importRowSchema,
+          400: errorResponseSchema,
+          401: errorResponseSchema,
+          404: errorResponseSchema,
+        },
+      },
+    },
+    async (request, reply) => {
+      const viewer = requireViewer(request);
+      const { id, rowNo } = request.params as { id: string; rowNo: number };
+      const { work_id, edition_id } = request.body as { work_id: string; edition_id?: string };
+      const result = await service.resolveRow(viewer, id, rowNo, {
+        workId: work_id,
+        editionId: edition_id,
+      });
+      return reply.send(result);
+    },
+  );
+
+  fastify.post(
+    '/imports/:id/rows/:rowNo/skip',
+    {
+      schema: {
+        tags: ['Imports'],
+        summary: 'Skip an unmatched import row',
+        description:
+          'Marks an unmatched import row as skipped without creating a read (PRD §34.4, Architecture §3.7, IM-09).',
+        params: importRowParamSchema,
+        response: {
+          200: importRowSchema,
+          401: errorResponseSchema,
+          404: errorResponseSchema,
+        },
+      },
+    },
+    async (request, reply) => {
+      const viewer = requireViewer(request);
+      const { id, rowNo } = request.params as { id: string; rowNo: number };
+      const result = await service.skipRow(viewer, id, rowNo);
+      return reply.send(result);
     },
   );
 };

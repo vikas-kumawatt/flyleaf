@@ -1,0 +1,414 @@
+// IM-09: Import Screen (PRD §6.8, §24.2, §34.4, AC-9, Architecture §3.7).
+//
+// Governed by: "The interface recedes; covers advance."
+// Allows users to select an external reading platform (Goodreads, StoryGraph, LibraryThing,
+// Calibre, OpenLibrary, OpenReads), upload or paste an export CSV, track live progress
+// via ImportProgressBanner, and access the Unmatched Review Queue.
+
+import React, { useState, useEffect, useCallback } from 'react';
+import {
+  View,
+  ScrollView,
+  Pressable,
+  TextInput,
+  ActivityIndicator,
+  StyleSheet,
+  Alert,
+  Platform,
+} from 'react-native';
+import { useRouter } from 'expo-router';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { Ionicons } from '@expo/vector-icons';
+import * as Haptics from 'expo-haptics';
+import {
+  api,
+  type ImportSource,
+  type ImportResponse,
+} from '@/lib/api';
+import { useSession } from '@/lib/session';
+import {
+  Button,
+  Card,
+  EmptyState,
+  Screen,
+  SegmentedControl,
+  Txt,
+  sheet,
+} from '@/ui/components';
+import { ImportProgressBanner } from '@/ui/ImportProgressBanner';
+import { space, radius, useTheme } from '@/ui/tokens';
+
+const PLATFORMS: { id: ImportSource; name: string; desc: string; icon: string }[] = [
+  { id: 'goodreads', name: 'Goodreads', desc: 'goodreads_library_export.csv', icon: 'book-outline' },
+  { id: 'storygraph', name: 'The StoryGraph', desc: 'the-storygraph-export.csv', icon: 'stats-chart-outline' },
+  { id: 'librarything', name: 'LibraryThing', desc: 'LibraryThing export (.csv)', icon: 'library-outline' },
+  { id: 'calibre', name: 'Calibre', desc: 'calibre library catalog (.csv)', icon: 'desktop-outline' },
+  { id: 'openlibrary', name: 'OpenLibrary', desc: 'openlibrary reading log', icon: 'globe-outline' },
+  { id: 'openreads', name: 'OpenReads', desc: 'openreads export (.csv)', icon: 'bookmark-outline' },
+];
+
+export default function ImportScreen() {
+  const c = useTheme();
+  const router = useRouter();
+  const insets = useSafeAreaInsets();
+  const { user } = useSession();
+
+  const [selectedSource, setSelectedSource] = useState<ImportSource>('goodreads');
+  const [inputMode, setInputMode] = useState<'paste' | 'file'>('paste');
+  const [csvText, setCsvText] = useState('');
+  const [uploading, setUploading] = useState(false);
+  const [activeImportId, setActiveImportId] = useState<string | null>(null);
+  const [pastImports, setPastImports] = useState<ImportResponse[]>([]);
+  const [loadingPast, setLoadingPast] = useState(true);
+
+  // Load user's previous and active imports
+  const loadImports = useCallback(async () => {
+    if (!user) {
+      setLoadingPast(false);
+      return;
+    }
+    try {
+      setLoadingPast(true);
+      const res = await api.listImports();
+      setPastImports(res.imports || []);
+
+      // If an import is currently processing or queued, display its banner
+      const active = res.imports.find(
+        (i) => i.state === 'processing' || i.state === 'queued',
+      );
+      if (active) {
+        setActiveImportId(active.id);
+      }
+    } catch {
+      // Offline fallback
+    } finally {
+      setLoadingPast(false);
+    }
+  }, [user]);
+
+  useEffect(() => {
+    void loadImports();
+  }, [loadImports]);
+
+  const handleUpload = async () => {
+    if (!user) {
+      router.push('/auth');
+      return;
+    }
+
+    const trimmed = csvText.trim();
+    if (!trimmed) {
+      Alert.alert('Empty Content', 'Please paste your CSV export text before importing.');
+      return;
+    }
+
+    try {
+      setUploading(true);
+      void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+
+      const buffer = Buffer.from(trimmed, 'utf-8');
+      const filename = `${selectedSource}_export.csv`;
+
+      const result = await api.uploadImport(selectedSource, buffer, filename);
+
+      void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      setCsvText('');
+      setActiveImportId(result.id);
+      void loadImports();
+    } catch (err: any) {
+      void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+      Alert.alert('Import Failed', err.message || 'Could not upload import file.');
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  const handleWebFileSelect = (e: any) => {
+    const file = e.target?.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      const content = event.target?.result as string;
+      if (content) {
+        setCsvText(content);
+        setInputMode('paste');
+      }
+    };
+    reader.readAsText(file);
+  };
+
+  return (
+    <Screen style={{ flex: 1, backgroundColor: c.ground }}>
+      {/* Navigation Header */}
+      <View
+        style={{
+          paddingTop: insets.top + space[2],
+          paddingHorizontal: space[4],
+          paddingBottom: space[3],
+          borderBottomWidth: 1,
+          borderBottomColor: c.line,
+          backgroundColor: c.ground,
+        }}
+      >
+        <View style={sheet.rowBetween}>
+          <Pressable
+            onPress={() => router.back()}
+            hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+            style={{ minWidth: 44, minHeight: 44, justifyContent: 'center' }}
+          >
+            <Ionicons name="arrow-back" size={24} color={c.ink} />
+          </Pressable>
+
+          <Txt variant="title" style={{ fontWeight: '700', fontSize: 17 }}>
+            Import Library
+          </Txt>
+
+          <View style={{ minWidth: 44 }} />
+        </View>
+      </View>
+
+      <ScrollView contentContainerStyle={{ padding: space[4], gap: space[4] }}>
+        {/* Active Import Live Progress Banner */}
+        {activeImportId && (
+          <View>
+            <Txt variant="caption" color="muted" style={{ fontWeight: '700', letterSpacing: 0.5, marginBottom: space[1] }}>
+              ACTIVE IMPORT
+            </Txt>
+            <ImportProgressBanner
+              importId={activeImportId}
+              onComplete={() => {
+                void loadImports();
+              }}
+              onDismiss={() => setActiveImportId(null)}
+            />
+          </View>
+        )}
+
+        {/* 1. SOURCE PLATFORM SELECTOR */}
+        <View style={{ gap: space[2] }}>
+          <Txt variant="caption" color="muted" style={{ fontWeight: '700', letterSpacing: 0.5 }}>
+            1. SELECT SOURCE PLATFORM
+          </Txt>
+
+          <View style={styles.platformGrid}>
+            {PLATFORMS.map((p) => {
+              const isSelected = selectedSource === p.id;
+              return (
+                <Pressable
+                  key={p.id}
+                  onPress={() => {
+                    void Haptics.selectionAsync();
+                    setSelectedSource(p.id);
+                  }}
+                  style={[
+                    styles.platformCard,
+                    {
+                      backgroundColor: isSelected ? c.surface : 'transparent',
+                      borderColor: isSelected ? c.accent : c.line,
+                    },
+                  ]}
+                >
+                  <Ionicons
+                    name={p.icon as any}
+                    size={22}
+                    color={isSelected ? c.accent : c.muted}
+                  />
+                  <Txt
+                    variant="body"
+                    style={{
+                      fontWeight: isSelected ? '700' : '500',
+                      fontSize: 13,
+                      color: isSelected ? c.accent : c.ink,
+                    }}
+                  >
+                    {p.name}
+                  </Txt>
+                </Pressable>
+              );
+            })}
+          </View>
+        </View>
+
+        {/* 2. CSV PAYLOAD INPUT */}
+        <View style={{ gap: space[2] }}>
+          <View style={sheet.rowBetween}>
+            <Txt variant="caption" color="muted" style={{ fontWeight: '700', letterSpacing: 0.5 }}>
+              2. EXPORT FILE
+            </Txt>
+            <Txt variant="caption" color="muted" style={{ fontSize: 11 }}>
+              {csvText.length > 0 ? `${csvText.length.toLocaleString()} chars` : 'CSV / UTF-8'}
+            </Txt>
+          </View>
+
+          {/* Web file picker shortcut when running on web */}
+          {Platform.OS === 'web' && (
+            <View style={{ marginBottom: space[2] }}>
+              <input
+                type="file"
+                accept=".csv,.txt"
+                onChange={handleWebFileSelect}
+                style={{
+                  color: c.ink,
+                  fontSize: 13,
+                  fontFamily: 'inherit',
+                }}
+              />
+            </View>
+          )}
+
+          <TextInput
+            value={csvText}
+            onChangeText={setCsvText}
+            placeholder={`Paste your ${selectedSource} CSV contents here...\nExample:\nTitle,Author,My Rating,Exclusive Shelf\nDune,Frank Herbert,5,read`}
+            placeholderTextColor={c.muted}
+            multiline
+            numberOfLines={6}
+            style={[
+              styles.csvInput,
+              { backgroundColor: c.surface, borderColor: c.line, color: c.ink },
+            ]}
+          />
+
+          <Button
+            label={uploading ? 'Uploading & Enqueueing...' : 'Start Library Import'}
+            variant="primary"
+            loading={uploading}
+            disabled={uploading || csvText.trim().length === 0}
+            onPress={handleUpload}
+          />
+        </View>
+
+        {/* 3. PREVIOUS IMPORTS HISTORY */}
+        <View style={{ gap: space[2], marginTop: space[3] }}>
+          <Txt variant="caption" color="muted" style={{ fontWeight: '700', letterSpacing: 0.5 }}>
+            IMPORT HISTORY
+          </Txt>
+
+          {loadingPast ? (
+            <ActivityIndicator size="small" color={c.accent} style={{ padding: space[4] }} />
+          ) : pastImports.length === 0 ? (
+            <Card style={{ padding: space[4], alignItems: 'center' }}>
+              <Txt variant="caption" color="muted">
+                No previous imports found.
+              </Txt>
+            </Card>
+          ) : (
+            pastImports.map((imp) => {
+              const dateStr = new Date(imp.created_at).toLocaleDateString(undefined, {
+                month: 'short',
+                day: 'numeric',
+                year: 'numeric',
+              });
+
+              return (
+                <Card key={imp.id} style={{ padding: space[3], gap: space[2] }}>
+                  <View style={sheet.rowBetween}>
+                    <View style={{ gap: 2 }}>
+                      <Txt variant="body" style={{ fontWeight: '700', fontSize: 14 }}>
+                        {imp.source.toUpperCase()}
+                      </Txt>
+                      <Txt variant="caption" color="muted">
+                        {dateStr} · {imp.filename || 'export.csv'}
+                      </Txt>
+                    </View>
+
+                    <View
+                      style={[
+                        styles.statusBadge,
+                        {
+                          backgroundColor:
+                            imp.state === 'completed'
+                              ? c.surface
+                              : imp.state === 'failed'
+                              ? '#ffebee'
+                              : c.surface,
+                          borderColor:
+                            imp.state === 'completed'
+                              ? c.accent
+                              : imp.state === 'failed'
+                              ? '#d32f2f'
+                              : c.line,
+                        },
+                      ]}
+                    >
+                      <Txt
+                        variant="caption"
+                        style={{
+                          fontWeight: '700',
+                          fontSize: 11,
+                          color:
+                            imp.state === 'completed'
+                              ? c.accent
+                              : imp.state === 'failed'
+                              ? '#d32f2f'
+                              : c.ink,
+                        }}
+                      >
+                        {imp.state.toUpperCase()}
+                      </Txt>
+                    </View>
+                  </View>
+
+                  <View style={sheet.rowBetween}>
+                    <Txt variant="caption" color="muted">
+                      {imp.matched} matched · {imp.unmatched} unmatched · {imp.total_rows} total
+                    </Txt>
+
+                    {imp.unmatched > 0 && (
+                      <Pressable
+                        onPress={() => {
+                          void Haptics.selectionAsync();
+                          router.push({
+                            pathname: '/import/unmatched' as any,
+                            params: { id: imp.id },
+                          });
+                        }}
+                        hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                      >
+                        <Txt variant="caption" color="accent" style={{ fontWeight: '700' }}>
+                          Review ({imp.unmatched}) →
+                        </Txt>
+                      </Pressable>
+                    )}
+                  </View>
+                </Card>
+              );
+            })
+          )}
+        </View>
+      </ScrollView>
+    </Screen>
+  );
+}
+
+const styles = StyleSheet.create({
+  platformGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: space[2],
+  },
+  platformCard: {
+    width: '48.5%',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: space[2],
+    padding: space[3],
+    borderRadius: radius.md,
+    borderWidth: 1.5,
+  },
+  csvInput: {
+    height: 140,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    padding: space[3],
+    fontSize: 13,
+    fontFamily: Platform.OS === 'ios' ? 'Courier' : 'monospace',
+    textAlignVertical: 'top',
+  },
+  statusBadge: {
+    paddingHorizontal: space[2],
+    paddingVertical: 2,
+    borderRadius: radius.sm,
+    borderWidth: 1,
+  },
+});

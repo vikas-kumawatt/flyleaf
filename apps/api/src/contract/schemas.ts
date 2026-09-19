@@ -1648,3 +1648,73 @@ export const uploadImportQuerySchema = {
   },
 } as const;
 
+export const importRowStateEnum = [
+  'matched',
+  'unmatched',
+  'resolved',
+  'skipped',
+] as const;
+
+export const importRowSchema = {
+  type: 'object',
+  properties: {
+    import_id: { type: 'string', format: 'uuid' },
+    row_no: { type: 'integer' },
+    raw: { type: 'object', additionalProperties: true },
+    state: {
+      type: 'string',
+      enum: importRowStateEnum,
+    },
+    work_id: { type: ['string', 'null'], format: 'uuid' },
+    edition_id: { type: ['string', 'null'], format: 'uuid' },
+    confidence: { type: ['number', 'null'] },
+    failure_reason: { type: ['string', 'null'] },
+    created_at: { type: 'string', format: 'date-time' },
+  },
+  required: ['import_id', 'row_no', 'raw', 'state', 'created_at'],
+} as const;
+
+export const importRowsResponseSchema = {
+  type: 'object',
+  properties: {
+    rows: {
+      type: 'array',
+      items: importRowSchema,
+    },
+    total: { type: 'integer' },
+    limit: { type: 'integer' },
+    offset: { type: 'integer' },
+  },
+  required: ['rows', 'total', 'limit', 'offset'],
+} as const;
+
+export const importRowsQuerySchema = {
+  type: 'object',
+  properties: {
+    state: {
+      type: 'string',
+      enum: importRowStateEnum,
+    },
+    limit: { type: 'integer', minimum: 1, maximum: 100, default: 50 },
+    offset: { type: 'integer', minimum: 0, default: 0 },
+  },
+} as const;
+
+export const resolveImportRowBodySchema = {
+  type: 'object',
+  properties: {
+    work_id: { type: 'string', format: 'uuid' },
+    edition_id: { type: 'string', format: 'uuid' },
+  },
+  required: ['work_id'],
+} as const;
+
+export const importRowParamSchema = {
+  type: 'object',
+  properties: {
+    id: { type: 'string', format: 'uuid' },
+    rowNo: { type: 'integer' },
+  },
+  required: ['id', 'rowNo'],
+} as const;
+
