@@ -697,7 +697,26 @@
     - **Test Coverage & CI**:
       - 8 dedicated integration tests in `apps/api/src/test/export.test.ts` (100% passing).
       - 100% green across all 9 gates in full monorepo CI (589 API tests across 29 suites, 83 mobile tests across 20 suites).
-- [ ] IM-11 Duplicate-import detection by content hash — 0.5d
+- [x] **IM-11** Duplicate-import detection by content hash — 0.5d
+  - Delivered SHA-256 duplicate-import detection across API, database index, client SDK, and mobile app:
+    - **Content Hash & Scoping (PRD §34.4, §5141, IM-11)**:
+      - Computes SHA-256 `content_hash` from uploaded file buffers.
+      - Uses indexed lookup on `(user_id, content_hash)` (`imports_user_hash_idx`).
+      - Strictly scoped per user: different users uploading identical sample/export files never conflict.
+      - Failed imports (`state = 'failed'`) do not block re-uploads.
+    - **Duplicate Conflict & Force Override**:
+      - If an identical file was previously imported, rejects with `409 Conflict` (`ApiError.conflict('duplicate_import', ...)`).
+      - Allows intentional re-imports via `force=true` (querystring `?force=true` or multipart form field `force: 'true'`).
+    - **Contract & OpenAPI 3.1.0**:
+      - Added `force` query parameter to `uploadImportQuerySchema` in `apps/api/src/contract/schemas.ts`.
+      - Added `409: errorResponseSchema` to `POST /v1/imports` route contract.
+      - Verified 0 OpenAPI contract drift via `npm run spec:check`.
+    - **Client SDK & Mobile UI**:
+      - Added `UploadImportOptions` with `force?: boolean` to `@flyleaf/api-client` and `apps/mobile/src/lib/api.ts`.
+      - Mobile import screen (`apps/mobile/app/import/index.tsx`) catches `duplicate_import` error and presents confirmation dialog ("Duplicate File: An identical file has already been imported. Would you like to import it anyway?") with "Import Anyway" (`force: true`) or "Cancel".
+    - **Integration Tests & CI**:
+      - 7 dedicated integration tests in `apps/api/src/test/import-duplicate.test.ts` (100% passing).
+      - 100% green across all 9 gates in full monorepo CI (596 API tests across 30 suites, 83 mobile tests across 20 suites).
 - [ ] **IM-12** Import your own real library; fix what breaks — 1d
 
 **Exit:** your real export imports ≥85% matched · unmatched resolvable · export round-trips.

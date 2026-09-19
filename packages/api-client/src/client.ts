@@ -85,6 +85,7 @@ import type {
   ImportSource,
   ImportResponse,
   ImportListResponse,
+  UploadImportOptions,
   ImportRowState,
   ImportRowItem,
   ImportRowsResponse,
@@ -701,9 +702,13 @@ export class FlyleafClient {
     source: ImportSource,
     file: Blob | File | Uint8Array | ArrayBuffer,
     filename = 'export.csv',
+    options?: UploadImportOptions,
   ): Promise<ImportResponse> {
     const formData = new FormData();
     formData.append('source', source);
+    if (options?.force) {
+      formData.append('force', 'true');
+    }
 
     if (typeof Blob !== 'undefined' && file instanceof Blob) {
       formData.append('file', file, filename);
@@ -711,7 +716,8 @@ export class FlyleafClient {
       formData.append('file', new Blob([file as any]), filename);
     }
 
-    return this.request<ImportResponse>('/imports', {
+    const qs = options?.force ? '?force=true' : '';
+    return this.request<ImportResponse>(`/imports${qs}`, {
       method: 'POST',
       body: formData,
     });

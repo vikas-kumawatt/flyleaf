@@ -8,7 +8,7 @@
 import crypto from 'node:crypto';
 import path from 'node:path';
 import type { FastifyPluginAsync } from 'fastify';
-import { eq, desc, and, sql } from 'drizzle-orm';
+import { eq, ne, desc, and, sql } from 'drizzle-orm';
 import type { PgBoss } from 'pg-boss';
 
 import type { Db } from '../platform/index.js';
@@ -119,6 +119,7 @@ export interface CreateImportInput {
   filename: string;
   buffer: Buffer;
   mimeType?: string;
+  force?: boolean;
 }
 
 export class ImportService {
@@ -148,6 +149,30 @@ export class ImportService {
 
     // SHA-256 for duplicate-import detection per IM-11 and integrity verification
     const contentHash = crypto.createHash('sha256').update(input.buffer).digest('hex');
+
+    // Duplicate detection by content hash (PRD §34.4, §5141, IM-11):
+    // Unless force=true is supplied, reject if an identical file was previously imported and did not fail.
+    if (!input.force) {
+      const [existing] = await this.db
+        .select({ id: imports.id, createdAt: imports.createdAt })
+        .from(imports)
+        .where(
+          and(
+            eq(imports.userId, userId),
+            eq(imports.contentHash, contentHash),
+            ne(imports.state, 'failed'),
+          ),
+        )
+        .orderBy(desc(imports.createdAt))
+        .limit(1);
+
+      if (existing) {
+        throw ApiError.conflict(
+          'duplicate_import',
+          `An identical file has already been imported on ${existing.createdAt.toISOString().slice(0, 10)} (import ID: ${existing.id}). Pass force=true to import anyway.`,
+        );
+      }
+    }
 
     // Safe sanitized filename key
     const sanitizedName = path
@@ -438,6 +463,7 @@ export const importsPlugin: FastifyPluginAsync<ImportsPluginOptions> = async (fa
           201: importResponseSchema,
           400: errorResponseSchema,
           401: errorResponseSchema,
+          409: errorResponseSchema,
           413: errorResponseSchema,
           422: errorResponseSchema,
         },
@@ -451,6 +477,7 @@ export const importsPlugin: FastifyPluginAsync<ImportsPluginOptions> = async (fa
       }
 
       let sourceField: string | undefined;
+      let forceField: boolean | undefined;
       let fileBuffer: Buffer | null = null;
       let filename: string | null = null;
       let mimeType: string | undefined;
@@ -463,11 +490,15 @@ export const importsPlugin: FastifyPluginAsync<ImportsPluginOptions> = async (fa
           fileBuffer = await part.toBuffer();
         } else if (part.type === 'field' && part.fieldname === 'source') {
           sourceField = typeof part.value === 'string' ? part.value : undefined;
+        } else if (part.type === 'field' && part.fieldname === 'force') {
+          forceField = part.value === 'true' || part.value === '1' || part.value === true;
         }
       }
 
-      const querySource = (request.query as { source?: string })?.source;
-      const source = querySource || sourceField;
+      const query = (request.query as { source?: string; force?: string | boolean }) || {};
+      const source = query.source || sourceField;
+      const force =
+        query.force === 'true' || query.force === '1' || query.force === true || forceField === true;
 
       if (!source) {
         throw ApiError.badRequest('missing_source', 'Import source is required.', 'source');
@@ -482,6 +513,7 @@ export const importsPlugin: FastifyPluginAsync<ImportsPluginOptions> = async (fa
         filename: filename || 'export.csv',
         buffer: fileBuffer,
         mimeType,
+        force,
       });
 
       return reply.status(201).send(result);

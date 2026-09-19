@@ -8953,6 +8953,12 @@ paths:
           required: false
           description: Source platform export format (can also be provided as a multipart
             form field)
+        - schema:
+            type: boolean
+          in: query
+          name: force
+          required: false
+          description: If true, bypasses duplicate-import detection by content hash (IM-11)
       responses:
         "201":
           description: Default Response
@@ -9051,6 +9057,30 @@ paths:
                 required:
                   - error
         "401":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      code:
+                        type: string
+                        description: Machine-readable error code
+                      message:
+                        type: string
+                        description: Human-readable error description
+                      field:
+                        type: string
+                        description: Invalid field name if applicable
+                    required:
+                      - code
+                      - message
+                required:
+                  - error
+        "409":
           description: Default Response
           content:
             application/json:

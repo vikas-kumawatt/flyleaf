@@ -61,6 +61,7 @@ import {
   type ImportSource,
   type ImportResponse,
   type ImportListResponse,
+  type UploadImportOptions,
   type ImportRowState,
   type ImportRowItem,
   type ImportRowsResponse,
@@ -109,6 +110,7 @@ export type {
   ImportSource,
   ImportResponse,
   ImportListResponse,
+  UploadImportOptions,
   ImportRowState,
   ImportRowItem,
   ImportRowsResponse,
@@ -488,12 +490,13 @@ export const api = {
   getUserShelves: (userId: string) => client.getUserShelves(userId),
   getShelfBySlug: (username: string, slug: string) => client.getShelfBySlug(username, slug),
 
-  // Imports (IM-02, IM-08, IM-09)
+  // Imports (IM-02, IM-08, IM-09, IM-11)
   uploadImport: (
     source: ImportSource,
     file: Blob | File | Uint8Array | ArrayBuffer,
     filename?: string,
-  ) => client.uploadImport(source, file, filename),
+    options?: UploadImportOptions,
+  ) => client.uploadImport(source, file, filename, options),
   getImport: (id: string) => client.getImport(id),
   listImports: () => client.listImports(),
   getImportRows: (

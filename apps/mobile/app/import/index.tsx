@@ -132,7 +132,42 @@ export default function ImportScreen() {
       void loadImports();
     } catch (err: any) {
       void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
-      Alert.alert('Import Failed', err.message || 'Could not upload import file.');
+      if (
+        err.code === 'duplicate_import' ||
+        err.message?.includes('duplicate_import') ||
+        err.message?.includes('identical file')
+      ) {
+        Alert.alert(
+          'Duplicate File',
+          'An identical file has already been imported into your library. Would you like to import it anyway?',
+          [
+            { text: 'Cancel', style: 'cancel' },
+            {
+              text: 'Import Anyway',
+              onPress: async () => {
+                try {
+                  setUploading(true);
+                  const buffer = Buffer.from(trimmed, 'utf-8');
+                  const filename = `${selectedSource}_export.csv`;
+                  const result = await api.uploadImport(selectedSource, buffer, filename, {
+                    force: true,
+                  });
+                  void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+                  setCsvText('');
+                  setActiveImportId(result.id);
+                  void loadImports();
+                } catch (retryErr: any) {
+                  Alert.alert('Import Failed', retryErr.message || 'Could not upload import file.');
+                } finally {
+                  setUploading(false);
+                }
+              },
+            },
+          ],
+        );
+      } else {
+        Alert.alert('Import Failed', err.message || 'Could not upload import file.');
+      }
     } finally {
       setUploading(false);
     }

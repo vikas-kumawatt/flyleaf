@@ -1645,6 +1645,10 @@ export const uploadImportQuerySchema = {
       enum: importSourceEnum,
       description: 'Source platform export format (can also be provided as a multipart form field)',
     },
+    force: {
+      type: 'boolean',
+      description: 'If true, bypasses duplicate-import detection by content hash (IM-11)',
+    },
   },
 } as const;
 

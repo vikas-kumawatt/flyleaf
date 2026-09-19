@@ -873,6 +873,10 @@ export interface ImportListResponse {
   imports: ImportResponse[];
 }
 
+export interface UploadImportOptions {
+  force?: boolean;
+}
+
 export type ImportRowState = 'matched' | 'unmatched' | 'resolved' | 'skipped';
 
 export interface ImportRowItem {
