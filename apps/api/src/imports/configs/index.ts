@@ -3,72 +3,30 @@
 import type { ImportSource } from '../index.js';
 import type { NormalizedImportRow, SourceColumnConfig } from '../types.js';
 import { goodreadsConfig } from './goodreads.js';
+import { storygraphConfig } from './storygraph.js';
+import { librarythingConfig } from './librarything.js';
+import { calibreConfig } from './calibre.js';
+import { openlibraryConfig } from './openlibrary.js';
+import { openreadsConfig } from './openreads.js';
 import { parseCsv } from '../parser.js';
 
 export * from './goodreads.js';
+export * from './storygraph.js';
+export * from './librarything.js';
+export * from './calibre.js';
+export * from './openlibrary.js';
+export * from './openreads.js';
 
 /**
- * Registry of all source mapping configurations.
- * IM-03 provides the architecture and Goodreads reference; IM-04 expands all six sources.
+ * Registry of all source mapping configurations across all 6 supported platforms (IM-04).
  */
 export const SOURCE_CONFIGS: Record<ImportSource, SourceColumnConfig> = {
   goodreads: goodreadsConfig,
-  // Stubs for remaining 5 sources to be expanded in IM-04
-  storygraph: {
-    ...goodreadsConfig,
-    source: 'storygraph',
-    displayName: 'StoryGraph',
-    description: 'The StoryGraph library export',
-    detection: {
-      requiredHeaders: ['Title', 'Authors', 'Read Status'],
-      signatureHeaders: ['Star Rating', 'Review', 'Tags', 'Date Added', 'Last Date Read'],
-      minimumConfidence: 0.7,
-    },
-  },
-  librarything: {
-    ...goodreadsConfig,
-    source: 'librarything',
-    displayName: 'LibraryThing',
-    description: 'LibraryThing catalog export',
-    detection: {
-      requiredHeaders: ['Title', 'Primary Author'],
-      signatureHeaders: ['Rating', 'Review', 'Tags', 'Date', 'ISBN'],
-      minimumConfidence: 0.7,
-    },
-  },
-  calibre: {
-    ...goodreadsConfig,
-    source: 'calibre',
-    displayName: 'Calibre',
-    description: 'Calibre ebook library catalog CSV',
-    detection: {
-      requiredHeaders: ['title', 'authors'],
-      signatureHeaders: ['isbn', 'rating', 'tags', 'pubdate'],
-      minimumConfidence: 0.7,
-    },
-  },
-  openlibrary: {
-    ...goodreadsConfig,
-    source: 'openlibrary',
-    displayName: 'OpenLibrary',
-    description: 'OpenLibrary reading log export',
-    detection: {
-      requiredHeaders: ['title', 'authors', 'work_key'],
-      signatureHeaders: ['edition_key', 'isbn', 'read_status'],
-      minimumConfidence: 0.7,
-    },
-  },
-  openreads: {
-    ...goodreadsConfig,
-    source: 'openreads',
-    displayName: 'OpenReads',
-    description: 'OpenReads privacy-oriented tracker backup',
-    detection: {
-      requiredHeaders: ['title', 'author', 'status'],
-      signatureHeaders: ['rating', 'pages', 'notes'],
-      minimumConfidence: 0.7,
-    },
-  },
+  storygraph: storygraphConfig,
+  librarything: librarythingConfig,
+  calibre: calibreConfig,
+  openlibrary: openlibraryConfig,
+  openreads: openreadsConfig,
 };
 
 export function getSourceConfig(source: ImportSource): SourceColumnConfig {

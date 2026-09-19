@@ -600,8 +600,22 @@
   - Implemented source detector (`apps/api/src/imports/detector.ts`) scoring CSV header signatures against registered configs with confidence thresholds.
   - Created full reference declarative source config for Goodreads (`apps/api/src/imports/configs/goodreads.ts`) mapping 16 fields cleanly.
   - Source config registry and normalization pipeline in `apps/api/src/imports/configs/index.ts` (`normalizeRow`, `normalizeImport`).
-  - 27 unit tests in `apps/api/src/test/import-mapping.test.ts` covering parser, transformers, detector, and end-to-end Goodreads normalization. All 27 passing.
-- [ ] **IM-04** Six source maps: Goodreads, StoryGraph, LibraryThing, Calibre, OpenLibrary, OpenReads — 1.5d
+- [x] **IM-04** Six source maps: Goodreads, StoryGraph, LibraryThing, Calibre, OpenLibrary, OpenReads — 1.5d
+  - Delivered production-grade declarative source configs for all 6 major book tracking and catalog platforms:
+    - `goodreads` (`apps/api/src/imports/configs/goodreads.ts`): 16 fields, formula syntax (`="0441478123"`), unrated 0 -> NULL, exclusive shelf mapping.
+    - `storygraph` (`apps/api/src/imports/configs/storygraph.ts`): Quarter-star rounding to nearest half-star (3.25 -> 3.5, 3.75 -> 4.0, PRD §6.28, §51.2), unrated 0 -> NULL, `Dates Read` range parsing, format normalization (`digital` -> `ebook`, `audio` -> `audiobook`, `print` -> `print`), `Owned?` boolean flag, and tag extraction.
+    - `librarything` (`apps/api/src/imports/configs/librarything.ts`): Primary author inversion from `Last, First` -> `First Last` (`Herbert, Frank` -> `Frank Herbert`), bracketed ISBN cleansing (`[0441478123]`), collections-to-status mapping (`Currently reading` -> `reading`, `To read`/`Wishlist` -> `want`, `Your library` -> `finished`), rating normalization, review and comments preservation.
+    - `calibre` (`apps/api/src/imports/configs/calibre.ts`): Multiple authors separated by `&`, identifier parsing (`isbn:9780441478125`), tag-based status fallback (`currently-reading` -> `reading`, `to-read` -> `want`, default `finished`), ebook format normalization, HTML comment cleaning, and series in shelves.
+    - `openlibrary` (`apps/api/src/imports/configs/openlibrary.ts`): Canonical OL work key extraction (stripping `/works/` or `/books/` prefix), reading log status mapping (`already-read` -> `finished`, `currently-reading` -> `reading`, `want-to-read` -> `want`), 0 rating to NULL, review notes.
+    - `openreads` (`apps/api/src/imports/configs/openreads.ts`): Privacy tracker mapping for native statuses (`finished`, `reading`, `not_started`, `unfinished`), dates, notes and review separation, format mapping (`physical` -> `print`, `ebook`, `audiobook`), half-star ratings.
+  - Enhanced transformer library (`apps/api/src/imports/transformers.ts`):
+    - `cleanIsbn`: Bracket stripping, comma-separated candidate scanning, and `isbn:` prefix cleaning.
+    - `formatAuthorName`: Reliable `Last, First` inversion while preserving single names and already standard `First Last`.
+    - `parseDateRange`: StoryGraph date range parser extracting `[startedAt, finishedAt]`.
+    - `mapFormat`: Added `print` and `physical` keyword detection.
+  - Updated configuration registry in `apps/api/src/imports/configs/index.ts` connecting all 6 configs to `SOURCE_CONFIGS`.
+  - Multi-platform header detector tests and end-to-end normalization test suites in `apps/api/src/test/import-mapping.test.ts` (37 tests passing).
+  - 100% green across all 9 gates in full monorepo CI (542 API tests across 24 suites, 83 mobile tests across 20 suites).
 - [ ] **IM-05** ⚠️ Matching: ISBN → title+author fuzzy → **ambiguous goes unmatched, never guessed** — 2d
 - [ ] **IM-06** ⚠️ Rating normalisation; **`My Rating = 0` → NULL** — 0.5d
 - [ ] **IM-07** ⚠️ `source='import'`, **excluded from `activity`** — 0.25d

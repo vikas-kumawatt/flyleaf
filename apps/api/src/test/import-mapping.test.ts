@@ -8,8 +8,10 @@ import {
   normalizeRating,
   mapStatus,
   parseDate,
+  parseDateRange,
   parseShelves,
   mapFormat,
+  formatAuthorName,
 } from '../imports/transformers.js';
 import {
   scoreHeaderMatch,
@@ -18,6 +20,11 @@ import {
 } from '../imports/detector.js';
 import {
   goodreadsConfig,
+  storygraphConfig,
+  librarythingConfig,
+  calibreConfig,
+  openlibraryConfig,
+  openreadsConfig,
   getSourceConfig,
   getAllSourceConfigs,
   normalizeRow,
@@ -117,12 +124,42 @@ describe('IM-03: Declarative Field Transformers', () => {
       expect(cleanIsbn(' 0-8044-2957-X ')).toBe('080442957X');
     });
 
+    it('handles bracketed and comma-separated ISBNs (LibraryThing / Calibre)', () => {
+      expect(cleanIsbn('[0441478123]')).toBe('0441478123');
+      expect(cleanIsbn('0441478123, 9780441478125')).toBe('0441478123');
+      expect(cleanIsbn('isbn:9780441478125')).toBe('9780441478125');
+      expect(cleanIsbn('isbn13: 9780441478125')).toBe('9780441478125');
+    });
+
     it('rejects invalid ISBN strings', () => {
       expect(cleanIsbn('12345')).toBeNull();
       expect(cleanIsbn('invalid-isbn-text')).toBeNull();
       expect(cleanIsbn('=""')).toBeNull();
       expect(cleanIsbn('')).toBeNull();
       expect(cleanIsbn(undefined)).toBeNull();
+    });
+  });
+
+  describe('formatAuthorName', () => {
+    it('inverts "Last, First" into "First Last"', () => {
+      expect(formatAuthorName('Herbert, Frank')).toBe('Frank Herbert');
+      expect(formatAuthorName('Austen, Jane')).toBe('Jane Austen');
+      expect(formatAuthorName('Le Guin, Ursula K.')).toBe('Ursula K. Le Guin');
+    });
+
+    it('preserves already standard "First Last" or single names', () => {
+      expect(formatAuthorName('Dan Simmons')).toBe('Dan Simmons');
+      expect(formatAuthorName('Homer')).toBe('Homer');
+      expect(formatAuthorName('')).toBeNull();
+    });
+  });
+
+  describe('parseDateRange', () => {
+    it('extracts start and finish dates from range strings', () => {
+      expect(parseDateRange('2024/01/01-2024/01/15')).toEqual(['2024-01-01', '2024-01-15']);
+      expect(parseDateRange('2024-01-01 to 2024-01-15')).toEqual(['2024-01-01', '2024-01-15']);
+      expect(parseDateRange('2024/02/01')).toEqual([null, '2024-02-01']);
+      expect(parseDateRange('')).toEqual([null, null]);
     });
   });
 
@@ -270,6 +307,89 @@ describe('IM-03: Header Signature Detector', () => {
     expect(validation.valid).toBe(false);
     expect(validation.missing).toContain('Title');
   });
+
+  it('detects all 6 supported export platforms correctly (IM-04)', () => {
+    const allConfigs = getAllSourceConfigs();
+
+    // 1. Goodreads
+    const grHeaders = [
+      'Book Id',
+      'Title',
+      'Author',
+      'My Rating',
+      'Exclusive Shelf',
+      'Date Read',
+      'Bookshelves',
+    ];
+    expect(detectSource(grHeaders, allConfigs)?.source).toBe('goodreads');
+
+    // 2. StoryGraph
+    const sgHeaders = [
+      'Title',
+      'Authors',
+      'Star Rating',
+      'Review',
+      'Tags',
+      'Read Status',
+      'Last Date Read',
+      'Format',
+      'ISBN/UID',
+    ];
+    expect(detectSource(sgHeaders, allConfigs)?.source).toBe('storygraph');
+
+    // 3. LibraryThing
+    const ltHeaders = [
+      'Book Id',
+      'Title',
+      'Primary Author',
+      'Publication',
+      'Rating',
+      'Collections',
+      'ISBN',
+      'Date Read',
+    ];
+    expect(detectSource(ltHeaders, allConfigs)?.source).toBe('librarything');
+
+    // 4. Calibre
+    const calHeaders = [
+      'id',
+      'title',
+      'authors',
+      'isbn',
+      'rating',
+      'tags',
+      'pubdate',
+      'formats',
+      'comments',
+    ];
+    expect(detectSource(calHeaders, allConfigs)?.source).toBe('calibre');
+
+    // 5. OpenLibrary
+    const olHeaders = [
+      'work_key',
+      'edition_key',
+      'title',
+      'authors',
+      'read_status',
+      'edition',
+      'Logged Date',
+    ];
+    expect(detectSource(olHeaders, allConfigs)?.source).toBe('openlibrary');
+
+    // 6. OpenReads
+    const orHeaders = [
+      'id',
+      'title',
+      'author',
+      'status',
+      'started_date',
+      'finished_date',
+      'rating',
+      'pages',
+      'notes',
+    ];
+    expect(detectSource(orHeaders, allConfigs)?.source).toBe('openreads');
+  });
 });
 
 describe('IM-03: Goodreads Reference Normalization Engine', () => {
@@ -357,3 +477,247 @@ describe('IM-03: Goodreads Reference Normalization Engine', () => {
     expect(result.rows[2]?.errors).toHaveLength(0);
   });
 });
+
+describe('IM-04: StoryGraph Source Normalization Pipeline', () => {
+  const sampleStoryGraphCsv = [
+    'Title,Authors,Contributors,ISBN/UID,Format,Read Status,Date Added,Last Date Read,Dates Read,Star Rating,Review,Tags,Owned?',
+    '"Project Hail Mary",Andy Weir,,9780593135204,digital,read,2024/01/01,2024/01/15,2024/01/01-2024/01/15,4.75,"Incredible audio experience.","sci-fi, favourites",Yes',
+    '"Tomorrow, and Tomorrow, and Tomorrow",Gabrielle Zevin,,9780593321201,print,read,2024/02/01,2024/02/10,,3.25,"Beautiful gaming story.",fiction,No',
+    '"Klara and the Sun",Kazuo Ishiguro,,9780593318171,audio,currently-reading,2024/03/01,,,0,,in-progress,Yes',
+    '"Babel",R.F. Kuang,,9780063021426,print,to-read,2024/03/10,,,,dark-academia,',
+    '"Unfinished Tale",Unknown Author,,9780000000000,digital,did-not-finish,2024/03/12,,,1.5,"Could not get into it.",dnf,No',
+  ].join('\n');
+
+  it('normalizes StoryGraph rows faithfully, rounding quarter-stars to half-stars', () => {
+    const config = getSourceConfig('storygraph');
+    const result = normalizeImport(config, sampleStoryGraphCsv);
+
+    expect(result.total).toBe(5);
+    expect(result.valid).toBe(5);
+    expect(result.malformed).toBe(0);
+
+    // Row 1: 4.75 stars rounds to 5.0 (PRD §6.28, §51.2)
+    const r1 = result.rows[0]!;
+    expect(r1.title).toBe('Project Hail Mary');
+    expect(r1.author).toBe('Andy Weir');
+    expect(r1.isbn13).toBe('9780593135204');
+    expect(r1.status).toBe('finished');
+    expect(r1.rating).toBe(5.0); // 4.75 -> 5.0
+    expect(r1.startedAt).toBe('2024-01-01');
+    expect(r1.finishedAt).toBe('2024-01-15');
+    expect(r1.format).toBe('ebook'); // digital -> ebook
+    expect(r1.shelves).toEqual(['sci-fi', 'favourites']);
+    expect(r1.owned).toBe(true);
+    expect(r1.review).toBe('Incredible audio experience.');
+
+    // Row 2: 3.25 stars rounds to 3.5
+    const r2 = result.rows[1]!;
+    expect(r2.title).toBe('Tomorrow, and Tomorrow, and Tomorrow');
+    expect(r2.rating).toBe(3.5); // 3.25 -> 3.5
+    expect(r2.format).toBe('print');
+    expect(r2.owned).toBe(false);
+
+    // Row 3: Currently reading, 0 star converts to NULL
+    const r3 = result.rows[2]!;
+    expect(r3.title).toBe('Klara and the Sun');
+    expect(r3.status).toBe('reading');
+    expect(r3.rating).toBeNull(); // 0 -> null
+    expect(r3.format).toBe('audiobook'); // audio -> audiobook
+
+    // Row 4: To read / unrated
+    const r4 = result.rows[3]!;
+    expect(r4.title).toBe('Babel');
+    expect(r4.status).toBe('want');
+    expect(r4.rating).toBeNull();
+
+    // Row 5: DNF
+    const r5 = result.rows[4]!;
+    expect(r5.title).toBe('Unfinished Tale');
+    expect(r5.status).toBe('dnf');
+    expect(r5.rating).toBe(1.5);
+  });
+});
+
+describe('IM-04: LibraryThing Source Normalization Pipeline', () => {
+  const sampleLibraryThingCsv = [
+    'Book Id,Title,Primary Author,Secondary Author,Publication,Rating,Tags,Collections,ISBN,Entry Date,Date Read,Review,Comments',
+    '5001,"Dune","Herbert, Frank",,"Chilton Books",5,"sci-fi, classics","Your library, Favorites","[0441478123]",2025-01-01,2025-01-20,"Spice must flow.","First printing copy"',
+    '5002,"Sense and Sensibility","Austen, Jane",,"Penguin Classics",0,"romance","Currently reading",9780141439662,2025-02-01,,,"Reading for book club"',
+    '5003,"The Silmarillion","Tolkien, J.R.R.","Christopher Tolkien","HarperCollins",4.5,"fantasy","Wishlist",0048231398,2025-02-15,,,,',
+  ].join('\n');
+
+  it('normalizes LibraryThing rows, inverting "Last, First" authors and parsing bracketed ISBNs', () => {
+    const config = getSourceConfig('librarything');
+    const result = normalizeImport(config, sampleLibraryThingCsv);
+
+    expect(result.total).toBe(3);
+    expect(result.valid).toBe(3);
+
+    // Row 1: Inverts "Herbert, Frank" -> "Frank Herbert", cleans "[0441478123]"
+    const r1 = result.rows[0]!;
+    expect(r1.title).toBe('Dune');
+    expect(r1.author).toBe('Frank Herbert');
+    expect(r1.isbn10).toBe('0441478123');
+    expect(r1.status).toBe('finished');
+    expect(r1.rating).toBe(5.0);
+    expect(r1.startedAt).toBe('2025-01-01');
+    expect(r1.finishedAt).toBe('2025-01-20');
+    expect(r1.review).toBe('Spice must flow.');
+    expect(r1.notes).toBe('First printing copy');
+    expect(r1.owned).toBe(true);
+
+    // Row 2: Inverts "Austen, Jane" -> "Jane Austen", maps Currently Reading
+    const r2 = result.rows[1]!;
+    expect(r2.title).toBe('Sense and Sensibility');
+    expect(r2.author).toBe('Jane Austen');
+    expect(r2.status).toBe('reading');
+    expect(r2.rating).toBeNull(); // 0 -> null
+    expect(r2.notes).toBe('Reading for book club');
+
+    // Row 3: Co-author, Wishlist -> want
+    const r3 = result.rows[2]!;
+    expect(r3.title).toBe('The Silmarillion');
+    expect(r3.author).toBe('J.R.R. Tolkien');
+    expect(r3.additionalAuthors).toEqual(['Christopher Tolkien']);
+    expect(r3.status).toBe('want');
+    expect(r3.rating).toBe(4.5);
+    expect(r3.owned).toBe(false);
+  });
+});
+
+describe('IM-04: Calibre Source Normalization Pipeline', () => {
+  const sampleCalibreCsv = [
+    'id,title,authors,isbn,rating,tags,pubdate,series,publisher,identifiers,formats,comments',
+    '1,"Foundation","Isaac Asimov",9780553293357,5,"sci-fi, classic",2020-01-01,"Foundation, #1","Bantam","isbn:9780553293357","EPUB, MOBI","<p>Great psycho-history concept.</p>"',
+    '2,"Children of Time","Adrian Tchaikovsky & Someone Else",,0,"currently-reading, space",2022-05-01,,"Tor",,"EPUB","<p>Spiders evolving!</p>"',
+    '3,"Consider Phlebas","Iain M. Banks",,3,"to-read",2023-01-01,"Culture, #1",,,AZW3,',
+  ].join('\n');
+
+  it('normalizes Calibre catalog CSV, splitting authors on & and parsing formats', () => {
+    const config = getSourceConfig('calibre');
+    const result = normalizeImport(config, sampleCalibreCsv);
+
+    expect(result.total).toBe(3);
+    expect(result.valid).toBe(3);
+
+    // Row 1: Finished with rating and series in shelves
+    const r1 = result.rows[0]!;
+    expect(r1.title).toBe('Foundation');
+    expect(r1.author).toBe('Isaac Asimov');
+    expect(r1.isbn13).toBe('9780553293357');
+    expect(r1.rating).toBe(5.0);
+    expect(r1.status).toBe('finished');
+    expect(r1.format).toBe('ebook');
+    expect(r1.shelves).toContain('sci-fi');
+    expect(r1.shelves).toContain('foundation, #1');
+    expect(r1.review).toBe('Great psycho-history concept.');
+    expect(r1.owned).toBe(true);
+
+    // Row 2: Split author on &, currently-reading status tag, rating 0 -> null
+    const r2 = result.rows[1]!;
+    expect(r2.title).toBe('Children of Time');
+    expect(r2.author).toBe('Adrian Tchaikovsky');
+    expect(r2.additionalAuthors).toEqual(['Someone Else']);
+    expect(r2.status).toBe('reading');
+    expect(r2.rating).toBeNull();
+    expect(r2.review).toBe('Spiders evolving!');
+
+    // Row 3: to-read tag -> want status
+    const r3 = result.rows[2]!;
+    expect(r3.title).toBe('Consider Phlebas');
+    expect(r3.status).toBe('want');
+    expect(r3.rating).toBe(3.0);
+  });
+});
+
+describe('IM-04: OpenLibrary Source Normalization Pipeline', () => {
+  const sampleOpenLibraryCsv = [
+    'work_key,edition_key,title,authors,isbn,read_status,rating,date_read,date_added,notes',
+    '/works/OL82563W,/books/OL24364628M,"Neuromancer","William Gibson",9780441569595,already-read,5,2025-01-10,2025-01-01,"The sky above the port was the color of television..."',
+    '/works/OL102749W,,Snow Crash,"Neal Stephenson",0553380958,currently-reading,0,,2025-02-01,"Metaverse origin."',
+    '/works/OL45804W,,Cryptonomicon,"Neal Stephenson",,want-to-read,,,,',
+  ].join('\n');
+
+  it('normalizes OpenLibrary export CSV, cleaning work keys and reading statuses', () => {
+    const config = getSourceConfig('openlibrary');
+    const result = normalizeImport(config, sampleOpenLibraryCsv);
+
+    expect(result.total).toBe(3);
+    expect(result.valid).toBe(3);
+
+    // Row 1: Strips "/works/" prefix for sourceId, maps already-read -> finished
+    const r1 = result.rows[0]!;
+    expect(r1.title).toBe('Neuromancer');
+    expect(r1.author).toBe('William Gibson');
+    expect(r1.isbn13).toBe('9780441569595');
+    expect(r1.sourceId).toBe('OL82563W');
+    expect(r1.status).toBe('finished');
+    expect(r1.rating).toBe(5.0);
+    expect(r1.startedAt).toBe('2025-01-01');
+    expect(r1.finishedAt).toBe('2025-01-10');
+    expect(r1.review).toBe('The sky above the port was the color of television...');
+
+    // Row 2: currently-reading -> reading, 0 rating -> null
+    const r2 = result.rows[1]!;
+    expect(r2.title).toBe('Snow Crash');
+    expect(r2.status).toBe('reading');
+    expect(r2.rating).toBeNull();
+    expect(r2.isbn10).toBe('0553380958');
+
+    // Row 3: want-to-read -> want
+    const r3 = result.rows[2]!;
+    expect(r3.title).toBe('Cryptonomicon');
+    expect(r3.status).toBe('want');
+  });
+});
+
+describe('IM-04: OpenReads Source Normalization Pipeline', () => {
+  const sampleOpenReadsCsv = [
+    'id,title,author,status,rating,started_date,finished_date,pages,notes,review,tags,format',
+    '1,"Ancillary Justice","Ann Leckie",finished,4.5,2024-05-01,2024-05-12,416,"Radch empire notes","Brilliant spaceship perspective.","sci-fi, space-opera",physical',
+    '2,"Ancillary Sword","Ann Leckie",reading,0,2024-05-15,,384,"Sequel notes",,"sci-fi",ebook',
+    '3,"Ancillary Mercy","Ann Leckie",not_started,0,,,368,,,"sci-fi",audiobook',
+    '4,"Unfinished Book","Unknown",unfinished,1.0,2024-06-01,2024-06-02,50,"Dropped early","Not for me.",,physical',
+  ].join('\n');
+
+  it('normalizes OpenReads export CSV, mapping native statuses and format fields', () => {
+    const config = getSourceConfig('openreads');
+    const result = normalizeImport(config, sampleOpenReadsCsv);
+
+    expect(result.total).toBe(4);
+    expect(result.valid).toBe(4);
+
+    // Row 1: finished -> finished, physical -> print, notes & review preserved
+    const r1 = result.rows[0]!;
+    expect(r1.title).toBe('Ancillary Justice');
+    expect(r1.author).toBe('Ann Leckie');
+    expect(r1.status).toBe('finished');
+    expect(r1.rating).toBe(4.5);
+    expect(r1.startedAt).toBe('2024-05-01');
+    expect(r1.finishedAt).toBe('2024-05-12');
+    expect(r1.notes).toBe('Radch empire notes');
+    expect(r1.review).toBe('Brilliant spaceship perspective.');
+    expect(r1.format).toBe('print');
+    expect(r1.shelves).toEqual(['sci-fi', 'space-opera']);
+
+    // Row 2: reading -> reading, ebook -> ebook, 0 rating -> null
+    const r2 = result.rows[1]!;
+    expect(r2.title).toBe('Ancillary Sword');
+    expect(r2.status).toBe('reading');
+    expect(r2.rating).toBeNull();
+    expect(r2.format).toBe('ebook');
+
+    // Row 3: not_started -> want
+    const r3 = result.rows[2]!;
+    expect(r3.title).toBe('Ancillary Mercy');
+    expect(r3.status).toBe('want');
+    expect(r3.format).toBe('audiobook');
+
+    // Row 4: unfinished -> dnf
+    const r4 = result.rows[3]!;
+    expect(r4.title).toBe('Unfinished Book');
+    expect(r4.status).toBe('dnf');
+    expect(r4.rating).toBe(1.0);
+  });
+});
+

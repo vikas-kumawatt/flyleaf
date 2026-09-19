@@ -33,24 +33,45 @@ export function cleanText(val: string | undefined): string | null {
 }
 
 /**
- * Normalizes an ISBN string, handling Goodreads formula wrapping (e.g. `="0441478123"`).
+ * Normalizes an ISBN string, handling:
+ * - Goodreads formula wrapping (e.g. `="0441478123"`)
+ * - Identifier prefixes (e.g. `isbn:9780441478125`)
+ * - Brackets / enclosures (e.g. `[0441478123]`)
+ * - Comma / semicolon delimited lists (extracts first valid ISBN)
  * Strips hyphens, whitespace, and asserts valid 10 or 13-character length.
  */
 export function cleanIsbn(val: string | undefined): string | null {
   if (!val) return null;
 
-  // 1. Strip Goodreads formula wrapping: ="0441478123" -> 0441478123
-  let cleaned = val.replace(/^=\s*"?/, '').replace(/"?\s*$/, '').trim();
+  // 1. If multiple candidates delimited by commas, semicolons, or pipes, test each candidate
+  const candidates =
+    val.includes(',') || val.includes(';') || val.includes('|')
+      ? val
+          .split(/[,;|]/)
+          .map((c) => c.trim())
+          .filter(Boolean)
+      : [val.trim()];
 
-  // 2. Remove hyphens, spaces, and punctuation
-  cleaned = cleaned.replace(/[-\s._]/g, '');
+  for (const candidate of candidates) {
+    // Strip Goodreads formula wrapping: ="0441478123" -> 0441478123
+    let cleaned = candidate.replace(/^=\s*"?/, '').replace(/"?\s*$/, '').trim();
 
-  // 3. Keep alphanumeric only (ISBN-10 can have 'X' as check digit)
-  cleaned = cleaned.toUpperCase();
+    // Strip identifier prefix e.g. "isbn:" or "isbn13:"
+    cleaned = cleaned.replace(/^isbn(?:10|13)?:\s*/i, '');
 
-  // 4. Validate length: must be 10 or 13 chars
-  if (/^[0-9]{9}[0-9X]$/.test(cleaned) || /^[0-9]{13}$/.test(cleaned)) {
-    return cleaned;
+    // Strip brackets and quotes
+    cleaned = cleaned.replace(/[\[\]\(\)\{\}"']/g, '');
+
+    // Remove hyphens, spaces, and punctuation
+    cleaned = cleaned.replace(/[-\s._]/g, '');
+
+    // Keep alphanumeric only (ISBN-10 can have 'X' as check digit)
+    cleaned = cleaned.toUpperCase();
+
+    // Validate length: must be 10 or 13 chars
+    if (/^[0-9]{9}[0-9X]$/.test(cleaned) || /^[0-9]{13}$/.test(cleaned)) {
+      return cleaned;
+    }
   }
 
   return null;
@@ -191,9 +212,73 @@ export function mapFormat(val: string | undefined): NormalizedFormat | null {
   if (/ebook|kindle|epub|nook|pdf|digital/i.test(s)) {
     return 'ebook';
   }
-  if (/paperback|hardcover|hardback|mass market|library binding|leather/i.test(s)) {
+  if (/print|physical|paperback|hardcover|hardback|mass market|library binding|leather/i.test(s)) {
     return 'print';
   }
 
   return null;
+}
+
+/**
+ * Inverts "Last, First" author format (e.g. "Herbert, Frank" -> "Frank Herbert")
+ * while preserving already standard "First Last" formats or single-word names.
+ */
+export function formatAuthorName(val: string | undefined): string | null {
+  const cleaned = cleanText(val);
+  if (!cleaned) return null;
+
+  // If contains a single comma and no '&', ';', or 'and', flip "Last, First"
+  if (
+    cleaned.includes(',') &&
+    !cleaned.includes('&') &&
+    !cleaned.includes(';') &&
+    !/\band\b/i.test(cleaned)
+  ) {
+    const parts = cleaned.split(',').map((p) => p.trim());
+    if (parts.length === 2 && parts[0] && parts[1]) {
+      return `${parts[1]} ${parts[0]}`.trim();
+    }
+  }
+
+  return cleaned;
+}
+
+/**
+ * Parses date ranges (e.g. "2024/01/01-2024/01/15" or "2024-01-01 to 2024-01-15").
+ * Returns [startedAt, finishedAt] as ISO date strings or nulls.
+ */
+export function parseDateRange(val: string | undefined): [string | null, string | null] {
+  if (!val) return [null, null];
+  const trimmed = val.trim();
+  if (!trimmed) return [null, null];
+
+  // Split on " - ", " to ", ",", or slash-date range "YYYY/MM/DD-YYYY/MM/DD"
+  let parts: string[] = [];
+  if (trimmed.includes(' to ')) {
+    parts = trimmed.split(' to ');
+  } else if (trimmed.includes(' - ')) {
+    parts = trimmed.split(' - ');
+  } else if (trimmed.includes(',')) {
+    parts = trimmed.split(',');
+  } else {
+    // Check for "YYYY/MM/DD-YYYY/MM/DD" or "YYYY-MM-DD-YYYY-MM-DD"
+    const slashRange = trimmed.match(/^(\d{4}\/\d{1,2}\/\d{1,2})\s*-\s*(\d{4}\/\d{1,2}\/\d{1,2})$/);
+    if (slashRange && slashRange[1] && slashRange[2]) {
+      parts = [slashRange[1], slashRange[2]];
+    } else {
+      const dashRange = trimmed.match(/^(\d{4}-\d{2}-\d{2})\s*-\s*(\d{4}-\d{2}-\d{2})$/);
+      if (dashRange && dashRange[1] && dashRange[2]) {
+        parts = [dashRange[1], dashRange[2]];
+      }
+    }
+  }
+
+  if (parts.length >= 2 && parts[0] && parts[1]) {
+    const start = parseDate(parts[0]);
+    const end = parseDate(parts[1]);
+    return [start, end];
+  }
+
+  const single = parseDate(trimmed);
+  return [null, single];
 }
