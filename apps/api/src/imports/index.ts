@@ -30,6 +30,7 @@ export * from './parser.js';
 export * from './transformers.js';
 export * from './detector.js';
 export * from './configs/index.js';
+export * from './matcher.js';
 
 export const IMPORT_SOURCES = [
   'goodreads',

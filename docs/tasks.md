@@ -615,8 +615,16 @@
     - `mapFormat`: Added `print` and `physical` keyword detection.
   - Updated configuration registry in `apps/api/src/imports/configs/index.ts` connecting all 6 configs to `SOURCE_CONFIGS`.
   - Multi-platform header detector tests and end-to-end normalization test suites in `apps/api/src/test/import-mapping.test.ts` (37 tests passing).
-  - 100% green across all 9 gates in full monorepo CI (542 API tests across 24 suites, 83 mobile tests across 20 suites).
-- [ ] **IM-05** ⚠️ Matching: ISBN → title+author fuzzy → **ambiguous goes unmatched, never guessed** — 2d
+- [x] **IM-05** ⚠️ Matching: ISBN → title+author fuzzy → **ambiguous goes unmatched, never guessed** — 2d
+  - Delivered multi-stage catalog matching engine in `apps/api/src/imports/matcher.ts`:
+    - **Stage 1 (Exact ISBN)**: Detects ISBN-10/13 formats, joins `editions` and `works`, and matches physical copies with confidence 1.0.
+    - **Stage 2 (Source ID)**: Resolves Open Library work keys (`OL...W`) and edition keys (`OL...M`) with confidence 0.98.
+    - **Stage 3 (Exact Title + Author)**: Compares unaccented normalized titles (`normaliseTitle`) and author names with confidence 0.92; immediately identifies homonymous works and flags them as `ambiguous_match`.
+    - **Stage 4 (Fuzzy Title + Author)**: Trigram similarity ranking (`similarity(title) * 0.6 + similarity(author) * 0.4`) with minimum threshold (>= 0.70).
+    - **CRITICAL PRD AC-9 RULE (Ambiguous Matches NEVER Guessed)**: If multiple works share the same title/author, or if the confidence margin between candidate #1 and candidate #2 is < 0.15, the row is marked `state = 'unmatched'`, `work_id = null`, and `failure_reason = 'ambiguous_match'` for user review in IM-09.
+  - Implemented `persistImportRowMatches`: Inserts rows into `import_rows` preserving untouched `raw` row dictionaries, and updates parent `imports` summary counters (`total_rows`, `matched`, `unmatched`).
+  - Created dedicated integration test suite in `apps/api/src/test/import-matcher.test.ts` (12 tests passing) verifying ISBN matches, OL key resolution, exact matches, fuzzy matches, ambiguity rejection, and DB persistence.
+  - 100% green across all 9 gates in full monorepo CI (554 API tests across 25 suites, 83 mobile tests across 20 suites).
 - [ ] **IM-06** ⚠️ Rating normalisation; **`My Rating = 0` → NULL** — 0.5d
 - [ ] **IM-07** ⚠️ `source='import'`, **excluded from `activity`** — 0.25d
 - [ ] **IM-08** pg-boss job: chunked, resumable, progress-reported — 1d
