@@ -625,8 +625,21 @@
   - Implemented `persistImportRowMatches`: Inserts rows into `import_rows` preserving untouched `raw` row dictionaries, and updates parent `imports` summary counters (`total_rows`, `matched`, `unmatched`).
   - Created dedicated integration test suite in `apps/api/src/test/import-matcher.test.ts` (12 tests passing) verifying ISBN matches, OL key resolution, exact matches, fuzzy matches, ambiguity rejection, and DB persistence.
   - 100% green across all 9 gates in full monorepo CI (554 API tests across 25 suites, 83 mobile tests across 20 suites).
-- [ ] **IM-06** ⚠️ Rating normalisation; **`My Rating = 0` → NULL** — 0.5d
-- [ ] **IM-07** ⚠️ `source='import'`, **excluded from `activity`** — 0.25d
+- [x] **IM-06** ⚠️ Rating normalisation; **`My Rating = 0` → NULL** — 0.5d
+  - Delivered rating persistence normalisation engine in `apps/api/src/imports/committer.ts` (`normalizeRatingForPersistence`):
+    - Strictly maps Goodreads `My Rating = 0`, `'0'`, `0.0`, empty strings, null, and undefined to `NULL` (PRD §1833, §4409, AC-9).
+    - Prevents Postgres check constraint violations (`reads_rating_ck`: `rating IS NULL OR (rating BETWEEN 0.5 AND 5.0 AND (rating * 2) = floor(rating * 2))`). Writing `0` directly aborts transactions; `NULL` preserves unrated books safely without dropping rows.
+    - Validates 0.5–5.0 half-step precision; rounds quarter-star ratings from StoryGraph (e.g. 3.25 -> 3.5, 3.75 -> 4.0) to nearest half-star.
+  - Integration tested against real PGlite database: demonstrates that `0` violates check constraint, while `NULL` saves unrated books with complete fidelity.
+- [x] **IM-07** ⚠️ `source='import'`, **excluded from `activity`** — 0.25d
+  - Enforced schema-level provenance: all reads created from imports write `source = 'import'` (satisfying check constraint `reads_source_ck: source IN ('app', 'import')`).
+  - Feed and activity exclusion rules (PRD §34.4, §4410, Architecture §8, §9, Phases §3):
+    - Exported helpers `isExcludedFromActivity` and `isEligibleForActivityFeed`.
+    - SQL query filter `feedExcludesImportsSql()` (`reads.source != 'import'`) ensuring imported reads never spam social activity streams or follower feeds.
+    - Verified zero telemetry `events` or individual read events emitted during bulk imports of libraries.
+  - Full transactional committer: `commitImportRow` and `commitImportBatch` persisting `reads`, linked `reviews` (up to 10,000 chars), custom `shelves`, and `shelf_items` with atomic counter updates, handling re-read attempt numbers (`attempt_no`).
+  - 14 dedicated integration tests in `apps/api/src/test/import-committer.test.ts` (100% passing).
+  - 100% green across all 9 gates in full monorepo CI (568 API tests across 26 suites, 83 mobile tests across 20 suites).
 - [ ] **IM-08** pg-boss job: chunked, resumable, progress-reported — 1d
 - [ ] **IM-09** Import screen + progress banner + unmatched review list — 1.5d
 - [ ] **IM-10** CSV/JSON export, emailed link — 1d

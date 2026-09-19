@@ -31,6 +31,7 @@ export * from './transformers.js';
 export * from './detector.js';
 export * from './configs/index.js';
 export * from './matcher.js';
+export * from './committer.js';
 
 export const IMPORT_SOURCES = [
   'goodreads',
