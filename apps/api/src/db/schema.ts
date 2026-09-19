@@ -773,6 +773,29 @@ export type NewImport = typeof imports.$inferInsert;
 export type ImportRow = typeof importRows.$inferSelect;
 export type NewImportRow = typeof importRows.$inferInsert;
 
+export const exports = pgTable('exports', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  userId: uuid('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  format: text('format').notNull().default('csv'),
+  state: text('state').notNull().default('queued'),
+  fileKey: text('file_key'),
+  fileSizeBytes: bigint('file_size_bytes', { mode: 'number' }),
+  downloadToken: text('download_token'),
+  expiresAt: timestamp('expires_at', { withTimezone: true }),
+  error: text('error'),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  finishedAt: timestamp('finished_at', { withTimezone: true }),
+}, (t) => [
+  check('exports_format_ck', sql`${t.format} IN ('csv','json')`),
+  check('exports_state_ck', sql`${t.state} IN ('queued','processing','completed','failed')`),
+  index('exports_user_idx').on(t.userId, t.createdAt),
+  index('exports_token_idx').on(t.downloadToken),
+]);
+
+export type Export = typeof exports.$inferSelect;
+export type NewExport = typeof exports.$inferInsert;
+
 
 
 

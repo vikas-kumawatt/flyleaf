@@ -89,6 +89,10 @@ import type {
   ImportRowItem,
   ImportRowsResponse,
   ResolveImportRowRequest,
+  ExportFormat,
+  ExportResponse,
+  ExportListResponse,
+  CreateExportRequest,
 } from './types.js';
 
 export class FlyleafApiError extends Error {
@@ -763,6 +767,27 @@ export class FlyleafClient {
         method: 'POST',
       },
     );
+  }
+
+  // ---------------------------------------------------------------- Exports (IM-10)
+
+  async requestExport(data?: CreateExportRequest): Promise<ExportResponse> {
+    return this.request<ExportResponse>('/exports', {
+      method: 'POST',
+      body: JSON.stringify(data || {}),
+    });
+  }
+
+  async getExport(id: string): Promise<ExportResponse> {
+    return this.request<ExportResponse>(`/exports/${encodeURIComponent(id)}`, {
+      method: 'GET',
+    });
+  }
+
+  async listExports(): Promise<ExportListResponse> {
+    return this.request<ExportListResponse>('/exports', {
+      method: 'GET',
+    });
   }
 }
 

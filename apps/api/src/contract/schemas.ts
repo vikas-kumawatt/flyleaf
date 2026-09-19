@@ -1718,3 +1718,71 @@ export const importRowParamSchema = {
   required: ['id', 'rowNo'],
 } as const;
 
+// ---------------------------------------------------------------- Exports (IM-10)
+
+export const exportFormatEnum = ['csv', 'json'] as const;
+
+export const exportStateEnum = [
+  'queued',
+  'processing',
+  'completed',
+  'failed',
+] as const;
+
+export const createExportBodySchema = {
+  type: 'object',
+  properties: {
+    format: {
+      type: 'string',
+      enum: exportFormatEnum,
+      default: 'csv',
+      description:
+        'Export format: csv for reading spreadsheets and re-importing, json for full data archive.',
+    },
+  },
+} as const;
+
+export const exportResponseSchema = {
+  type: 'object',
+  properties: {
+    id: { type: 'string', format: 'uuid' },
+    user_id: { type: 'string', format: 'uuid' },
+    format: {
+      type: 'string',
+      enum: exportFormatEnum,
+    },
+    state: {
+      type: 'string',
+      enum: exportStateEnum,
+    },
+    file_size_bytes: { type: ['integer', 'null'] },
+    download_url: { type: ['string', 'null'] },
+    expires_at: { type: ['string', 'null'], format: 'date-time' },
+    error: { type: ['string', 'null'] },
+    created_at: { type: 'string', format: 'date-time' },
+    finished_at: { type: ['string', 'null'], format: 'date-time' },
+  },
+  required: ['id', 'user_id', 'format', 'state', 'created_at'],
+} as const;
+
+export const exportListResponseSchema = {
+  type: 'object',
+  properties: {
+    exports: {
+      type: 'array',
+      items: exportResponseSchema,
+    },
+  },
+  required: ['exports'],
+} as const;
+
+export const downloadExportQuerySchema = {
+  type: 'object',
+  properties: {
+    token: {
+      type: 'string',
+      description: 'Single-use or time-limited download token sent via email',
+    },
+  },
+} as const;
+

@@ -899,3 +899,29 @@ export interface ResolveImportRowRequest {
   edition_id?: string;
 }
 
+// ---------------------------------------------------------------- Exports (IM-10)
+
+export type ExportFormat = 'csv' | 'json';
+export type ExportState = 'queued' | 'processing' | 'completed' | 'failed';
+
+export interface ExportResponse {
+  id: string;
+  user_id: string;
+  format: ExportFormat;
+  state: ExportState;
+  file_size_bytes?: number | null;
+  download_url?: string | null;
+  expires_at?: string | null;
+  error?: string | null;
+  created_at: string;
+  finished_at?: string | null;
+}
+
+export interface ExportListResponse {
+  exports: ExportResponse[];
+}
+
+export interface CreateExportRequest {
+  format?: ExportFormat;
+}
+

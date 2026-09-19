@@ -24,7 +24,10 @@ import {
   api,
   type ImportSource,
   type ImportResponse,
+  type ExportResponse,
+  type ExportFormat,
 } from '@/lib/api';
+import * as Linking from 'expo-linking';
 import { useSession } from '@/lib/session';
 import {
   Button,
@@ -61,6 +64,12 @@ export default function ImportScreen() {
   const [pastImports, setPastImports] = useState<ImportResponse[]>([]);
   const [loadingPast, setLoadingPast] = useState(true);
 
+  // Exports state
+  const [exportFormat, setExportFormat] = useState<ExportFormat>('csv');
+  const [requestingExport, setRequestingExport] = useState(false);
+  const [pastExports, setPastExports] = useState<ExportResponse[]>([]);
+  const [loadingExports, setLoadingExports] = useState(true);
+
   // Load user's previous and active imports
   const loadImports = useCallback(async () => {
     if (!user) {
@@ -79,10 +88,16 @@ export default function ImportScreen() {
       if (active) {
         setActiveImportId(active.id);
       }
+
+      // Also load exports
+      setLoadingExports(true);
+      const expRes = await api.listExports();
+      setPastExports(expRes.exports || []);
     } catch {
       // Offline fallback
     } finally {
       setLoadingPast(false);
+      setLoadingExports(false);
     }
   }, [user]);
 
@@ -120,6 +135,32 @@ export default function ImportScreen() {
       Alert.alert('Import Failed', err.message || 'Could not upload import file.');
     } finally {
       setUploading(false);
+    }
+  };
+
+  const handleRequestExport = async () => {
+    if (!user) {
+      router.push('/auth');
+      return;
+    }
+
+    try {
+      setRequestingExport(true);
+      void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+
+      await api.requestExport({ format: exportFormat });
+
+      void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      Alert.alert(
+        'Export Requested',
+        `Your ${exportFormat.toUpperCase()} export is being generated. A secure download link will be emailed to your account address once ready.`,
+      );
+      void loadImports();
+    } catch (err: any) {
+      void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+      Alert.alert('Export Failed', err.message || 'Could not request data export.');
+    } finally {
+      setRequestingExport(false);
     }
   };
 
@@ -374,6 +415,80 @@ export default function ImportScreen() {
                 </Card>
               );
             })
+          )}
+        </View>
+
+        {/* 4. EXPORT LIBRARY DATA (IM-10) */}
+        <View style={{ gap: space[3], marginTop: space[3], paddingTop: space[3], borderTopWidth: 1, borderTopColor: c.line }}>
+          <View style={{ gap: 2 }}>
+            <Txt variant="caption" color="muted" style={{ fontWeight: '700', letterSpacing: 0.5 }}>
+              EXPORT LIBRARY DATA
+            </Txt>
+            <Txt variant="caption" color="muted">
+              Download your complete reading history, reviews, and shelves.
+            </Txt>
+          </View>
+
+          <SegmentedControl
+            options={[
+              { value: 'csv', label: 'CSV (Spreadsheet)' },
+              { value: 'json', label: 'JSON (Full Archive)' },
+            ]}
+            value={exportFormat}
+            onChange={(val) => setExportFormat(val as ExportFormat)}
+          />
+
+          <Button
+            label={requestingExport ? 'Requesting Export...' : `Request ${exportFormat.toUpperCase()} Export`}
+            variant="secondary"
+            loading={requestingExport}
+            disabled={requestingExport}
+            onPress={handleRequestExport}
+          />
+
+          {/* Past Exports List */}
+          {pastExports.length > 0 && (
+            <View style={{ gap: space[2], marginTop: space[1] }}>
+              <Txt variant="caption" color="muted" style={{ fontWeight: '600', fontSize: 11 }}>
+                PREVIOUS EXPORTS:
+              </Txt>
+
+              {pastExports.map((exp) => {
+                const dateStr = new Date(exp.created_at).toLocaleDateString(undefined, {
+                  month: 'short',
+                  day: 'numeric',
+                });
+                const sizeKb = exp.file_size_bytes ? `${Math.round(exp.file_size_bytes / 1024)} KB` : null;
+
+                return (
+                  <Card key={exp.id} style={{ padding: space[3] }}>
+                    <View style={sheet.rowBetween}>
+                      <View style={{ gap: 2 }}>
+                        <Txt variant="body" style={{ fontWeight: '700', fontSize: 13 }}>
+                          {exp.format.toUpperCase()} Export
+                        </Txt>
+                        <Txt variant="caption" color="muted" style={{ fontSize: 11 }}>
+                          {dateStr} {sizeKb ? `· ${sizeKb}` : ''} · {exp.state}
+                        </Txt>
+                      </View>
+
+                      {exp.download_url && (
+                        <Button
+                          label="Download"
+                          size="sm"
+                          variant="outline"
+                          onPress={() => {
+                            if (exp.download_url) {
+                              void Linking.openURL(exp.download_url);
+                            }
+                          }}
+                        />
+                      )}
+                    </View>
+                  </Card>
+                );
+              })}
+            </View>
           )}
         </View>
       </ScrollView>

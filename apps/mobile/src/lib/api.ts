@@ -65,6 +65,11 @@ import {
   type ImportRowItem,
   type ImportRowsResponse,
   type ResolveImportRowRequest,
+  type ExportFormat,
+  type ExportState,
+  type ExportResponse,
+  type ExportListResponse,
+  type CreateExportRequest,
 } from '@flyleaf/api-client';
 
 export type {
@@ -108,6 +113,11 @@ export type {
   ImportRowItem,
   ImportRowsResponse,
   ResolveImportRowRequest,
+  ExportFormat,
+  ExportState,
+  ExportResponse,
+  ExportListResponse,
+  CreateExportRequest,
   Edition,
   EditionDetail,
   EditionLookupResponse,
@@ -493,6 +503,11 @@ export const api = {
   resolveImportRow: (id: string, rowNo: number, data: ResolveImportRowRequest) =>
     client.resolveImportRow(id, rowNo, data),
   skipImportRow: (id: string, rowNo: number) => client.skipImportRow(id, rowNo),
+
+  // Exports (IM-10)
+  requestExport: (data?: CreateExportRequest) => client.requestExport(data),
+  getExport: (id: string) => client.getExport(id),
+  listExports: () => client.listExports(),
 };
 
 export interface AuthorDetail {

@@ -29,6 +29,8 @@ import { shelvesPlugin, shelvesWebPlugin } from './shelves/index.js';
 import fastifyMultipart from '@fastify/multipart';
 import type { PgBoss } from 'pg-boss';
 import { importsPlugin, type FileStorage } from './imports/index.js';
+import { exportsPlugin } from './exports/index.js';
+import type { EmailSender } from './platform/index.js';
 
 export interface CoreHookOptions {
   identityLookup?: (token: string) => Promise<string | null>;
@@ -169,6 +171,7 @@ export interface BuildAppOptions {
   reviews?: ReviewService;
   boss?: PgBoss;
   storage?: FileStorage;
+  mailer?: EmailSender;
   logger?: FastifyServerOptions['logger'];
   trustProxy?: boolean;
   bodyLimit?: number;
@@ -241,6 +244,13 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
       db: options.db,
       boss: options.boss,
       storage: options.storage,
+    });
+    await app.register(exportsPlugin, {
+      prefix: '/v1',
+      db: options.db,
+      boss: options.boss,
+      storage: options.storage,
+      mailer: options.mailer,
     });
   }
 

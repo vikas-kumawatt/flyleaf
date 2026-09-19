@@ -34,10 +34,12 @@ import { config } from '../platform/index.js';
  */
 export const JOBS_SCHEMA = 'pgboss';
 
-import type { Db } from '../platform/index.js';
+import type { Db, EmailSender } from '../platform/index.js';
+import { ConsoleEmailSender } from '../platform/index.js';
 import { runDedupe, type DedupeReport } from '../catalog/dedupe.js';
 import { processImport } from '../imports/processor.js';
 import { DiskFileStorage, type FileStorage } from '../imports/storage.js';
+import { ExportService } from '../exports/index.js';
 
 /**
  * Every queue, named once.
@@ -64,6 +66,11 @@ export const QUEUES = {
    * Parses uploaded CSV, matches against catalog, and populates user reads.
    */
   processImport: 'imports.process',
+  /**
+   * Reading library export processing job (PRD §1290, §3424, IM-10).
+   * Generates CSV/JSON export and emails download link.
+   */
+  processExport: 'exports.process',
 } as const;
 
 export type QueueName = (typeof QUEUES)[keyof typeof QUEUES];
@@ -92,6 +99,19 @@ export type ProcessImportJobResult = {
   totalRows?: number;
   matched?: number;
   unmatched?: number;
+  workedAt: string;
+};
+
+export type ProcessExportJobRequest = {
+  exportId: string;
+  userId: string;
+  format: 'csv' | 'json';
+};
+
+export type ProcessExportJobResult = {
+  exportId: string;
+  processed: boolean;
+  fileSizeBytes?: number;
   workedAt: string;
 };
 
@@ -147,7 +167,7 @@ export async function processImportJobHandler(
 ): Promise<ProcessImportJobResult> {
   const job = jobs.at(-1);
   const importId = job?.data?.importId ?? '';
-  if (!importId) {
+  if (!job || !importId) {
     return {
       importId: '',
       processed: false,
@@ -159,11 +179,34 @@ export async function processImportJobHandler(
   const res = await processImport(db, fileStorage, importId);
 
   return {
-    importId,
+    importId: job.data.importId,
     processed: res.state === 'completed',
     totalRows: res.totalRows,
     matched: res.matched,
     unmatched: res.unmatched,
+    workedAt: new Date().toISOString(),
+  };
+}
+
+export async function processExportJobHandler(
+  jobs: Job<ProcessExportJobRequest>[],
+  db: Db,
+  storage?: FileStorage,
+  mailer?: EmailSender,
+): Promise<ProcessExportJobResult> {
+  const job = jobs[0];
+  if (!job) throw new Error('No job passed to handler');
+
+  const fileStorage = storage ?? new DiskFileStorage();
+  const emailSender = mailer ?? new ConsoleEmailSender();
+  const service = new ExportService(db, fileStorage, emailSender);
+
+  const res = await service.processExport(job.data.exportId);
+
+  return {
+    exportId: job.data.exportId,
+    processed: res.state === 'completed',
+    fileSizeBytes: res.file_size_bytes ?? undefined,
     workedAt: new Date().toISOString(),
   };
 }
@@ -257,6 +300,23 @@ export async function registerQueues(boss: PgBoss, log: JobLog, db?: Db): Promis
             totalRows: result.totalRows,
             matched: result.matched,
             unmatched: result.unmatched,
+          },
+          'job handled',
+        );
+        return result;
+      },
+    );
+
+    await boss.work<ProcessExportJobRequest, ProcessExportJobResult>(
+      QUEUES.processExport,
+      async (jobs) => {
+        const result = await processExportJobHandler(jobs, db);
+        log.info(
+          {
+            queue: QUEUES.processExport,
+            ids: jobs.map((j) => j.id),
+            exportId: result.exportId,
+            processed: result.processed,
           },
           'job handled',
         );

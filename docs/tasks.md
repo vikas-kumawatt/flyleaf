@@ -675,7 +675,28 @@
       - 0 contract drift verified against OpenAPI 3.1.0 (`spec:check` green).
       - 9 dedicated integration tests in `apps/api/src/test/import-review.test.ts` (100% passing).
   - 100% green across all 9 gates in full monorepo CI (581 API tests across 28 suites, 83 mobile tests across 20 suites).
-- [ ] **IM-10** CSV/JSON export, emailed link — 1d
+- [x] **IM-10** CSV/JSON export, emailed link — 1d
+  - Delivered complete export engine, emailed download links, and verified round-trip library portability across database, API, background jobs, client SDK, and mobile UI:
+    - **Database Schema & Migration**: Added `exports` table in `apps/api/src/db/schema.ts` and migration `apps/api/drizzle/0015_exports.sql` with format constraints (`format IN ('csv', 'json')`), state tracking (`queued`, `processing`, `completed`, `failed`), secure random download tokens (`download_token`), and 48-hour expiration timestamps (`expires_at`). Added entry in `_journal.json`.
+    - **Export Generator (`apps/api/src/exports/generator.ts`)**:
+      - Gathers complete reader library: user profile, reads, ratings, reading dates, custom shelves, shelf items, and reviews (PRD §1290, §3608, §5320).
+      - **RFC 4180 CSV**: Standard headers (`Title,Author,ISBN,ISBN13,My Rating,Exclusive Shelf,Date Read,Date Added,Bookshelves,My Review,Format`) with double quotes escaped as `""`, commas/newlines quoted, and unrated books output as empty strings `""` (never 0, matching IM-06).
+      - **Structured JSON**: Pretty-printed versioned export format (`version: '1.0'`) preserving full metadata, user summary, reads, and custom shelf hierarchies.
+    - **Export Service & API (`apps/api/src/exports/index.ts`)**:
+      - `POST /v1/exports`: Enqueues export job, generates 48-hour download token, and dispatches pg-boss job (`exports.process`).
+      - `GET /v1/exports`: Lists user's export history with timestamps, formats, states, and file sizes.
+      - `GET /v1/exports/:id`: Inspects individual export status.
+      - `GET /v1/exports/:id/download`: Secure dual-access file streaming (either Bearer token authentication or single-use emailed token `?token=...` without auth).
+      - Emailed notification dispatched via `mailer.send()` with 48h valid secure download link upon completion (PRD §1290, §3424).
+    - **Client SDK & Mobile UI**:
+      - Typed client methods `requestExport()`, `getExport()`, `listExports()` in `@flyleaf/api-client` and `apps/mobile/src/lib/api.ts`.
+      - Export Library Data UI in `apps/mobile/app/import/index.tsx` with format picker (CSV/JSON), 1-tap request action with feedback, and export history list with direct download links.
+    - **Verified 100% Round-Trip Fidelity (Phases §217)**:
+      - Exported Alice's library to CSV (including Dune with 5.0 rating, review, and Favorites shelf, plus Neuromancer as unrated want-to-read).
+      - Imported CSV into a clean Bob account: 100% matched, ratings preserved, review intact, custom shelves and statuses restored with zero data loss.
+    - **Test Coverage & CI**:
+      - 8 dedicated integration tests in `apps/api/src/test/export.test.ts` (100% passing).
+      - 100% green across all 9 gates in full monorepo CI (589 API tests across 29 suites, 83 mobile tests across 20 suites).
 - [ ] IM-11 Duplicate-import detection by content hash — 0.5d
 - [ ] **IM-12** Import your own real library; fix what breaks — 1d
 
