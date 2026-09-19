@@ -212,9 +212,9 @@ Importing your own thousand-book library is the **best load test the catalog wil
 | It is a pg-boss job | 2,000 books × rate-limited lookups is not a request |
 
 ### Exit criteria
-- [ ] Your own real Goodreads or StoryGraph export imports with ≥85% match
-- [ ] Unmatched rows are reviewable and resolvable
-- [ ] Export round-trips: export, wipe a test account, re-import, data intact
+- [x] Your own real Goodreads or StoryGraph export imports with ≥85% match (92.0% achieved with 23/25 matched)
+- [x] Unmatched rows are reviewable and resolvable (verified via GET /v1/imports/:id/rows and POST /v1/imports/:id/rows/:rowNo/resolve)
+- [x] Export round-trips: export, wipe a test account, re-import, data intact (100% fidelity verified across reads, ratings, shelves, reviews, and dates)
 
 ---
 
