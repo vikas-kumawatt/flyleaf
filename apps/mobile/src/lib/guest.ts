@@ -35,12 +35,23 @@ export interface AddBookResult {
   reason?: 'cap_reached' | 'already_added';
 }
 
+export interface GuestShelfSnapshot {
+  books: GuestBook[];
+  count: number;
+  migrationMessage: string | null;
+}
+
 export class GuestManager {
   private books: GuestBook[] = [];
   private migrationMessage: string | null = null;
   private listeners: Set<() => void> = new Set();
   private db: OfflineDatabase | null = null;
   private loaded = false;
+  private snapshot: GuestShelfSnapshot = {
+    books: [],
+    count: 0,
+    migrationMessage: null,
+  };
 
   constructor(db?: OfflineDatabase) {
     if (db) {
@@ -80,12 +91,16 @@ export class GuestManager {
     }
   }
 
+  getSnapshot(): GuestShelfSnapshot {
+    return this.snapshot;
+  }
+
   getBooks(): GuestBook[] {
-    return [...this.books];
+    return this.snapshot.books;
   }
 
   getCount(): number {
-    return this.books.length;
+    return this.snapshot.count;
   }
 
   isSaved(workId: string): boolean {
@@ -118,8 +133,7 @@ export class GuestManager {
     if (this.db) {
       try {
         await this.db.run(
-          `INSERT OR REPLACE INTO guest_want_to_read (work_id, title, author_name, cover_id, first_publish_year, format, added_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?)`,
+          'INSERT OR REPLACE INTO guest_want_to_read (work_id, title, author_name, cover_id, first_publish_year, format, added_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
           [
             item.id,
             item.title,
@@ -131,7 +145,7 @@ export class GuestManager {
           ]
         );
       } catch {
-        // Continue with memory store
+        // Continue
       }
     }
 
@@ -145,7 +159,10 @@ export class GuestManager {
 
     if (this.db) {
       try {
-        await this.db.run('DELETE FROM guest_want_to_read WHERE work_id = ?', [workId]);
+        await this.db.run(
+          'DELETE FROM guest_want_to_read WHERE work_id = ?',
+          [workId]
+        );
       } catch {
         // Continue
       }
@@ -205,7 +222,7 @@ export class GuestManager {
   }
 
   getMigrationMessage(): string | null {
-    return this.migrationMessage;
+    return this.snapshot.migrationMessage;
   }
 
   dismissMigrationMessage(): void {
@@ -219,6 +236,11 @@ export class GuestManager {
   }
 
   private notify() {
+    this.snapshot = {
+      books: [...this.books],
+      count: this.books.length,
+      migrationMessage: this.migrationMessage,
+    };
     for (const listener of this.listeners) {
       listener();
     }
@@ -240,11 +262,7 @@ export function useGuestShelf() {
 
   const state = useSyncExternalStore(
     (listener) => manager.subscribe(listener),
-    () => ({
-      books: manager.getBooks(),
-      count: manager.getCount(),
-      migrationMessage: manager.getMigrationMessage(),
-    })
+    () => manager.getSnapshot()
   );
 
   return {

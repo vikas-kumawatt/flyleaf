@@ -66,7 +66,6 @@ function Nav() {
           name="review/[id]"
           options={{ presentation: 'card', headerShown: false }}
         />
-        <Stack.Screen name="profile" options={{ headerShown: false }} />
         <Stack.Screen name="diary" options={{ presentation: 'card', headerShown: false }} />
         <Stack.Screen name="wall" options={{ presentation: 'card', headerShown: false }} />
         <Stack.Screen name="wall/[id]" options={{ presentation: 'card', headerShown: false }} />
