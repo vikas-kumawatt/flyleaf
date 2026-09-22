@@ -1790,3 +1790,43 @@ export const downloadExportQuerySchema = {
   },
 } as const;
 
+// ---------------------------------------------------------------- Social Graph & Follows (SO-01, SO-02)
+
+export const followStateEnum = ['pending', 'accepted', 'none'] as const;
+export const followStatusEnum = ['none', 'pending', 'accepted', 'self'] as const;
+
+export const followResponseSchema = {
+  type: 'object',
+  properties: {
+    status: { type: 'string', enum: followStateEnum },
+    follower_id: { type: 'string', format: 'uuid' },
+    followee_id: { type: 'string', format: 'uuid' },
+  },
+  required: ['status', 'follower_id', 'followee_id'],
+} as const;
+
+export const pendingFollowRequestSchema = {
+  type: 'object',
+  properties: {
+    id: { type: 'string', format: 'uuid', description: 'Requester user ID' },
+    username: { type: 'string' },
+    display_name: { type: ['string', 'null'] },
+    avatar_key: { type: ['string', 'null'] },
+    bio: { type: ['string', 'null'] },
+    requested_at: { type: 'string', format: 'date-time' },
+  },
+  required: ['id', 'username', 'requested_at'],
+} as const;
+
+export const pendingFollowRequestsResponseSchema = {
+  type: 'object',
+  properties: {
+    requests: {
+      type: 'array',
+      items: pendingFollowRequestSchema,
+    },
+  },
+  required: ['requests'],
+} as const;
+
+

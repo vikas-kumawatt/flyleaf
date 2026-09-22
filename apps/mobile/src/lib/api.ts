@@ -71,6 +71,9 @@ import {
   type ExportResponse,
   type ExportListResponse,
   type CreateExportRequest,
+  type FollowResult,
+  type PendingFollowRequest,
+  type PendingFollowRequestsResponse,
 } from '@flyleaf/api-client';
 
 export type {
@@ -120,6 +123,9 @@ export type {
   ExportResponse,
   ExportListResponse,
   CreateExportRequest,
+  FollowResult,
+  PendingFollowRequest,
+  PendingFollowRequestsResponse,
   Edition,
   EditionDetail,
   EditionLookupResponse,
@@ -511,6 +517,13 @@ export const api = {
   requestExport: (data?: CreateExportRequest) => client.requestExport(data),
   getExport: (id: string) => client.getExport(id),
   listExports: () => client.listExports(),
+
+  // Social & Follows (SO-01, SO-02)
+  followUser: (userId: string) => client.followUser(userId),
+  unfollowUser: (userId: string) => client.unfollowUser(userId),
+  getPendingFollowRequests: () => client.getPendingFollowRequests(),
+  acceptFollowRequest: (requesterId: string) => client.acceptFollowRequest(requesterId),
+  rejectFollowRequest: (requesterId: string) => client.rejectFollowRequest(requesterId),
 };
 
 export interface AuthorDetail {

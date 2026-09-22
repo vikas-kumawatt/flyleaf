@@ -30,6 +30,7 @@ import fastifyMultipart from '@fastify/multipart';
 import type { PgBoss } from 'pg-boss';
 import { importsPlugin, type FileStorage } from './imports/index.js';
 import { exportsPlugin } from './exports/index.js';
+import { socialPlugin } from './social/index.js';
 import type { EmailSender } from './platform/index.js';
 
 export interface CoreHookOptions {
@@ -251,6 +252,10 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
       boss: options.boss,
       storage: options.storage,
       mailer: options.mailer,
+    });
+    await app.register(socialPlugin, {
+      prefix: '/v1',
+      db: options.db,
     });
   }
 

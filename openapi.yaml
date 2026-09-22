@@ -9825,6 +9825,382 @@ paths:
                       - message
                 required:
                   - error
+  /users/{id}/follow:
+    post:
+      summary: Follow or request to follow a user
+      tags:
+        - Social
+      parameters:
+        - schema:
+            type: string
+            format: uuid
+          in: path
+          name: id
+          required: true
+      responses:
+        "200":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    enum:
+                      - pending
+                      - accepted
+                      - none
+                  follower_id:
+                    type: string
+                    format: uuid
+                  followee_id:
+                    type: string
+                    format: uuid
+                required:
+                  - status
+                  - follower_id
+                  - followee_id
+    delete:
+      summary: Unfollow user or cancel pending request
+      tags:
+        - Social
+      parameters:
+        - schema:
+            type: string
+            format: uuid
+          in: path
+          name: id
+          required: true
+      responses:
+        "200":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    enum:
+                      - pending
+                      - accepted
+                      - none
+                  follower_id:
+                    type: string
+                    format: uuid
+                  followee_id:
+                    type: string
+                    format: uuid
+                required:
+                  - status
+                  - follower_id
+                  - followee_id
+  /follows/{userId}:
+    post:
+      summary: Follow or request to follow a user (alias)
+      tags:
+        - Social
+      parameters:
+        - schema:
+            type: string
+            format: uuid
+          in: path
+          name: userId
+          required: true
+      responses:
+        "200":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    enum:
+                      - pending
+                      - accepted
+                      - none
+                  follower_id:
+                    type: string
+                    format: uuid
+                  followee_id:
+                    type: string
+                    format: uuid
+                required:
+                  - status
+                  - follower_id
+                  - followee_id
+    delete:
+      summary: Unfollow user or cancel pending request (alias)
+      tags:
+        - Social
+      parameters:
+        - schema:
+            type: string
+            format: uuid
+          in: path
+          name: userId
+          required: true
+      responses:
+        "200":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    enum:
+                      - pending
+                      - accepted
+                      - none
+                  follower_id:
+                    type: string
+                    format: uuid
+                  followee_id:
+                    type: string
+                    format: uuid
+                required:
+                  - status
+                  - follower_id
+                  - followee_id
+  /me/follow-requests:
+    get:
+      summary: List incoming pending follow requests
+      tags:
+        - Social
+      responses:
+        "200":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  requests:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: string
+                          format: uuid
+                          description: Requester user ID
+                        username:
+                          type: string
+                        display_name:
+                          type:
+                            - "null"
+                            - string
+                        avatar_key:
+                          type:
+                            - "null"
+                            - string
+                        bio:
+                          type:
+                            - "null"
+                            - string
+                        requested_at:
+                          type: string
+                          format: date-time
+                      required:
+                        - id
+                        - username
+                        - requested_at
+                required:
+                  - requests
+  /follows/requests:
+    get:
+      summary: List incoming pending follow requests (alias)
+      tags:
+        - Social
+      responses:
+        "200":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  requests:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: string
+                          format: uuid
+                          description: Requester user ID
+                        username:
+                          type: string
+                        display_name:
+                          type:
+                            - "null"
+                            - string
+                        avatar_key:
+                          type:
+                            - "null"
+                            - string
+                        bio:
+                          type:
+                            - "null"
+                            - string
+                        requested_at:
+                          type: string
+                          format: date-time
+                      required:
+                        - id
+                        - username
+                        - requested_at
+                required:
+                  - requests
+  /me/follow-requests/{requesterId}/accept:
+    post:
+      summary: Accept an incoming pending follow request
+      tags:
+        - Social
+      parameters:
+        - schema:
+            type: string
+            format: uuid
+          in: path
+          name: requesterId
+          required: true
+      responses:
+        "200":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    enum:
+                      - pending
+                      - accepted
+                      - none
+                  follower_id:
+                    type: string
+                    format: uuid
+                  followee_id:
+                    type: string
+                    format: uuid
+                required:
+                  - status
+                  - follower_id
+                  - followee_id
+  /follows/requests/{requesterId}/accept:
+    post:
+      summary: Accept an incoming pending follow request (alias)
+      tags:
+        - Social
+      parameters:
+        - schema:
+            type: string
+            format: uuid
+          in: path
+          name: requesterId
+          required: true
+      responses:
+        "200":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    enum:
+                      - pending
+                      - accepted
+                      - none
+                  follower_id:
+                    type: string
+                    format: uuid
+                  followee_id:
+                    type: string
+                    format: uuid
+                required:
+                  - status
+                  - follower_id
+                  - followee_id
+  /me/follow-requests/{requesterId}/reject:
+    post:
+      summary: Reject an incoming pending follow request
+      tags:
+        - Social
+      parameters:
+        - schema:
+            type: string
+            format: uuid
+          in: path
+          name: requesterId
+          required: true
+      responses:
+        "200":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    enum:
+                      - pending
+                      - accepted
+                      - none
+                  follower_id:
+                    type: string
+                    format: uuid
+                  followee_id:
+                    type: string
+                    format: uuid
+                required:
+                  - status
+                  - follower_id
+                  - followee_id
+  /follows/requests/{requesterId}/reject:
+    post:
+      summary: Reject an incoming pending follow request (alias)
+      tags:
+        - Social
+      parameters:
+        - schema:
+            type: string
+            format: uuid
+          in: path
+          name: requesterId
+          required: true
+      responses:
+        "200":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    enum:
+                      - pending
+                      - accepted
+                      - none
+                  follower_id:
+                    type: string
+                    format: uuid
+                  followee_id:
+                    type: string
+                    format: uuid
+                required:
+                  - status
+                  - follower_id
+                  - followee_id
   /healthz:
     get:
       summary: Liveness probe

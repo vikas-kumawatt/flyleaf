@@ -33,11 +33,35 @@ export interface Profile {
   bio: string | null;
   avatarKey: string | null;
   isPrivate: boolean;
+  isRestricted?: boolean;
   followerCount: number;
   followingCount: number;
   favourite_work_ids?: string[];
   favourites?: ProfileFavourite[];
   createdAt: string;
+  followStatus?: 'none' | 'pending' | 'accepted' | 'self';
+  followedBy?: boolean;
+}
+
+export type FollowState = 'pending' | 'accepted' | 'none';
+
+export interface FollowResult {
+  status: FollowState;
+  follower_id: string;
+  followee_id: string;
+}
+
+export interface PendingFollowRequest {
+  id: string;
+  username: string;
+  display_name: string | null;
+  avatar_key: string | null;
+  bio: string | null;
+  requested_at: string;
+}
+
+export interface PendingFollowRequestsResponse {
+  requests: PendingFollowRequest[];
 }
 
 export interface UpdateProfileRequest {

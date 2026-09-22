@@ -33,10 +33,12 @@ import type {
   DnfReadRequest,
   EditionLookupResponse,
   FinishReadRequest,
+  FollowResult,
   ForgotPasswordRequest,
   LoginRequest,
   MergeListItem,
   MergeListResponse,
+  PendingFollowRequestsResponse,
   PostEventsResponse,
   Profile,
   ProgressEventRequest,
@@ -794,6 +796,44 @@ export class FlyleafClient {
     return this.request<ExportListResponse>('/exports', {
       method: 'GET',
     });
+  }
+
+  // ---------------------------------------------------------------- Social & Follows (SO-01, SO-02)
+
+  async followUser(userId: string): Promise<FollowResult> {
+    return this.request<FollowResult>(`/users/${encodeURIComponent(userId)}/follow`, {
+      method: 'POST',
+    });
+  }
+
+  async unfollowUser(userId: string): Promise<FollowResult> {
+    return this.request<FollowResult>(`/users/${encodeURIComponent(userId)}/follow`, {
+      method: 'DELETE',
+    });
+  }
+
+  async getPendingFollowRequests(): Promise<PendingFollowRequestsResponse> {
+    return this.request<PendingFollowRequestsResponse>('/me/follow-requests', {
+      method: 'GET',
+    });
+  }
+
+  async acceptFollowRequest(requesterId: string): Promise<FollowResult> {
+    return this.request<FollowResult>(
+      `/me/follow-requests/${encodeURIComponent(requesterId)}/accept`,
+      {
+        method: 'POST',
+      },
+    );
+  }
+
+  async rejectFollowRequest(requesterId: string): Promise<FollowResult> {
+    return this.request<FollowResult>(
+      `/me/follow-requests/${encodeURIComponent(requesterId)}/reject`,
+      {
+        method: 'POST',
+      },
+    );
   }
 }
 

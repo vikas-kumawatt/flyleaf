@@ -6,13 +6,13 @@
 
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import { hash as argonHash, verify as argonVerify } from '@node-rs/argon2';
-import { and, eq, gt, isNull, inArray, sql } from 'drizzle-orm';
+import { and, eq, gt, isNull, inArray, or, sql } from 'drizzle-orm';
 import * as jose from 'jose';
 import { z } from 'zod';
 import type { FastifyInstance } from 'fastify';
 
 import { config, type Db, type RateLimiter, type EmailSender, ConsoleEmailSender } from '../platform/index.js';
-import { users, profiles, works, refreshTokens, emailVerificationTokens, passwordResetTokens } from '../db/schema.js';
+import { users, profiles, works, follows, blocks, refreshTokens, emailVerificationTokens, passwordResetTokens } from '../db/schema.js';
 import { ApiError, requireViewer } from '../http.js';
 import { isCommonPassword } from './common-passwords.js';
 import { canView } from '../authorization/index.js';
@@ -31,11 +31,14 @@ export type Profile = {
   bio: string | null;
   avatarKey: string | null;
   isPrivate: boolean;
+  isRestricted?: boolean;
   followerCount: number;
   followingCount: number;
   favourite_work_ids: string[];
   favourites: ProfileFavourite[];
   createdAt: Date;
+  followStatus?: 'none' | 'pending' | 'accepted' | 'self';
+  followedBy?: boolean;
 };
 
 export type Session = {
@@ -370,6 +373,12 @@ export class IdentityService {
    * Takes viewer as required first argument (FN-70).
    * If the account is private and viewer cannot view, returns null -> 404 (never 403).
    */
+  /**
+   * Public profile lookup respecting privacy (Architecture §4, PRD §24, AC-13, SO-02).
+   * Takes viewer as required first argument (FN-70).
+   * If blocked: returns null -> 404 (never revealing block).
+   * If private account & non-follower: returns restricted header profile with followStatus/followedBy.
+   */
   async getProfile(viewer: string | null, userId: string): Promise<Profile | null> {
     const [row] = await this.db
       .select({
@@ -391,10 +400,57 @@ export class IdentityService {
 
     if (!row) return null;
 
+    // Check relationship (blocks and follows)
+    let isBlocked = false;
+    let followStatus: 'none' | 'pending' | 'accepted' | 'self' = 'none';
+    let followedBy = false;
+
+    if (viewer) {
+      if (viewer === row.id) {
+        followStatus = 'self';
+      } else {
+        const [blockRow] = await this.db
+          .select({ blockerId: blocks.blockerId })
+          .from(blocks)
+          .where(
+            or(
+              and(eq(blocks.blockerId, viewer), eq(blocks.blockedId, row.id)),
+              and(eq(blocks.blockerId, row.id), eq(blocks.blockedId, viewer)),
+            ),
+          )
+          .limit(1);
+
+        if (blockRow) isBlocked = true;
+
+        const [followRow] = await this.db
+          .select({ state: follows.state })
+          .from(follows)
+          .where(and(eq(follows.followerId, viewer), eq(follows.followeeId, row.id)))
+          .limit(1);
+
+        if (followRow) {
+          followStatus = followRow.state === 'accepted' ? 'accepted' : 'pending';
+        }
+
+        const [reverseRow] = await this.db
+          .select({ state: follows.state })
+          .from(follows)
+          .where(and(eq(follows.followerId, row.id), eq(follows.followeeId, viewer), eq(follows.state, 'accepted')))
+          .limit(1);
+
+        followedBy = Boolean(reverseRow);
+      }
+    }
+
+    if (isBlocked) return null;
+
+    const isFollower = followStatus === 'accepted';
     const allowed = canView({
       viewer,
       ownerId: row.id,
       isOwnerPrivate: row.isPrivate,
+      isBlocked: false,
+      isFollower,
     });
 
     if (!allowed) return null;
@@ -437,11 +493,14 @@ export class IdentityService {
       bio: row.bio,
       avatarKey: row.avatarKey,
       isPrivate: row.isPrivate,
+      isRestricted: false,
       followerCount: row.followerCount,
       followingCount: row.followingCount,
       favourite_work_ids: favIds,
       favourites,
       createdAt: row.createdAt,
+      followStatus,
+      followedBy,
     };
   }
 
@@ -466,6 +525,19 @@ export class IdentityService {
         }
       }
 
+      // Check if toggling from private to public
+      let goingPublic = false;
+      if (data.isPrivate === false) {
+        const [existing] = await this.db
+          .select({ isPrivate: profiles.isPrivate })
+          .from(profiles)
+          .where(eq(profiles.userId, userId))
+          .limit(1);
+        if (existing?.isPrivate) {
+          goingPublic = true;
+        }
+      }
+
       const updates: Record<string, any> = {};
       if (data.displayName !== undefined) updates.displayName = data.displayName;
       if (data.bio !== undefined) updates.bio = data.bio;
@@ -477,6 +549,14 @@ export class IdentityService {
           .update(profiles)
           .set(updates)
           .where(eq(profiles.userId, userId));
+      }
+
+      // If going public, auto-accept pending requests
+      if (goingPublic) {
+        await this.db
+          .update(follows)
+          .set({ state: 'accepted' })
+          .where(and(eq(follows.followeeId, userId), eq(follows.state, 'pending')));
       }
 
       const updated = await this.getProfile(userId, userId);

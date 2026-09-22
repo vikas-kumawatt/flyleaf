@@ -734,9 +734,21 @@
 
 ## Phase 4 — Social · `SO` · 20d
 
-### Graph — `SO-0x` · 5d
 - [x] **SO-01** follows, blocks, mutes migrations + counters — 0.5d
-- [ ] **SO-02** Follow/unfollow; private accounts; pending requests — 1.5d
+  - Created migration `0016_social_graph.sql` and journal entry in `apps/api/drizzle/meta/_journal.json`.
+  - Defined social graph schema in `apps/api/src/db/schema.ts`:
+    - `follows`: Tracks asymmetric user follow relationships (`follower_id`, `following_id`, `state IN ('pending', 'accepted')`, `created_at`, `updated_at`). Enforces `follower_id <> following_id` check constraint and composite primary key `(follower_id, following_id)`.
+    - `blocks`: Tracks bidirectional user blocks (`blocker_id`, `blocked_id`, `created_at`). Enforces `blocker_id <> blocked_id` check constraint and composite primary key `(blocker_id, blocked_id)`.
+    - `mutes`: Tracks muted users and books (`muter_id`, `muted_id`, `target_work_id`, `created_at`). Enforces target type check constraints (`(muted_id IS NOT NULL AND target_work_id IS NULL) OR (muted_id IS NULL AND target_work_id IS NOT NULL)`).
+  - Postgres DB trigger function `follows_counter_trigger_fn` in migration `0016_social_graph.sql` dynamically maintains atomic `follower_count` and `following_count` on `profiles` when follow records are inserted, updated, or deleted into/from `state = 'accepted'`.
+  - Exported Drizzle models and TypeScript types (`Follow`, `NewFollow`, `Block`, `NewBlock`, `Mute`, `NewMute`).
+- [x] **SO-02** Follow/unfollow; private accounts; pending requests — 1.5d
+  - Built `SocialService` and Fastify `socialPlugin` in `apps/api/src/social/index.ts` with follow/unfollow and pending request endpoints (`POST /v1/users/:id/follow`, `DELETE /v1/users/:id/follow`, `GET /v1/me/follow-requests`, `POST /v1/me/follow-requests/:requesterId/accept`, `POST /v1/me/follow-requests/:requesterId/reject`).
+  - Private accounts create `state = 'pending'` follows; public accounts create `state = 'accepted'`. Automatic profile follower and following counts maintained via Postgres DB triggers.
+  - Enforced 3-tier privacy authorization in `IdentityService.getProfile` returning 404 Not Found for non-followers viewing private profiles (PRD §25.3, FN-72, SH-09). Switching profile from private to public automatically accepts pending follow requests.
+  - OpenAPI 3.1.0 specification synchronized with 0 contract drift and typed methods in `@flyleaf/api-client`.
+  - Mobile UI integration: interactive follow toggle with haptics and "Follows you" mutual indicator on `UserProfileScreen` (`apps/mobile/app/user/[id].tsx`), and incoming requests manager screen `FollowRequestsScreen` (`apps/mobile/app/profile/requests.tsx`).
+  - 8 integration tests in `apps/api/src/test/social-follow.test.ts` and mobile unit tests in `apps/mobile/src/lib/__tests__/social-follow.test.ts` passing. 100% green CI pipeline.
 - [ ] **SO-03** ⚠️ **Block: bidirectional, complete, silent, severs follows** — 1.5d
 - [ ] **SO-04** Mute user and **mute book** — 0.5d
 - [ ] **SO-05** Followers/following lists — 0.5d

@@ -36,7 +36,7 @@ export default function UserProfileScreen() {
   const [stats, setStats] = useState<ReadingStats | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-  const [isFollowing, setIsFollowing] = useState(false);
+  const [submittingFollow, setSubmittingFollow] = useState(false);
 
   const loadProfileData = useCallback(async () => {
     if (!id) return;
@@ -69,10 +69,49 @@ export default function UserProfileScreen() {
     setRefreshing(false);
   };
 
-  const toggleFollow = () => {
-    void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-    setIsFollowing(!isFollowing);
+  const handleFollowToggle = async () => {
+    if (!id || !profile || profile.followStatus === 'self' || submittingFollow) return;
+    try {
+      setSubmittingFollow(true);
+      void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+
+      if (profile.followStatus === 'accepted' || profile.followStatus === 'pending') {
+        const res = await api.unfollowUser(id);
+        setProfile((prev) =>
+          prev
+            ? {
+                ...prev,
+                followStatus: 'none',
+                followerCount:
+                  prev.followStatus === 'accepted'
+                    ? Math.max(0, prev.followerCount - 1)
+                    : prev.followerCount,
+              }
+            : null,
+        );
+      } else {
+        const res = await api.followUser(id);
+        const newStatus = res.status;
+        setProfile((prev) =>
+          prev
+            ? {
+                ...prev,
+                followStatus: newStatus,
+                followerCount:
+                  newStatus === 'accepted' ? prev.followerCount + 1 : prev.followerCount,
+              }
+            : null,
+        );
+      }
+    } catch {
+      // Re-sync on failure
+      void loadProfileData();
+    } finally {
+      setSubmittingFollow(false);
+    }
   };
+
+  const isRestricted = profile?.isRestricted || (profile?.isPrivate && profile?.followStatus !== 'accepted' && profile?.followStatus !== 'self');
 
   return (
     <Screen style={{ flex: 1, backgroundColor: c.ground }}>
@@ -168,9 +207,25 @@ export default function UserProfileScreen() {
                     )}
                   </View>
 
-                  <Txt variant="caption" color="muted">
-                    @{profile.username}
-                  </Txt>
+                  <View style={[sheet.row, { gap: space[2] }]}>
+                    <Txt variant="caption" color="muted">
+                      @{profile.username}
+                    </Txt>
+                    {profile.followedBy && (
+                      <View
+                        style={{
+                          backgroundColor: c.accentSoft,
+                          paddingHorizontal: 6,
+                          paddingVertical: 2,
+                          borderRadius: radius.sm,
+                        }}
+                      >
+                        <Txt variant="caption" color="accent" style={{ fontSize: 10, fontWeight: '700' }}>
+                          Follows you
+                        </Txt>
+                      </View>
+                    )}
+                  </View>
 
                   <View style={[sheet.row, { gap: space[3], marginTop: space[1] }]}>
                     <Txt variant="caption">
@@ -196,16 +251,25 @@ export default function UserProfileScreen() {
                 </Txt>
               )}
 
-              {/* Follow / Unfollow Button */}
-              <Button
-                label={isFollowing ? 'Following' : 'Follow'}
-                variant={isFollowing ? 'outline' : 'primary'}
-                onPress={toggleFollow}
-              />
+              {/* Follow / Unfollow / Requested Button */}
+              {profile.followStatus !== 'self' && (
+                <Button
+                  label={
+                    profile.followStatus === 'accepted'
+                      ? 'Following'
+                      : profile.followStatus === 'pending'
+                        ? 'Requested'
+                        : 'Follow'
+                  }
+                  variant={profile.followStatus === 'none' ? 'primary' : 'outline'}
+                  onPress={handleFollowToggle}
+                  disabled={submittingFollow}
+                />
+              )}
             </View>
 
             {/* Privacy Check */}
-            {profile.isPrivate && !isFollowing ? (
+            {isRestricted ? (
               <Card style={{ padding: space[6], alignItems: 'center', gap: space[2] }}>
                 <Txt variant="title" style={{ fontSize: 28 }}>
                   🔒
@@ -214,7 +278,9 @@ export default function UserProfileScreen() {
                   This Account is Private
                 </Txt>
                 <Txt variant="caption" color="muted" style={{ textAlign: 'center' }}>
-                  Follow @{profile.username} to see their favourite books, reading diary, and stats.
+                  {profile.followStatus === 'pending'
+                    ? `Follow request sent to @${profile.username}. Once accepted, their reading activity will appear here.`
+                    : `Follow @${profile.username} to see their favourite books, reading diary, and stats.`}
                 </Txt>
               </Card>
             ) : (
