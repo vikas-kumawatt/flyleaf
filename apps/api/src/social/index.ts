@@ -674,13 +674,16 @@ export class SocialService {
     }
 
     // 3. Enforce visibility (404 Not Found on failure, never 403 Forbidden)
-    assertCanView({
-      viewer,
-      ownerId: targetUserId,
-      isOwnerPrivate: targetProfile.isPrivate,
-      isBlocked,
-      isFollower,
-    });
+    assertCanView(
+      {
+        viewer,
+        ownerId: targetUserId,
+        isOwnerPrivate: targetProfile.isPrivate,
+        isBlocked,
+        isFollower,
+      },
+      'User not found.',
+    );
 
     // 4. Fetch list of accepted followers
     const allRows = await this.db
@@ -837,13 +840,16 @@ export class SocialService {
     }
 
     // 3. Enforce visibility (404 Not Found on failure, never 403 Forbidden)
-    assertCanView({
-      viewer,
-      ownerId: targetUserId,
-      isOwnerPrivate: targetProfile.isPrivate,
-      isBlocked,
-      isFollower,
-    });
+    assertCanView(
+      {
+        viewer,
+        ownerId: targetUserId,
+        isOwnerPrivate: targetProfile.isPrivate,
+        isBlocked,
+        isFollower,
+      },
+      'User not found.',
+    );
 
     // 4. Fetch list of users targetUserId is following (state = 'accepted')
     const allRows = await this.db

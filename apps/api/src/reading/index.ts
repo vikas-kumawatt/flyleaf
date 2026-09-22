@@ -7,12 +7,12 @@
 //   2. progress_events is APPEND-ONLY and idempotent on client_event_id, so an
 //      offline client can replay its queue safely (PRD §8.3).
 
-import { sql, eq, desc } from 'drizzle-orm';
+import { sql, eq, desc, and, or } from 'drizzle-orm';
 import { z } from 'zod';
 import type { FastifyInstance } from 'fastify';
 
 import type { Db } from '../platform/index.js';
-import { reads, works, progressEvents, profiles, editions } from '../db/schema.js';
+import { reads, works, progressEvents, profiles, editions, blocks, follows } from '../db/schema.js';
 import { ApiError, requireViewer } from '../http.js';
 import { canView, type Visibility, VISIBILITIES } from '../authorization/index.js';
 import {
@@ -289,6 +289,41 @@ export class ReadingService {
     return this.#get(this.db, viewer, id);
   }
 
+  async #checkRelationship(viewer: string | null, targetUserId: string): Promise<{ isBlocked: boolean; isFollower: boolean }> {
+    if (viewer === null || viewer === targetUserId) {
+      return { isBlocked: false, isFollower: viewer === targetUserId };
+    }
+
+    const [blockRow] = await this.db
+      .select({ blockerId: blocks.blockerId })
+      .from(blocks)
+      .where(
+        or(
+          and(eq(blocks.blockerId, viewer), eq(blocks.blockedId, targetUserId)),
+          and(eq(blocks.blockerId, targetUserId), eq(blocks.blockedId, viewer)),
+        ),
+      )
+      .limit(1);
+
+    if (blockRow) {
+      return { isBlocked: true, isFollower: false };
+    }
+
+    const [followRow] = await this.db
+      .select({ followerId: follows.followerId })
+      .from(follows)
+      .where(
+        and(
+          eq(follows.followerId, viewer),
+          eq(follows.followeeId, targetUserId),
+          eq(follows.state, 'accepted'),
+        ),
+      )
+      .limit(1);
+
+    return { isBlocked: false, isFollower: Boolean(followRow) };
+  }
+
   async #get(db: Db, viewer: string | null, id: string): Promise<Read | null> {
     const [row] = await db
       .select({
@@ -316,11 +351,15 @@ export class ReadingService {
 
     if (!row) return null;
 
+    const { isBlocked, isFollower } = await this.#checkRelationship(viewer, row.userId);
+
     const allowed = canView({
       viewer,
       ownerId: row.userId,
       visibility: row.visibility as Visibility,
       isOwnerPrivate: row.isPrivate,
+      isBlocked,
+      isFollower,
     });
 
     if (!allowed) return null;
@@ -356,12 +395,14 @@ export class ReadingService {
       .where(eq(profiles.userId, userId))
       .limit(1);
 
-    if (!profile) return [];
+    const { isBlocked, isFollower } = await this.#checkRelationship(viewer, userId);
 
     const canViewAccount = canView({
       viewer,
       ownerId: userId,
-      isOwnerPrivate: profile.isPrivate,
+      isOwnerPrivate: profile?.isPrivate ?? false,
+      isBlocked,
+      isFollower,
     });
     if (!canViewAccount) return [];
 
@@ -495,10 +536,14 @@ export class ReadingService {
 
       if (!profile) throw ApiError.notFound('User not found.');
 
+      const { isBlocked, isFollower } = await this.#checkRelationship(viewer, userId);
+
       const allowed = canView({
         viewer,
         ownerId: userId,
         isOwnerPrivate: profile.isPrivate,
+        isBlocked,
+        isFollower,
       });
       if (!allowed) throw ApiError.notFound('User not found.');
 

@@ -9,7 +9,7 @@
 // 6. Per-entry notes (up to 280 characters).
 
 import { FastifyInstance, FastifyPluginAsync } from 'fastify';
-import { and, eq, sql, inArray } from 'drizzle-orm';
+import { and, eq, sql, inArray, or } from 'drizzle-orm';
 import { Db } from '../platform/index.js';
 import { ApiError, requireViewer } from '../http.js';
 import { canView, assertCanView } from '../authorization/index.js';
@@ -20,6 +20,7 @@ import {
   profiles,
   users,
   follows,
+  blocks,
   works,
   workAuthors,
   authors,
@@ -229,11 +230,52 @@ export class ShelvesService {
     return this.formatShelf(inserted, owner, false, []);
   }
 
-  async get(viewer: string | null, id: string): Promise<ShelfDetail> {
+  async checkRelationship(
+    viewer: string | null,
+    targetUserId: string,
+  ): Promise<{ isBlocked: boolean; isFollower: boolean }> {
+    if (viewer === null || viewer === targetUserId) {
+      return { isBlocked: false, isFollower: viewer === targetUserId };
+    }
+
+    const [blockRow] = await this.db
+      .select({ blockerId: blocks.blockerId })
+      .from(blocks)
+      .where(
+        or(
+          and(eq(blocks.blockerId, viewer), eq(blocks.blockedId, targetUserId)),
+          and(eq(blocks.blockerId, targetUserId), eq(blocks.blockedId, viewer)),
+        ),
+      )
+      .limit(1);
+
+    if (blockRow) {
+      return { isBlocked: true, isFollower: false };
+    }
+
+    const [followRow] = await this.db
+      .select({ followerId: follows.followerId })
+      .from(follows)
+      .where(
+        and(
+          eq(follows.followerId, viewer),
+          eq(follows.followeeId, targetUserId),
+          eq(follows.state, 'accepted'),
+        ),
+      )
+      .limit(1);
+
+    return { isBlocked: false, isFollower: Boolean(followRow) };
+  }
+
+  async getById(
+    viewer: string | null,
+    shelfId: string,
+  ): Promise<ShelfDetail> {
     const [shelf] = await this.db
       .select()
       .from(shelves)
-      .where(eq(shelves.id, id))
+      .where(eq(shelves.id, shelfId))
       .limit(1);
 
     if (!shelf) {
@@ -248,29 +290,19 @@ export class ShelvesService {
     const owner = await this.getOwnerProfile(shelf.userId);
 
     // Enforce authorization
-    let isFollower = false;
-    if (viewer && viewer !== shelf.userId) {
-      const [follow] = await this.db
-        .select({ state: follows.state })
-        .from(follows)
-        .where(
-          and(
-            eq(follows.followerId, viewer),
-            eq(follows.followeeId, shelf.userId),
-            eq(follows.state, 'accepted'),
-          ),
-        )
-        .limit(1);
-      isFollower = Boolean(follow);
-    }
+    const { isBlocked, isFollower } = await this.checkRelationship(viewer, shelf.userId);
 
-    assertCanView({
-      viewer,
-      ownerId: shelf.userId,
-      visibility: shelf.privacy,
-      isOwnerPrivate: owner.isPrivate,
-      isFollower,
-    });
+    assertCanView(
+      {
+        viewer,
+        ownerId: shelf.userId,
+        visibility: shelf.privacy,
+        isOwnerPrivate: owner.isPrivate,
+        isBlocked,
+        isFollower,
+      },
+      'Shelf not found.',
+    );
 
     let coverIds: (number | null)[] = [];
     if (shelf.coverWorkIds && shelf.coverWorkIds.length > 0) {
@@ -287,7 +319,7 @@ export class ShelvesService {
       const [saved] = await this.db
         .select({ shelfId: shelfSaves.shelfId })
         .from(shelfSaves)
-        .where(and(eq(shelfSaves.shelfId, id), eq(shelfSaves.userId, viewer)))
+        .where(and(eq(shelfSaves.shelfId, shelfId), eq(shelfSaves.userId, viewer)))
         .limit(1);
       isSaved = Boolean(saved);
     }
@@ -345,7 +377,7 @@ export class ShelvesService {
     }
 
     const owner = await this.getOwnerProfile(viewer);
-    return this.get(viewer, id);
+    return this.getById(viewer, id);
   }
 
   async delete(viewer: string, id: string): Promise<{ deleted: true; id: string }> {
@@ -391,29 +423,19 @@ export class ShelvesService {
 
     const owner = await this.getOwnerProfile(shelf.userId);
 
-    let isFollower = false;
-    if (viewer && viewer !== shelf.userId) {
-      const [follow] = await this.db
-        .select({ state: follows.state })
-        .from(follows)
-        .where(
-          and(
-            eq(follows.followerId, viewer),
-            eq(follows.followeeId, shelf.userId),
-            eq(follows.state, 'accepted'),
-          ),
-        )
-        .limit(1);
-      isFollower = Boolean(follow);
-    }
+    const { isBlocked, isFollower } = await this.checkRelationship(viewer, shelf.userId);
 
-    assertCanView({
-      viewer,
-      ownerId: shelf.userId,
-      visibility: shelf.privacy,
-      isOwnerPrivate: owner.isPrivate,
-      isFollower,
-    });
+    assertCanView(
+      {
+        viewer,
+        ownerId: shelf.userId,
+        visibility: shelf.privacy,
+        isOwnerPrivate: owner.isPrivate,
+        isBlocked,
+        isFollower,
+      },
+      'Shelf not found.',
+    );
 
     const [countRow] = await this.db.execute<{ count: string }>(sql`
       SELECT count(*)::text as count
@@ -755,7 +777,7 @@ export class ShelvesService {
     viewer: string,
     shelfId: string,
   ): Promise<{ saved: true; shelf_id: string; save_count: number }> {
-    const shelf = await this.get(viewer, shelfId);
+    const shelf = await this.getById(viewer, shelfId);
 
     if (shelf.user_id === viewer) {
       throw new ApiError(400, 'cannot_save_own_shelf', 'You cannot save your own shelf.');
@@ -936,9 +958,18 @@ export class ShelvesService {
       .select({ shelf: shelves })
       .from(shelves)
       .innerJoin(profiles, eq(shelves.userId, profiles.userId))
-      .where(and(...whereConditions));
-
-    const candidateShelves = candidateShelvesRows.map((r) => r.shelf);
+    let candidateShelves = candidateShelvesRows.map((r) => r.shelf);
+    if (viewer) {
+      const blockRows = await this.db
+        .select({ blockerId: blocks.blockerId, blockedId: blocks.blockedId })
+        .from(blocks)
+        .where(or(eq(blocks.blockerId, viewer), eq(blocks.blockedId, viewer)));
+      const blockedSet = new Set<string>();
+      for (const b of blockRows) {
+        blockedSet.add(b.blockerId === viewer ? b.blockedId : b.blockerId);
+      }
+      candidateShelves = candidateShelves.filter((s) => !blockedSet.has(s.userId));
+    }
 
     if (candidateShelves.length === 0) {
       return { shelves: [], total: 0 };
@@ -1153,21 +1184,7 @@ export class ShelvesService {
 
     const owner = await this.getOwnerProfile(targetUserId);
 
-    let isFollower = false;
-    if (viewer && viewer !== targetUserId) {
-      const [follow] = await this.db
-        .select({ state: follows.state })
-        .from(follows)
-        .where(
-          and(
-            eq(follows.followerId, viewer),
-            eq(follows.followeeId, targetUserId),
-            eq(follows.state, 'accepted'),
-          ),
-        )
-        .limit(1);
-      isFollower = Boolean(follow);
-    }
+    const { isBlocked, isFollower } = await this.checkRelationship(viewer, targetUserId);
 
     // Enforce private account hierarchy: unauthorized viewers receive 404 (never 403)
     assertCanView({
@@ -1175,6 +1192,7 @@ export class ShelvesService {
       ownerId: targetUserId,
       visibility: 'public',
       isOwnerPrivate: owner.isPrivate,
+      isBlocked,
       isFollower,
     });
 
@@ -1277,22 +1295,8 @@ export class ShelvesService {
       throw ApiError.notFound('Shelf not found.');
     }
 
-    // 3. Follow status
-    let isFollower = false;
-    if (viewer && viewer !== profile.userId) {
-      const [follow] = await this.db
-        .select({ state: follows.state })
-        .from(follows)
-        .where(
-          and(
-            eq(follows.followerId, viewer),
-            eq(follows.followeeId, profile.userId),
-            eq(follows.state, 'accepted'),
-          ),
-        )
-        .limit(1);
-      isFollower = Boolean(follow);
-    }
+    // 3. Follow and block status
+    const { isBlocked, isFollower } = await this.checkRelationship(viewer, profile.userId);
 
     // 4. Authorization (404 on access denial)
     assertCanView({
@@ -1300,6 +1304,7 @@ export class ShelvesService {
       ownerId: profile.userId,
       visibility: shelf.privacy,
       isOwnerPrivate: profile.isPrivate,
+      isBlocked,
       isFollower,
     });
 
@@ -1493,7 +1498,7 @@ export const shelvesPlugin: FastifyPluginAsync<{ db: Db }> = async (fastify, opt
     },
     async (request, reply) => {
       const { id } = request.params as { id: string };
-      const shelf = await service.get(request.viewer, id);
+      const shelf = await service.getById(request.viewer, id);
       return reply.send({ shelf });
     },
   );
@@ -1953,7 +1958,7 @@ export const shelvesWebPlugin: FastifyPluginAsync<{ db: Db }> = async (fastify, 
     '/shelf/:id',
     async (request, reply) => {
       const { id } = request.params;
-      const shelf = await service.get(request.viewer, id);
+      const shelf = await service.getById(request.viewer, id);
       if (request.headers.accept?.includes('application/json')) {
         return reply.send({ shelf });
       }

@@ -772,7 +772,19 @@
   - OpenAPI 3.1.0 contract synchronized with 0 drift and typed methods `getFollowers` and `getFollowing` exposed in `@flyleaf/api-client` and `apps/mobile/src/lib/api.ts`.
   - Mobile UI integration: created `FollowersScreen` (`apps/mobile/app/user/[id]/followers.tsx`) and `FollowingScreen` (`apps/mobile/app/user/[id]/following.tsx`) with 1-tap follow toggles, user avatars, private indicators, and pressable follower/following count headers on profile screens.
   - Integration test suite `apps/api/src/test/social-lists.test.ts` (5/5 tests passing) verifying public listing, 404 private account protection, 404 block masking, third-party block filtering, and mutual follow indicators.
-- [ ] **SO-06** ⚠️ Block/private tests: blocked view ≡ non-existent account — 0.5d
+- [x] **SO-06** ⚠️ **Block/private tests: blocked view ≡ non-existent account** — 0.5d
+  - Authored comprehensive integration test suite `apps/api/src/test/social-block-equivalence.test.ts` (8/8 tests passing) verifying complete structural and semantic equivalence between a blocked user's view and a non-existent account (`404 Not Found`, `{ error: { code: 'not_found', message: '...' } }`).
+  - Exhaustively verified 8 key endpoints/surfaces under block conditions:
+    1. `GET /v1/users/:id` — blocked profile lookup is structurally identical to non-existent UUID.
+    2. `GET /v1/users/:id` (bidirectional) — blocker requesting blocked user profile receives identical 404.
+    3. `POST /v1/users/:id/follow` — follow attempt to blocked user is structurally identical to non-existent user.
+    4. `GET /v1/reads/:id` — blocked user requesting blocker's public read receives identical 404.
+    5. `GET /v1/users/:id/stats` — blocked user requesting blocker's reading stats receives identical 404.
+    6. `GET /v1/shelves/:id` — blocked user requesting blocker's public shelf receives identical 404.
+    7. `GET /v1/users/:id/followers` — blocked user requesting blocker's followers list receives identical 404.
+    8. `GET /v1/works/:id/reviews` — reviews written by blocker are silently omitted when requested by blocked user.
+  - OpenAPI contract check (`npm run spec:check`) verified with 0 drift.
+  - 100% green CI pipeline (`node scripts/ci.mjs`) passing all 9 build & test steps in 146s.
 
 ### Feed — `SO-1x` · 6d
 - [ ] **SO-10** activity table + write-on-action, respecting visibility — 1d
