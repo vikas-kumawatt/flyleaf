@@ -640,6 +640,27 @@ export const follows = pgTable('follows', {
   index('follows_followee_idx').on(t.followeeId, t.state),
 ]);
 
+export const blocks = pgTable('blocks', {
+  blockerId: uuid('blocker_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  blockedId: uuid('blocked_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [
+  primaryKey({ columns: [t.blockerId, t.blockedId] }),
+  check('blocks_no_self_block_ck', sql`${t.blockerId} <> ${t.blockedId}`),
+  index('blocks_blocked_idx').on(t.blockedId),
+]);
+
+export const mutes = pgTable('mutes', {
+  userId: uuid('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  targetType: text('target_type').notNull(),
+  targetId: uuid('target_id').notNull(),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [
+  primaryKey({ columns: [t.userId, t.targetType, t.targetId] }),
+  check('mutes_target_type_ck', sql`${t.targetType} IN ('user','work')`),
+  index('mutes_user_idx').on(t.userId, t.targetType),
+]);
+
 // ---------------------------------------------------------------------------
 // 7. Telemetry & Analytics (architecture.md §3.7, PRD §28.1, SL-80)
 // ---------------------------------------------------------------------------

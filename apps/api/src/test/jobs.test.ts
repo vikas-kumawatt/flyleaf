@@ -15,7 +15,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { PgBoss, fromPglite } from 'pg-boss';
 import type { PGlite } from '@electric-sql/pglite';
 import {
-  JOBS_SCHEMA, QUEUES, makeBoss, pingHandler, dedupeJobHandler, reconcileShelvesJobHandler, registerQueues, sendInTx, type JobLog,
+  JOBS_SCHEMA, QUEUES, makeBoss, pingHandler, dedupeJobHandler, reconcileShelvesJobHandler, reconcileFollowsJobHandler, registerQueues, sendInTx, type JobLog,
 } from '../jobs/index.js';
 import { freshDb, freshDrizzle } from './pg.js';
 import type { Db } from '../platform/index.js';
@@ -90,6 +90,16 @@ describe('the handler itself', () => {
     const { db } = await freshDrizzle();
     const result = await reconcileShelvesJobHandler(
       [{ id: '1', name: QUEUES.reconcileShelves, data: {} }] as never,
+      db,
+    );
+    expect(result.reconciled).toBe(true);
+    expect(result.workedAt).toBeTruthy();
+  });
+
+  it('runs reconcileFollows via reconcileFollowsJobHandler', async () => {
+    const { db } = await freshDrizzle();
+    const result = await reconcileFollowsJobHandler(
+      [{ id: '1', name: QUEUES.reconcileFollows, data: {} }] as never,
       db,
     );
     expect(result.reconciled).toBe(true);

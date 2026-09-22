@@ -62,6 +62,11 @@ export const QUEUES = {
    */
   reconcileShelves: 'shelves.reconcile',
   /**
+   * Nightly follow counter reconciliation (Architecture §3.9, SO-01).
+   * Reconciles profiles.follower_count and profiles.following_count.
+   */
+  reconcileFollows: 'follows.reconcile',
+  /**
    * Reading library import processing job (PRD §6.8, §24.2, IM-02, IM-08).
    * Parses uploaded CSV, matches against catalog, and populates user reads.
    */
@@ -79,6 +84,8 @@ export type PingRequest = { note?: string };
 export type PingResult = { pong: true; note: string; workedAt: string };
 
 export type ReconcileShelvesResult = { reconciled: true; workedAt: string };
+
+export type ReconcileFollowsResult = { reconciled: true; workedAt: string };
 
 export type DedupeJobRequest = {
   limit?: number;
@@ -153,6 +160,17 @@ export async function reconcileShelvesJobHandler(
   db: Db,
 ): Promise<ReconcileShelvesResult> {
   await db.execute(sql`SELECT reconcile_shelf_counters();`);
+  return { reconciled: true, workedAt: new Date().toISOString() };
+}
+
+/**
+ * Follow counter reconciliation background job handler (Architecture §3.9, SO-01).
+ */
+export async function reconcileFollowsJobHandler(
+  _jobs: Job<void>[],
+  db: Db,
+): Promise<ReconcileFollowsResult> {
+  await db.execute(sql`SELECT reconcile_follow_counters();`);
   return { reconciled: true, workedAt: new Date().toISOString() };
 }
 
@@ -280,6 +298,19 @@ export async function registerQueues(boss: PgBoss, log: JobLog, db?: Db): Promis
       log.info(
         {
           queue: QUEUES.reconcileShelves,
+          ids: jobs.map((j) => j.id),
+          reconciled: result.reconciled,
+        },
+        'job handled',
+      );
+      return result;
+    });
+
+    await boss.work<void, ReconcileFollowsResult>(QUEUES.reconcileFollows, async (jobs) => {
+      const result = await reconcileFollowsJobHandler(jobs, db);
+      log.info(
+        {
+          queue: QUEUES.reconcileFollows,
           ids: jobs.map((j) => j.id),
           reconciled: result.reconciled,
         },
