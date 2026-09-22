@@ -758,7 +758,13 @@
   - OpenAPI 3.1.0 contract synchronized with 0 drift and typed methods in `@flyleaf/api-client`.
   - Mobile UI integration: added "Block" action with confirmation dialog to `UserProfileScreen` (`apps/mobile/app/user/[id].tsx`), created `BlockedUsersScreen` (`apps/mobile/app/profile/blocked.tsx`) with 1-tap unblock action, and added "Blocked Accounts" entry in Profile settings (`apps/mobile/app/(tabs)/profile.tsx`).
   - Integration test suite `apps/api/src/test/social-block.test.ts` (6/6 tests passing) verifying self-block rejection, bidirectional follow severing, counter updates, 404 obscure masking, unblock behavior, and blocked list retrieval.
-- [ ] **SO-04** Mute user and **mute book** — 0.5d
+- [x] **SO-04** Mute user and **mute book** — 0.5d
+  - Built mute/unmute service methods for users and books in `apps/api/src/social/index.ts` (`POST /v1/users/:id/mute`, `DELETE /v1/users/:id/mute`, `POST /v1/works/:id/mute`, `DELETE /v1/works/:id/mute`, `GET /v1/me/mutes`, plus `/v1/mutes/users/:userId`, `/v1/mutes/works/:workId`, `/v1/mutes` aliases).
+  - Silent, low-stakes muting semantics (PRD §11.5, §5289, §5290): muting a user hides their activity from feeds without unfollowing; muting a book removes the book from activity feeds and recommendations ("hyped release" filter).
+  - Self-mute prevention: returns HTTP 400 Bad Request (`cannot_mute_self`).
+  - OpenAPI 3.1.0 contract synchronized with 0 drift and typed methods in `@flyleaf/api-client`.
+  - Mobile UI integration: added "Mute" action to `UserProfileScreen` (`apps/mobile/app/user/[id].tsx`), added "Mute book" action to `WorkScreen` (`apps/mobile/app/work/[id].tsx`), created `MutedItemsScreen` (`apps/mobile/app/profile/muted.tsx`) with segmented tabs for Users and Books with 1-tap unmute actions, and added "Muted Content" entry in Profile settings (`apps/mobile/app/(tabs)/profile.tsx`).
+  - Integration test suite `apps/api/src/test/social-mute.test.ts` (6/6 tests passing) verifying self-mute rejection, user muting/unmuting, book muting/unmuting, and muted list retrieval.
 - [ ] **SO-05** Followers/following lists — 0.5d
 - [ ] **SO-06** ⚠️ Block/private tests: blocked view ≡ non-existent account — 0.5d
 

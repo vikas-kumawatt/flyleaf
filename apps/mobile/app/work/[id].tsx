@@ -16,6 +16,7 @@ import {
   Pressable,
   Share,
   StyleSheet,
+  Alert,
 } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
@@ -61,10 +62,30 @@ export default function WorkScreen() {
 
   const [work, setWork] = useState<Work | null>(null);
   const [busy, setBusy] = useState(false);
+  const [isMuted, setIsMuted] = useState(false);
   const [pageInput, setPageInput] = useState('');
   const [descExpanded, setDescExpanded] = useState(false);
   const [activeTab, setActiveTab] = useState<'reviews' | 'editions' | 'history'>('reviews');
   const [shelfSheetVisible, setShelfSheetVisible] = useState(false);
+
+  const handleMuteBook = async () => {
+    if (!id || !work) return;
+    try {
+      void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+      if (isMuted) {
+        await api.unmuteWork(id);
+        setIsMuted(false);
+        Alert.alert('Unmuted', `"${work.title}" has been unmuted.`);
+      } else {
+        await api.muteWork(id);
+        setIsMuted(true);
+        Alert.alert('Muted Book', `"${work.title}" has been muted. It will no longer appear in your activity feeds.`);
+      }
+      void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    } catch {
+      Alert.alert('Error', 'Failed to update mute state. Please try again.');
+    }
+  };
 
   // Reviews state (SL-64)
   const [reviewsList, setReviewsList] = useState<Review[]>([]);
@@ -376,6 +397,28 @@ export default function WorkScreen() {
           >
             <Ionicons name="share-outline" size={18} color={c.muted} />
           </Pressable>
+
+          {user && (
+            <Pressable
+              onPress={handleMuteBook}
+              accessibilityRole="button"
+              accessibilityLabel={isMuted ? "Unmute book" : "Mute book"}
+              style={[
+                sheet.row,
+                {
+                  minHeight: 44,
+                  paddingHorizontal: space[3],
+                  borderRadius: radius.md,
+                  borderWidth: 1,
+                  borderColor: isMuted ? c.accent : c.line,
+                  backgroundColor: isMuted ? c.accentSoft : c.surface,
+                  justifyContent: 'center',
+                },
+              ]}
+            >
+              <Ionicons name={isMuted ? "volume-mute" : "volume-mute-outline"} size={18} color={isMuted ? c.accent : c.muted} />
+            </Pressable>
+          )}
         </View>
 
         {/* 3. Rating & 5-Bar Distribution Histogram */}

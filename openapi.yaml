@@ -10421,6 +10421,466 @@ paths:
                         - blocked_at
                 required:
                   - blocks
+  /users/{id}/mute:
+    post:
+      summary: Mute a user
+      tags:
+        - Social
+      parameters:
+        - schema:
+            type: string
+            format: uuid
+          in: path
+          name: id
+          required: true
+      responses:
+        "200":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    enum:
+                      - muted
+                      - unmuted
+                  target_type:
+                    type: string
+                    enum:
+                      - user
+                      - work
+                  target_id:
+                    type: string
+                    format: uuid
+                  user_id:
+                    type: string
+                    format: uuid
+                required:
+                  - status
+                  - target_type
+                  - target_id
+                  - user_id
+    delete:
+      summary: Unmute a user
+      tags:
+        - Social
+      parameters:
+        - schema:
+            type: string
+            format: uuid
+          in: path
+          name: id
+          required: true
+      responses:
+        "200":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    enum:
+                      - muted
+                      - unmuted
+                  target_type:
+                    type: string
+                    enum:
+                      - user
+                      - work
+                  target_id:
+                    type: string
+                    format: uuid
+                  user_id:
+                    type: string
+                    format: uuid
+                required:
+                  - status
+                  - target_type
+                  - target_id
+                  - user_id
+  /mutes/users/{userId}:
+    post:
+      summary: Mute a user (alias)
+      tags:
+        - Social
+      parameters:
+        - schema:
+            type: string
+            format: uuid
+          in: path
+          name: userId
+          required: true
+      responses:
+        "200":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    enum:
+                      - muted
+                      - unmuted
+                  target_type:
+                    type: string
+                    enum:
+                      - user
+                      - work
+                  target_id:
+                    type: string
+                    format: uuid
+                  user_id:
+                    type: string
+                    format: uuid
+                required:
+                  - status
+                  - target_type
+                  - target_id
+                  - user_id
+    delete:
+      summary: Unmute a user (alias)
+      tags:
+        - Social
+      parameters:
+        - schema:
+            type: string
+            format: uuid
+          in: path
+          name: userId
+          required: true
+      responses:
+        "200":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    enum:
+                      - muted
+                      - unmuted
+                  target_type:
+                    type: string
+                    enum:
+                      - user
+                      - work
+                  target_id:
+                    type: string
+                    format: uuid
+                  user_id:
+                    type: string
+                    format: uuid
+                required:
+                  - status
+                  - target_type
+                  - target_id
+                  - user_id
+  /works/{id}/mute:
+    post:
+      summary: Mute a book
+      tags:
+        - Social
+      parameters:
+        - schema:
+            type: string
+            format: uuid
+          in: path
+          name: id
+          required: true
+      responses:
+        "200":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    enum:
+                      - muted
+                      - unmuted
+                  target_type:
+                    type: string
+                    enum:
+                      - user
+                      - work
+                  target_id:
+                    type: string
+                    format: uuid
+                  user_id:
+                    type: string
+                    format: uuid
+                required:
+                  - status
+                  - target_type
+                  - target_id
+                  - user_id
+    delete:
+      summary: Unmute a book
+      tags:
+        - Social
+      parameters:
+        - schema:
+            type: string
+            format: uuid
+          in: path
+          name: id
+          required: true
+      responses:
+        "200":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    enum:
+                      - muted
+                      - unmuted
+                  target_type:
+                    type: string
+                    enum:
+                      - user
+                      - work
+                  target_id:
+                    type: string
+                    format: uuid
+                  user_id:
+                    type: string
+                    format: uuid
+                required:
+                  - status
+                  - target_type
+                  - target_id
+                  - user_id
+  /mutes/works/{workId}:
+    post:
+      summary: Mute a book (alias)
+      tags:
+        - Social
+      parameters:
+        - schema:
+            type: string
+            format: uuid
+          in: path
+          name: workId
+          required: true
+      responses:
+        "200":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    enum:
+                      - muted
+                      - unmuted
+                  target_type:
+                    type: string
+                    enum:
+                      - user
+                      - work
+                  target_id:
+                    type: string
+                    format: uuid
+                  user_id:
+                    type: string
+                    format: uuid
+                required:
+                  - status
+                  - target_type
+                  - target_id
+                  - user_id
+    delete:
+      summary: Unmute a book (alias)
+      tags:
+        - Social
+      parameters:
+        - schema:
+            type: string
+            format: uuid
+          in: path
+          name: workId
+          required: true
+      responses:
+        "200":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    enum:
+                      - muted
+                      - unmuted
+                  target_type:
+                    type: string
+                    enum:
+                      - user
+                      - work
+                  target_id:
+                    type: string
+                    format: uuid
+                  user_id:
+                    type: string
+                    format: uuid
+                required:
+                  - status
+                  - target_type
+                  - target_id
+                  - user_id
+  /me/mutes:
+    get:
+      summary: List muted users and muted books
+      tags:
+        - Social
+      responses:
+        "200":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  users:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: string
+                          format: uuid
+                          description: Muted user ID
+                        username:
+                          type: string
+                        display_name:
+                          type:
+                            - "null"
+                            - string
+                        avatar_key:
+                          type:
+                            - "null"
+                            - string
+                        muted_at:
+                          type: string
+                          format: date-time
+                      required:
+                        - id
+                        - username
+                        - muted_at
+                  works:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: string
+                          format: uuid
+                          description: Muted work ID
+                        title:
+                          type: string
+                        author_name:
+                          type:
+                            - "null"
+                            - string
+                        cover_id:
+                          type:
+                            - "null"
+                            - integer
+                        muted_at:
+                          type: string
+                          format: date-time
+                      required:
+                        - id
+                        - title
+                        - muted_at
+                required:
+                  - users
+                  - works
+  /mutes:
+    get:
+      summary: List muted users and muted books (alias)
+      tags:
+        - Social
+      responses:
+        "200":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  users:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: string
+                          format: uuid
+                          description: Muted user ID
+                        username:
+                          type: string
+                        display_name:
+                          type:
+                            - "null"
+                            - string
+                        avatar_key:
+                          type:
+                            - "null"
+                            - string
+                        muted_at:
+                          type: string
+                          format: date-time
+                      required:
+                        - id
+                        - username
+                        - muted_at
+                  works:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: string
+                          format: uuid
+                          description: Muted work ID
+                        title:
+                          type: string
+                        author_name:
+                          type:
+                            - "null"
+                            - string
+                        cover_id:
+                          type:
+                            - "null"
+                            - integer
+                        muted_at:
+                          type: string
+                          format: date-time
+                      required:
+                        - id
+                        - title
+                        - muted_at
+                required:
+                  - users
+                  - works
   /healthz:
     get:
       summary: Liveness probe

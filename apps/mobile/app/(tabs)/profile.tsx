@@ -587,6 +587,29 @@ export default function ProfileScreen() {
                     </Txt>
                   </View>
                 </Card>
+
+                {/* Muted Content */}
+                <Card
+                  onPress={() => {
+                    void Haptics.selectionAsync();
+                    router.push('/profile/muted' as any);
+                  }}
+                  style={{ padding: space[3] }}
+                >
+                  <View style={sheet.rowBetween}>
+                    <View style={{ gap: 2 }}>
+                      <Txt variant="title" style={{ fontSize: 15, fontWeight: '700' }}>
+                        Muted Content
+                      </Txt>
+                      <Txt variant="caption" color="muted">
+                        Inspect and manage muted users and muted books.
+                      </Txt>
+                    </View>
+                    <Txt variant="title" color="accent">
+                      →
+                    </Txt>
+                  </View>
+                </Card>
               </View>
             </View>
 

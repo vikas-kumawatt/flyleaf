@@ -1866,5 +1866,61 @@ export const blockedUsersResponseSchema = {
   required: ['blocks'],
 } as const;
 
+// ---------------------------------------------------------------- Muting (SO-04)
+
+export const muteStateEnum = ['muted', 'unmuted'] as const;
+export const muteTargetTypeEnum = ['user', 'work'] as const;
+
+export const muteResponseSchema = {
+  type: 'object',
+  properties: {
+    status: { type: 'string', enum: muteStateEnum },
+    target_type: { type: 'string', enum: muteTargetTypeEnum },
+    target_id: { type: 'string', format: 'uuid' },
+    user_id: { type: 'string', format: 'uuid' },
+  },
+  required: ['status', 'target_type', 'target_id', 'user_id'],
+} as const;
+
+export const mutedUserSchema = {
+  type: 'object',
+  properties: {
+    id: { type: 'string', format: 'uuid', description: 'Muted user ID' },
+    username: { type: 'string' },
+    display_name: { type: ['string', 'null'] },
+    avatar_key: { type: ['string', 'null'] },
+    muted_at: { type: 'string', format: 'date-time' },
+  },
+  required: ['id', 'username', 'muted_at'],
+} as const;
+
+export const mutedWorkSchema = {
+  type: 'object',
+  properties: {
+    id: { type: 'string', format: 'uuid', description: 'Muted work ID' },
+    title: { type: 'string' },
+    author_name: { type: ['string', 'null'] },
+    cover_id: { type: ['integer', 'null'] },
+    muted_at: { type: 'string', format: 'date-time' },
+  },
+  required: ['id', 'title', 'muted_at'],
+} as const;
+
+export const mutesResponseSchema = {
+  type: 'object',
+  properties: {
+    users: {
+      type: 'array',
+      items: mutedUserSchema,
+    },
+    works: {
+      type: 'array',
+      items: mutedWorkSchema,
+    },
+  },
+  required: ['users', 'works'],
+} as const;
+
+
 
 

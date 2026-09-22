@@ -975,4 +975,38 @@ export interface BlockedUsersResponse {
   blocks: BlockedUserItem[];
 }
 
+// ---------------------------------------------------------------- Muting (SO-04)
+
+export type MuteState = 'muted' | 'unmuted';
+export type MuteTargetType = 'user' | 'work';
+
+export interface MuteResult {
+  status: MuteState;
+  target_type: MuteTargetType;
+  target_id: string;
+  user_id: string;
+}
+
+export interface MutedUserItem {
+  id: string;
+  username: string;
+  display_name: string | null;
+  avatar_key: string | null;
+  muted_at: string;
+}
+
+export interface MutedWorkItem {
+  id: string;
+  title: string;
+  author_name: string | null;
+  cover_id: number | null;
+  muted_at: string;
+}
+
+export interface MutesResponse {
+  users: MutedUserItem[];
+  works: MutedWorkItem[];
+}
+
+
 

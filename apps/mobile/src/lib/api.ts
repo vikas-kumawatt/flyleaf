@@ -78,6 +78,12 @@ import {
   type BlockResult,
   type BlockedUserItem,
   type BlockedUsersResponse,
+  type MuteState,
+  type MuteTargetType,
+  type MuteResult,
+  type MutedUserItem,
+  type MutedWorkItem,
+  type MutesResponse,
 } from '@flyleaf/api-client';
 
 export type {
@@ -134,6 +140,12 @@ export type {
   BlockResult,
   BlockedUserItem,
   BlockedUsersResponse,
+  MuteState,
+  MuteTargetType,
+  MuteResult,
+  MutedUserItem,
+  MutedWorkItem,
+  MutesResponse,
   Edition,
   EditionDetail,
   EditionLookupResponse,
@@ -537,6 +549,13 @@ export const api = {
   blockUser: (userId: string) => client.blockUser(userId),
   unblockUser: (userId: string) => client.unblockUser(userId),
   getBlockedUsers: () => client.getBlockedUsers(),
+
+  // Muting (SO-04)
+  muteUser: (userId: string) => client.muteUser(userId),
+  unmuteUser: (userId: string) => client.unmuteUser(userId),
+  muteWork: (workId: string) => client.muteWork(workId),
+  unmuteWork: (workId: string) => client.unmuteWork(workId),
+  getMutes: () => client.getMutes(),
 };
 
 export interface AuthorDetail {

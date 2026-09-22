@@ -137,6 +137,18 @@ export default function UserProfileScreen() {
     );
   };
 
+  const handleMuteUser = async () => {
+    if (!id || !profile || profile.followStatus === 'self') return;
+    try {
+      void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+      await api.muteUser(id);
+      Alert.alert('Muted', `@${profile.username} has been muted. Their activity will be hidden from your feeds.`);
+      void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    } catch {
+      Alert.alert('Error', 'Failed to mute user. Please try again.');
+    }
+  };
+
   const isRestricted = profile?.isRestricted || (profile?.isPrivate && profile?.followStatus !== 'accepted' && profile?.followStatus !== 'self');
 
   return (
@@ -291,20 +303,35 @@ export default function UserProfileScreen() {
                 </Txt>
               )}
 
-              {/* Follow / Unfollow / Requested Button */}
+              {/* Action Bar (Follow / Mute / Block) */}
               {profile.followStatus !== 'self' && (
-                <Button
-                  label={
-                    profile.followStatus === 'accepted'
-                      ? 'Following'
-                      : profile.followStatus === 'pending'
-                        ? 'Requested'
-                        : 'Follow'
-                  }
-                  variant={profile.followStatus === 'none' ? 'primary' : 'outline'}
-                  onPress={handleFollowToggle}
-                  disabled={submittingFollow}
-                />
+                <View style={[sheet.row, { gap: space[2] }]}>
+                  <Button
+                    label={
+                      profile.followStatus === 'accepted'
+                        ? 'Following'
+                        : profile.followStatus === 'pending'
+                          ? 'Requested'
+                          : 'Follow'
+                    }
+                    variant={profile.followStatus === 'none' ? 'primary' : 'outline'}
+                    onPress={handleFollowToggle}
+                    disabled={submittingFollow}
+                    style={{ flex: 2 }}
+                  />
+                  <Button
+                    label="Mute"
+                    variant="outline"
+                    onPress={handleMuteUser}
+                    style={{ flex: 1 }}
+                  />
+                  <Button
+                    label="Block"
+                    variant="outline"
+                    onPress={handleBlockUser}
+                    style={{ flex: 1 }}
+                  />
+                </View>
               )}
             </View>
 

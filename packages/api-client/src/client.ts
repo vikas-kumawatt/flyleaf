@@ -36,6 +36,8 @@ import type {
   FollowResult,
   BlockResult,
   BlockedUsersResponse,
+  MuteResult,
+  MutesResponse,
   ForgotPasswordRequest,
   LoginRequest,
   MergeListItem,
@@ -854,6 +856,38 @@ export class FlyleafClient {
 
   async getBlockedUsers(): Promise<BlockedUsersResponse> {
     return this.request<BlockedUsersResponse>('/me/blocks', {
+      method: 'GET',
+    });
+  }
+
+  // ---------------------------------------------------------------- Muting (SO-04)
+
+  async muteUser(userId: string): Promise<MuteResult> {
+    return this.request<MuteResult>(`/users/${encodeURIComponent(userId)}/mute`, {
+      method: 'POST',
+    });
+  }
+
+  async unmuteUser(userId: string): Promise<MuteResult> {
+    return this.request<MuteResult>(`/users/${encodeURIComponent(userId)}/mute`, {
+      method: 'DELETE',
+    });
+  }
+
+  async muteWork(workId: string): Promise<MuteResult> {
+    return this.request<MuteResult>(`/works/${encodeURIComponent(workId)}/mute`, {
+      method: 'POST',
+    });
+  }
+
+  async unmuteWork(workId: string): Promise<MuteResult> {
+    return this.request<MuteResult>(`/works/${encodeURIComponent(workId)}/mute`, {
+      method: 'DELETE',
+    });
+  }
+
+  async getMutes(): Promise<MutesResponse> {
+    return this.request<MutesResponse>('/me/mutes', {
       method: 'GET',
     });
   }
