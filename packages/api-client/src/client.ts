@@ -43,6 +43,7 @@ import type {
   MergeListItem,
   MergeListResponse,
   PendingFollowRequestsResponse,
+  FollowUserListResponse,
   PostEventsResponse,
   Profile,
   ProgressEventRequest,
@@ -890,6 +891,32 @@ export class FlyleafClient {
     return this.request<MutesResponse>('/me/mutes', {
       method: 'GET',
     });
+  }
+
+  // ---------------------------------------------------------------- Followers / Following Lists (SO-05)
+
+  async getFollowers(
+    userId: string,
+    query?: { limit?: number; offset?: number },
+  ): Promise<FollowUserListResponse> {
+    const params = new URLSearchParams();
+    if (query?.limit !== undefined) params.append('limit', String(query.limit));
+    if (query?.offset !== undefined) params.append('offset', String(query.offset));
+    const queryString = params.toString();
+    const endpoint = `/users/${encodeURIComponent(userId)}/followers${queryString ? `?${queryString}` : ''}`;
+    return this.request<FollowUserListResponse>(endpoint, { method: 'GET' });
+  }
+
+  async getFollowing(
+    userId: string,
+    query?: { limit?: number; offset?: number },
+  ): Promise<FollowUserListResponse> {
+    const params = new URLSearchParams();
+    if (query?.limit !== undefined) params.append('limit', String(query.limit));
+    if (query?.offset !== undefined) params.append('offset', String(query.offset));
+    const queryString = params.toString();
+    const endpoint = `/users/${encodeURIComponent(userId)}/following${queryString ? `?${queryString}` : ''}`;
+    return this.request<FollowUserListResponse>(endpoint, { method: 'GET' });
   }
 }
 

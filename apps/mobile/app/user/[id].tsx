@@ -280,18 +280,22 @@ export default function UserProfileScreen() {
                   </View>
 
                   <View style={[sheet.row, { gap: space[3], marginTop: space[1] }]}>
-                    <Txt variant="caption">
-                      <Txt variant="caption" style={{ fontWeight: '700' }}>
-                        {profile.followerCount}
-                      </Txt>{' '}
-                      followers
-                    </Txt>
-                    <Txt variant="caption">
-                      <Txt variant="caption" style={{ fontWeight: '700' }}>
-                        {profile.followingCount}
-                      </Txt>{' '}
-                      following
-                    </Txt>
+                    <Pressable onPress={() => router.push(`/user/${profile.id}/followers` as any)}>
+                      <Txt variant="caption">
+                        <Txt variant="caption" style={{ fontWeight: '700' }}>
+                          {profile.followerCount}
+                        </Txt>{' '}
+                        followers
+                      </Txt>
+                    </Pressable>
+                    <Pressable onPress={() => router.push(`/user/${profile.id}/following` as any)}>
+                      <Txt variant="caption">
+                        <Txt variant="caption" style={{ fontWeight: '700' }}>
+                          {profile.followingCount}
+                        </Txt>{' '}
+                        following
+                      </Txt>
+                    </Pressable>
                   </View>
                 </View>
               </View>

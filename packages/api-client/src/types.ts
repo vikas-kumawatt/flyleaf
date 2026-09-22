@@ -1008,5 +1008,24 @@ export interface MutesResponse {
   works: MutedWorkItem[];
 }
 
+// ---------------------------------------------------------------- Followers / Following Lists (SO-05)
+
+export interface FollowUserListItem {
+  id: string;
+  username: string;
+  displayName: string | null;
+  avatarKey: string | null;
+  isPrivate: boolean;
+  followedByViewer: boolean;
+  followsViewer: boolean;
+  followedAt: string;
+}
+
+export interface FollowUserListResponse {
+  users: FollowUserListItem[];
+  total: number;
+}
+
+
 
 

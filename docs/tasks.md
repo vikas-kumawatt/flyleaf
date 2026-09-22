@@ -764,8 +764,14 @@
   - Self-mute prevention: returns HTTP 400 Bad Request (`cannot_mute_self`).
   - OpenAPI 3.1.0 contract synchronized with 0 drift and typed methods in `@flyleaf/api-client`.
   - Mobile UI integration: added "Mute" action to `UserProfileScreen` (`apps/mobile/app/user/[id].tsx`), added "Mute book" action to `WorkScreen` (`apps/mobile/app/work/[id].tsx`), created `MutedItemsScreen` (`apps/mobile/app/profile/muted.tsx`) with segmented tabs for Users and Books with 1-tap unmute actions, and added "Muted Content" entry in Profile settings (`apps/mobile/app/(tabs)/profile.tsx`).
-  - Integration test suite `apps/api/src/test/social-mute.test.ts` (6/6 tests passing) verifying self-mute rejection, user muting/unmuting, book muting/unmuting, and muted list retrieval.
-- [ ] **SO-05** Followers/following lists — 0.5d
+- [x] **SO-05** Followers/following lists — 0.5d
+  - Built follower and following list service methods and Fastify routes in `apps/api/src/social/index.ts` (`GET /v1/users/:id/followers`, `GET /v1/users/:id/following`, plus `/v1/followers/:userId` and `/v1/following/:userId` aliases) supporting limit/offset pagination and total counts.
+  - Strict privacy enforcement (PRD §11.1, §25.3, §26.1): non-followers and guests viewing a private profile's follower/following list receive **404 Not Found** (`not_found`), never 403 Forbidden.
+  - Complete block protection: requesting follower/following lists of a blocked account returns 404 Not Found. Any third-party blocked users relative to the caller are silently excluded from returned lists.
+  - Rich relationship indicators: each list entry populates `followedByViewer` and `followsViewer` for the caller.
+  - OpenAPI 3.1.0 contract synchronized with 0 drift and typed methods `getFollowers` and `getFollowing` exposed in `@flyleaf/api-client` and `apps/mobile/src/lib/api.ts`.
+  - Mobile UI integration: created `FollowersScreen` (`apps/mobile/app/user/[id]/followers.tsx`) and `FollowingScreen` (`apps/mobile/app/user/[id]/following.tsx`) with 1-tap follow toggles, user avatars, private indicators, and pressable follower/following count headers on profile screens.
+  - Integration test suite `apps/api/src/test/social-lists.test.ts` (5/5 tests passing) verifying public listing, 404 private account protection, 404 block masking, third-party block filtering, and mutual follow indicators.
 - [ ] **SO-06** ⚠️ Block/private tests: blocked view ≡ non-existent account — 0.5d
 
 ### Feed — `SO-1x` · 6d

@@ -84,6 +84,8 @@ import {
   type MutedUserItem,
   type MutedWorkItem,
   type MutesResponse,
+  type FollowUserListItem,
+  type FollowUserListResponse,
 } from '@flyleaf/api-client';
 
 export type {
@@ -146,6 +148,8 @@ export type {
   MutedUserItem,
   MutedWorkItem,
   MutesResponse,
+  FollowUserListItem,
+  FollowUserListResponse,
   Edition,
   EditionDetail,
   EditionLookupResponse,
@@ -556,6 +560,12 @@ export const api = {
   muteWork: (workId: string) => client.muteWork(workId),
   unmuteWork: (workId: string) => client.unmuteWork(workId),
   getMutes: () => client.getMutes(),
+
+  // Followers & Following Lists (SO-05)
+  getFollowers: (userId: string, query?: { limit?: number; offset?: number }) =>
+    client.getFollowers(userId, query),
+  getFollowing: (userId: string, query?: { limit?: number; offset?: number }) =>
+    client.getFollowing(userId, query),
 };
 
 export interface AuthorDetail {

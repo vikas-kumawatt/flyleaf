@@ -230,18 +230,34 @@ export default function ProfileScreen() {
 
                   {/* Follower / Following count */}
                   <View style={[sheet.row, { gap: space[3], marginTop: space[1] }]}>
-                    <Txt variant="caption">
-                      <Txt variant="caption" style={{ fontWeight: '700' }}>
-                        {profile?.followerCount ?? 0}
-                      </Txt>{' '}
-                      followers
-                    </Txt>
-                    <Txt variant="caption">
-                      <Txt variant="caption" style={{ fontWeight: '700' }}>
-                        {profile?.followingCount ?? 0}
-                      </Txt>{' '}
-                      following
-                    </Txt>
+                    <Pressable
+                      onPress={() => {
+                        if (user?.id) {
+                          router.push(`/user/${user.id}/followers` as any);
+                        }
+                      }}
+                    >
+                      <Txt variant="caption">
+                        <Txt variant="caption" style={{ fontWeight: '700' }}>
+                          {profile?.followerCount ?? 0}
+                        </Txt>{' '}
+                        followers
+                      </Txt>
+                    </Pressable>
+                    <Pressable
+                      onPress={() => {
+                        if (user?.id) {
+                          router.push(`/user/${user.id}/following` as any);
+                        }
+                      }}
+                    >
+                      <Txt variant="caption">
+                        <Txt variant="caption" style={{ fontWeight: '700' }}>
+                          {profile?.followingCount ?? 0}
+                        </Txt>{' '}
+                        following
+                      </Txt>
+                    </Pressable>
                   </View>
                 </View>
               </View>

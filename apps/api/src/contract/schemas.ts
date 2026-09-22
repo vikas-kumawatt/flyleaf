@@ -1921,6 +1921,36 @@ export const mutesResponseSchema = {
   required: ['users', 'works'],
 } as const;
 
+// ---------------------------------------------------------------- Followers / Following Lists (SO-05)
+
+export const followUserListItemSchema = {
+  type: 'object',
+  properties: {
+    id: { type: 'string', format: 'uuid', description: 'User ID' },
+    username: { type: 'string' },
+    displayName: { type: ['string', 'null'] },
+    avatarKey: { type: ['string', 'null'] },
+    isPrivate: { type: 'boolean' },
+    followedByViewer: { type: 'boolean', description: 'Whether viewer follows this user' },
+    followsViewer: { type: 'boolean', description: 'Whether this user follows viewer' },
+    followedAt: { type: 'string', format: 'date-time' },
+  },
+  required: ['id', 'username', 'isPrivate', 'followedByViewer', 'followsViewer', 'followedAt'],
+} as const;
+
+export const followUserListResponseSchema = {
+  type: 'object',
+  properties: {
+    users: {
+      type: 'array',
+      items: followUserListItemSchema,
+    },
+    total: { type: 'integer' },
+  },
+  required: ['users', 'total'],
+} as const;
+
+
 
 
 

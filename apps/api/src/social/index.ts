@@ -9,10 +9,11 @@
 //   - Complete block invisibility: follow operations targeting a blocked user return 404.
 
 import type { FastifyInstance, FastifyPluginAsync } from 'fastify';
-import { and, eq, or, sql } from 'drizzle-orm';
+import { and, desc, eq, inArray, or, sql } from 'drizzle-orm';
 import type { Db } from '../platform/index.js';
 import { users, profiles, follows, blocks, mutes, works } from '../db/schema.js';
 import { ApiError, requireViewer } from '../http.js';
+import { assertCanView } from '../authorization/index.js';
 import {
   followResponseSchema,
   pendingFollowRequestsResponseSchema,
@@ -20,6 +21,7 @@ import {
   blockedUsersResponseSchema,
   muteResponseSchema,
   mutesResponseSchema,
+  followUserListResponseSchema,
 } from '../contract/schemas.js';
 
 export type FollowState = 'pending' | 'accepted' | 'none';
@@ -83,6 +85,22 @@ export interface MutedWorkItem {
 export interface MutesResponse {
   users: MutedUserItem[];
   works: MutedWorkItem[];
+}
+
+export interface FollowUserListItem {
+  id: string;
+  username: string;
+  displayName: string | null;
+  avatarKey: string | null;
+  isPrivate: boolean;
+  followedByViewer: boolean;
+  followsViewer: boolean;
+  followedAt: string;
+}
+
+export interface FollowUserListResponse {
+  users: FollowUserListItem[];
+  total: number;
 }
 
 export class SocialService {
@@ -589,6 +607,332 @@ export class SocialService {
       })),
     };
   }
+
+  /**
+   * List followers of a target user (SO-05).
+   * Enforces privacy: private profile follower list returns 404 Not Found for non-followers/guests.
+   * Excludes blocked accounts in both directions.
+   */
+  async getFollowers(
+    viewer: string | null,
+    targetUserId: string,
+    opts?: { limit?: number; offset?: number },
+  ): Promise<FollowUserListResponse> {
+    const limit = Math.min(Math.max(opts?.limit ?? 50, 1), 100);
+    const offset = Math.max(opts?.offset ?? 0, 0);
+
+    // 1. Fetch target profile & verify user existence
+    const [targetProfile] = await this.db
+      .select({
+        userId: profiles.userId,
+        isPrivate: profiles.isPrivate,
+      })
+      .from(profiles)
+      .where(eq(profiles.userId, targetUserId))
+      .limit(1);
+
+    if (!targetProfile) {
+      throw ApiError.notFound('User not found.');
+    }
+
+    // 2. Check blocks and follow relationship between viewer and targetUserId
+    let isBlocked = false;
+    let isFollower = false;
+
+    if (viewer !== null) {
+      if (viewer === targetUserId) {
+        isBlocked = false;
+        isFollower = true;
+      } else {
+        const [blockRow] = await this.db
+          .select({ id: blocks.blockerId })
+          .from(blocks)
+          .where(
+            or(
+              and(eq(blocks.blockerId, viewer), eq(blocks.blockedId, targetUserId)),
+              and(eq(blocks.blockerId, targetUserId), eq(blocks.blockedId, viewer)),
+            ),
+          )
+          .limit(1);
+        isBlocked = Boolean(blockRow);
+
+        if (!isBlocked) {
+          const [followRow] = await this.db
+            .select({ followerId: follows.followerId })
+            .from(follows)
+            .where(
+              and(
+                eq(follows.followerId, viewer),
+                eq(follows.followeeId, targetUserId),
+                eq(follows.state, 'accepted'),
+              ),
+            )
+            .limit(1);
+          isFollower = Boolean(followRow);
+        }
+      }
+    }
+
+    // 3. Enforce visibility (404 Not Found on failure, never 403 Forbidden)
+    assertCanView({
+      viewer,
+      ownerId: targetUserId,
+      isOwnerPrivate: targetProfile.isPrivate,
+      isBlocked,
+      isFollower,
+    });
+
+    // 4. Fetch list of accepted followers
+    const allRows = await this.db
+      .select({
+        id: users.id,
+        username: profiles.username,
+        displayName: profiles.displayName,
+        avatarKey: profiles.avatarKey,
+        isPrivate: profiles.isPrivate,
+        followedAt: follows.createdAt,
+      })
+      .from(follows)
+      .innerJoin(users, eq(follows.followerId, users.id))
+      .innerJoin(profiles, eq(users.id, profiles.userId))
+      .where(
+        and(
+          eq(follows.followeeId, targetUserId),
+          eq(follows.state, 'accepted'),
+        ),
+      )
+      .orderBy(desc(follows.createdAt));
+
+    // 5. Exclude blocked users relative to viewer
+    let filteredRows = allRows;
+    if (viewer !== null) {
+      const viewerBlockRows = await this.db
+        .select({
+          blockerId: blocks.blockerId,
+          blockedId: blocks.blockedId,
+        })
+        .from(blocks)
+        .where(or(eq(blocks.blockerId, viewer), eq(blocks.blockedId, viewer)));
+
+      const blockedUserIds = new Set<string>();
+      for (const b of viewerBlockRows) {
+        blockedUserIds.add(b.blockerId === viewer ? b.blockedId : b.blockerId);
+      }
+      filteredRows = allRows.filter((r) => !blockedUserIds.has(r.id));
+    }
+
+    const total = filteredRows.length;
+    const paginatedRows = filteredRows.slice(offset, offset + limit);
+
+    // 6. Resolve followedByViewer and followsViewer flags for paginated batch
+    const itemUserIds = paginatedRows.map((r) => r.id);
+    let viewerFollowingSet = new Set<string>();
+    let viewerFollowedBySet = new Set<string>();
+
+    if (viewer !== null && itemUserIds.length > 0) {
+      const relationshipRows = await this.db
+        .select({
+          followerId: follows.followerId,
+          followeeId: follows.followeeId,
+        })
+        .from(follows)
+        .where(
+          and(
+            eq(follows.state, 'accepted'),
+            or(
+              and(eq(follows.followerId, viewer), inArray(follows.followeeId, itemUserIds)),
+              and(inArray(follows.followerId, itemUserIds), eq(follows.followeeId, viewer)),
+            ),
+          ),
+        );
+
+      for (const rel of relationshipRows) {
+        if (rel.followerId === viewer) {
+          viewerFollowingSet.add(rel.followeeId);
+        }
+        if (rel.followeeId === viewer) {
+          viewerFollowedBySet.add(rel.followerId);
+        }
+      }
+    }
+
+    return {
+      users: paginatedRows.map((r) => ({
+        id: r.id,
+        username: r.username,
+        displayName: r.displayName,
+        avatarKey: r.avatarKey,
+        isPrivate: r.isPrivate,
+        followedByViewer: viewer !== null ? (r.id === viewer ? false : viewerFollowingSet.has(r.id)) : false,
+        followsViewer: viewer !== null ? (r.id === viewer ? false : viewerFollowedBySet.has(r.id)) : false,
+        followedAt: r.followedAt.toISOString(),
+      })),
+      total,
+    };
+  }
+
+  /**
+   * List users followed by a target user (SO-05).
+   * Enforces privacy: private profile following list returns 404 Not Found for non-followers/guests.
+   * Excludes blocked accounts in both directions.
+   */
+  async getFollowing(
+    viewer: string | null,
+    targetUserId: string,
+    opts?: { limit?: number; offset?: number },
+  ): Promise<FollowUserListResponse> {
+    const limit = Math.min(Math.max(opts?.limit ?? 50, 1), 100);
+    const offset = Math.max(opts?.offset ?? 0, 0);
+
+    // 1. Fetch target profile & verify user existence
+    const [targetProfile] = await this.db
+      .select({
+        userId: profiles.userId,
+        isPrivate: profiles.isPrivate,
+      })
+      .from(profiles)
+      .where(eq(profiles.userId, targetUserId))
+      .limit(1);
+
+    if (!targetProfile) {
+      throw ApiError.notFound('User not found.');
+    }
+
+    // 2. Check blocks and follow relationship between viewer and targetUserId
+    let isBlocked = false;
+    let isFollower = false;
+
+    if (viewer !== null) {
+      if (viewer === targetUserId) {
+        isBlocked = false;
+        isFollower = true;
+      } else {
+        const [blockRow] = await this.db
+          .select({ blockerId: blocks.blockerId })
+          .from(blocks)
+          .where(
+            or(
+              and(eq(blocks.blockerId, viewer), eq(blocks.blockedId, targetUserId)),
+              and(eq(blocks.blockerId, targetUserId), eq(blocks.blockedId, viewer)),
+            ),
+          )
+          .limit(1);
+        isBlocked = Boolean(blockRow);
+
+        if (!isBlocked) {
+          const [followRow] = await this.db
+            .select({ followerId: follows.followerId })
+            .from(follows)
+            .where(
+              and(
+                eq(follows.followerId, viewer),
+                eq(follows.followeeId, targetUserId),
+                eq(follows.state, 'accepted'),
+              ),
+            )
+            .limit(1);
+          isFollower = Boolean(followRow);
+        }
+      }
+    }
+
+    // 3. Enforce visibility (404 Not Found on failure, never 403 Forbidden)
+    assertCanView({
+      viewer,
+      ownerId: targetUserId,
+      isOwnerPrivate: targetProfile.isPrivate,
+      isBlocked,
+      isFollower,
+    });
+
+    // 4. Fetch list of users targetUserId is following (state = 'accepted')
+    const allRows = await this.db
+      .select({
+        id: users.id,
+        username: profiles.username,
+        displayName: profiles.displayName,
+        avatarKey: profiles.avatarKey,
+        isPrivate: profiles.isPrivate,
+        followedAt: follows.createdAt,
+      })
+      .from(follows)
+      .innerJoin(users, eq(follows.followeeId, users.id))
+      .innerJoin(profiles, eq(users.id, profiles.userId))
+      .where(
+        and(
+          eq(follows.followerId, targetUserId),
+          eq(follows.state, 'accepted'),
+        ),
+      )
+      .orderBy(desc(follows.createdAt));
+
+    // 5. Exclude blocked users relative to viewer
+    let filteredRows = allRows;
+    if (viewer !== null) {
+      const viewerBlockRows = await this.db
+        .select({
+          blockerId: blocks.blockerId,
+          blockedId: blocks.blockedId,
+        })
+        .from(blocks)
+        .where(or(eq(blocks.blockerId, viewer), eq(blocks.blockedId, viewer)));
+
+      const blockedUserIds = new Set<string>();
+      for (const b of viewerBlockRows) {
+        blockedUserIds.add(b.blockerId === viewer ? b.blockedId : b.blockerId);
+      }
+      filteredRows = allRows.filter((r) => !blockedUserIds.has(r.id));
+    }
+
+    const total = filteredRows.length;
+    const paginatedRows = filteredRows.slice(offset, offset + limit);
+
+    // 6. Resolve followedByViewer and followsViewer flags for paginated batch
+    const itemUserIds = paginatedRows.map((r) => r.id);
+    let viewerFollowingSet = new Set<string>();
+    let viewerFollowedBySet = new Set<string>();
+
+    if (viewer !== null && itemUserIds.length > 0) {
+      const relationshipRows = await this.db
+        .select({
+          followerId: follows.followerId,
+          followeeId: follows.followeeId,
+        })
+        .from(follows)
+        .where(
+          and(
+            eq(follows.state, 'accepted'),
+            or(
+              and(eq(follows.followerId, viewer), inArray(follows.followeeId, itemUserIds)),
+              and(inArray(follows.followerId, itemUserIds), eq(follows.followeeId, viewer)),
+            ),
+          ),
+        );
+
+      for (const rel of relationshipRows) {
+        if (rel.followerId === viewer) {
+          viewerFollowingSet.add(rel.followeeId);
+        }
+        if (rel.followeeId === viewer) {
+          viewerFollowedBySet.add(rel.followerId);
+        }
+      }
+    }
+
+    return {
+      users: paginatedRows.map((r) => ({
+        id: r.id,
+        username: r.username,
+        displayName: r.displayName,
+        avatarKey: r.avatarKey,
+        isPrivate: r.isPrivate,
+        followedByViewer: viewer !== null ? (r.id === viewer ? false : viewerFollowingSet.has(r.id)) : false,
+        followsViewer: viewer !== null ? (r.id === viewer ? false : viewerFollowedBySet.has(r.id)) : false,
+        followedAt: r.followedAt.toISOString(),
+      })),
+      total,
+    };
+  }
 }
 
 export interface SocialPluginOptions {
@@ -1090,5 +1434,100 @@ export const socialPlugin: FastifyPluginAsync<SocialPluginOptions> = async (app,
       },
     },
     getMutesHandler,
+  );
+
+  // Followers & Following Lists (SO-05)
+  const getFollowersHandler = async (req: any) => {
+    const targetId = req.params.id || req.params.userId;
+    const limit = req.query?.limit ? Number(req.query.limit) : undefined;
+    const offset = req.query?.offset ? Number(req.query.offset) : undefined;
+    return service.getFollowers(req.viewer, targetId, { limit, offset });
+  };
+
+  const getFollowingHandler = async (req: any) => {
+    const targetId = req.params.id || req.params.userId;
+    const limit = req.query?.limit ? Number(req.query.limit) : undefined;
+    const offset = req.query?.offset ? Number(req.query.offset) : undefined;
+    return service.getFollowing(req.viewer, targetId, { limit, offset });
+  };
+
+  const listQuerySchema = {
+    type: 'object',
+    properties: {
+      limit: { type: 'integer', default: 50, minimum: 1, maximum: 100 },
+      offset: { type: 'integer', default: 0, minimum: 0 },
+    },
+  } as const;
+
+  app.get(
+    '/users/:id/followers',
+    {
+      schema: {
+        tags: ['Social'],
+        summary: 'List followers of a user',
+        params: {
+          type: 'object',
+          properties: { id: { type: 'string', format: 'uuid' } },
+          required: ['id'],
+        },
+        querystring: listQuerySchema,
+        response: { 200: followUserListResponseSchema },
+      },
+    },
+    getFollowersHandler,
+  );
+
+  app.get(
+    '/followers/:userId',
+    {
+      schema: {
+        tags: ['Social'],
+        summary: 'List followers of a user (alias)',
+        params: {
+          type: 'object',
+          properties: { userId: { type: 'string', format: 'uuid' } },
+          required: ['userId'],
+        },
+        querystring: listQuerySchema,
+        response: { 200: followUserListResponseSchema },
+      },
+    },
+    getFollowersHandler,
+  );
+
+  app.get(
+    '/users/:id/following',
+    {
+      schema: {
+        tags: ['Social'],
+        summary: 'List users followed by a user',
+        params: {
+          type: 'object',
+          properties: { id: { type: 'string', format: 'uuid' } },
+          required: ['id'],
+        },
+        querystring: listQuerySchema,
+        response: { 200: followUserListResponseSchema },
+      },
+    },
+    getFollowingHandler,
+  );
+
+  app.get(
+    '/following/:userId',
+    {
+      schema: {
+        tags: ['Social'],
+        summary: 'List users followed by a user (alias)',
+        params: {
+          type: 'object',
+          properties: { userId: { type: 'string', format: 'uuid' } },
+          required: ['userId'],
+        },
+        querystring: listQuerySchema,
+        response: { 200: followUserListResponseSchema },
+      },
+    },
+    getFollowingHandler,
   );
 };
