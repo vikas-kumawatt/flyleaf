@@ -735,7 +735,7 @@
 ## Phase 4 — Social · `SO` · 20d
 
 ### Graph — `SO-0x` · 5d
-- [ ] **SO-01** follows, blocks, mutes migrations + counters — 0.5d
+- [x] **SO-01** follows, blocks, mutes migrations + counters — 0.5d
 - [ ] **SO-02** Follow/unfollow; private accounts; pending requests — 1.5d
 - [ ] **SO-03** ⚠️ **Block: bidirectional, complete, silent, severs follows** — 1.5d
 - [ ] **SO-04** Mute user and **mute book** — 0.5d
