@@ -34,6 +34,8 @@ import type {
   EditionLookupResponse,
   FinishReadRequest,
   FollowResult,
+  BlockResult,
+  BlockedUsersResponse,
   ForgotPasswordRequest,
   LoginRequest,
   MergeListItem,
@@ -834,6 +836,26 @@ export class FlyleafClient {
         method: 'POST',
       },
     );
+  }
+
+  // ---------------------------------------------------------------- Blocking (SO-03)
+
+  async blockUser(userId: string): Promise<BlockResult> {
+    return this.request<BlockResult>(`/users/${encodeURIComponent(userId)}/block`, {
+      method: 'POST',
+    });
+  }
+
+  async unblockUser(userId: string): Promise<BlockResult> {
+    return this.request<BlockResult>(`/users/${encodeURIComponent(userId)}/block`, {
+      method: 'DELETE',
+    });
+  }
+
+  async getBlockedUsers(): Promise<BlockedUsersResponse> {
+    return this.request<BlockedUsersResponse>('/me/blocks', {
+      method: 'GET',
+    });
   }
 }
 

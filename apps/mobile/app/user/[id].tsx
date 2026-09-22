@@ -10,6 +10,7 @@ import {
   ActivityIndicator,
   StyleSheet,
   RefreshControl,
+  Alert,
 } from 'react-native';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -111,6 +112,31 @@ export default function UserProfileScreen() {
     }
   };
 
+  const handleBlockUser = async () => {
+    if (!id || !profile || profile.followStatus === 'self') return;
+    Alert.alert(
+      `Block @${profile.username}?`,
+      "They won't be able to see your profile or content, and you won't see theirs. They will not be notified.",
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Block',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
+              await api.blockUser(id);
+              setProfile(null);
+              void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+            } catch {
+              Alert.alert('Error', 'Failed to block user. Please try again.');
+            }
+          },
+        },
+      ],
+    );
+  };
+
   const isRestricted = profile?.isRestricted || (profile?.isPrivate && profile?.followStatus !== 'accepted' && profile?.followStatus !== 'self');
 
   return (
@@ -146,7 +172,21 @@ export default function UserProfileScreen() {
             {profile?.displayName || (profile ? `@${profile.username}` : 'Reader')}
           </Txt>
 
-          <View style={{ minWidth: 44 }} />
+          {profile && profile.followStatus !== 'self' ? (
+            <Pressable
+              onPress={handleBlockUser}
+              accessibilityRole="button"
+              accessibilityLabel="Block User"
+              hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+              style={{ minWidth: 44, minHeight: 44, justifyContent: 'center', alignItems: 'flex-end' }}
+            >
+              <Txt variant="caption" color="muted" style={{ fontWeight: '600' }}>
+                Block
+              </Txt>
+            </Pressable>
+          ) : (
+            <View style={{ minWidth: 44 }} />
+          )}
         </View>
       </View>
 

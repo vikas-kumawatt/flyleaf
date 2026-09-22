@@ -74,6 +74,10 @@ import {
   type FollowResult,
   type PendingFollowRequest,
   type PendingFollowRequestsResponse,
+  type BlockState,
+  type BlockResult,
+  type BlockedUserItem,
+  type BlockedUsersResponse,
 } from '@flyleaf/api-client';
 
 export type {
@@ -126,6 +130,10 @@ export type {
   FollowResult,
   PendingFollowRequest,
   PendingFollowRequestsResponse,
+  BlockState,
+  BlockResult,
+  BlockedUserItem,
+  BlockedUsersResponse,
   Edition,
   EditionDetail,
   EditionLookupResponse,
@@ -524,6 +532,11 @@ export const api = {
   getPendingFollowRequests: () => client.getPendingFollowRequests(),
   acceptFollowRequest: (requesterId: string) => client.acceptFollowRequest(requesterId),
   rejectFollowRequest: (requesterId: string) => client.rejectFollowRequest(requesterId),
+
+  // Blocking (SO-03)
+  blockUser: (userId: string) => client.blockUser(userId),
+  unblockUser: (userId: string) => client.unblockUser(userId),
+  getBlockedUsers: () => client.getBlockedUsers(),
 };
 
 export interface AuthorDetail {

@@ -16,15 +16,24 @@ import { ApiError, requireViewer } from '../http.js';
 import {
   followResponseSchema,
   pendingFollowRequestsResponseSchema,
+  blockUserResponseSchema,
+  blockedUsersResponseSchema,
 } from '../contract/schemas.js';
 
 export type FollowState = 'pending' | 'accepted' | 'none';
 export type FollowStatus = 'none' | 'pending' | 'accepted' | 'self';
+export type BlockState = 'blocked' | 'unblocked';
 
 export interface FollowResult {
   status: FollowState;
   follower_id: string;
   followee_id: string;
+}
+
+export interface BlockResult {
+  status: BlockState;
+  blocker_id: string;
+  blocked_id: string;
 }
 
 export interface PendingFollowRequest {
@@ -34,6 +43,14 @@ export interface PendingFollowRequest {
   avatar_key: string | null;
   bio: string | null;
   requested_at: string;
+}
+
+export interface BlockedUserItem {
+  id: string;
+  username: string;
+  display_name: string | null;
+  avatar_key: string | null;
+  blocked_at: string;
 }
 
 export class SocialService {
@@ -274,6 +291,101 @@ export class SocialService {
       followee_id: viewer,
     };
   }
+
+  /**
+   * Block a user (SO-03).
+   * Bidirectional, complete, silent invisibility. Immediately severs follows in both directions.
+   */
+  async blockUser(viewer: string, targetUserId: string): Promise<BlockResult> {
+    if (viewer === targetUserId) {
+      throw ApiError.badRequest('cannot_block_self', 'You cannot block yourself.');
+    }
+
+    // Verify target user exists
+    const [targetUser] = await this.db
+      .select({ id: users.id })
+      .from(users)
+      .where(eq(users.id, targetUserId))
+      .limit(1);
+
+    if (!targetUser) {
+      throw ApiError.notFound('User not found.');
+    }
+
+    // Insert block record
+    await this.db
+      .insert(blocks)
+      .values({
+        blockerId: viewer,
+        blockedId: targetUserId,
+      })
+      .onConflictDoNothing();
+
+    // Sever existing follows in BOTH directions (PRD §11.4)
+    // Note: DB trigger follows_counter_trigger_fn automatically updates follower_count & following_count
+    await this.db
+      .delete(follows)
+      .where(
+        or(
+          and(eq(follows.followerId, viewer), eq(follows.followeeId, targetUserId)),
+          and(eq(follows.followerId, targetUserId), eq(follows.followeeId, viewer)),
+        ),
+      );
+
+    return {
+      status: 'blocked',
+      blocker_id: viewer,
+      blocked_id: targetUserId,
+    };
+  }
+
+  /**
+   * Unblock a user (SO-03).
+   */
+  async unblockUser(viewer: string, targetUserId: string): Promise<BlockResult> {
+    if (viewer === targetUserId) {
+      throw ApiError.badRequest('cannot_unblock_self', 'You cannot unblock yourself.');
+    }
+
+    await this.db
+      .delete(blocks)
+      .where(
+        and(eq(blocks.blockerId, viewer), eq(blocks.blockedId, targetUserId)),
+      );
+
+    return {
+      status: 'unblocked',
+      blocker_id: viewer,
+      blocked_id: targetUserId,
+    };
+  }
+
+  /**
+   * List users blocked by the viewer (SO-03).
+   */
+  async getBlockedUsers(viewer: string): Promise<BlockedUserItem[]> {
+    const rows = await this.db
+      .select({
+        id: users.id,
+        username: profiles.username,
+        displayName: profiles.displayName,
+        avatarKey: profiles.avatarKey,
+        blockedAt: blocks.createdAt,
+      })
+      .from(blocks)
+      .innerJoin(users, eq(blocks.blockedId, users.id))
+      .innerJoin(profiles, eq(users.id, profiles.userId))
+      .where(eq(blocks.blockerId, viewer))
+      .orderBy(sql`${blocks.createdAt} DESC`);
+
+    return rows.map((r) => ({
+      id: r.id,
+      username: r.username,
+      display_name: r.displayName,
+      avatar_key: r.avatarKey,
+      blocked_at: r.blockedAt.toISOString(),
+    }));
+  }
 }
 
 export interface SocialPluginOptions {
@@ -474,5 +586,116 @@ export const socialPlugin: FastifyPluginAsync<SocialPluginOptions> = async (app,
       },
     },
     rejectHandler,
+  );
+
+  // Block / Unblock / List Blocked Users (SO-03)
+  const blockHandler = async (req: any) => {
+    const viewer = requireViewer(req);
+    const targetId = req.params.id || req.params.userId;
+    return service.blockUser(viewer, targetId);
+  };
+
+  const unblockHandler = async (req: any) => {
+    const viewer = requireViewer(req);
+    const targetId = req.params.id || req.params.userId;
+    return service.unblockUser(viewer, targetId);
+  };
+
+  const getBlocksHandler = async (req: any) => {
+    const viewer = requireViewer(req);
+    const blocks = await service.getBlockedUsers(viewer);
+    return { blocks };
+  };
+
+  app.post(
+    '/users/:id/block',
+    {
+      schema: {
+        tags: ['Social'],
+        summary: 'Block a user',
+        params: {
+          type: 'object',
+          properties: { id: { type: 'string', format: 'uuid' } },
+          required: ['id'],
+        },
+        response: { 200: blockUserResponseSchema },
+      },
+    },
+    blockHandler,
+  );
+
+  app.post(
+    '/blocks/:userId',
+    {
+      schema: {
+        tags: ['Social'],
+        summary: 'Block a user (alias)',
+        params: {
+          type: 'object',
+          properties: { userId: { type: 'string', format: 'uuid' } },
+          required: ['userId'],
+        },
+        response: { 200: blockUserResponseSchema },
+      },
+    },
+    blockHandler,
+  );
+
+  app.delete(
+    '/users/:id/block',
+    {
+      schema: {
+        tags: ['Social'],
+        summary: 'Unblock a user',
+        params: {
+          type: 'object',
+          properties: { id: { type: 'string', format: 'uuid' } },
+          required: ['id'],
+        },
+        response: { 200: blockUserResponseSchema },
+      },
+    },
+    unblockHandler,
+  );
+
+  app.delete(
+    '/blocks/:userId',
+    {
+      schema: {
+        tags: ['Social'],
+        summary: 'Unblock a user (alias)',
+        params: {
+          type: 'object',
+          properties: { userId: { type: 'string', format: 'uuid' } },
+          required: ['userId'],
+        },
+        response: { 200: blockUserResponseSchema },
+      },
+    },
+    unblockHandler,
+  );
+
+  app.get(
+    '/me/blocks',
+    {
+      schema: {
+        tags: ['Social'],
+        summary: 'List users blocked by viewer',
+        response: { 200: blockedUsersResponseSchema },
+      },
+    },
+    getBlocksHandler,
+  );
+
+  app.get(
+    '/blocks',
+    {
+      schema: {
+        tags: ['Social'],
+        summary: 'List users blocked by viewer (alias)',
+        response: { 200: blockedUsersResponseSchema },
+      },
+    },
+    getBlocksHandler,
   );
 };

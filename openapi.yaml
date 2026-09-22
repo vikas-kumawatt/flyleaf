@@ -10201,6 +10201,226 @@ paths:
                   - status
                   - follower_id
                   - followee_id
+  /users/{id}/block:
+    post:
+      summary: Block a user
+      tags:
+        - Social
+      parameters:
+        - schema:
+            type: string
+            format: uuid
+          in: path
+          name: id
+          required: true
+      responses:
+        "200":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    enum:
+                      - blocked
+                      - unblocked
+                  blocker_id:
+                    type: string
+                    format: uuid
+                  blocked_id:
+                    type: string
+                    format: uuid
+                required:
+                  - status
+                  - blocker_id
+                  - blocked_id
+    delete:
+      summary: Unblock a user
+      tags:
+        - Social
+      parameters:
+        - schema:
+            type: string
+            format: uuid
+          in: path
+          name: id
+          required: true
+      responses:
+        "200":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    enum:
+                      - blocked
+                      - unblocked
+                  blocker_id:
+                    type: string
+                    format: uuid
+                  blocked_id:
+                    type: string
+                    format: uuid
+                required:
+                  - status
+                  - blocker_id
+                  - blocked_id
+  /blocks/{userId}:
+    post:
+      summary: Block a user (alias)
+      tags:
+        - Social
+      parameters:
+        - schema:
+            type: string
+            format: uuid
+          in: path
+          name: userId
+          required: true
+      responses:
+        "200":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    enum:
+                      - blocked
+                      - unblocked
+                  blocker_id:
+                    type: string
+                    format: uuid
+                  blocked_id:
+                    type: string
+                    format: uuid
+                required:
+                  - status
+                  - blocker_id
+                  - blocked_id
+    delete:
+      summary: Unblock a user (alias)
+      tags:
+        - Social
+      parameters:
+        - schema:
+            type: string
+            format: uuid
+          in: path
+          name: userId
+          required: true
+      responses:
+        "200":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    enum:
+                      - blocked
+                      - unblocked
+                  blocker_id:
+                    type: string
+                    format: uuid
+                  blocked_id:
+                    type: string
+                    format: uuid
+                required:
+                  - status
+                  - blocker_id
+                  - blocked_id
+  /me/blocks:
+    get:
+      summary: List users blocked by viewer
+      tags:
+        - Social
+      responses:
+        "200":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  blocks:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: string
+                          format: uuid
+                          description: Blocked user ID
+                        username:
+                          type: string
+                        display_name:
+                          type:
+                            - "null"
+                            - string
+                        avatar_key:
+                          type:
+                            - "null"
+                            - string
+                        blocked_at:
+                          type: string
+                          format: date-time
+                      required:
+                        - id
+                        - username
+                        - blocked_at
+                required:
+                  - blocks
+  /blocks:
+    get:
+      summary: List users blocked by viewer (alias)
+      tags:
+        - Social
+      responses:
+        "200":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  blocks:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: string
+                          format: uuid
+                          description: Blocked user ID
+                        username:
+                          type: string
+                        display_name:
+                          type:
+                            - "null"
+                            - string
+                        avatar_key:
+                          type:
+                            - "null"
+                            - string
+                        blocked_at:
+                          type: string
+                          format: date-time
+                      required:
+                        - id
+                        - username
+                        - blocked_at
+                required:
+                  - blocks
   /healthz:
     get:
       summary: Liveness probe

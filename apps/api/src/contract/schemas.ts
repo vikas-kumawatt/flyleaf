@@ -1829,4 +1829,42 @@ export const pendingFollowRequestsResponseSchema = {
   required: ['requests'],
 } as const;
 
+// ---------------------------------------------------------------- Blocking (SO-03)
+
+export const blockStateEnum = ['blocked', 'unblocked'] as const;
+
+export const blockUserResponseSchema = {
+  type: 'object',
+  properties: {
+    status: { type: 'string', enum: blockStateEnum },
+    blocker_id: { type: 'string', format: 'uuid' },
+    blocked_id: { type: 'string', format: 'uuid' },
+  },
+  required: ['status', 'blocker_id', 'blocked_id'],
+} as const;
+
+export const blockedUserSchema = {
+  type: 'object',
+  properties: {
+    id: { type: 'string', format: 'uuid', description: 'Blocked user ID' },
+    username: { type: 'string' },
+    display_name: { type: ['string', 'null'] },
+    avatar_key: { type: ['string', 'null'] },
+    blocked_at: { type: 'string', format: 'date-time' },
+  },
+  required: ['id', 'username', 'blocked_at'],
+} as const;
+
+export const blockedUsersResponseSchema = {
+  type: 'object',
+  properties: {
+    blocks: {
+      type: 'array',
+      items: blockedUserSchema,
+    },
+  },
+  required: ['blocks'],
+} as const;
+
+
 

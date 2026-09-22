@@ -535,7 +535,62 @@ export default function ProfileScreen() {
               </Card>
             </View>
 
-            {/* 7. DATA & IMPORTS (IM-09) */}
+            {/* 7. PRIVACY & SOCIAL (SO-02, SO-03) */}
+            <View style={{ gap: space[2] }}>
+              <Txt variant="caption" color="muted" style={{ fontWeight: '700', letterSpacing: 0.5 }}>
+                PRIVACY & SOCIAL
+              </Txt>
+
+              <View style={{ gap: space[2] }}>
+                {/* Follow Requests */}
+                <Card
+                  onPress={() => {
+                    void Haptics.selectionAsync();
+                    router.push('/profile/requests' as any);
+                  }}
+                  style={{ padding: space[3] }}
+                >
+                  <View style={sheet.rowBetween}>
+                    <View style={{ gap: 2 }}>
+                      <Txt variant="title" style={{ fontSize: 15, fontWeight: '700' }}>
+                        Follow Requests
+                      </Txt>
+                      <Txt variant="caption" color="muted">
+                        Inspect and manage incoming follow requests.
+                      </Txt>
+                    </View>
+                    <Txt variant="title" color="accent">
+                      →
+                    </Txt>
+                  </View>
+                </Card>
+
+                {/* Blocked Accounts */}
+                <Card
+                  onPress={() => {
+                    void Haptics.selectionAsync();
+                    router.push('/profile/blocked' as any);
+                  }}
+                  style={{ padding: space[3] }}
+                >
+                  <View style={sheet.rowBetween}>
+                    <View style={{ gap: 2 }}>
+                      <Txt variant="title" style={{ fontSize: 15, fontWeight: '700' }}>
+                        Blocked Accounts
+                      </Txt>
+                      <Txt variant="caption" color="muted">
+                        View and manage your blocked users list.
+                      </Txt>
+                    </View>
+                    <Txt variant="title" color="accent">
+                      →
+                    </Txt>
+                  </View>
+                </Card>
+              </View>
+            </View>
+
+            {/* 8. DATA & IMPORTS (IM-09) */}
             <View style={{ gap: space[2] }}>
               <View style={sheet.rowBetween}>
                 <Txt variant="caption" color="muted" style={{ fontWeight: '700', letterSpacing: 0.5 }}>

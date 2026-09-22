@@ -749,7 +749,15 @@
   - OpenAPI 3.1.0 specification synchronized with 0 contract drift and typed methods in `@flyleaf/api-client`.
   - Mobile UI integration: interactive follow toggle with haptics and "Follows you" mutual indicator on `UserProfileScreen` (`apps/mobile/app/user/[id].tsx`), and incoming requests manager screen `FollowRequestsScreen` (`apps/mobile/app/profile/requests.tsx`).
   - 8 integration tests in `apps/api/src/test/social-follow.test.ts` and mobile unit tests in `apps/mobile/src/lib/__tests__/social-follow.test.ts` passing. 100% green CI pipeline.
-- [ ] **SO-03** ⚠️ **Block: bidirectional, complete, silent, severs follows** — 1.5d
+- [x] **SO-03** ⚠️ **Block: bidirectional, complete, silent, severs follows** — 1.5d
+  - Built block/unblock service methods and Fastify routes in `apps/api/src/social/index.ts` (`POST /v1/users/:id/block`, `DELETE /v1/users/:id/block`, `GET /v1/me/blocks`, plus `/v1/blocks/:userId` and `/v1/blocks` aliases).
+  - Enforced complete, bidirectional, silent block semantics (PRD §11.4, §26.3): blocking immediately severs existing follows in BOTH directions, with Postgres DB triggers (`follows_counter_trigger_fn`) updating `follower_count` and `following_count` automatically.
+  - Complete obscure privacy masking: profile lookups, follow attempts, and reading stats targeting a blocked account return **404 Not Found** (never 403 Forbidden), rendering blocked accounts completely indistinguishable from non-existent accounts.
+  - Excluded reviews written by blocked users from `listWorkReviews` in `apps/api/src/reviews/index.ts`.
+  - Self-block prevention: returns HTTP 400 Bad Request (`cannot_block_self`).
+  - OpenAPI 3.1.0 contract synchronized with 0 drift and typed methods in `@flyleaf/api-client`.
+  - Mobile UI integration: added "Block" action with confirmation dialog to `UserProfileScreen` (`apps/mobile/app/user/[id].tsx`), created `BlockedUsersScreen` (`apps/mobile/app/profile/blocked.tsx`) with 1-tap unblock action, and added "Blocked Accounts" entry in Profile settings (`apps/mobile/app/(tabs)/profile.tsx`).
+  - Integration test suite `apps/api/src/test/social-block.test.ts` (6/6 tests passing) verifying self-block rejection, bidirectional follow severing, counter updates, 404 obscure masking, unblock behavior, and blocked list retrieval.
 - [ ] **SO-04** Mute user and **mute book** — 0.5d
 - [ ] **SO-05** Followers/following lists — 0.5d
 - [ ] **SO-06** ⚠️ Block/private tests: blocked view ≡ non-existent account — 0.5d

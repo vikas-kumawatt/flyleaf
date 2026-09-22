@@ -953,3 +953,26 @@ export interface CreateExportRequest {
   format?: ExportFormat;
 }
 
+// ---------------------------------------------------------------- Blocking (SO-03)
+
+export type BlockState = 'blocked' | 'unblocked';
+
+export interface BlockResult {
+  status: BlockState;
+  blocker_id: string;
+  blocked_id: string;
+}
+
+export interface BlockedUserItem {
+  id: string;
+  username: string;
+  display_name: string | null;
+  avatar_key: string | null;
+  blocked_at: string;
+}
+
+export interface BlockedUsersResponse {
+  blocks: BlockedUserItem[];
+}
+
+

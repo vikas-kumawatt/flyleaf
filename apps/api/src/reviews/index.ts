@@ -503,12 +503,19 @@ export class ReviewService {
       whereConditions.push(eq(reads.rating, String(query.rating)));
     }
 
-    // Visibility filter
+    // Visibility & block filter
     if (!viewerId) {
       whereConditions.push(eq(reviews.visibility, 'public'));
     } else {
       whereConditions.push(
         sql`(${reviews.visibility} = 'public' OR ${reviews.userId} = ${viewerId} OR (${reviews.visibility} = 'followers' AND ${reviews.userId} IN (SELECT followee_id FROM follows WHERE follower_id = ${viewerId} AND state = 'accepted')))`
+      );
+      whereConditions.push(
+        sql`${reviews.userId} NOT IN (
+          SELECT blocked_id FROM blocks WHERE blocker_id = ${viewerId}
+          UNION
+          SELECT blocker_id FROM blocks WHERE blocked_id = ${viewerId}
+        )`
       );
     }
 
