@@ -103,8 +103,14 @@ export interface FollowUserListResponse {
   total: number;
 }
 
+import { ActivityService } from '../activity/index.js';
+
 export class SocialService {
-  constructor(private readonly db: Db) {}
+  private activityService: ActivityService;
+
+  constructor(private readonly db: Db) {
+    this.activityService = new ActivityService(db);
+  }
 
   /**
    * Resolves relationship state between viewer and target user.
@@ -215,6 +221,17 @@ export class SocialService {
         set: { state },
       });
 
+    if (state === 'accepted') {
+      await this.activityService.recordActivity(this.db, {
+        actorId: viewer,
+        verb: 'followed',
+        objectType: 'user',
+        objectId: targetUserId,
+        metadata: { followeeId: targetUserId },
+        visibility: 'public',
+      });
+    }
+
     return {
       status: state,
       follower_id: viewer,
@@ -245,6 +262,8 @@ export class SocialService {
       .where(
         and(eq(follows.followerId, viewer), eq(follows.followeeId, targetUserId)),
       );
+
+    await this.activityService.deleteFollowActivity(this.db, viewer, targetUserId);
 
     return {
       status: 'none',

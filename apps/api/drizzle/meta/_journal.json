@@ -120,6 +120,13 @@
       "when": 1788990000000,
       "tag": "0016_social_graph",
       "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "7",
+      "when": 1789000000000,
+      "tag": "0017_activity",
+      "breakpoints": true
     }
   ]
 }

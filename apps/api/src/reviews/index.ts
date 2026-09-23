@@ -140,8 +140,14 @@ export function calculateReviewRankingScore(
   );
 }
 
+import { ActivityService } from '../activity/index.js';
+
 export class ReviewService {
-  constructor(private readonly db: Db) {}
+  private activityService: ActivityService;
+
+  constructor(private readonly db: Db) {
+    this.activityService = new ActivityService(db);
+  }
 
   /**
    * Recomputes work_stats in TypeScript/SQL as a fallback or reconciliation tool (SL-62).
@@ -240,6 +246,7 @@ export class ReviewService {
         formatOverride: reads.formatOverride,
         likeCount: reads.likeCount,
         commentCount: reads.commentCount,
+        source: reads.source,
       })
       .from(reads)
       .where(and(eq(reads.id, readId), eq(reads.userId, userId)));
@@ -283,6 +290,15 @@ export class ReviewService {
           deletedAt: null,
         })
         .where(eq(reviews.id, existing.id));
+
+      if (input.visibility) {
+        await this.activityService.updateActivityVisibility(
+          this.db,
+          'review',
+          reviewId,
+          input.visibility,
+        );
+      }
     } else {
       const [inserted] = await this.db
         .insert(reviews)
@@ -298,6 +314,23 @@ export class ReviewService {
         })
         .returning({ id: reviews.id });
       reviewId = inserted!.id;
+
+      if (read.source !== 'import') {
+        await this.activityService.recordActivity(this.db, {
+          actorId: userId,
+          verb: 'reviewed',
+          workId: read.workId,
+          objectType: 'review',
+          objectId: reviewId,
+          metadata: {
+            readId,
+            hasSpoilers: input.has_spoilers ?? false,
+            snippet: trimmed.slice(0, 200),
+          },
+          visibility: input.visibility ?? 'public',
+          source: read.source,
+        });
+      }
     }
 
     const fetched = await this.getReview(reviewId, userId);
@@ -469,6 +502,8 @@ export class ReviewService {
       .update(reviews)
       .set({ deletedAt: new Date() })
       .where(eq(reviews.id, reviewId));
+
+    await this.activityService.deleteActivity(this.db, 'review', reviewId);
   }
 
   /**

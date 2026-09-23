@@ -159,12 +159,18 @@ export function uniqueViolationField(err: unknown): 'email' | 'username' | 'othe
 
 export type User = { id: string; email: string; username: string };
 
+import { ActivityService } from '../activity/index.js';
+
 export class IdentityService {
+  private activityService: ActivityService;
+
   constructor(
     private db: Db,
     private limiter: RateLimiter,
     private mailer: EmailSender = new ConsoleEmailSender(),
-  ) {}
+  ) {
+    this.activityService = new ActivityService(db);
+  }
 
   async register(email: string, username: string, password: string, dateOfBirth: string, device?: string) {
     const passwordHash = await argonHash(password);
@@ -549,6 +555,10 @@ export class IdentityService {
           .update(profiles)
           .set(updates)
           .where(eq(profiles.userId, userId));
+
+        if (data.isPrivate === true) {
+          await this.activityService.setAccountPrivacy(this.db, userId, true);
+        }
       }
 
       // If going public, auto-accept pending requests

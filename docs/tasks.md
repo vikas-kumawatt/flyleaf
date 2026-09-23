@@ -786,8 +786,14 @@
   - OpenAPI contract check (`npm run spec:check`) verified with 0 drift.
   - 100% green CI pipeline (`node scripts/ci.mjs`) passing all 9 build & test steps in 146s.
 
-### Feed — `SO-1x` · 6d
-- [ ] **SO-10** activity table + write-on-action, respecting visibility — 1d
+  ### Feed — `SO-1x` · 6d
+- [x] **SO-10** activity table + write-on-action, respecting visibility — 1d
+  - Defined `activity` Drizzle table in `apps/api/src/db/schema.ts` and migration `apps/api/drizzle/0017_activity.sql` with covering index `(actor_id, created_at desc)` (Architecture §3.5, PRD §23.3) and CHECK constraints on verbs (`started`, `finished`, `rated`, `reviewed`, `dnf`, `shelved`, `followed`, `goal_reached`, `quoted`) and visibility (`public`, `followers`, `private`).
+  - Built `ActivityService` in `apps/api/src/activity/index.ts` with atomic write-on-action logging (`recordActivity`), visibility updates (`updateActivityVisibility`), entity deletion cascading (`deleteActivity`), and retroactive privacy updates (`setAccountPrivacy`).
+  - Strict import feed exclusion (IM-07, PRD §4410): reads and reviews with `source = 'import'` generate NO activity rows.
+  - Strict privacy enforcement (PRD §16.3, §26.1, §26.2): per-item private reads, reviews, and shelves generate NO activity rows; private account activities default to `followers` visibility; switching account to private retroactively restricts public activity to `followers`.
+  - Integrated write-on-action into `ReadingService` (`started`, `finished`, `dnf`), `ReviewService` (`reviewed`), `ShelvesService` (`shelved`), `SocialService` (`followed`), and `IdentityService` (retroactive privacy adjustment).
+  - Integration test suite `apps/api/src/test/activity.test.ts` (10/10 tests passing) verifying write-on-action for all verbs, import exclusion, item privacy, private profile restriction, retroactive privacy toggling, and review/follow activity cleanup.
 - [ ] **SO-11** ⚠️ **Feed query**: cursor-paginated, blocks/mutes excluded — 1.5d
 - [ ] **SO-12** Ranking + diversity constraints in TypeScript — 1.5d
 - [ ] **SO-13** Aggregation: shelf adds, follows — 0.5d

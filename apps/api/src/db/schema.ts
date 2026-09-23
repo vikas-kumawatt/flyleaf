@@ -661,6 +661,29 @@ export const mutes = pgTable('mutes', {
   index('mutes_user_idx').on(t.userId, t.targetType),
 ]);
 
+export const activity = pgTable('activity', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  actorId: uuid('actor_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  verb: text('verb').notNull(),
+  workId: uuid('work_id').references(() => works.id, { onDelete: 'cascade' }),
+  objectType: text('object_type'),
+  objectId: uuid('object_id'),
+  metadata: jsonb('metadata').notNull().default({}),
+  visibility: text('visibility').notNull().default('public'),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [
+  check('activity_verb_ck', sql`${t.verb} IN ('started','finished','rated','reviewed','dnf','shelved','followed','goal_reached','quoted')`),
+  check('activity_visibility_ck', sql`${t.visibility} IN ('public','followers','private')`),
+  index('activity_actor_idx').on(t.actorId, t.createdAt.desc()),
+  index('activity_visibility_idx').on(t.visibility, t.createdAt.desc()),
+  index('activity_work_idx').on(t.workId, t.createdAt.desc()),
+]);
+
+export type Activity = typeof activity.$inferSelect;
+export type NewActivity = typeof activity.$inferInsert;
+
+
+
 // ---------------------------------------------------------------------------
 // 7. Telemetry & Analytics (architecture.md §3.7, PRD §28.1, SL-80)
 // ---------------------------------------------------------------------------

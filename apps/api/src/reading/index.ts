@@ -100,6 +100,7 @@ export type Read = {
   hearted: boolean;
   format_override?: string | null;
   visibility: Visibility;
+  source?: string;
   title?: string;
   author_name?: string;
   cover_id?: number | null;
@@ -108,8 +109,14 @@ export type Read = {
   page_count?: number | null;
 };
 
+import { ActivityService } from '../activity/index.js';
+
 export class ReadingService {
-  constructor(private db: Db) {}
+  private activityService: ActivityService;
+
+  constructor(private db: Db) {
+    this.activityService = new ActivityService(db);
+  }
 
   /**
    * Creates or updates the current attempt.
@@ -192,6 +199,30 @@ export class ReadingService {
 
       const read = await this.#get(tx as unknown as Db, viewer, id);
       if (!read) throw new Error('read vanished mid-transaction');
+
+      if ((read.source ?? 'app') !== 'import') {
+        const verb = status === 'finished' ? 'finished' : status === 'dnf' ? 'dnf' : (status === 'reading' || status === 'want') ? 'started' : null;
+        if (verb) {
+          await this.activityService.recordActivity(tx as unknown as Db, {
+            actorId: viewer,
+            verb,
+            workId: read.work_id,
+            objectType: 'read',
+            objectId: read.id,
+            metadata: {
+              rating: read.rating ? Number(read.rating) : null,
+              attemptNo: read.attempt_no,
+              finishedAt: read.finished_at,
+            },
+            visibility: read.visibility,
+            source: read.source ?? 'app',
+          });
+        }
+        if (read.visibility === 'private') {
+          await this.activityService.updateActivityVisibility(tx as unknown as Db, 'read', read.id, 'private');
+        }
+      }
+
       return read;
     });
   }
@@ -239,6 +270,23 @@ export class ReadingService {
 
     const updated = await this.get(viewer, readId);
     if (!updated) throw ApiError.notFound('No such read.');
+
+    if ((updated.source ?? 'app') !== 'import') {
+      await this.activityService.recordActivity(this.db, {
+        actorId: viewer,
+        verb: 'finished',
+        workId: updated.work_id,
+        objectType: 'read',
+        objectId: readId,
+        metadata: {
+          rating: updated.rating ? Number(updated.rating) : null,
+          finishedAt: updated.finished_at,
+        },
+        visibility: updated.visibility,
+        source: updated.source ?? 'app',
+      });
+    }
+
     return updated;
   }
 
@@ -278,6 +326,23 @@ export class ReadingService {
 
     const updated = await this.get(viewer, readId);
     if (!updated) throw ApiError.notFound('No such read.');
+
+    if ((updated.source ?? 'app') !== 'import') {
+      await this.activityService.recordActivity(this.db, {
+        actorId: viewer,
+        verb: 'dnf',
+        workId: updated.work_id,
+        objectType: 'read',
+        objectId: readId,
+        metadata: {
+          abandonedPage: updated.abandoned_page,
+          dnfReason: updated.dnf_reason,
+        },
+        visibility: updated.visibility,
+        source: updated.source ?? 'app',
+      });
+    }
+
     return updated;
   }
 
@@ -342,6 +407,7 @@ export class ReadingService {
         hearted: reads.hearted,
         formatOverride: reads.formatOverride,
         visibility: reads.visibility,
+        source: reads.source,
         isPrivate: profiles.isPrivate,
       })
       .from(reads)
@@ -380,6 +446,7 @@ export class ReadingService {
       hearted: row.hearted,
       format_override: row.formatOverride,
       visibility: row.visibility as Visibility,
+      source: row.source,
     };
   }
 

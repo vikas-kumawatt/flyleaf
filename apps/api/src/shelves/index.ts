@@ -187,8 +187,14 @@ export async function generateUniqueSlug(
   return `${baseSlug}-${counter}`;
 }
 
+import { ActivityService } from '../activity/index.js';
+
 export class ShelvesService {
-  constructor(private db: Db) {}
+  private activityService: ActivityService;
+
+  constructor(private db: Db) {
+    this.activityService = new ActivityService(db);
+  }
 
   async create(viewer: string, input: CreateShelfInput): Promise<ShelfDetail> {
     const trimmedName = input.name?.trim();
@@ -592,6 +598,22 @@ export class ShelvesService {
     if (!created) {
       throw new ApiError(500, 'shelf_item_create_failed', 'Failed to retrieve created shelf item.');
     }
+
+    await this.activityService.recordActivity(this.db, {
+      actorId: viewer,
+      verb: 'shelved',
+      workId: input.work_id,
+      objectType: 'shelf_item',
+      objectId: shelfId,
+      metadata: {
+        shelfId,
+        shelfName: shelf.name,
+        shelfSlug: shelf.slug,
+        note: input.note?.trim() || null,
+      },
+      visibility: shelf.privacy,
+    });
+
     return created;
   }
 
