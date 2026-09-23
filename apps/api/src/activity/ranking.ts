@@ -37,7 +37,11 @@ export function getActivityWeight(verb: ActivityVerb, metadata?: Record<string, 
   if (verb === 'finished') {
     return metadata?.rating != null ? 0.9 : 0.7;
   }
-  return ACTIVITY_WEIGHTS[verb] ?? 0.5;
+  const baseWeight = ACTIVITY_WEIGHTS[verb] ?? 0.5;
+  if (metadata?.is_aggregated && metadata?.count > 1) {
+    return Math.min(1.0, baseWeight + 0.05 * Math.min(metadata.count - 1, 4));
+  }
+  return baseWeight;
 }
 
 export function calculateRecencyDecay(createdAt: string | Date, now: Date = new Date()): number {
@@ -142,6 +146,147 @@ export function violatesHardConstraints(
 }
 
 /**
+ * SO-13: Feed Aggregation engine (PRD §12.2, AC-11).
+ * Aggregates repetitive low-weight activities by the same actor (shelved, followed, started) into single summary cards.
+ */
+export function aggregateFeedItems(items: FeedActivityItem[]): FeedActivityItem[] {
+  if (items.length <= 1) {
+    return items;
+  }
+
+  const result: FeedActivityItem[] = [];
+
+  const shelvedGroups = new Map<string, FeedActivityItem[]>();
+  const followedGroups = new Map<string, FeedActivityItem[]>();
+  const startedGroups = new Map<string, FeedActivityItem[]>();
+  const nonAggregatedItems: FeedActivityItem[] = [];
+
+  for (const item of items) {
+    if (item.verb === 'shelved') {
+      const shelfId =
+        item.metadata?.shelfId ??
+        item.metadata?.shelf_id ??
+        item.metadata?.shelf_name ??
+        item.metadata?.shelf_slug ??
+        (item.object_type === 'shelf' ? item.object_id : 'default');
+      const key = `${item.actor_id}:shelved:${shelfId}`;
+      const group = shelvedGroups.get(key) ?? [];
+      group.push(item);
+      shelvedGroups.set(key, group);
+    } else if (item.verb === 'followed') {
+      const key = `${item.actor_id}:followed`;
+      const group = followedGroups.get(key) ?? [];
+      group.push(item);
+      followedGroups.set(key, group);
+    } else if (item.verb === 'started') {
+      const day = item.created_at.slice(0, 10);
+      const key = `${item.actor_id}:started:${day}`;
+      const group = startedGroups.get(key) ?? [];
+      group.push(item);
+      startedGroups.set(key, group);
+    } else {
+      nonAggregatedItems.push(item);
+    }
+  }
+
+  const buildAggregatedShelvedItem = (group: FeedActivityItem[]): FeedActivityItem => {
+    if (group.length === 1) return group[0]!;
+    group.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+    const primary = group[0]!;
+
+    const worksMap = new Map<string, any>();
+    for (const i of group) {
+      if (i.work) {
+        worksMap.set(i.work.id, i.work);
+      }
+    }
+
+    const shelfName = primary.metadata?.shelf_name ?? primary.metadata?.name ?? null;
+
+    return {
+      ...primary,
+      work_id: null,
+      work: null,
+      metadata: {
+        ...primary.metadata,
+        is_aggregated: true,
+        count: group.length,
+        shelf_name: shelfName,
+        works: Array.from(worksMap.values()),
+      },
+    };
+  };
+
+  const buildAggregatedFollowedItem = (group: FeedActivityItem[]): FeedActivityItem => {
+    if (group.length === 1) return group[0]!;
+    group.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+    const primary = group[0]!;
+
+    const targetsMap = new Map<string, any>();
+    for (const i of group) {
+      const targetId = i.object_id ?? i.metadata?.target_id;
+      if (targetId) {
+        targetsMap.set(targetId, {
+          id: targetId,
+          username: i.metadata?.target_username ?? i.metadata?.username ?? 'reader',
+          display_name: i.metadata?.target_display_name ?? i.metadata?.display_name ?? null,
+        });
+      }
+    }
+
+    return {
+      ...primary,
+      metadata: {
+        ...primary.metadata,
+        is_aggregated: true,
+        count: group.length,
+        targets: Array.from(targetsMap.values()),
+      },
+    };
+  };
+
+  const buildAggregatedStartedItem = (group: FeedActivityItem[]): FeedActivityItem => {
+    if (group.length === 1) return group[0]!;
+    group.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+    const primary = group[0]!;
+
+    const worksMap = new Map<string, any>();
+    for (const i of group) {
+      if (i.work) {
+        worksMap.set(i.work.id, i.work);
+      }
+    }
+
+    return {
+      ...primary,
+      metadata: {
+        ...primary.metadata,
+        is_aggregated: true,
+        count: group.length,
+        works: Array.from(worksMap.values()),
+      },
+    };
+  };
+
+  for (const group of shelvedGroups.values()) {
+    result.push(buildAggregatedShelvedItem(group));
+  }
+
+  for (const group of followedGroups.values()) {
+    result.push(buildAggregatedFollowedItem(group));
+  }
+
+  for (const group of startedGroups.values()) {
+    result.push(buildAggregatedStartedItem(group));
+  }
+
+  result.push(...nonAggregatedItems);
+  result.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+
+  return result;
+}
+
+/**
  * Re-ranks candidates and applies hard diversity rules (PRD §12.3, §12.4, AC-11).
  */
 export function rankAndDiversifyFeed(
@@ -153,14 +298,17 @@ export function rankAndDiversifyFeed(
     return [];
   }
 
-  const hasOtherVerbs = candidates.some((c) => c.verb !== 'started');
+  // SO-13: Aggregate shelf adds, follows, and started books prior to ranking
+  const aggregatedCandidates = aggregateFeedItems(candidates);
+
+  const hasOtherVerbs = aggregatedCandidates.some((c) => c.verb !== 'started');
   const effectiveOpts: RankingOptions = {
     ...options,
     allowMultipleStarted: options.allowMultipleStarted ?? !hasOtherVerbs,
   };
 
   const selected: FeedActivityItem[] = [];
-  let remaining = [...candidates];
+  let remaining = [...aggregatedCandidates];
 
   while (selected.length < limit && remaining.length > 0) {
     // 1. Calculate current rank score for each remaining candidate relative to selected so far

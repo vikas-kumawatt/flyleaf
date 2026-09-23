@@ -6,6 +6,7 @@ import {
   computeItemRankScore,
   violatesHardConstraints,
   rankAndDiversifyFeed,
+  aggregateFeedItems,
 } from '../activity/ranking.js';
 import type { FeedActivityItem } from '../activity/index.js';
 
@@ -170,6 +171,58 @@ describe('SO-12: Feed Ranking & Diversity Constraints', () => {
       const result = rankAndDiversifyFeed([candidateStart, candidateReview], 2, { now });
 
       expect(result[0]?.id).toBe('rev');
+    });
+  });
+
+  describe('SO-13: Feed Aggregation (PRD §12.2, AC-11)', () => {
+    it('aggregates multiple shelf adds by the same actor into a single summary card', () => {
+      const item1 = makeItem('s1', 'userA', 'shelved', 'work1', '2026-09-23T10:00:00Z', { shelf_name: 'Summer Reads' });
+      const item2 = makeItem('s2', 'userA', 'shelved', 'work2', '2026-09-23T10:05:00Z', { shelf_name: 'Summer Reads' });
+      const item3 = makeItem('s3', 'userA', 'shelved', 'work3', '2026-09-23T10:10:00Z', { shelf_name: 'Summer Reads' });
+
+      const aggregated = aggregateFeedItems([item1, item2, item3]);
+
+      expect(aggregated.length).toBe(1);
+      expect(aggregated[0]?.metadata.is_aggregated).toBe(true);
+      expect(aggregated[0]?.metadata.count).toBe(3);
+      expect(aggregated[0]?.metadata.shelf_name).toBe('Summer Reads');
+      expect(aggregated[0]?.metadata.works.length).toBe(3);
+    });
+
+    it('aggregates multiple follow activities by the same actor into a single summary card', () => {
+      const f1 = makeItem('f1', 'userA', 'followed', null, '2026-09-23T11:00:00Z', { target_id: 'u1', target_username: 'reader1' });
+      const f2 = makeItem('f2', 'userA', 'followed', null, '2026-09-23T11:02:00Z', { target_id: 'u2', target_username: 'reader2' });
+      const f3 = makeItem('f3', 'userA', 'followed', null, '2026-09-23T11:05:00Z', { target_id: 'u3', target_username: 'reader3' });
+
+      const aggregated = aggregateFeedItems([f1, f2, f3]);
+
+      expect(aggregated.length).toBe(1);
+      expect(aggregated[0]?.metadata.is_aggregated).toBe(true);
+      expect(aggregated[0]?.metadata.count).toBe(3);
+      expect(aggregated[0]?.metadata.targets.length).toBe(3);
+    });
+
+    it('aggregates multiple "started" activities on the same day by the same actor into a single summary card', () => {
+      const st1 = makeItem('st1', 'userA', 'started', 'work1', '2026-09-23T08:00:00Z');
+      const st2 = makeItem('st2', 'userA', 'started', 'work2', '2026-09-23T09:00:00Z');
+
+      const aggregated = aggregateFeedItems([st1, st2]);
+
+      expect(aggregated.length).toBe(1);
+      expect(aggregated[0]?.metadata.is_aggregated).toBe(true);
+      expect(aggregated[0]?.metadata.count).toBe(2);
+      expect(aggregated[0]?.metadata.works.length).toBe(2);
+    });
+
+    it('never aggregates high-value activities (reviews, finishes, DNFs)', () => {
+      const rev1 = makeItem('r1', 'userA', 'reviewed', 'work1', '2026-09-23T10:00:00Z');
+      const rev2 = makeItem('r2', 'userA', 'reviewed', 'work2', '2026-09-23T10:05:00Z');
+      const fin1 = makeItem('fn1', 'userA', 'finished', 'work3', '2026-09-23T10:10:00Z', { rating: 5 });
+
+      const result = aggregateFeedItems([rev1, rev2, fin1]);
+
+      expect(result.length).toBe(3);
+      expect(result.every((i) => !i.metadata?.is_aggregated)).toBe(true);
     });
   });
 });

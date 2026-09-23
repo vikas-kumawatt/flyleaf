@@ -813,7 +813,16 @@
     4. Min 1 low-affinity / rarely engaged actor card per 10-item block (if present in candidate set).
   - Integrated `rankAndDiversifyFeed` into `ActivityService.getFriendsFeed` and `getPopularFeed` (`apps/api/src/activity/index.ts`).
   - Dedicated unit & integration test suite `apps/api/src/test/feed-ranking.test.ts` (9/9 tests passing) verifying activity weights, 36h decay math, rank score composition, consecutive actor interleaving, book frequency capping, "started" card rules, and high-weight activity prioritization. All 16 feed tests green.
-- [ ] **SO-13** Aggregation: shelf adds, follows — 0.5d
+- [x] **SO-13** Aggregation: shelf adds, follows — 0.5d
+  - Created `aggregateFeedItems` engine in `apps/api/src/activity/ranking.ts` implementing PRD §12.2 and AC-11 specifications.
+  - Automatically collapses repetitive low-weight activity items by the same actor into single aggregated summary cards prior to re-ranking & diversity evaluation:
+    1. **Shelf Additions**: Multiple `shelved` activities for the same shelf/actor collapse into 1 card ("user A added N books to Shelf Name", `metadata: { is_aggregated: true, count: N, shelf_name, works: [...] }`).
+    2. **Follows**: Multiple `followed` activities by the same actor collapse into 1 card ("user A followed N readers", `metadata: { is_aggregated: true, count: N, targets: [...] }`).
+    3. **Started Books**: Multiple `started` activities on the same day by the same actor collapse into 1 card (`metadata: { is_aggregated: true, count: N, works: [...] }`).
+  - High-value activities (`reviewed`, `finished`, `dnf`, `goal_reached`, `quoted`) are explicitly excluded from aggregation and always render as individual primary feed cards per PRD §12.2.
+  - Boosted activity weight (`getActivityWeight`) for aggregated items scaling with item count (`baseWeight + 0.05 * min(count - 1, 4)`).
+  - Integrated into feed execution pipeline (`rankAndDiversifyFeed` in `apps/api/src/activity/ranking.ts`).
+  - Dedicated unit tests in `apps/api/src/test/feed-ranking.test.ts` (13/13 tests passing) verifying shelf add aggregation, follow aggregation, same-day start aggregation, and high-value non-aggregation rules. All 20 feed tests green.
 - [ ] **SO-14** ⚠️ **Cold start: never empty**, Friends/Popular switch, blended <3 follows — 1d
 - [ ] SO-15 Feed card types + swipe actions — 0.5d
 

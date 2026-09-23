@@ -110,7 +110,7 @@ describe('SO-11: Feed Query (Cursor-Paginated, Blocks/Mutes Excluded)', () => {
     // User B creates 5 activities
     for (let i = 1; i <= 5; i++) {
       const [w] = await db.insert(works).values({ title: `Book ${i}` }).returning();
-      await reading.upsert(userB.id, w.id, 'reading');
+      await reading.upsert(userB.id, w.id, 'finished', 5);
       // small delay to guarantee distinct created_at timestamps if needed
       await new Promise((resolve) => setTimeout(resolve, 5));
     }
