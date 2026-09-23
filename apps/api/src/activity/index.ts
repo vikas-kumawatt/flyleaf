@@ -85,6 +85,9 @@ export interface FeedResponse {
   next_cursor: string | null;
   has_more: boolean;
   tab: 'friends' | 'popular';
+  is_cold_start?: boolean;
+  following_count?: number;
+  cold_start_reason?: 'no_follows' | 'sparse_follows' | 'no_activity' | null;
 }
 
 export class ActivityService {
@@ -208,8 +211,11 @@ export class ActivityService {
   }
 
   /**
-   * SO-11: Cursor-paginated Friends Feed query (Fan-out on read).
-   * Strictly excludes blocked accounts (bidirectional) and muted accounts/books.
+   * SO-11 & SO-14: Cursor-paginated Friends Feed query with Cold Start handling.
+   *  - 0 follows: auto-switches to Popular feed (PRD §12.5).
+   *  - 1–3 follows: Friends feed blended with Popular content (PRD §12.5).
+   *  - >3 follows with no recent activity: backfilled with Popular content so feed is NEVER EMPTY.
+   *  - Strictly excludes blocked accounts (bidirectional) and muted accounts/books.
    */
   async getFriendsFeed(
     viewer: string,
@@ -219,6 +225,27 @@ export class ActivityService {
     const cursorDate = opts.cursor ? new Date(opts.cursor) : null;
     const cursorIso = cursorDate && !isNaN(cursorDate.getTime()) ? cursorDate.toISOString() : null;
 
+    // 1. Inspect accepted following count for viewer
+    const [followCountRow] = await this.db.execute<{ count: number }>(sql`
+      SELECT COUNT(*)::int AS count
+      FROM follows
+      WHERE follower_id = ${viewer}::uuid AND state = 'accepted'
+    `);
+    const followingCount = followCountRow?.count ?? 0;
+
+    // 2. Scenario 1: 0 Follows -> Auto-switch to Popular Feed (PRD §12.5)
+    if (followingCount === 0) {
+      const popularFeed = await this.getPopularFeed(viewer, opts);
+      return {
+        ...popularFeed,
+        tab: 'popular',
+        is_cold_start: true,
+        following_count: 0,
+        cold_start_reason: 'no_follows',
+      };
+    }
+
+    // 3. Query candidate activities from followed users
     const rows = await this.db.execute<{
       id: string;
       actor_id: string;
@@ -308,19 +335,89 @@ export class ActivityService {
       created_at: new Date(r.created_at).toISOString(),
     }));
 
-    const items = rankAndDiversifyFeed(candidateItems, limit, { now: new Date() });
+    let allCandidates = [...candidateItems];
+    let isColdStart = false;
+    let coldStartReason: 'sparse_follows' | 'no_activity' | null = null;
+
+    // 4. Scenario 2: 1–3 Follows -> Blend with Popular content (PRD §12.5)
+    if (followingCount >= 1 && followingCount <= 3) {
+      isColdStart = true;
+      coldStartReason = 'sparse_follows';
+      const popularFeed = await this.getPopularFeed(viewer, { limit });
+      const existingIds = new Set(candidateItems.map((i) => i.id));
+      const blendedPopular = popularFeed.items
+        .filter((item) => !existingIds.has(item.id))
+        .map((item) => ({
+          ...item,
+          metadata: {
+            ...item.metadata,
+            is_blended_popular: true,
+            label: 'Popular on Flyleaf',
+          },
+        }));
+      allCandidates.push(...blendedPopular);
+    }
+    // 5. Scenario 3: Follows > 3 but zero candidate activities -> Backfill with Popular content (Never Empty, PRD §12.5)
+    else if (candidateItems.length === 0) {
+      isColdStart = true;
+      coldStartReason = 'no_activity';
+      const popularFeed = await this.getPopularFeed(viewer, { limit });
+      const existingIds = new Set(candidateItems.map((i) => i.id));
+      const blendedPopular = popularFeed.items
+        .filter((item) => !existingIds.has(item.id))
+        .map((item) => ({
+          ...item,
+          metadata: {
+            ...item.metadata,
+            is_blended_popular: true,
+            label: 'While you wait',
+          },
+        }));
+      allCandidates.push(...blendedPopular);
+    }
+
+    const items = rankAndDiversifyFeed(allCandidates, limit, { now: new Date() });
+
+    // 6. Guarantee Never Empty Feed fallback to editorial welcome item (PRD §12.5)
+    if (items.length === 0) {
+      items.push({
+        id: '00000000-0000-0000-0000-000000000000',
+        actor_id: '00000000-0000-0000-0000-000000000000',
+        actor: {
+          id: '00000000-0000-0000-0000-000000000000',
+          username: 'flyleaf',
+          display_name: 'Flyleaf',
+          avatar_url: null,
+        },
+        verb: 'goal_reached',
+        work_id: null,
+        work: null,
+        object_type: 'system',
+        object_id: null,
+        metadata: {
+          title: 'Welcome to Flyleaf!',
+          description: 'Start logging books, writing reviews, and following readers to build your feed.',
+          is_editorial: true,
+        },
+        visibility: 'public',
+        created_at: new Date().toISOString(),
+      });
+      isColdStart = true;
+      coldStartReason = coldStartReason ?? 'no_activity';
+    }
 
     const hasMore = rows.length > limit;
     const lastPageItem = items[items.length - 1];
-    const nextCursor = hasMore && lastPageItem
-      ? lastPageItem.created_at
-      : null;
+    const nextCursor = hasMore && lastPageItem ? lastPageItem.created_at : null;
 
     return {
       items,
       next_cursor: nextCursor,
       has_more: hasMore,
       tab: 'friends',
+      is_cold_start: isColdStart,
+      following_count: followingCount,
+      cold_start_reason: coldStartReason,
     };
   }
 
@@ -425,6 +522,32 @@ export class ActivityService {
     }));
 
     const items = rankAndDiversifyFeed(candidateItems, limit, { now: new Date() });
+
+    // Guarantee Never Empty Feed fallback to editorial welcome item (PRD §12.5)
+    if (items.length === 0) {
+      items.push({
+        id: '00000000-0000-0000-0000-000000000000',
+        actor_id: '00000000-0000-0000-0000-000000000000',
+        actor: {
+          id: '00000000-0000-0000-0000-000000000000',
+          username: 'flyleaf',
+          display_name: 'Flyleaf',
+          avatar_url: null,
+        },
+        verb: 'goal_reached',
+        work_id: null,
+        work: null,
+        object_type: 'system',
+        object_id: null,
+        metadata: {
+          title: 'Welcome to Flyleaf Popular Feed!',
+          description: 'Explore books, discover popular reviews, and connect with fellow readers.',
+          is_editorial: true,
+        },
+        visibility: 'public',
+        created_at: new Date().toISOString(),
+      });
+    }
 
     const hasMore = rows.length > limit;
     const lastPageItem = items[items.length - 1];

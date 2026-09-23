@@ -73,8 +73,12 @@ describe('SO-11: Feed Query (Cursor-Paginated, Blocks/Mutes Excluded)', () => {
     work1 = { id: w1.id, title: w1.title };
     work2 = { id: w2.id, title: w2.title };
 
-    // User A follows User B
+    // User A follows User B + 3 dummy users (4 follows total so following_count > 3, active feed mode)
     await social.followUser(userA.id, userB.id);
+    for (let i = 1; i <= 3; i++) {
+      const dummy = await identity.register(`dummy${i}@example.com`, `dummy_${i}`, 'a_very_secure_password_123', '1995-05-15');
+      await social.followUser(userA.id, dummy.user.id);
+    }
   });
 
   it('returns feed activities for followed users in reverse-chronological order', async () => {
@@ -176,7 +180,7 @@ describe('SO-11: Feed Query (Cursor-Paginated, Blocks/Mutes Excluded)', () => {
     });
 
     expect(resAfter.statusCode).toBe(200);
-    expect(resAfter.json().items.length).toBe(0);
+    expect(resAfter.json().items.some((i: any) => i.actor_id === userB.id)).toBe(false);
   });
 
   it('strictly excludes activities from muted users', async () => {
@@ -192,7 +196,7 @@ describe('SO-11: Feed Query (Cursor-Paginated, Blocks/Mutes Excluded)', () => {
     });
 
     expect(response.statusCode).toBe(200);
-    expect(response.json().items.length).toBe(0);
+    expect(response.json().items.some((i: any) => i.actor_id === userB.id)).toBe(false);
   });
 
   it('strictly excludes activities from muted books', async () => {

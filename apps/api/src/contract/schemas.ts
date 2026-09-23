@@ -2018,6 +2018,9 @@ export const feedResponseSchema = {
     next_cursor: { type: ['string', 'null'] },
     has_more: { type: 'boolean' },
     tab: { type: 'string' },
+    is_cold_start: { type: 'boolean' },
+    following_count: { type: 'integer' },
+    cold_start_reason: { type: ['string', 'null'] },
   },
   required: ['items', 'has_more', 'tab'],
 } as const;

@@ -823,7 +823,14 @@
   - Boosted activity weight (`getActivityWeight`) for aggregated items scaling with item count (`baseWeight + 0.05 * min(count - 1, 4)`).
   - Integrated into feed execution pipeline (`rankAndDiversifyFeed` in `apps/api/src/activity/ranking.ts`).
   - Dedicated unit tests in `apps/api/src/test/feed-ranking.test.ts` (13/13 tests passing) verifying shelf add aggregation, follow aggregation, same-day start aggregation, and high-value non-aggregation rules. All 20 feed tests green.
-- [ ] **SO-14** ⚠️ **Cold start: never empty**, Friends/Popular switch, blended <3 follows — 1d
+- [x] **SO-14** ⚠️ **Cold start: never empty**, Friends/Popular switch, blended <3 follows — 1d
+  - Extended API contract (`feedResponseSchema` in `apps/api/src/contract/schemas.ts`) with cold start metadata fields: `is_cold_start`, `following_count`, and `cold_start_reason`.
+  - Implemented 4 cold-start scenarios in `ActivityService.getFriendsFeed` (`apps/api/src/activity/index.ts`):
+    1. **0 follows**: Auto-switches Friends tab query to Popular feed (`tab: 'popular'`, `is_cold_start: true`, `following_count: 0`, `cold_start_reason: 'no_follows'`).
+    2. **1–3 follows**: Returns Friends feed blended with Popular activities tagged `is_blended_popular: true`, `label: 'Popular on Flyleaf'`, `cold_start_reason: 'sparse_follows'`.
+    3. **>3 follows with zero recent activity**: Backfills with Popular activities tagged `is_blended_popular: true`, `label: 'While you wait'`, `cold_start_reason: 'no_activity'`.
+    4. **Never Empty Guarantee**: If `items.length === 0` (fresh DB with zero platform activity), appends an editorial welcome card (`is_editorial: true`).
+  - Unit & integration tests in `apps/api/src/test/feed-cold-start.test.ts` (4/4 tests passing) covering all 4 cold start scenarios. All 24 feed test assertions green across `feed-cold-start.test.ts`, `feed-ranking.test.ts`, and `feed-query.test.ts`.
 - [ ] SO-15 Feed card types + swipe actions — 0.5d
 
 ### Interaction — `SO-2x` · 3d
