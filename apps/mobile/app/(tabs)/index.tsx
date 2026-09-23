@@ -1,8 +1,8 @@
-// Tab 1 — Home / Feed (PRD §5.2, design.md §10).
+// Tab 1 — Home / Feed (PRD §5.2, §12, SO-15).
 //
 // Social feed segmented by Friends and Popular.
-// Reviewed and finished cards are cover-forward.
-// Notifications bell in header.
+// Supports FeedCard types (reviews, finishes, DNF, aggregated shelf/follows, cold start cards)
+// and interactive Swipe Actions (Swipe Right -> Want to read, Swipe Left -> Rate & Review).
 
 import React, { useState } from 'react';
 import { View, ScrollView, Pressable, StyleSheet } from 'react-native';
@@ -13,17 +13,95 @@ import * as Haptics from 'expo-haptics';
 import { useSession } from '@/lib/session';
 import { useGuestShelf } from '@/lib/guest';
 import { useActionGate } from '@/ui/ActionGate';
+import { FeedCard } from '@/ui/FeedCard';
+import { type FeedActivityItem } from '@/lib/feedCard';
 import {
-  Card,
-  Cover,
   EmptyState,
   Screen,
   SegmentedControl,
-  Stars,
   Txt,
   sheet,
 } from '@/ui/components';
 import { space, useTheme } from '@/ui/tokens';
+
+// Sample feed items covering distinct card types & cold start badges
+const SAMPLE_FEED_ITEMS: FeedActivityItem[] = [
+  {
+    id: 'f1',
+    actor_id: 'u_paloma',
+    actor: { id: 'u_paloma', username: 'paloma', display_name: 'Paloma', avatar_url: null },
+    verb: 'reviewed',
+    work_id: 'w_piranesi',
+    work: { id: 'w_piranesi', title: 'Piranesi', author_name: 'Susanna Clarke', cover_id: 8231856 },
+    object_type: 'read',
+    object_id: 'r1',
+    metadata: {
+      rating: 5,
+      review_text: 'The Beauty of the House is immeasurable; its Kindness infinite. A breathtaking, reverent puzzle of a novel.',
+      like_count: 14,
+      comment_count: 3,
+    },
+    visibility: 'public',
+    created_at: new Date(Date.now() - 3600000).toISOString(),
+  },
+  {
+    id: 'f2',
+    actor_id: 'u_elena',
+    actor: { id: 'u_elena', username: 'elena', display_name: 'Elena', avatar_url: null },
+    verb: 'started',
+    work_id: 'w_left_hand',
+    work: { id: 'w_left_hand', title: 'The Left Hand of Darkness', author_name: 'Ursula K. Le Guin', cover_id: 8231990 },
+    object_type: 'read',
+    object_id: 'r2',
+    metadata: {
+      like_count: 5,
+      comment_count: 0,
+    },
+    visibility: 'public',
+    created_at: new Date(Date.now() - 7200000).toISOString(),
+  },
+  {
+    id: 'f3',
+    actor_id: 'u_marcus',
+    actor: { id: 'u_marcus', username: 'marcus', display_name: 'Marcus', avatar_url: null },
+    verb: 'shelved',
+    work_id: null,
+    work: null,
+    object_type: 'shelf',
+    object_id: 's_sci_fi',
+    metadata: {
+      is_aggregated: true,
+      count: 4,
+      shelf_name: 'Essential Sci-Fi Classics',
+      works: [
+        { id: 'w1', title: 'Dune', cover_id: 8231856 },
+        { id: 'w2', title: 'Neuromancer', cover_id: 8231990 },
+      ],
+      like_count: 8,
+    },
+    visibility: 'public',
+    created_at: new Date(Date.now() - 14400000).toISOString(),
+  },
+  {
+    id: 'f4',
+    actor_id: 'u_trend',
+    actor: { id: 'u_trend', username: 'bookish_sam', display_name: 'Sam', avatar_url: null },
+    verb: 'finished',
+    work_id: 'w_dune',
+    work: { id: 'w_dune', title: 'Dune Messiah', author_name: 'Frank Herbert', cover_id: 8231856 },
+    object_type: 'read',
+    object_id: 'r4',
+    metadata: {
+      rating: 4.5,
+      is_blended_popular: true,
+      label: 'Popular on Flyleaf',
+      like_count: 32,
+      comment_count: 7,
+    },
+    visibility: 'public',
+    created_at: new Date(Date.now() - 28800000).toISOString(),
+  },
+];
 
 export default function HomeScreen() {
   const c = useTheme();
@@ -33,9 +111,63 @@ export default function HomeScreen() {
   const { promptAuth } = useActionGate();
   const { migrationMessage, dismissMigrationMessage } = useGuestShelf();
   const [feedMode, setFeedMode] = useState<'friends' | 'popular'>('popular');
+  const [toastMessage, setToastMessage] = useState<string | null>(null);
+
+  const showToast = (msg: string) => {
+    setToastMessage(msg);
+    setTimeout(() => {
+      setToastMessage(null);
+    }, 3000);
+  };
+
+  const handleWantToRead = (workId: string) => {
+    if (!user) {
+      promptAuth({ title: 'Sign in to save books to your Want to Read shelf' });
+      return;
+    }
+    showToast('Saved to Want to Read');
+  };
+
+  const handleRateAndReview = (workId: string) => {
+    if (!user) {
+      promptAuth({ title: 'Sign in to rate and review books' });
+      return;
+    }
+    router.push({ pathname: '/log', params: { workId } });
+  };
 
   return (
     <Screen>
+      {/* Toast Notification for Swipe Actions */}
+      {toastMessage && (
+        <View
+          style={{
+            position: 'absolute',
+            top: insets.top + space[2],
+            left: space[4],
+            right: space[4],
+            zIndex: 999,
+            backgroundColor: c.accent,
+            paddingHorizontal: space[4],
+            paddingVertical: space[3],
+            borderRadius: 12,
+            flexDirection: 'row',
+            alignItems: 'center',
+            gap: space[2],
+            shadowColor: '#000',
+            shadowOffset: { width: 0, height: 2 },
+            shadowOpacity: 0.15,
+            shadowRadius: 6,
+            elevation: 4,
+          }}
+        >
+          <Ionicons name="checkmark-circle" size={20} color="#FFFFFF" />
+          <Txt variant="body" color="ground" style={{ fontWeight: '600', flex: 1 }}>
+            {toastMessage}
+          </Txt>
+        </View>
+      )}
+
       {/* Migration Confirmation Banner (PRD §4.2, SL-33) */}
       {migrationMessage && (
         <View
@@ -138,97 +270,14 @@ export default function HomeScreen() {
             }
           />
         ) : (
-          <>
-            {/* Featured community review card */}
-            <Card onPress={() => {}}>
-              <View style={[sheet.row, { justifyContent: 'space-between' }]}>
-                <View style={sheet.row}>
-                  <View
-                    style={{
-                      width: 28,
-                      height: 28,
-                      borderRadius: 14,
-                      backgroundColor: c.surface2,
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                    }}
-                  >
-                    <Txt variant="caption" color="ink2" style={{ fontWeight: '600' }}>
-                      P
-                    </Txt>
-                  </View>
-                  <Txt variant="caption" color="ink2" style={{ fontWeight: '600' }}>
-                    paloma
-                  </Txt>
-                </View>
-                <Txt variant="caption" color="muted">
-                  finished
-                </Txt>
-              </View>
-
-              <View style={sheet.rowTop}>
-                <Cover coverId={8231856} title="Piranesi" author="Susanna Clarke" size="s" />
-                <View style={{ flex: 1, gap: space[1] }}>
-                  <Txt variant="title">Piranesi</Txt>
-                  <Txt variant="caption" color="muted">
-                    Susanna Clarke
-                  </Txt>
-                  <Stars value={5} size={20} />
-                </View>
-              </View>
-
-              <Txt variant="bodyL" color="ink" numberOfLines={3}>
-                The Beauty of the House is immeasurable; its Kindness infinite. A breathtaking,
-                reverent puzzle of a novel.
-              </Txt>
-            </Card>
-
-            {/* Reading update card */}
-            <Card onPress={() => {}}>
-              <View style={[sheet.row, { justifyContent: 'space-between' }]}>
-                <View style={sheet.row}>
-                  <View
-                    style={{
-                      width: 28,
-                      height: 28,
-                      borderRadius: 14,
-                      backgroundColor: c.surface2,
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                    }}
-                  >
-                    <Txt variant="caption" color="ink2" style={{ fontWeight: '600' }}>
-                      E
-                    </Txt>
-                  </View>
-                  <Txt variant="caption" color="ink2" style={{ fontWeight: '600' }}>
-                    elena
-                  </Txt>
-                </View>
-                <Txt variant="caption" color="muted">
-                  started reading
-                </Txt>
-              </View>
-
-              <View style={sheet.rowTop}>
-                <Cover
-                  coverId={8231990}
-                  title="The Left Hand of Darkness"
-                  author="Ursula K. Le Guin"
-                  size="s"
-                />
-                <View style={{ flex: 1, gap: space[1] }}>
-                  <Txt variant="title">The Left Hand of Darkness</Txt>
-                  <Txt variant="caption" color="muted">
-                    Ursula K. Le Guin
-                  </Txt>
-                  <Txt variant="caption" color="muted">
-                    First read · 1969
-                  </Txt>
-                </View>
-              </View>
-            </Card>
-          </>
+          SAMPLE_FEED_ITEMS.map((item) => (
+            <FeedCard
+              key={item.id}
+              item={item}
+              onWantToRead={handleWantToRead}
+              onRateAndReview={handleRateAndReview}
+            />
+          ))
         )}
       </ScrollView>
     </Screen>

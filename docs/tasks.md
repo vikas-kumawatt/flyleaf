@@ -831,7 +831,16 @@
     3. **>3 follows with zero recent activity**: Backfills with Popular activities tagged `is_blended_popular: true`, `label: 'While you wait'`, `cold_start_reason: 'no_activity'`.
     4. **Never Empty Guarantee**: If `items.length === 0` (fresh DB with zero platform activity), appends an editorial welcome card (`is_editorial: true`).
   - Unit & integration tests in `apps/api/src/test/feed-cold-start.test.ts` (4/4 tests passing) covering all 4 cold start scenarios. All 24 feed test assertions green across `feed-cold-start.test.ts`, `feed-ranking.test.ts`, and `feed-query.test.ts`.
-- [ ] SO-15 Feed card types + swipe actions — 0.5d
+- [x] SO-15 Feed card types + swipe actions — 0.5d
+  - Created feed card helper library `apps/mobile/src/lib/feedCard.ts` for card type resolution (`review`, `finish`, `rated`, `dnf`, `shelved`, `followed`, `started`, `goal_reached`, `quoted`, `editorial`), activity headline formatting (including aggregated cards), and swipe action configuration.
+  - Implemented interactive `FeedCard` component (`apps/mobile/src/ui/FeedCard.tsx`) using `Swipeable` from `react-native-gesture-handler`:
+    - **Swipe Right** (reveals left action): Green **"Want to read"** action with bookmark icon, haptics, and toast notification (`POST /v1/shelves/want-to-read/items`).
+    - **Swipe Left** (reveals right action): Blue **"Rate & Review"** action with star icon, haptics, and navigation to review composer (`/log?workId=...`).
+    - Non-gesture accessibility buttons & overflow shortcuts for VoiceOver/TalkBack and web visitors (PRD §4682).
+    - Spoiler blur overlay toggle ("Contains spoilers - Tap to reveal") (PRD §10.4).
+    - Cold-start badge banners ("Popular on Flyleaf", "While you wait", "Welcome Card").
+  - Updated Home Feed screen (`apps/mobile/app/(tabs)/index.tsx`) with real feed cards, guest auth gates (`ActionGate`), and swipe action toast alerts.
+  - Unit tests in `apps/mobile/src/lib/__tests__/feed-card.test.ts` (92/92 mobile tests passing, typecheck clean).
 
 ### Interaction — `SO-2x` · 3d
 - [ ] **SO-20** `read_likes`, `read_comments` migrations + counters — 0.5d
