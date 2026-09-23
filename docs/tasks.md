@@ -801,7 +801,18 @@
   - Fastify route plugin `activityPlugin` registered on `/feed` and `/v1/feed` with `tab=friends` (default, requires auth viewer) and `tab=popular` (supports optional auth / guest viewers).
   - Synchronized OpenAPI 3.1.0 specifications (`openapi.yaml`) with 0 contract drift (`npm run spec:check`).
   - Comprehensive integration test suite `apps/api/src/test/feed-query.test.ts` (7/7 tests passing) asserting reverse-chronological order, ISO timestamp cursor pagination, bidirectional block filtering, user mute filtering, work mute filtering, popular feed querying, and 401 guest rejection for friends feed.
-- [ ] **SO-12** Ranking + diversity constraints in TypeScript — 1.5d
+- [x] **SO-12** Ranking + diversity constraints in TypeScript — 1.5d
+  - Created feed ranking & diversity engine in `apps/api/src/activity/ranking.ts` implementing PRD §12.2–12.4 and Architecture §8 specifications.
+  - Scoring formula: `rank = activity_weight * recency_decay(age_hours) * affinity(viewer, actor) * diversity_penalty`.
+  - Exact PRD activity weights (`getActivityWeight`): `reviewed` (1.0), `finished` with rating (0.9), `finished` without rating (0.7), `rated` (0.8), `dnf` (0.5), `shelved` (0.3), `started` (0.2), `goal_reached` (0.6), `followed` (0.1), `quoted` (0.4).
+  - Recency decay: `exp(-age_hours / 36.0)` with a 36-hour parameter for low-volume feeds.
+  - Four hard diversity rules enforced via `violatesHardConstraints` & `rankAndDiversifyFeed`:
+    1. Max 2 consecutive cards from the same person (AC-11).
+    2. Max 3 cards about the same book (`work_id`) per 20-item page window (AC-11).
+    3. Max 1 "started" card per 10-item block (PRD §12.4), with fallback to prevent starving thin feeds.
+    4. Min 1 low-affinity / rarely engaged actor card per 10-item block (if present in candidate set).
+  - Integrated `rankAndDiversifyFeed` into `ActivityService.getFriendsFeed` and `getPopularFeed` (`apps/api/src/activity/index.ts`).
+  - Dedicated unit & integration test suite `apps/api/src/test/feed-ranking.test.ts` (9/9 tests passing) verifying activity weights, 36h decay math, rank score composition, consecutive actor interleaving, book frequency capping, "started" card rules, and high-weight activity prioritization. All 16 feed tests green.
 - [ ] **SO-13** Aggregation: shelf adds, follows — 0.5d
 - [ ] **SO-14** ⚠️ **Cold start: never empty**, Friends/Popular switch, blended <3 follows — 1d
 - [ ] SO-15 Feed card types + swipe actions — 0.5d

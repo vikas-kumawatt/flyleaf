@@ -22,6 +22,7 @@ import {
   feedResponseSchema,
   errorResponseSchema,
 } from '../contract/schemas.js';
+import { rankAndDiversifyFeed } from './ranking.js';
 
 export type ActivityVerb =
   | 'started'
@@ -278,13 +279,10 @@ export class ActivityService {
             )
         )
       ORDER BY a.created_at DESC, a.id DESC
-      LIMIT ${limit + 1}
+      LIMIT ${Math.max(limit * 3, 60)}
     `);
 
-    const hasMore = rows.length > limit;
-    const pageItems = hasMore ? rows.slice(0, limit) : rows;
-
-    const items: FeedActivityItem[] = pageItems.map((r) => ({
+    const candidateItems: FeedActivityItem[] = rows.map((r) => ({
       id: r.id,
       actor_id: r.actor_id,
       actor: {
@@ -310,9 +308,12 @@ export class ActivityService {
       created_at: new Date(r.created_at).toISOString(),
     }));
 
-    const lastItem = pageItems[pageItems.length - 1];
-    const nextCursor = hasMore && lastItem
-      ? new Date(lastItem.created_at).toISOString()
+    const items = rankAndDiversifyFeed(candidateItems, limit, { now: new Date() });
+
+    const hasMore = rows.length > limit;
+    const lastPageItem = items[items.length - 1];
+    const nextCursor = hasMore && lastPageItem
+      ? lastPageItem.created_at
       : null;
 
     return {
@@ -394,13 +395,10 @@ export class ActivityService {
             )
         ))
       ORDER BY a.created_at DESC, a.id DESC
-      LIMIT ${limit + 1}
+      LIMIT ${Math.max(limit * 3, 60)}
     `);
 
-    const hasMore = rows.length > limit;
-    const pageItems = hasMore ? rows.slice(0, limit) : rows;
-
-    const items: FeedActivityItem[] = pageItems.map((r) => ({
+    const candidateItems: FeedActivityItem[] = rows.map((r) => ({
       id: r.id,
       actor_id: r.actor_id,
       actor: {
@@ -426,9 +424,12 @@ export class ActivityService {
       created_at: new Date(r.created_at).toISOString(),
     }));
 
-    const lastItem = pageItems[pageItems.length - 1];
-    const nextCursor = hasMore && lastItem
-      ? new Date(lastItem.created_at).toISOString()
+    const items = rankAndDiversifyFeed(candidateItems, limit, { now: new Date() });
+
+    const hasMore = rows.length > limit;
+    const lastPageItem = items[items.length - 1];
+    const nextCursor = hasMore && lastPageItem
+      ? lastPageItem.created_at
       : null;
 
     return {
