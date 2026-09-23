@@ -980,6 +980,7 @@ export class ShelvesService {
       .select({ shelf: shelves })
       .from(shelves)
       .innerJoin(profiles, eq(shelves.userId, profiles.userId))
+      .where(and(...whereConditions));
     let candidateShelves = candidateShelvesRows.map((r) => r.shelf);
     if (viewer) {
       const blockRows = await this.db
