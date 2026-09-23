@@ -794,7 +794,13 @@
   - Strict privacy enforcement (PRD §16.3, §26.1, §26.2): per-item private reads, reviews, and shelves generate NO activity rows; private account activities default to `followers` visibility; switching account to private retroactively restricts public activity to `followers`.
   - Integrated write-on-action into `ReadingService` (`started`, `finished`, `dnf`), `ReviewService` (`reviewed`), `ShelvesService` (`shelved`), `SocialService` (`followed`), and `IdentityService` (retroactive privacy adjustment).
   - Integration test suite `apps/api/src/test/activity.test.ts` (10/10 tests passing) verifying write-on-action for all verbs, import exclusion, item privacy, private profile restriction, retroactive privacy toggling, and review/follow activity cleanup.
-- [ ] **SO-11** ⚠️ **Feed query**: cursor-paginated, blocks/mutes excluded — 1.5d
+- [x] **SO-11** ⚠️ **Feed query**: cursor-paginated, blocks/mutes excluded — 1.5d
+  - Created Fastify route schemas `feedQuerySchema`, `feedResponseSchema`, `feedActivityActorSchema`, `feedActivityWorkSchema`, and `feedActivityItemSchema` in `apps/api/src/contract/schemas.ts`.
+  - Implemented cursor-paginated `getFriendsFeed` (Fan-out on read for followed accounts with `state = 'accepted'`, PRD §12.7, Architecture §8) and `getPopularFeed` (platform-wide public activities) in `ActivityService` (`apps/api/src/activity/index.ts`).
+  - Strict exclusion filtering: SQL queries enforce bidirectional block exclusion (`blocks` table for blocker/blocked) and user & work mute exclusion (`mutes` table for muted users and muted book works).
+  - Fastify route plugin `activityPlugin` registered on `/feed` and `/v1/feed` with `tab=friends` (default, requires auth viewer) and `tab=popular` (supports optional auth / guest viewers).
+  - Synchronized OpenAPI 3.1.0 specifications (`openapi.yaml`) with 0 contract drift (`npm run spec:check`).
+  - Comprehensive integration test suite `apps/api/src/test/feed-query.test.ts` (7/7 tests passing) asserting reverse-chronological order, ISO timestamp cursor pagination, bidirectional block filtering, user mute filtering, work mute filtering, popular feed querying, and 401 guest rejection for friends feed.
 - [ ] **SO-12** Ranking + diversity constraints in TypeScript — 1.5d
 - [ ] **SO-13** Aggregation: shelf adds, follows — 0.5d
 - [ ] **SO-14** ⚠️ **Cold start: never empty**, Friends/Popular switch, blended <3 follows — 1d

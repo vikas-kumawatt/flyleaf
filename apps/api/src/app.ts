@@ -31,6 +31,7 @@ import type { PgBoss } from 'pg-boss';
 import { importsPlugin, type FileStorage } from './imports/index.js';
 import { exportsPlugin } from './exports/index.js';
 import { socialPlugin } from './social/index.js';
+import { activityPlugin } from './activity/index.js';
 import type { EmailSender } from './platform/index.js';
 
 export interface CoreHookOptions {
@@ -255,6 +256,13 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
     });
     await app.register(socialPlugin, {
       prefix: '/v1',
+      db: options.db,
+    });
+    await app.register(activityPlugin, {
+      prefix: '/v1',
+      db: options.db,
+    });
+    await app.register(activityPlugin, {
       db: options.db,
     });
   }

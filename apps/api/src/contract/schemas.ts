@@ -1950,6 +1950,79 @@ export const followUserListResponseSchema = {
   required: ['users', 'total'],
 } as const;
 
+// ---------------------------------------------------------------- Feed & Activity (SO-10, SO-11)
+
+export const feedActivityActorSchema = {
+  type: 'object',
+  properties: {
+    id: { type: 'string', format: 'uuid' },
+    username: { type: 'string' },
+    display_name: { type: ['string', 'null'] },
+    avatar_url: { type: ['string', 'null'] },
+  },
+  required: ['id', 'username'],
+} as const;
+
+export const feedActivityWorkSchema = {
+  type: 'object',
+  properties: {
+    id: { type: 'string', format: 'uuid' },
+    title: { type: 'string' },
+    author_name: { type: ['string', 'null'] },
+    cover_id: { type: ['integer', 'null'] },
+  },
+  required: ['id', 'title'],
+} as const;
+
+export const feedActivityItemSchema = {
+  type: 'object',
+  properties: {
+    id: { type: 'string', format: 'uuid' },
+    actor_id: { type: 'string', format: 'uuid' },
+    actor: feedActivityActorSchema,
+    verb: {
+      type: 'string',
+      enum: ['started', 'finished', 'rated', 'reviewed', 'dnf', 'shelved', 'followed', 'goal_reached', 'quoted'],
+    },
+    work_id: { type: ['string', 'null'] },
+    work: {
+      type: ['object', 'null'],
+      properties: feedActivityWorkSchema.properties,
+      required: feedActivityWorkSchema.required,
+    },
+    object_type: { type: ['string', 'null'] },
+    object_id: { type: ['string', 'null'] },
+    metadata: { type: 'object', additionalProperties: true },
+    visibility: { type: 'string', enum: ['public', 'followers', 'private'] },
+    created_at: { type: 'string', format: 'date-time' },
+  },
+  required: ['id', 'actor_id', 'actor', 'verb', 'visibility', 'created_at'],
+} as const;
+
+export const feedQuerySchema = {
+  type: 'object',
+  properties: {
+    tab: { type: 'string', enum: ['friends', 'popular'], default: 'friends' },
+    cursor: { type: 'string', description: 'ISO timestamp cursor for pagination' },
+    limit: { type: 'integer', minimum: 1, maximum: 50, default: 20 },
+  },
+} as const;
+
+export const feedResponseSchema = {
+  type: 'object',
+  properties: {
+    items: {
+      type: 'array',
+      items: feedActivityItemSchema,
+    },
+    next_cursor: { type: ['string', 'null'] },
+    has_more: { type: 'boolean' },
+    tab: { type: 'string' },
+  },
+  required: ['items', 'has_more', 'tab'],
+} as const;
+
+
 
 
 
