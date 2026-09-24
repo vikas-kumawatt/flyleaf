@@ -25,7 +25,6 @@ import {
   reviewSchema,
   workReviewsQuerySchema,
   workReviewsResponseSchema,
-  toggleLikeResponseSchema,
 } from '../contract/schemas.js';
 
 export interface ReviewAuthor {
@@ -91,53 +90,203 @@ export function calculateBayesianRating(
 }
 
 /**
- * Review ranking algorithm (PRD §10.7).
+ * Review ranking (SO-23, PRD §10.7).
  *
- * score =  0.35 * social_proximity
- *        + 0.20 * log(1 + likes)
- *        + 0.10 * log(1 + comments)
- *        + 0.15 * recency_decay
- *        + 0.10 * author_credibility
- *        + 0.10 * length_quality
- *        - 0.10 * report_penalty
+ *   score =  0.35 * social_proximity      1.0 follow · 0.6 follower-of-follower · 0.2 otherwise
+ *          + 0.20 * likes                 log-scaled, capped
+ *          + 0.10 * comments              log-scaled, below likes (comments can mean argument)
+ *          + 0.15 * recency_decay         exp(-age_days / 45)
+ *          + 0.10 * author_credibility    reviewer's median like count, log-normalised
+ *          + 0.10 * length_quality        gentle curve favouring 80–600 characters
+ *          - 0.10 * report_penalty        0 until reports exist (SO-40)
+ *
+ * Then ONE exploration slot: a new, unproven review from outside the viewer's
+ * circle is shown to a deterministic ~20% sample of viewers regardless of its
+ * score, at the first slot below the viewer's friends. Without this, ranking
+ * calcifies within months — the first popular review owns the top forever.
  */
+export const REVIEW_RANKING_WEIGHTS = {
+  proximity: 0.35,
+  likes: 0.2,
+  comments: 0.1,
+  recency: 0.15,
+  credibility: 0.1,
+  length: 0.1,
+  report: 0.1,
+} as const;
+
+export const SOCIAL_PROXIMITY = { following: 1.0, secondDegree: 0.6, stranger: 0.2 } as const;
+
+export const EXPLORATION = {
+  /** Younger than this is "new". */
+  maxAgeDays: 14,
+  /** Fewer likes than this is "unproven"; a review with traction no longer needs help. */
+  maxLikes: 5,
+  /** Share of viewers who see any given eligible review in the exploration slot. */
+  sampleRate: 0.2,
+  /** Never above this position: the top two are earned. */
+  earliestSlot: 2,
+  /** The slot must land on the first page or it is not exploration. */
+  pageSize: 10,
+} as const;
+
+export interface ReviewRankingContext {
+  viewerId?: string | null;
+  followedIds?: Set<string>;
+  /** Accounts followed by accounts the viewer follows (accepted edges both hops). */
+  secondDegreeIds?: Set<string>;
+  /** Per-author credibility in [0, 1]. Missing = 0: unknown authors earn it. */
+  credibility?: Map<string, number>;
+  /** Per-review report penalty in [0, 1]. Wired by SO-40. */
+  reportPenalty?: Map<string, number>;
+  now?: Date;
+  /** Seeds exploration sampling. A viewer id, or a daily-rotating key for guests. */
+  explorationKey?: string | null;
+}
+
+export function socialProximity(authorId: string, ctx: ReviewRankingContext): number {
+  if (ctx.viewerId && authorId === ctx.viewerId) return SOCIAL_PROXIMITY.following;
+  if (ctx.followedIds?.has(authorId)) return SOCIAL_PROXIMITY.following;
+  if (ctx.secondDegreeIds?.has(authorId)) return SOCIAL_PROXIMITY.secondDegree;
+  return SOCIAL_PROXIMITY.stranger;
+}
+
+/** log10(1 + median likes) / 2, capped at 1: a median of 99 likes is full credibility. */
+export function normaliseCredibility(medianLikes: number): number {
+  return Math.min(1, Math.log10(1 + Math.max(0, medianLikes)) / 2);
+}
+
+export function lengthQuality(length: number): number {
+  if (length >= 80 && length <= 600) return 1.0;
+  return Math.max(0.1, 1 - Math.abs(length - 340) / 1200);
+}
+
 export function calculateReviewRankingScore(
-  item: ReviewItem,
-  viewerId?: string | null,
-  viewerFollowedIds: Set<string> = new Set(),
+  item: Pick<ReviewItem, 'id' | 'user_id' | 'like_count' | 'comment_count' | 'published_at' | 'body'>,
+  ctxOrViewer: ReviewRankingContext | string | null = {},
+  legacyFollowedIds?: Set<string>,
 ): number {
-  // 1. Social proximity (dominant 0.35 weight)
-  let socialProximity = 0.2;
-  if (viewerId && item.user_id === viewerId) {
-    socialProximity = 1.0;
-  } else if (viewerFollowedIds.has(item.user_id)) {
-    socialProximity = 1.0;
-  }
+  // Positional form kept for SL-64 callers: (item, viewerId, followedIds).
+  const ctx: ReviewRankingContext =
+    typeof ctxOrViewer === 'string' || ctxOrViewer === null
+      ? { viewerId: ctxOrViewer, followedIds: legacyFollowedIds }
+      : ctxOrViewer;
+  const w = REVIEW_RANKING_WEIGHTS;
+  const now = (ctx.now ?? new Date()).getTime();
 
-  // 2. Engagement log-scaled (normalized in [0, 1] so social proximity dominates deliberately, PRD §10.7)
-  const likesScore = Math.min(1.0, Math.log10(1 + Math.max(0, item.like_count)) / 2);
-  const commentsScore = Math.min(1.0, Math.log10(1 + Math.max(0, item.comment_count)) / 1.5);
-
-  // 3. Recency decay: exp(-age_days / 45)
-  const ageDays = Math.max(0, (Date.now() - new Date(item.published_at).getTime()) / 86400000);
-  const recencyDecay = Math.exp(-ageDays / 45);
-
-  // 4. Author credibility
-  const authorCredibility = 0.5;
-
-  // 5. Length quality (favours 80–600 chars)
-  const len = item.body.length;
-  const lengthQuality =
-    len >= 80 && len <= 600 ? 1.0 : Math.max(0.1, 1 - Math.abs(len - 340) / 1200);
+  const proximity = socialProximity(item.user_id, ctx);
+  const likes = Math.min(1, Math.log10(1 + Math.max(0, item.like_count)) / 2);
+  const comments = Math.min(1, Math.log10(1 + Math.max(0, item.comment_count)) / 1.5);
+  const ageDays = Math.max(0, (now - new Date(item.published_at).getTime()) / 86_400_000);
+  const recency = Math.exp(-ageDays / 45);
+  const credibility = ctx.credibility?.get(item.user_id) ?? 0;
+  const length = lengthQuality(item.body.length);
+  const report = ctx.reportPenalty?.get(item.id) ?? 0;
 
   return (
-    0.35 * socialProximity +
-    0.2 * likesScore +
-    0.1 * commentsScore +
-    0.15 * recencyDecay +
-    0.1 * authorCredibility +
-    0.1 * lengthQuality
+    w.proximity * proximity +
+    w.likes * likes +
+    w.comments * comments +
+    w.recency * recency +
+    w.credibility * credibility +
+    w.length * length -
+    w.report * report
   );
+}
+
+/**
+ * Deterministic sample: the same viewer sees the same exploration pick on
+ * every request and every page, so pagination never duplicates or skips.
+ * FNV-1a — cheap, stable across processes, no crypto needed for a coin flip.
+ */
+export function explorationRoll(key: string, reviewId: string): number {
+  let h = 0x811c9dc5;
+  const s = `${key}:${reviewId}`;
+  for (let i = 0; i < s.length; i++) {
+    h ^= s.charCodeAt(i);
+    h = Math.imul(h, 0x01000193) >>> 0;
+  }
+  return h / 0x1_0000_0000;
+}
+
+export function isExplorationEligible(
+  item: Pick<ReviewItem, 'user_id' | 'like_count' | 'published_at'>,
+  ctx: ReviewRankingContext,
+): boolean {
+  if (socialProximity(item.user_id, ctx) === SOCIAL_PROXIMITY.following) return false;
+  if (item.like_count >= EXPLORATION.maxLikes) return false;
+  const now = (ctx.now ?? new Date()).getTime();
+  const ageDays = (now - new Date(item.published_at).getTime()) / 86_400_000;
+  return ageDays <= EXPLORATION.maxAgeDays;
+}
+
+/**
+ * Rank reviews for the friends-first sort.
+ *
+ * Social proximity is dominant structurally, not just by weight: reviews by
+ * people you follow always come first (PRD §10.7: "a friend's 2-star review
+ * is worth more to you than a stranger's viral one"), and the exploration
+ * slot is placed BELOW every friend review on the first page, so exploring a
+ * stranger never costs you a friend's take.
+ */
+export function rankReviews<T extends ReviewItem>(
+  items: T[],
+  ctx: ReviewRankingContext,
+): { items: T[]; exploredId: string | null } {
+  // Tier first, then score. The additive score alone cannot make proximity
+  // dominant: the other five terms sum to 0.65, while following someone adds
+  // only 0.35 × (1.0 − 0.2) = 0.28 over a stranger. Measured, not assumed —
+  // see review-ranking.test.ts. So people you follow form the top tier, and
+  // everyone else (followers-of-followers included) competes on the score,
+  // where the 0.6-vs-0.2 proximity weight still counts.
+  const tier = (item: T) => (socialProximity(item.user_id, ctx) === SOCIAL_PROXIMITY.following ? 1 : 0);
+  const scored = items
+    .map((item) => ({ item, tier: tier(item), score: calculateReviewRankingScore(item, ctx) }))
+    .sort(
+      (a, b) =>
+        b.tier - a.tier ||
+        b.score - a.score ||
+        new Date(b.item.published_at).getTime() - new Date(a.item.published_at).getTime() ||
+        a.item.id.localeCompare(b.item.id),
+    )
+    .map((s) => s.item);
+
+  const key = ctx.explorationKey;
+  if (!key) return { items: scored, exploredId: null };
+
+  // Pick at most one: the sampled eligible review with the lowest roll.
+  let pick: T | null = null;
+  let best = Infinity;
+  for (const item of scored) {
+    if (!isExplorationEligible(item, ctx)) continue;
+    const roll = explorationRoll(key, item.id);
+    if (roll < EXPLORATION.sampleRate && roll < best) {
+      best = roll;
+      pick = item;
+    }
+  }
+  if (!pick) return { items: scored, exploredId: null };
+
+  const firstPage = scored.slice(0, EXPLORATION.pageSize);
+  let lastFriend = -1;
+  firstPage.forEach((item, i) => {
+    if (socialProximity(item.user_id, ctx) === SOCIAL_PROXIMITY.following) lastFriend = i;
+  });
+  const slot = Math.max(EXPLORATION.earliestSlot, lastFriend + 1);
+  const current = scored.indexOf(pick);
+
+  // Already visible at or above the slot on merit, or friends fill page one.
+  if (current <= slot || slot >= EXPLORATION.pageSize) {
+    return { items: scored, exploredId: current <= slot ? pick.id : null };
+  }
+  const reordered = scored.filter((i) => i !== pick);
+  reordered.splice(slot, 0, pick);
+  return { items: reordered, exploredId: pick.id };
+}
+
+/** Guests have no id; a key that rotates daily still gives each day a fresh sample. */
+export function guestExplorationKey(now = new Date()): string {
+  return `guest:${now.toISOString().slice(0, 10)}`;
 }
 
 import { ActivityService } from '../activity/index.js';
@@ -507,6 +656,58 @@ export class ReviewService {
   }
 
   /**
+   * Everything the SO-23 ranking needs beyond the reviews themselves, in two
+   * queries scoped to this list's authors — never a whole-graph walk.
+   */
+  async rankingContext(
+    viewerId: string | null,
+    followedIds: Set<string>,
+    items: Pick<ReviewItem, 'user_id'>[],
+  ): Promise<ReviewRankingContext> {
+    const authorIds = [...new Set(items.map((i) => i.user_id))];
+    const secondDegreeIds = new Set<string>();
+    const credibility = new Map<string, number>();
+    if (authorIds.length === 0) {
+      return { viewerId, followedIds, secondDegreeIds, credibility, explorationKey: viewerId ?? guestExplorationKey() };
+    }
+    const authorList = sql.join(authorIds.map((id) => sql`${id}::uuid`), sql`, `);
+
+    // Follower-of-follower: authors followed by someone the viewer follows.
+    if (viewerId && followedIds.size > 0) {
+      const rows = await this.db.execute<{ id: string }>(sql`
+        SELECT DISTINCT f2.followee_id AS id
+        FROM follows f1
+        JOIN follows f2 ON f2.follower_id = f1.followee_id AND f2.state = 'accepted'
+        WHERE f1.follower_id = ${viewerId}::uuid
+          AND f1.state = 'accepted'
+          AND f2.followee_id IN (${authorList})
+      `);
+      for (const r of rows) if (!followedIds.has(r.id)) secondDegreeIds.add(r.id);
+    }
+
+    // Credibility: the median like count across the author's live reviews.
+    // A median, not a mean, so one viral review cannot buy an account
+    // permanent rank; normalised and capped so no account dominates (§10.7).
+    const cred = await this.db.execute<{ user_id: string; median: string | number | null }>(sql`
+      SELECT rv.user_id,
+        percentile_cont(0.5) WITHIN GROUP (ORDER BY r.like_count) AS median
+      FROM reviews rv
+      JOIN reads r ON r.id = rv.read_id
+      WHERE rv.user_id IN (${authorList}) AND rv.deleted_at IS NULL
+      GROUP BY rv.user_id
+    `);
+    for (const r of cred) credibility.set(r.user_id, normaliseCredibility(Number(r.median ?? 0)));
+
+    return {
+      viewerId,
+      followedIds,
+      secondDegreeIds,
+      credibility,
+      explorationKey: viewerId ?? guestExplorationKey(),
+    };
+  }
+
+  /**
    * List reviews for a work with friends-first or other sorts (SL-64).
    */
   async listWorkReviews(
@@ -627,11 +828,9 @@ export class ReviewService {
 
     // Sort items
     if (sort === 'friends') {
-      allItems.sort((a, b) => {
-        const scoreA = calculateReviewRankingScore(a, viewerId, followedIds);
-        const scoreB = calculateReviewRankingScore(b, viewerId, followedIds);
-        return scoreB - scoreA;
-      });
+      const ctx = await this.rankingContext(viewerId ?? null, followedIds, allItems);
+      const ranked = rankReviews(allItems, ctx);
+      allItems.splice(0, allItems.length, ...ranked.items);
     } else if (sort === 'likes') {
       allItems.sort((a, b) => b.like_count - a.like_count || new Date(b.published_at).getTime() - new Date(a.published_at).getTime());
     } else if (sort === 'newest') {
@@ -646,53 +845,6 @@ export class ReviewService {
     const paged = allItems.slice(offset, offset + limit);
 
     return { data: paged, total };
-  }
-
-  /**
-   * Toggle like on a read/review (Architecture §3.5).
-   */
-  async toggleLike(readId: string, userId: string): Promise<{ liked: boolean; like_count: number }> {
-    const [read] = await this.db
-      .select({ id: reads.id, likeCount: reads.likeCount })
-      .from(reads)
-      .where(eq(reads.id, readId));
-
-    if (!read) throw ApiError.notFound('Read not found');
-
-    const [existing] = await this.db
-      .select({ readId: readLikes.readId })
-      .from(readLikes)
-      .where(and(eq(readLikes.readId, readId), eq(readLikes.userId, userId)));
-
-    if (existing) {
-      // Remove like
-      await this.db
-        .delete(readLikes)
-        .where(and(eq(readLikes.readId, readId), eq(readLikes.userId, userId)));
-
-      const nextCount = Math.max(0, read.likeCount - 1);
-      await this.db
-        .update(reads)
-        .set({ likeCount: nextCount })
-        .where(eq(reads.id, readId));
-
-      return { liked: false, like_count: nextCount };
-    } else {
-      // Add like
-      await this.db.insert(readLikes).values({
-        readId,
-        userId,
-        createdAt: new Date(),
-      });
-
-      const nextCount = read.likeCount + 1;
-      await this.db
-        .update(reads)
-        .set({ likeCount: nextCount })
-        .where(eq(reads.id, readId));
-
-      return { liked: true, like_count: nextCount };
-    }
   }
 }
 
@@ -834,28 +986,6 @@ export async function reviewsPlugin(app: FastifyInstance, opts: { db: Db }) {
     async (req, reply) => {
       const viewerId = req.viewer;
       const res = await service.listWorkReviews(req.params.id, req.query, viewerId);
-      return reply.code(200).send(res);
-    },
-  );
-
-  // POST /v1/reads/:id/like — toggle like on a read
-  app.post<{ Params: { id: string } }>(
-    '/v1/reads/:id/like',
-    {
-      schema: {
-        tags: ['reviews'],
-        summary: 'Toggle like on a read',
-        params: {
-          type: 'object',
-          properties: { id: { type: 'string', format: 'uuid' } },
-          required: ['id'],
-        },
-        response: { 200: toggleLikeResponseSchema },
-      },
-    },
-    async (req, reply) => {
-      const viewerId = requireViewer(req);
-      const res = await service.toggleLike(req.params.id, viewerId);
       return reply.code(200).send(res);
     },
   );

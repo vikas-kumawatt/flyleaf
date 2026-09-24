@@ -472,11 +472,12 @@ CREATE TABLE read_comments (
   id         uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   read_id    uuid NOT NULL REFERENCES reads(id) ON DELETE CASCADE,
   user_id    uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-  body       text NOT NULL CHECK (char_length(body) <= 2000),
+  body       text NOT NULL CHECK (char_length(btrim(body)) BETWEEN 1 AND 2000),
   created_at timestamptz NOT NULL DEFAULT now(),
   deleted_at timestamptz
+  -- no parent_id: single-level threads are structural (PRD §6.28)
 );
-CREATE INDEX read_comments_read_idx ON read_comments (read_id, created_at);
+CREATE INDEX read_comments_read_idx ON read_comments (read_id, created_at, id);  -- id: total cursor order
 
 CREATE TABLE shelves (
   id             uuid PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -684,6 +685,10 @@ Author names are searched via a join plus the trigram index rather than being de
 | `works.log_count` | Trigger on `reads` insert | Nightly |
 
 **Every counter has a reconciliation job.** Triggers drift; reconciliation is what makes drift survivable.
+
+As built (`SO-20`): `shelves.reconcile`, `follows.reconcile` and `reads.reconcile` are pg-boss crons scheduled in `worker.ts` at 03:00, 03:15 and 03:30 UTC. `reconcile_read_counters()` writes only drifted rows and returns how many it fixed — a healthy night returns 0. Counter triggers are incremental (`like_count = like_count + 1`), which serialises concurrent likes on the read's row lock, and never touch `reads.updated_at`.
+
+> ⚠️ **A trigger on `reads` must name its columns.** `reads_work_stats_trigger` originally fired on UPDATE of *any* column and its recompute scans `reads` for the catalog mean — so a counter bump on `reads` would have paid for a full-table scan. It now fires on `UPDATE OF work_id, user_id, rating, hearted, status` only. Any future trigger on a hot table should do the same.
 
 ---
 

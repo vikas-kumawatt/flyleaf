@@ -21,6 +21,8 @@ import { telemetryRoutes } from '../telemetry/index.js';
 import { shelvesPlugin } from '../shelves/index.js';
 import { importsPlugin } from '../imports/index.js';
 import { socialPlugin } from '../social/index.js';
+import { interactionsPlugin } from '../interactions/index.js';
+import { activityPlugin } from '../activity/index.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -49,6 +51,11 @@ export async function buildOpenApiSpec(): Promise<object> {
   await app.register(shelvesPlugin, { prefix: '/v1', db: mockDb });
   await app.register(importsPlugin, { prefix: '/v1', db: mockDb });
   await app.register(socialPlugin, { prefix: '/v1', db: mockDb });
+  await app.register(interactionsPlugin, { prefix: '/v1', db: mockDb });
+  // The feed was served since SO-11 but never registered here, so its
+  // contract was invisible to spec:check. Registered with SO-21, which
+  // changed the feed card shape.
+  await app.register(activityPlugin, { prefix: '/v1', db: mockDb });
 
   // System endpoints
   app.get(

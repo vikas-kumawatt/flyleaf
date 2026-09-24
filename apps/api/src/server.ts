@@ -31,6 +31,7 @@ async function main() {
     identity,
     catalog,
     reading,
+    limiter,
     trustProxy: true,
     logger: {
       level: config.logLevel,

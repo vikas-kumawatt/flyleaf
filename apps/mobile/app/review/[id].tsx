@@ -6,7 +6,7 @@
 //   3. Book context strip (cover, title, author, tap to navigate).
 //   4. Star rating and Heart affection.
 //   5. Spoiler protection gate: hidden behind tap-to-reveal.
-//   6. Like action with atomic server toggle and haptic bounce.
+//   6. Like (idempotent POST/DELETE on the read, SO-21) and comments link (SO-22).
 //   7. Share sheet.
 
 import React, { useState, useEffect } from 'react';
@@ -90,7 +90,7 @@ export default function ReviewDetailScreen() {
     setLikeCount(nextCount);
 
     try {
-      const res = await api.client.toggleLike(review.read_id);
+      const res = await api.client.setLiked(review.read_id, nextLiked);
       setLiked(res.liked);
       setLikeCount(res.like_count);
     } catch {
@@ -351,6 +351,30 @@ export default function ReviewDetailScreen() {
             </Txt>
             <Txt variant="caption" style={{ fontWeight: '600', color: liked ? c.heart : c.ink }} tabular>
               {likeCount > 0 ? likeCount.toLocaleString() : 'Like'}
+            </Txt>
+          </Pressable>
+
+          <Pressable
+            onPress={() => router.push(`/read/${review.read_id}/comments` as any)}
+            accessibilityRole="button"
+            accessibilityLabel={`Comments, ${review.comment_count ?? 0}`}
+            style={[
+              sheet.row,
+              {
+                paddingHorizontal: space[4],
+                paddingVertical: space[2],
+                minHeight: 44,
+                borderRadius: radius.pill,
+                borderWidth: 1,
+                borderColor: c.line,
+                backgroundColor: c.surface,
+                gap: space[2],
+              },
+            ]}
+          >
+            <Ionicons name="chatbubble-outline" size={16} color={c.ink} />
+            <Txt variant="caption" style={{ fontWeight: '600', color: c.ink }} tabular>
+              {(review.comment_count ?? 0) > 0 ? (review.comment_count ?? 0).toLocaleString() : 'Comment'}
             </Txt>
           </Pressable>
 

@@ -625,6 +625,25 @@ export const readLikes = pgTable('read_likes', {
 }, (t) => [
   primaryKey({ columns: [t.readId, t.userId] }),
   index('read_likes_user_idx').on(t.userId),
+  index('read_likes_read_created_idx').on(t.readId, t.createdAt),
+]);
+
+/**
+ * Comments target the READ, like likes (PRD §10.3). Single-level: there is no
+ * parent_id, by design (SO-22). `reads.comment_count` counts rows with
+ * `deleted_at IS NULL`, maintained by trigger (0018).
+ */
+export const readComments = pgTable('read_comments', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  readId: uuid('read_id').notNull().references(() => reads.id, { onDelete: 'cascade' }),
+  userId: uuid('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  body: text('body').notNull(),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  deletedAt: timestamp('deleted_at', { withTimezone: true }),
+}, (t) => [
+  check('read_comments_body_ck', sql`char_length(btrim(${t.body})) BETWEEN 1 AND 2000`),
+  index('read_comments_read_idx').on(t.readId, t.createdAt, t.id),
+  index('read_comments_user_idx').on(t.userId, t.createdAt),
 ]);
 
 export const follows = pgTable('follows', {

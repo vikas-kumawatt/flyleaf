@@ -7,7 +7,7 @@
 //   2. PostgreSQL trigger-maintained work_stats (SL-62).
 //   3. Review composer: validations, editing, soft deletion (SL-63).
 //   4. Review ranking with friends-first social proximity dominance (SL-64, PRD §10.7).
-//   5. Read/Review likes toggle (SL-64).
+//   5. Read/Review likes (SL-64; idempotent like/unlike since SO-21).
 
 import { randomUUID } from 'node:crypto';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
@@ -22,6 +22,7 @@ import {
   ReviewService,
 } from '../reviews/index.js';
 import { readingRoutes, ReadingService } from '../reading/index.js';
+import { interactionsPlugin } from '../interactions/index.js';
 import { IdentityService, signAccessToken } from '../identity/index.js';
 import { PgRateLimiter, type Db } from '../platform/index.js';
 import { freshDrizzle } from './pg.js';
@@ -100,6 +101,7 @@ describe('Ratings & Reviews (SL-6x)', () => {
     });
     await app.register(readingRoutes(readingService), { prefix: '/v1' });
     await app.register(reviewsPlugin, { db });
+    await app.register(interactionsPlugin, { prefix: '/v1', db });
     await app.ready();
   }, 60_000);
 
@@ -404,30 +406,29 @@ describe('Ratings & Reviews (SL-6x)', () => {
       expect(json.data[1].author.username).toBe('bob');
     });
 
-    it('toggles read/review likes atomically', async () => {
-      // User A likes User B's read
-      const likeRes1 = await app.inject({
-        method: 'POST',
-        url: `/v1/reads/${readB}/like`,
-        headers: { authorization: `Bearer ${tokenA}` },
-      });
+    it('likes idempotently and unlikes with DELETE (SO-21 replaced the SL-64 toggle)', async () => {
+      const like = () =>
+        app.inject({
+          method: 'POST',
+          url: `/v1/reads/${readB}/like`,
+          headers: { authorization: `Bearer ${tokenA}` },
+        });
 
+      const likeRes1 = await like();
       expect(likeRes1.statusCode).toBe(200);
-      const json1 = JSON.parse(likeRes1.payload);
-      expect(json1.liked).toBe(true);
-      expect(json1.like_count).toBe(1);
+      expect(JSON.parse(likeRes1.payload)).toEqual({ liked: true, like_count: 1 });
 
-      // User A un-likes by pressing again
-      const likeRes2 = await app.inject({
-        method: 'POST',
+      // A replayed POST (offline queue) must not undo the like.
+      const likeRes2 = await like();
+      expect(JSON.parse(likeRes2.payload)).toEqual({ liked: true, like_count: 1 });
+
+      const unlike = await app.inject({
+        method: 'DELETE',
         url: `/v1/reads/${readB}/like`,
         headers: { authorization: `Bearer ${tokenA}` },
       });
-
-      expect(likeRes2.statusCode).toBe(200);
-      const json2 = JSON.parse(likeRes2.payload);
-      expect(json2.liked).toBe(false);
-      expect(json2.like_count).toBe(0);
+      expect(unlike.statusCode).toBe(200);
+      expect(JSON.parse(unlike.payload)).toEqual({ liked: false, like_count: 0 });
     });
   });
 });

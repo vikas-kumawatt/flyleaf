@@ -128,7 +128,7 @@ export default function WorkScreen() {
     }
     void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     try {
-      const res = await api.client.toggleLike(review.read_id);
+      const res = await api.client.setLiked(review.read_id, !review.viewer_has_liked);
       setReviewsList((prev) =>
         prev.map((r) =>
           r.id === review.id

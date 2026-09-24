@@ -547,6 +547,7 @@ export const reviewSchema = {
     hearted: { type: 'boolean' },
     format_override: { type: ['string', 'null'] },
     like_count: { type: 'integer' },
+    comment_count: { type: 'integer' },
     viewer_has_liked: { type: 'boolean' },
     author: reviewAuthorSchema,
     work_title: { type: ['string', 'null'] },
@@ -621,6 +622,102 @@ export const toggleLikeResponseSchema = {
   },
   required: ['liked', 'like_count'],
 } as const;
+
+// ---------------------------------------------------------------------------
+// Read interactions: likes & comments target the READ (SO-20..22, PRD §10.3)
+// ---------------------------------------------------------------------------
+
+export const readIdParamsSchema = {
+  type: 'object',
+  properties: { id: { type: 'string', format: 'uuid' } },
+  required: ['id'],
+} as const;
+
+/** Same shape as the SL-64 toggle response, so existing clients keep parsing it. */
+export const likeResponseSchema = toggleLikeResponseSchema;
+
+export const interactionUserSchema = {
+  type: 'object',
+  properties: {
+    id: { type: 'string', format: 'uuid' },
+    username: { type: 'string' },
+    display_name: { type: ['string', 'null'] },
+    avatar_url: { type: ['string', 'null'] },
+  },
+  required: ['id', 'username', 'display_name', 'avatar_url'],
+} as const;
+
+export const readLikersQuerySchema = {
+  type: 'object',
+  properties: {
+    limit: { type: 'integer', minimum: 1, maximum: 100, default: 50 },
+    offset: { type: 'integer', minimum: 0, default: 0 },
+  },
+} as const;
+
+export const readLikersResponseSchema = {
+  type: 'object',
+  properties: {
+    read_id: { type: 'string', format: 'uuid' },
+    like_count: { type: 'integer' },
+    users: {
+      type: 'array',
+      items: {
+        type: 'object',
+        properties: {
+          ...interactionUserSchema.properties,
+          liked_at: { type: 'string', format: 'date-time' },
+        },
+        required: [...interactionUserSchema.required, 'liked_at'],
+      },
+    },
+  },
+  required: ['read_id', 'like_count', 'users'],
+} as const;
+
+export const readCommentSchema = {
+  type: 'object',
+  properties: {
+    id: { type: 'string', format: 'uuid' },
+    read_id: { type: 'string', format: 'uuid' },
+    body: { type: 'string' },
+    created_at: { type: 'string', format: 'date-time' },
+    author: interactionUserSchema,
+    viewer_can_delete: { type: 'boolean' },
+  },
+  required: ['id', 'read_id', 'body', 'created_at', 'author', 'viewer_can_delete'],
+} as const;
+
+export const readCommentsQuerySchema = {
+  type: 'object',
+  properties: {
+    cursor: { type: 'string', maxLength: 200 },
+    limit: { type: 'integer', minimum: 1, maximum: 100, default: 50 },
+  },
+} as const;
+
+export const readCommentsResponseSchema = {
+  type: 'object',
+  properties: {
+    read_id: { type: 'string', format: 'uuid' },
+    comment_count: { type: 'integer' },
+    /** True when the read's review was deleted: thread is read-only (PRD §6.28). */
+    locked: { type: 'boolean' },
+    comments: { type: 'array', items: readCommentSchema },
+    next_cursor: { type: ['string', 'null'] },
+  },
+  required: ['read_id', 'comment_count', 'locked', 'comments', 'next_cursor'],
+} as const;
+
+export const createCommentBodySchema = {
+  type: 'object',
+  properties: {
+    body: { type: 'string', minLength: 1, maxLength: 2000 },
+  },
+  required: ['body'],
+} as const;
+
+export const commentIdParamsSchema = readIdParamsSchema;
 
 
 // ---------------------------------------------------------------------------
@@ -1995,6 +2092,21 @@ export const feedActivityItemSchema = {
     metadata: { type: 'object', additionalProperties: true },
     visibility: { type: 'string', enum: ['public', 'followers', 'private'] },
     created_at: { type: 'string', format: 'date-time' },
+    /**
+     * Like/comment state of the READ behind this card (SO-21, PRD §10.3).
+     * Present on finished, dnf and reviewed cards; null on everything else —
+     * "started" and shelf cards are not social objects.
+     */
+    interaction: {
+      type: ['object', 'null'],
+      properties: {
+        read_id: { type: 'string', format: 'uuid' },
+        like_count: { type: 'integer' },
+        comment_count: { type: 'integer' },
+        viewer_has_liked: { type: 'boolean' },
+      },
+      required: ['read_id', 'like_count', 'comment_count', 'viewer_has_liked'],
+    },
   },
   required: ['id', 'actor_id', 'actor', 'verb', 'visibility', 'created_at'],
 } as const;

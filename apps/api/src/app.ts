@@ -32,7 +32,8 @@ import { importsPlugin, type FileStorage } from './imports/index.js';
 import { exportsPlugin } from './exports/index.js';
 import { socialPlugin } from './social/index.js';
 import { activityPlugin } from './activity/index.js';
-import type { EmailSender } from './platform/index.js';
+import { interactionsPlugin } from './interactions/index.js';
+import type { EmailSender, RateLimiter } from './platform/index.js';
 
 export interface CoreHookOptions {
   identityLookup?: (token: string) => Promise<string | null>;
@@ -174,6 +175,8 @@ export interface BuildAppOptions {
   boss?: PgBoss;
   storage?: FileStorage;
   mailer?: EmailSender;
+  /** Shared limiter for write throttles (comments). Defaults to Postgres-backed. */
+  limiter?: RateLimiter;
   logger?: FastifyServerOptions['logger'];
   trustProxy?: boolean;
   bodyLimit?: number;
@@ -235,6 +238,11 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
   }
   if (options.db) {
     await app.register(reviewsPlugin, { db: options.db });
+    await app.register(interactionsPlugin, {
+      prefix: '/v1',
+      db: options.db,
+      limiter: options.limiter,
+    });
     await app.register(adminAuthRoutes(options.db));
     await app.register(adminDedupeRoutes(options.db));
     await app.register(adminCatalogRoutes(options.db));

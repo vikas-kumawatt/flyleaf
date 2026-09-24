@@ -843,10 +843,45 @@
   - Unit tests in `apps/mobile/src/lib/__tests__/feed-card.test.ts` (92/92 mobile tests passing, typecheck clean).
 
 ### Interaction — `SO-2x` · 3d
-- [ ] **SO-20** `read_likes`, `read_comments` migrations + counters — 0.5d
-- [ ] **SO-21** ⚠️ **Like targets the read** — a finish with no review is likeable — 0.75d
-- [ ] **SO-22** Comments, single-level, rate-limited — 1d
-- [ ] SO-23 Review ranking: social proximity dominant, exploration boost — 0.75d
+- [x] **SO-20** `read_likes`, `read_comments` migrations + counters — 0.5d
+  - Migration `0018_read_interactions.sql` (hand-written, idempotent like 0011/0013). `read_likes` already existed from 0011; this adds `read_comments` (`id`, `read_id`, `user_id`, `body`, `created_at`, `deleted_at`) with `CHECK (char_length(btrim(body)) BETWEEN 1 AND 2000)`, thread index `(read_id, created_at, id)`, per-user index `(user_id, created_at desc)`, and a likers index `read_likes (read_id, created_at desc)`. Drizzle model `readComments` in `db/schema.ts`.
+  - **No `parent_id` column.** Single-level comments are structural, not a rule to enforce — a test asserts the exact column list so nobody adds one casually.
+  - **Counters moved from application code to triggers.** SL-64 maintained `like_count` with a read-modify-write in TypeScript, which loses an increment on every concurrent like. `read_likes_counter_fn` / `read_comments_counter_fn` do `UPDATE reads SET like_count = like_count + 1`, which serialises on the read's row lock. `comment_count` counts **live** comments: soft delete decrements, un-delete increments, re-deleting is a no-op. Counters deliberately **do not touch `reads.updated_at`** — it orders the owner's Reading tab, and someone liking your finish must not reshuffle your shelf.
+  - `reconcile_read_counters()` returns the number of rows it corrected and writes only drifted rows. New `reads.reconcile` pg-boss queue + `reconcileReadsJobHandler`; the migration runs it once to backfill from truth.
+  - ⚠️ **Found: the `work_stats` trigger (0011) fired on UPDATE of *any* `reads` column**, and `recompute_work_stats_for_work()` runs `AVG(rating) FROM reads WHERE work_id <> x` — a full-table scan. Moving counters into `UPDATE reads` would have made every like and every comment pay for that scan. The trigger is now `AFTER INSERT OR DELETE OR UPDATE OF work_id, user_id, rating, hearted, status`. A test asserts a like leaves `work_stats.updated_at` untouched while a rating change moves it — **verified to fail against the old trigger** before the fix went in.
+  - ⚠️ **Found: `shelves.reconcile` and `follows.reconcile` had handlers since SH-01/SO-01 but were never scheduled.** A reconciler that never runs reconciles nothing. `worker.ts` now schedules all three nightly, staggered: shelves 03:00, follows 03:15, reads 03:30 UTC.
+  - 10 tests in `read-interactions-migration.test.ts`.
+- [x] **SO-21** ⚠️ **Like targets the read** — a finish with no review is likeable — 0.75d
+  - New `InteractionService` + `interactionsPlugin` in `apps/api/src/interactions/index.ts` (PRD §24 routes): `POST /v1/reads/:id/like`, `DELETE /v1/reads/:id/like`, `GET /v1/reads/:id/likes` (guest-readable likers list, newest first).
+  - ⚠️ **Behaviour change: `POST /like` is now an idempotent *like*, not a toggle.** SL-64 shipped a toggle, which is wrong for an offline-first client: the mutation queue replays on reconnect, and a replayed toggle silently undoes the user's like. `DELETE` unlikes, also idempotent. The response shape (`{ liked, like_count }`) is unchanged. Client: `toggleLike()` replaced by `likeRead()`, `unlikeRead()` and `setLiked(readId, wanted)`; the three mobile call sites send the state they want.
+  - **Terminal only** (PRD §10.3): `finished` and `dnf` reads accept likes; `want`/`reading`/`paused` → **409 `not_likeable`**. A re-read collects its own likes.
+  - **Every denial is the same 404 as a non-existent read** — private read, followers-only to a non-follower, public read on a private account, blocked in either direction. Access goes through `canView()`; tests compare the denied body to the body for a random UUID. Unlike on a hidden read is also a 404, not a silent success.
+  - Likers list hides users in a block relationship with the viewer (PRD §11.4); the count still includes them.
+  - A review's likes **are** its read's likes: the review permalink and the feed card show the same number. `reviewSchema` now also returns `comment_count`.
+  - **Feed cards carry the read's state.** New `interaction: { read_id, like_count, comment_count, viewer_has_liked } | null` on every feed item, attached in two queries per page (`InteractionService.interactionsFor`). Present on `finished`, `dnf` and `reviewed` cards (review cards resolve to the review's parent read via `metadata.readId`); `null` on started/shelved/followed cards and on any card whose read is no longer terminal.
+  - ⚠️ **Found: `/v1/feed` was never in `openapi.yaml`.** `contract/generate.ts` keeps its own plugin list and `activityPlugin` was not in it, so `spec:check` could not see feed drift. Registered now, with `interactionsPlugin`. (`exportsPlugin` is still absent from the generator — separate follow-up.)
+  - Mobile: `getCardInteraction()` in `src/lib/feedCard.ts` resolves what a card's buttons act on. ⚠️ **Fixed an SO-15 bug:** review cards passed the *activity* id as the read id, which could never match a read. `FeedCard` hides like/comment on non-social cards, sends the wanted state (POST or DELETE), rolls back on failure, and opens the comment thread by default.
+  - 17 tests in `read-likes.test.ts`; SL-64's toggle test rewritten for like/unlike in `reviews.test.ts`.
+- [x] **SO-22** Comments, single-level, rate-limited — 1d
+  - `GET /v1/reads/:id/comments` (guest-readable for public reads; oldest first; opaque `(created_at, id)` cursor, malformed cursor → 400 `invalid_cursor`), `POST /v1/reads/:id/comments` (201), `DELETE /v1/comments/:id` (204, soft delete).
+  - **Rate limit: 5 comments/minute per user** (PRD §6.28, §11.7, §24) through the injected `RateLimiter` — `PgRateLimiter` by default, so it holds across API instances. Bucket `comments:{userId}`. Checked *after* authorization and validation, so a 404/409/400 never burns budget. `buildApp({ limiter })` and `server.ts` now share one limiter instance.
+  - Terminal reads only (409 `not_commentable`); body trimmed, 1–2,000 chars (whitespace-only → 400 `empty_body`; over-length → 422 at the schema).
+  - **Deleted review → read-only thread** (PRD §6.28, §43): `POST` returns 409 `thread_locked`; `GET` still returns the comments with `locked: true`.
+  - Delete-own only — including against the read's owner (per-thread moderation is P1, PRD §27.2). Deleting someone else's comment is a 404.
+  - Blocking: a blocked user cannot see or comment on the read (404); existing comments from someone you blocked are hidden from **you** but not from third parties (PRD §11.4).
+  - `parent_id` in a request is stripped by the schema; the comment lands top-level. There is nothing to nest into.
+  - Mobile: comment thread screen `apps/mobile/app/read/[id]/comments.tsx` (flat list, delete-own with confirmation and rollback, tombstone banner when locked, 2,000-char counter from 1,800, guest action gate, reader-facing copy for every API refusal) and a Comment button on Review Detail. Pure helpers in `src/lib/comments.ts`.
+  - 16 tests in `read-comments.test.ts` (rate limit exercised against the **real** Postgres limiter); 8 mobile tests in `src/lib/__tests__/interactions.test.ts`.
+  - Open item: PRD §6.4 says unverified accounts cannot comment. Not enforced here because reviews and follows do not enforce it either — gating one of the three would be inconsistent. Belongs with SO-41 (automated layer 1) or LA-03.
+- [x] SO-23 Review ranking: social proximity dominant, exploration boost — 0.75d
+  - Full PRD §10.7 formula in `apps/api/src/reviews/index.ts`: `0.35·proximity + 0.20·log-likes + 0.10·log-comments + 0.15·exp(−age/45d) + 0.10·credibility + 0.10·length − 0.10·report`, with weights exported as `REVIEW_RANKING_WEIGHTS`.
+  - **Social proximity is now three-tier**: 1.0 you follow them (or it is you) · **0.6 follower-of-follower** (new; one query over accepted edges, scoped to this list's authors) · 0.2 otherwise.
+  - **Author credibility is real**: the reviewer's *median* `like_count` across live reviews, `log10(1+median)/2` capped at 1 — a median so one viral review cannot buy permanent rank. SL-64 hard-coded it to 0.5 for everyone. Report penalty is wired as an input and is 0 until reports exist (SO-40).
+  - ⚠️ **Found: the PRD's weights alone cannot make proximity dominant.** The five non-proximity terms sum to 0.65; following someone adds only 0.35 × (1.0 − 0.2) = 0.28 over a stranger. So a fresh, viral stranger review outscored a friend's quiet two-month-old one, contradicting the PRD's own principle ("a friend's 2-star review is worth more to you than a stranger's viral one"). Ranking is therefore **tiered**: reviews by people you follow come first, and everyone else — followers-of-followers included — competes on the full score, where the 0.6 vs 0.2 weight still counts. A test pins the arithmetic so nobody "simplifies" back to a plain score sort.
+  - **Exploration boost**: a review that is new (≤14 days), unproven (<5 likes) and from outside your follows is shown to a **deterministic ~20% sample** of viewers (FNV-1a over `viewer:review`; guests use a daily-rotating key) at **one** slot: directly below the viewer's friends, never above position 3, and only if that lands on page one — so exploring a stranger never costs a friend's review. Deterministic per viewer, so pagination never duplicates or skips. Measured sample rate over 20,000 keys: 18–22%.
+  - SL-64's positional `calculateReviewRankingScore(item, viewerId, followedIds)` still works.
+  - 21 tests in `review-ranking.test.ts`, including an end-to-end check through `GET /v1/works/:id/reviews?sort=friends`.
+  - Open item, deliberately not done: the reviews list still ranks every review of a work in memory before slicing. Fine at current volumes; needs a candidate cap (or SQL pre-ranking) before a work has thousands of reviews.
 
 ### Notifications — `SO-3x` · 3d
 - [ ] **SO-30** notifications table; composition; Expo Notifications → FCM/APNs — 1.5d
@@ -863,6 +898,8 @@
 - [ ] **SO-50** ⚠️ Server-rendered book, profile and shelf pages — 2d
 - [ ] **SO-51** Open Graph tags; `flyleaf.app/@username` — 0.5d
 - [ ] SO-52 Onboarding follow suggestions — 0.5d
+
+> **`SO-2x` closed, 24 Sep 2026.** API 738 tests across 45 files, mobile 100 tests (+8), `node scripts/ci.mjs` green in 725 s with 0 OpenAPI drift. `0018_read_interactions` then applied cleanly with `npm run migrate` against the local Postgres 18 container (same day). Gotcha found doing it: another project's Postgres was holding host port 5432, so `flyleaf-pg` started unpublished and every `localhost:5432` login hit the wrong server (`password authentication failed`). Check `docker ps` ports before debugging credentials.
 
 **Exit:** 30–50 beta users · median follows ≥5 · nobody has an empty feed · block verified · report actionable end to end.
 

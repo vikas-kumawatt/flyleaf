@@ -4,7 +4,7 @@ A reading tracker. Log what you read, rate it in half-stars, see it on a profile
 
 **Stack:** TypeScript · Node 22 · Fastify 5 · Drizzle · Postgres 18 · pg-boss · Expo SDK 57 · React Native 0.86 · expo-sqlite. Full locked stack in [`docs/architecture.md`](docs/architecture.md) §0.
 
-**Where it is:** Phase 0 (Foundation), **Phase 1 (Solo loop)**, **Phase 2 (Shelves & lists)**, and **Phase 3 (Import & export)** are **100% complete**. All exit criteria met: 3.2M books findable, 15.4M authors indexed, relevance panel at 99.5%, cross-user authorization suite green, two books tracked end-to-end on phone, finish budget p75 < 20s, offline verified with SQLite mutation queue and crash/restart recovery, a11y pass on core flows, shelves and ranked lists with per-entry notes, reordering, starter suggestions, reference saves, discovery browse ranking, 404 obscure privacy matrix, canonical vanity web sharing (`https://flyleaf.app/u/{username}/shelves/{slug}`), visual share card preview, 662 API tests + 87 mobile tests passing, migrations clean on real Postgres, 0 OpenAPI contract drift, verified Phase 3 exit criteria (92% real library match rate, unmatched resolution, and 100% round-trip export/re-import fidelity), and verified Phase 4 social block invisibility equivalence (`SO-06`). Currently actively implementing **Phase 4 (Social)** (`SO-01` through `SO-06`, `SO-10`, `SO-11`, `SO-12`, and `SO-13` complete). Live state is always [`docs/tasks.md`](docs/tasks.md).
+**Where it is:** Phase 0 (Foundation), **Phase 1 (Solo loop)**, **Phase 2 (Shelves & lists)**, and **Phase 3 (Import & export)** are **100% complete**. All exit criteria met: 3.2M books findable, 15.4M authors indexed, relevance panel at 99.5%, cross-user authorization suite green, two books tracked end-to-end on phone, finish budget p75 < 20s, offline verified with SQLite mutation queue and crash/restart recovery, a11y pass on core flows, shelves and ranked lists with per-entry notes, reordering, starter suggestions, reference saves, discovery browse ranking, 404 obscure privacy matrix, canonical vanity web sharing (`https://flyleaf.app/u/{username}/shelves/{slug}`), visual share card preview, 738 API tests + 100 mobile tests passing, migrations clean on real Postgres, 0 OpenAPI contract drift, verified Phase 3 exit criteria (92% real library match rate, unmatched resolution, and 100% round-trip export/re-import fidelity), and verified Phase 4 social block invisibility equivalence (`SO-06`). Currently actively implementing **Phase 4 (Social)** (`SO-01` through `SO-06`, `SO-10` through `SO-15`, and `SO-20` through `SO-23` complete — next up: notifications, `SO-3x`). Live state is always [`docs/tasks.md`](docs/tasks.md).
 
 ## The documents
 
@@ -19,7 +19,7 @@ They live in `docs/`, in this repo, so a decision and the code implementing it l
 | [`docs/tasks.md`](docs/tasks.md) | Task breakdown with stable IDs, and the running record of what each one actually cost |
 | [`docs/surprises.md`](docs/surprises.md) | What was not true in the plan. Read this one first |
 
-> **Phase 0, Phase 1, Phase 2, and Phase 3 are done.** The foundation (auth, catalog, search, dedupe, admin console, typed API contract, CI), the full native mobile experience (offline-first SQLite, typography and design system, barcode scanner, reading lifecycle, reviews, diary, wall, stats, and telemetry budgets), curated shelves & lists (`SH-01` through `SH-10`), and complete library import & export (`IM-01` through `IM-12`) are complete and verified with 100% round-trip fidelity. Currently building **Phase 4 — Social** (`SO-01` through `SO-06`, `SO-10`, `SO-11`, `SO-12`, and `SO-13` completed).
+> **Phase 0, Phase 1, Phase 2, and Phase 3 are done.** The foundation (auth, catalog, search, dedupe, admin console, typed API contract, CI), the full native mobile experience (offline-first SQLite, typography and design system, barcode scanner, reading lifecycle, reviews, diary, wall, stats, and telemetry budgets), curated shelves & lists (`SH-01` through `SH-10`), and complete library import & export (`IM-01` through `IM-12`) are complete and verified with 100% round-trip fidelity. Currently building **Phase 4 — Social** (`SO-01` through `SO-06`, `SO-10` through `SO-15`, and `SO-20` through `SO-23` completed).
 
 ---
 
@@ -81,6 +81,16 @@ sign up / guest  →  search 3.2M books / barcode scan  →  book detail & editi
 - Feed Activity Aggregation (`SO-13`): Aggregation engine (`aggregateFeedItems` in `apps/api/src/activity/ranking.ts`) collapsing repetitive low-weight activities by the same actor prior to ranking: shelf adds ("user A added 6 books to Monsoon Reading"), follows ("user A followed 4 readers"), and same-day book starts. High-value activities (`reviewed`, `finished`, `dnf`, `goal_reached`, `quoted`) are explicitly excluded from aggregation. 13/13 passing tests in `feed-ranking.test.ts`.
 - Feed Cold Start & Blending Engine (`SO-14`): Full cold start engine (`ActivityService.getFriendsFeed`) delivering a "Never Empty Feed" guarantee (PRD §12.5): 0 follows auto-switches to Popular feed with `cold_start_reason: 'no_follows'`, 1–3 follows blends Friends feed with Popular activities (`is_blended_popular: true`, `label: 'Popular on Flyleaf'`, `cold_start_reason: 'sparse_follows'`), >3 follows with zero recent friend activity backfills with Popular activities (`label: 'While you wait'`, `cold_start_reason: 'no_activity'`), and empty database fallback appends an editorial welcome card (`is_editorial: true`). 4/4 passing integration tests in `feed-cold-start.test.ts`, total 24/24 feed test suite assertions passing.
 - Mobile Feed Cards & Swipe Actions (`SO-15`): Interactive `FeedCard` component (`apps/mobile/src/ui/FeedCard.tsx`) rendering distinct card types (`review`, `finish`, `rated`, `dnf`, `shelved`, `followed`, `started`, `goal_reached`, `quoted`, `editorial`) with aggregated collections, spoiler blur overlays, and cold-start badge banners. Integrated `Swipeable` gesture actions (PRD §4673–4674): **Swipe Right** reveals green **"Want to read"** action with bookmark icon and toast feedback; **Swipe Left** reveals blue **"Rate & Review"** action with star icon. Accessible fallback action buttons provided for non-gesture callers and VoiceOver/TalkBack screen readers (PRD §4682). 92/92 mobile tests passing (`feed-card.test.ts`).
+
+**Likes, Comments & Review Ranking (SO-20 through SO-23):**
+- **Likes and comments target the read, not the review** (PRD §10.3, LOCKED) — so a finish with no review is fully likeable and commentable. Only terminal reads (`finished`, `dnf`) are social objects; anything else is `409 not_likeable` / `not_commentable`.
+- Migration `0018_read_interactions.sql`: `read_comments` (no `parent_id` — single-level by construction), and `reads.like_count` / `reads.comment_count` maintained by **triggers** instead of application code (incremental, so concurrent likes never lose a count; `comment_count` tracks live comments across soft delete and restore). `reconcile_read_counters()` runs nightly as `reads.reconcile` and reports how many rows it corrected.
+- `POST /v1/reads/:id/like` is an **idempotent like** and `DELETE` an idempotent unlike — the SL-64 toggle was unsafe under offline replay. `GET /v1/reads/:id/likes` lists likers, hiding anyone in a block relationship with the viewer.
+- `GET`/`POST /v1/reads/:id/comments` (oldest first, cursor-paginated) and `DELETE /v1/comments/:id` (own comments only). **5 comments per minute** per user through the Postgres-backed `RateLimiter`. A deleted review turns its thread read-only (`409 thread_locked`, `locked: true`).
+- Every denial — private read, followers-only, private account, blocked either way — is the **same 404 as a read that does not exist**.
+- Feed items carry `interaction: { read_id, like_count, comment_count, viewer_has_liked }` on finished, DNF and review cards, and `null` on cards that are not social objects.
+- **Review ranking (PRD §10.7):** social proximity 1.0 / 0.6 follower-of-follower / 0.2, log-scaled likes and comments, 45-day recency, author credibility from the reviewer's median likes, length quality. People you follow always rank first — the PRD weights alone cannot guarantee that (measured), so friends-first is a tier. New, unproven reviews from outside your follows get **one exploration slot** directly below your friends for a deterministic ~20% of viewers.
+- Mobile: comment thread screen (`app/read/[id]/comments.tsx`), comment button on Review Detail, and `FeedCard` likes that send the wanted state (POST or DELETE) and target the read.
 - Mobile screens: `UserProfileScreen` (`apps/mobile/app/user/[id].tsx`) with haptic follow toggle, mutual follow indicator ("Follows you"), Block action, Mute action, pressable follower/following counts, and restricted private view; `WorkScreen` (`apps/mobile/app/work/[id].tsx`) with "Mute book" action; `FollowRequestsScreen` (`apps/mobile/app/profile/requests.tsx`) for managing incoming follow requests; `BlockedUsersScreen` (`apps/mobile/app/profile/blocked.tsx`) for viewing and unblocking accounts; `MutedItemsScreen` (`apps/mobile/app/profile/muted.tsx`) with segmented tabs for Users and Books with 1-tap unmute actions; `FollowersScreen` (`apps/mobile/app/user/[id]/followers.tsx`) and `FollowingScreen` (`apps/mobile/app/user/[id]/following.tsx`) with 1-tap follow toggles and user profile links.
 
 Behind it: the full Open Library catalog, ISBN lookup, dedupe pipeline, a background worker, and CI that runs everything below on every push.
@@ -216,6 +226,8 @@ Check it: <http://localhost:3000/healthz> and <http://localhost:3000/readyz>.
 curl "http://localhost:3000/v1/search?q=piranesi"
 ```
 
+> **`password authentication failed for user "flyleaf"`?** Another container probably owns host port 5432 — run `docker ps --format "table {{.Names}}\t{{.Ports}}"`. If `flyleaf-pg` shows only `5432/tcp` (not `0.0.0.0:5432->5432`), stop the other container and `docker compose up -d --force-recreate postgres`. Your data lives in the volume and survives the recreate.
+
 #### Prove the whole backend path — `scripts\smoke.ps1`
 
 With the API running, in a second terminal:
@@ -257,7 +269,7 @@ make ping          # or: cd apps\api ; npm run ping
 
 The worker logs `job handled` with the job id within a couple of seconds. pg-boss owns its own `pgboss` schema and migrates it itself — a deliberate exception to "drizzle is the source of truth", because those tables are library internals and hand-managing them makes every pg-boss upgrade a migration you have to get right.
 
-The `catalog.dedupe` cron job runs monthly (`0 0 1 * *`). To trigger it manually:
+The `catalog.dedupe` cron job runs monthly (`0 0 1 * *`). Counter reconciliation runs nightly (UTC): `shelves.reconcile` 03:00, `follows.reconcile` 03:15, `reads.reconcile` 03:30 — each corrects drift in trigger-maintained counters. To trigger dedupe manually:
 
 ```powershell
 npm run worker -- --dedupe
@@ -435,6 +447,9 @@ flyleaf/
 │       │   ├── catalog.ts      maturity override, ingestion status service
 │       │   └── catalog-routes.ts  catalog review + ingest dashboard (REST + HTML)
 │       ├── reading/            reads, progress events, reviews, velocity
+│       ├── reviews/            reviews, Bayesian rating, review ranking + exploration
+│       ├── interactions/       likes + comments on reads, rate-limited
+│       ├── activity/           feed: fan-out on read, ranking, aggregation, cold start
 │       ├── telemetry/          event ingestion, budget calculation, Sentry hook
 │       └── test/               19 test suites, every SQL suite runs on PGlite
 └── apps/mobile/                Expo SDK 57 (React Native 0.86) — 52 tests
@@ -497,6 +512,13 @@ flyleaf/
 | POST | `/reads/{id}/dnf` | no |
 | POST | `/reads/{id}/reviews` | no |
 | GET | `/works/{id}/reviews` | **yes** |
+| POST | `/reads/{id}/like` | no — idempotent |
+| DELETE | `/reads/{id}/like` | no — idempotent |
+| GET | `/reads/{id}/likes` | **yes** |
+| GET | `/reads/{id}/comments` | **yes** |
+| POST | `/reads/{id}/comments` | no — 5/min |
+| DELETE | `/comments/{id}` | no — own only |
+| GET | `/feed?tab=friends\|popular` | friends: no · popular: **yes** |
 | GET | `/users/{id}/reviews` | **yes** |
 | POST | `/events` | **yes** |
 | GET | `/admin/telemetry/budgets` | moderator+ |
@@ -563,6 +585,9 @@ These are not prototype shortcuts. Changing them costs far more later.
 | **Admin isolated from app accounts** | `admin/auth.ts` | Separate JWT audience (`flyleaf-admin`), separate credentials table. A stolen app token never authenticates as admin |
 | **Admin audit log is non-negotiable** | `admin/auth.ts` | `logAdminAction` records every login, merge, undo, override, and dismissal with actor, target, reason, IP, and payload diff |
 | **Merges are reversible for 30 days** | `catalog/dedupe.ts` | `work_merges.moved` stores prior attempt numbers at merge time so undo is possible; after 30 days it is not |
+| **Likes and comments target the read** | `interactions/`, `read_likes`, `read_comments` | A finish with no review is the core social event and must be likeable. Also survives the 180-day activity prune |
+| **A like is a verb, not a toggle** | `POST`/`DELETE /reads/{id}/like` | The offline queue replays requests; a replayed toggle undoes the user's like |
+| **Counters are triggers + a nightly reconciler** | `0018`, `jobs/` | App-side read-modify-write loses increments under concurrency. Triggers on `reads` name their columns, or a like pays for a `work_stats` recompute |
 | **Maturity overrides lock provenance** | `admin/catalog.ts` | `field_provenance.is_locked = true` protects a human classification from being overwritten by the next dump re-ingest |
 
 ---
@@ -591,8 +616,8 @@ Already replaced: container-init schema → drizzle migrations (`FN-01`) · opaq
 | CI | **green** on every push — GitHub Actions / `node scripts/ci.mjs`, ~225 s |
 | `tsc --noEmit` (API) | pass — TypeScript strict, `noUncheckedIndexedAccess` |
 | `tsc --noEmit` (Mobile) | pass — TypeScript strict, 0 errors |
-| `vitest run` (API) | **662 tests** across **33 test suites** — identity (47), schema (29), search (33), ingest (65), outbound (27), jobs (10), relevance (10), dedupe (38), ISBN (18), authorization (43), contract (8), hooks (17), admin (22), admin-catalog (7), reading (10), reviews (12), profile-stats (8), telemetry (7), shelves-migration (11), shelves (36), shelves-privacy (20), imports-migration (12), imports (16), import-mapping (37), import-matcher (12), import-committer (14), import-processor (4), social-schema (4), social-follow (8), social-block (6), social-mutes (5), social-lists (5), social-block-equivalence (8). Every suite that touches SQL runs against **PGlite** (Postgres compiled to WASM) |
-| Mobile test runner | **83 tests** across **20 test suites** — offline queue (7), auth validation (10), guest mode & migration (7), reading velocity (5), profile & stats (9), telemetry budgets (5), Phase 1 exit criteria (4), shelf validation, sorting, sharing & starter helpers (36) |
+| `vitest run` (API) | **738 tests** across **45 test files** — including read-interactions-migration (10), read-likes (17), read-comments (16), review-ranking (21). earlier suites: identity (47), schema (29), search (33), ingest (65), outbound (27), jobs (10), relevance (10), dedupe (38), ISBN (18), authorization (43), contract (8), hooks (17), admin (22), admin-catalog (7), reading (10), reviews (12), profile-stats (8), telemetry (7), shelves-migration (11), shelves (36), shelves-privacy (20), imports-migration (12), imports (16), import-mapping (37), import-matcher (12), import-committer (14), import-processor (4), social-schema (4), social-follow (8), social-block (6), social-mutes (5), social-lists (5), social-block-equivalence (8). Every suite that touches SQL runs against **PGlite** (Postgres compiled to WASM) |
+| Mobile test runner | **100 tests** across **24 test suites** — including interactions (8) and feed cards. earlier: offline queue (7), auth validation (10), guest mode & migration (7), reading velocity (5), profile & stats (9), telemetry budgets (5), Phase 1 exit criteria (4), shelf validation, sorting, sharing & starter helpers (36) |
 | OpenAPI drift | **0** — `spec:check` runs in CI and fails the build on any divergence |
 | Relevance panel | **216/217 (99.5%)** over a 2,071-work slice of the real catalog. Exact titles must rank **#1**; prefixes, authors and typos must make the top 5. Floor set at 0.98 |
 | Cross-user suite | **43 tests green** — 404 not 403, canView covers public/followers/private/blocked/guest, viewer enforcement on every repository method |
@@ -602,11 +627,11 @@ Already replaced: container-init schema → drizzle migrations (`FN-01`) · opaq
 | Search latency | **47–85 ms warm** on the full catalog (was 40 s). Cold, after a restart, 430–815 ms |
 | ISBN lookup | **18 tests** — ISBN-10/13 validation, bidirectional conversion, exact edition resolution, search prioritization |
 | Dedupe pipeline | **38 tests** — stage 1–4 detection, merge with collision handling, 30-day undo, preview, admin queue |
-| Background jobs | pg-boss worker; `smoke.ping` + `catalog.dedupe` monthly cron + `shelves.reconcile` nightly job + `imports.process`; transactional enqueue test |
+| Background jobs | pg-boss worker; `smoke.ping` + `catalog.dedupe` monthly cron + `shelves.reconcile` / `follows.reconcile` / `reads.reconcile` nightly crons + `imports.process` / `exports.process`; transactional enqueue test |
 | Admin console | **29 tests** (22 admin + 7 admin-catalog) — 2FA, token isolation, role enforcement, audit recording, maturity override, ingestion dashboard |
 | Mobile offline mirror | **pass** — SQLite mirror, optimistic writes, per-entity FIFO queue, exponential backoff, dead-letter queue, 409 conflict handling |
 | Phase 1 Exit Criteria | **100% verified** — two books tracked end-to-end on phone, finish budget p75 < 20s (measured ~11.2s), offline verified across simulated crash/restart, a11y pass on core flows |
-| Migrations | **15 migrations** (`0000_phase0_catalog` through `0014_imports`) apply cleanly on an empty database and run in CI against real Postgres 18 |
+| Migrations | **19 migrations** (`0000_phase0_catalog` through `0018_read_interactions`) apply cleanly on an empty database and run in CI against real Postgres 18 |
 
 ---
 

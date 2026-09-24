@@ -21,13 +21,17 @@ import {
   getSwipeRightAction,
   getSwipeLeftAction,
   getCardBadgeLabel,
+  getCardInteraction,
 } from '../lib/feedCard';
+import { nextLikeState } from '../lib/comments';
+import { api } from '../lib/api';
 
 export interface FeedCardProps {
   item: FeedActivityItem;
   onWantToRead?: (workId: string) => void;
   onRateAndReview?: (workId: string) => void;
-  onLike?: (readId: string) => void;
+  /** Called with the state the user wants; send POST (true) or DELETE (false). */
+  onLike?: (readId: string, liked: boolean) => void;
   onComment?: (readId: string) => void;
   onPressActor?: (actorId: string) => void;
   onPressWork?: (workId: string) => void;
@@ -45,8 +49,13 @@ export function FeedCard({
   const c = useTheme();
   const router = useRouter();
   const [showSpoilers, setShowSpoilers] = useState(false);
-  const [liked, setLiked] = useState(false);
-  const [likeCount, setLikeCount] = useState(item.metadata?.like_count ?? 0);
+  const interaction = getCardInteraction(item);
+  const [likeState, setLikeState] = useState({
+    liked: interaction?.liked ?? false,
+    count: interaction?.likeCount ?? 0,
+  });
+  const liked = likeState.liked;
+  const likeCount = likeState.count;
 
   const cardType = getCardType(item);
   const headline = formatActivityHeadline(item);
@@ -55,16 +64,31 @@ export function FeedCard({
   const leftActionConfig = getSwipeLeftAction(item);  // Swipe right -> reveals Want to read on left
 
   const workId = item.work_id || item.metadata?.work_id;
-  const readId = item.object_type === 'read' ? item.object_id : item.id;
+  // Likes and comments target the READ (SO-21), never the activity row.
+  const readId = interaction?.readId ?? null;
   const meta = item.metadata ?? {};
 
   const handleLikePress = () => {
+    if (!readId) return;
     void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    setLiked(!liked);
-    setLikeCount((prev: number) => (liked ? prev - 1 : prev + 1));
-    if (readId && onLike) {
-      onLike(readId);
+    const next = nextLikeState(likeState);
+    setLikeState(next);
+    // The desired state goes out — POST or DELETE, never a flip.
+    if (onLike) {
+      onLike(readId, next.liked);
+      return;
     }
+    const previous = likeState;
+    api.client
+      .setLiked(readId, next.liked)
+      .then((res) => setLikeState({ liked: res.liked, count: res.like_count }))
+      .catch(() => setLikeState(previous));
+  };
+
+  const handleCommentPress = () => {
+    if (!readId) return;
+    if (onComment) onComment(readId);
+    else router.push(`/read/${readId}/comments` as any);
   };
 
   const handleWantToRead = () => {
@@ -318,6 +342,10 @@ export function FeedCard({
             ]}
           >
             <View style={sheet.row}>
+              {/* Like & comment exist only on social objects: a finished or DNF read,
+                  with or without a review (PRD §10.3). Never on "started" or shelf cards. */}
+              {interaction && (
+              <>
               {/* Like Button */}
               <Pressable
                 onPress={handleLikePress}
@@ -338,9 +366,7 @@ export function FeedCard({
 
               {/* Comment Button */}
               <Pressable
-                onPress={() => {
-                  if (readId && onComment) onComment(readId);
-                }}
+                onPress={handleCommentPress}
                 style={[sheet.row, styles.actionButton]}
                 accessibilityRole="button"
                 accessibilityLabel="Comment on post"
@@ -348,9 +374,11 @@ export function FeedCard({
               >
                 <Ionicons name="chatbubble-outline" size={19} color={c.muted} />
                 <Txt variant="caption" color="muted" style={{ fontWeight: '600' }}>
-                  {meta.comment_count ?? 0}
+                  {interaction.commentCount}
                 </Txt>
               </Pressable>
+              </>
+              )}
             </View>
 
             {/* Quick Action Shortcuts (Non-Gesture Callers & Screen Readers) */}

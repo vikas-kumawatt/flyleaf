@@ -89,6 +89,14 @@ import {
 } from '@flyleaf/api-client';
 
 export type {
+  ReadComment,
+  ReadCommentsResponse,
+  ReadLikersResponse,
+  LikeResponse,
+  FeedResponse,
+  FeedItem,
+} from '@flyleaf/api-client';
+export type {
   User,
   Profile,
   ProfileFavourite,
@@ -420,7 +428,17 @@ export const api = {
   createReview: (readId: string, payload: CreateReviewRequest) => client.createReview(readId, payload),
   updateReview: (id: string, payload: UpdateReviewRequest) => client.updateReview(id, payload),
   deleteReview: (id: string) => client.deleteReview(id),
-  toggleLike: (readId: string) => client.toggleLike(readId),
+  // Likes & comments target the READ (SO-21/22). Pass the state you want —
+  // never a flip, which the offline queue could replay into an unlike.
+  likeRead: (readId: string) => client.likeRead(readId),
+  unlikeRead: (readId: string) => client.unlikeRead(readId),
+  setLiked: (readId: string, liked: boolean) => client.setLiked(readId, liked),
+  getReadLikes: (readId: string, params?: { limit?: number; offset?: number }) =>
+    client.getReadLikes(readId, params),
+  getReadComments: (readId: string, params?: { cursor?: string; limit?: number }) =>
+    client.getReadComments(readId, params),
+  addReadComment: (readId: string, body: string) => client.addReadComment(readId, body),
+  deleteComment: (commentId: string) => client.deleteComment(commentId),
 
   author: async (nameOrId: string): Promise<AuthorDetail> => {
     // Queries search for books by this author

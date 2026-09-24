@@ -225,10 +225,16 @@ Importing your own thousand-book library is the **best load test the catalog wil
 - Asymmetric follows, private accounts, follow requests
 - Blocks (complete, bidirectional, silent), mutes (user and book)
 - Feed: cursor-paginated fan-out-on-read, ranking, aggregation, diversity rules, cold-start fallback
-- Likes and comments **on reads** — a finish with no review is fully interactive
+- Likes and comments **on reads** — a finish with no review is fully interactive ✅ (`SO-20`–`SO-22`)
 - FCM push with per-category controls, quiet hours, 5/day ceiling
 - Moderation: automated filters, reports, the admin console's report and user areas
 - **Public server-rendered book, profile and list pages**
+
+### Progress
+
+- **Done:** social graph, blocks and mutes (`SO-01`–`SO-06`); feed with ranking, aggregation, diversity and cold start (`SO-10`–`SO-15`); interaction — likes and single-level comments on reads, trigger-maintained counters with nightly reconciliation, review ranking with a friends-first tier and an exploration slot (`SO-20`–`SO-23`).
+- **Next:** notifications (`SO-3x`), moderation (`SO-4x`), public pages (`SO-5x`).
+- **Learned in `SO-2x`:** the PRD §10.7 weights cannot make social proximity dominant on their own (the other terms sum to 0.65, a follow is worth 0.28), so friends-first is a tier, not a weight. And a like must be an idempotent verb, not a toggle, or the offline queue's replay undoes it.
 
 ### Why public pages are in this phase
 

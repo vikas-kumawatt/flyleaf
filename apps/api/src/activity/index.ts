@@ -23,6 +23,7 @@ import {
   errorResponseSchema,
 } from '../contract/schemas.js';
 import { rankAndDiversifyFeed } from './ranking.js';
+import { InteractionService, INTERACTIVE_VERBS, type ReadInteraction } from '../interactions/index.js';
 
 export type ActivityVerb =
   | 'started'
@@ -72,6 +73,23 @@ export interface FeedActivityItem {
   metadata: Record<string, any>;
   visibility: Visibility;
   created_at: string;
+  /** Like/comment state of the read behind the card (SO-21). Null when the card is not a social object. */
+  interaction?: ReadInteraction | null;
+}
+
+/**
+ * The read a feed card is about, when that card is a social object.
+ * finished/dnf cards carry the read directly; review cards carry it in
+ * metadata (the review's parent read — its likes ARE the read's likes).
+ */
+export function interactiveReadId(item: Pick<FeedActivityItem, 'verb' | 'object_type' | 'object_id' | 'metadata'>): string | null {
+  if (!(INTERACTIVE_VERBS as readonly string[]).includes(item.verb)) return null;
+  if (item.object_type === 'read') return item.object_id;
+  if (item.object_type === 'review') {
+    const readId = item.metadata?.readId;
+    return typeof readId === 'string' ? readId : null;
+  }
+  return null;
 }
 
 export interface GetFeedOptions {
@@ -208,6 +226,21 @@ export class ActivityService {
         .set({ visibility: 'followers' })
         .where(and(eq(activity.actorId, actorId), eq(activity.visibility, 'public')));
     }
+  }
+
+  /**
+   * Attach like/comment state to every card that is a social object, in two
+   * queries for the whole page (SO-21). Cards about a non-terminal read, and
+   * cards whose read has since been re-shelved, get `interaction: null` — the
+   * client hides the like button rather than offering one that 409s.
+   */
+  async #withInteractions(viewer: string | null, items: FeedActivityItem[]): Promise<FeedActivityItem[]> {
+    const ids = items.map(interactiveReadId).filter((id): id is string => id !== null);
+    const state = await new InteractionService(this.db).interactionsFor(viewer, ids);
+    return items.map((item) => {
+      const readId = interactiveReadId(item);
+      return { ...item, interaction: readId ? (state.get(readId) ?? null) : null };
+    });
   }
 
   /**
@@ -411,7 +444,7 @@ export class ActivityService {
     const nextCursor = hasMore && lastPageItem ? lastPageItem.created_at : null;
 
     return {
-      items,
+      items: await this.#withInteractions(viewer, items),
       next_cursor: nextCursor,
       has_more: hasMore,
       tab: 'friends',
@@ -556,7 +589,7 @@ export class ActivityService {
       : null;
 
     return {
-      items,
+      items: await this.#withInteractions(viewer ?? null, items),
       next_cursor: nextCursor,
       has_more: hasMore,
       tab: 'popular',

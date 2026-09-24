@@ -73,6 +73,14 @@ async function main() {
   // Monthly dedupe pass: 1st of every month at midnight (FN-52, Architecture §9)
   await boss.schedule(QUEUES.catalogDedupe, '0 0 1 * *', { limit: 1000 });
 
+  // Nightly counter reconciliation (Architecture §3.9: "every counter has a
+  // reconciliation job"). Staggered so they never contend for the same rows.
+  // Shelves and follows had handlers since SH-01/SO-01 but were never
+  // scheduled — a reconciler that never runs reconciles nothing.
+  await boss.schedule(QUEUES.reconcileShelves, '0 3 * * *');
+  await boss.schedule(QUEUES.reconcileFollows, '15 3 * * *');
+  await boss.schedule(QUEUES.reconcileReads, '30 3 * * *');
+
   log.info({ queues: Object.values(QUEUES), schema: 'pgboss' }, 'worker ready');
 
   // Shutdown order mirrors server.ts and matters for the same reason: stop

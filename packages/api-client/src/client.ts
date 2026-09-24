@@ -61,7 +61,11 @@ import type {
   SessionListResponse,
   StandardResponse,
   TelemetryEvent,
-  ToggleLikeResponse,
+  LikeResponse,
+  ReadLikersResponse,
+  ReadComment,
+  ReadCommentsResponse,
+  FeedResponse,
   UndoMergeResponse,
   UpdateProfileRequest,
   UpdateReviewRequest,
@@ -400,10 +404,64 @@ export class FlyleafClient {
     });
   }
 
-  async toggleLike(readId: string): Promise<ToggleLikeResponse> {
-    return this.request<ToggleLikeResponse>(`/reads/${encodeURIComponent(readId)}/like`, {
-      method: 'POST',
+  // ---------------------------------------------------------------- Read interactions (SO-2x)
+  // Likes and comments target the READ, so a finish with no review is likeable.
+
+  /** Idempotent: liking twice is one like, so an offline replay is safe. */
+  async likeRead(readId: string): Promise<LikeResponse> {
+    return this.request<LikeResponse>(`/reads/${encodeURIComponent(readId)}/like`, { method: 'POST' });
+  }
+
+  /** Idempotent. */
+  async unlikeRead(readId: string): Promise<LikeResponse> {
+    return this.request<LikeResponse>(`/reads/${encodeURIComponent(readId)}/like`, { method: 'DELETE' });
+  }
+
+  /**
+   * Set the like state explicitly. Callers pass the state they WANT, never
+   * "flip whatever it is now" — a flip is not safe to retry.
+   */
+  async setLiked(readId: string, liked: boolean): Promise<LikeResponse> {
+    return liked ? this.likeRead(readId) : this.unlikeRead(readId);
+  }
+
+  async getReadLikes(readId: string, params?: { limit?: number; offset?: number }): Promise<ReadLikersResponse> {
+    const q = new URLSearchParams();
+    if (params?.limit != null) q.set('limit', String(params.limit));
+    if (params?.offset != null) q.set('offset', String(params.offset));
+    const qs = q.toString() ? `?${q.toString()}` : '';
+    return this.request<ReadLikersResponse>(`/reads/${encodeURIComponent(readId)}/likes${qs}`, { method: 'GET' });
+  }
+
+  async getReadComments(readId: string, params?: { cursor?: string; limit?: number }): Promise<ReadCommentsResponse> {
+    const q = new URLSearchParams();
+    if (params?.cursor) q.set('cursor', params.cursor);
+    if (params?.limit != null) q.set('limit', String(params.limit));
+    const qs = q.toString() ? `?${q.toString()}` : '';
+    return this.request<ReadCommentsResponse>(`/reads/${encodeURIComponent(readId)}/comments${qs}`, {
+      method: 'GET',
     });
+  }
+
+  /** 429 `rate_limited` after 5 in a minute; 409 `thread_locked` if the review was deleted. */
+  async addReadComment(readId: string, body: string): Promise<ReadComment> {
+    return this.request<ReadComment>(`/reads/${encodeURIComponent(readId)}/comments`, {
+      method: 'POST',
+      body: JSON.stringify({ body }),
+    });
+  }
+
+  async deleteComment(commentId: string): Promise<void> {
+    await this.request<void>(`/comments/${encodeURIComponent(commentId)}`, { method: 'DELETE' });
+  }
+
+  async getFeed(params?: { tab?: 'friends' | 'popular'; cursor?: string; limit?: number }): Promise<FeedResponse> {
+    const q = new URLSearchParams();
+    if (params?.tab) q.set('tab', params.tab);
+    if (params?.cursor) q.set('cursor', params.cursor);
+    if (params?.limit != null) q.set('limit', String(params.limit));
+    const qs = q.toString() ? `?${q.toString()}` : '';
+    return this.request<FeedResponse>(`/feed${qs}`, { method: 'GET' });
   }
 
   // ---------------------------------------------------------------- Admin Dedupe

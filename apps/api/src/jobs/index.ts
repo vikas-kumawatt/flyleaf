@@ -67,6 +67,12 @@ export const QUEUES = {
    */
   reconcileFollows: 'follows.reconcile',
   /**
+   * Nightly read interaction counter reconciliation (Architecture §3.9, SO-20).
+   * Reconciles reads.like_count and reads.comment_count from read_likes /
+   * live read_comments. Writes only rows that drifted.
+   */
+  reconcileReads: 'reads.reconcile',
+  /**
    * Reading library import processing job (PRD §6.8, §24.2, IM-02, IM-08).
    * Parses uploaded CSV, matches against catalog, and populates user reads.
    */
@@ -86,6 +92,8 @@ export type PingResult = { pong: true; note: string; workedAt: string };
 export type ReconcileShelvesResult = { reconciled: true; workedAt: string };
 
 export type ReconcileFollowsResult = { reconciled: true; workedAt: string };
+
+export type ReconcileReadsResult = { reconciled: true; corrected: number; workedAt: string };
 
 export type DedupeJobRequest = {
   limit?: number;
@@ -172,6 +180,21 @@ export async function reconcileFollowsJobHandler(
 ): Promise<ReconcileFollowsResult> {
   await db.execute(sql`SELECT reconcile_follow_counters();`);
   return { reconciled: true, workedAt: new Date().toISOString() };
+}
+
+/**
+ * Read interaction counter reconciliation (Architecture §3.9, SO-20).
+ * `corrected` is the number of reads whose counters had drifted — it should
+ * be 0 every night; anything else means a trigger is missing a path.
+ */
+export async function reconcileReadsJobHandler(
+  _jobs: Job<void>[],
+  db: Db,
+): Promise<ReconcileReadsResult> {
+  const [row] = await db.execute<{ corrected: number }>(
+    sql`SELECT reconcile_read_counters() AS corrected;`,
+  );
+  return { reconciled: true, corrected: Number(row?.corrected ?? 0), workedAt: new Date().toISOString() };
 }
 
 /**
@@ -313,6 +336,19 @@ export async function registerQueues(boss: PgBoss, log: JobLog, db?: Db): Promis
           queue: QUEUES.reconcileFollows,
           ids: jobs.map((j) => j.id),
           reconciled: result.reconciled,
+        },
+        'job handled',
+      );
+      return result;
+    });
+
+    await boss.work<void, ReconcileReadsResult>(QUEUES.reconcileReads, async (jobs) => {
+      const result = await reconcileReadsJobHandler(jobs, db);
+      log.info(
+        {
+          queue: QUEUES.reconcileReads,
+          ids: jobs.map((j) => j.id),
+          corrected: result.corrected,
         },
         'job handled',
       );

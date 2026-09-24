@@ -8,7 +8,7 @@
     "android": "expo run:android",
     "ios": "expo run:ios",
     "typecheck": "tsc --noEmit",
-    "test": "npx tsx --test src/offline/__tests__/queue.test.ts src/offline/__tests__/phase1-exit-criteria.test.ts src/lib/__tests__/auth-validation.test.ts src/lib/__tests__/guest.test.ts src/lib/__tests__/readingVelocity.test.ts src/lib/__tests__/profile-stats.test.ts src/lib/__tests__/telemetry-budgets.test.ts src/lib/__tests__/shelves.test.ts src/lib/__tests__/social-follow.test.ts src/lib/__tests__/feed-card.test.ts",
+    "test": "npx tsx --test src/offline/__tests__/queue.test.ts src/offline/__tests__/phase1-exit-criteria.test.ts src/lib/__tests__/auth-validation.test.ts src/lib/__tests__/guest.test.ts src/lib/__tests__/readingVelocity.test.ts src/lib/__tests__/profile-stats.test.ts src/lib/__tests__/telemetry-budgets.test.ts src/lib/__tests__/shelves.test.ts src/lib/__tests__/social-follow.test.ts src/lib/__tests__/feed-card.test.ts src/lib/__tests__/interactions.test.ts",
     "check-deps": "expo install --check",
     "fix-deps": "expo install --fix",
     "doctor": "npx expo-doctor",

@@ -37,6 +37,58 @@ export interface FeedActivityItem {
   metadata?: Record<string, any>;
   visibility: 'public' | 'followers' | 'private';
   created_at: string;
+  /**
+   * Like/comment state of the READ behind the card (SO-21). `null` means the
+   * server says this card is not a social object (started, shelved…);
+   * `undefined` means the payload predates the field.
+   */
+  interaction?: FeedInteraction | null;
+}
+
+export interface FeedInteraction {
+  read_id: string;
+  like_count: number;
+  comment_count: number;
+  viewer_has_liked: boolean;
+}
+
+/** Only these verbs describe a terminal read, and only terminal reads are social objects (PRD §10.3). */
+const INTERACTIVE_VERBS: ReadonlyArray<ActivityVerb> = ['finished', 'dnf', 'reviewed'];
+
+export interface CardInteraction {
+  readId: string;
+  likeCount: number;
+  commentCount: number;
+  liked: boolean;
+}
+
+/**
+ * What the like and comment buttons on a card act on — or null when the card
+ * should show neither. Likes target the read, never the activity row: SO-15
+ * passed `item.id` (an activity id) for review cards, which could never match.
+ */
+export function getCardInteraction(item: FeedActivityItem): CardInteraction | null {
+  if (item.interaction === null) return null;
+  if (item.interaction) {
+    return {
+      readId: item.interaction.read_id,
+      likeCount: item.interaction.like_count,
+      commentCount: item.interaction.comment_count,
+      liked: item.interaction.viewer_has_liked,
+    };
+  }
+  // Older payloads: derive it, and never offer a like on a non-terminal card.
+  if (!INTERACTIVE_VERBS.includes(item.verb)) return null;
+  const meta = item.metadata ?? {};
+  const readId =
+    item.object_type === 'read' ? item.object_id : typeof meta.readId === 'string' ? meta.readId : null;
+  if (!readId) return null;
+  return {
+    readId,
+    likeCount: Number(meta.like_count ?? 0),
+    commentCount: Number(meta.comment_count ?? 0),
+    liked: Boolean(meta.viewer_has_liked),
+  };
 }
 
 export type FeedCardType =

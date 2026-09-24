@@ -364,9 +364,77 @@ export interface WorkReviewsResponse {
   total: number;
 }
 
+/** Response of POST and DELETE /reads/{id}/like (SO-21). */
 export interface ToggleLikeResponse {
   liked: boolean;
   like_count: number;
+}
+export type LikeResponse = ToggleLikeResponse;
+
+// ---------------------------------------------------------------- Read interactions (SO-2x)
+
+export interface InteractionUser {
+  id: string;
+  username: string;
+  display_name: string | null;
+  avatar_url: string | null;
+}
+
+export interface ReadLikersResponse {
+  read_id: string;
+  like_count: number;
+  users: (InteractionUser & { liked_at: string })[];
+}
+
+export interface ReadComment {
+  id: string;
+  read_id: string;
+  body: string;
+  created_at: string;
+  author: InteractionUser;
+  viewer_can_delete: boolean;
+}
+
+export interface ReadCommentsResponse {
+  read_id: string;
+  comment_count: number;
+  /** The read's review was deleted: the thread is read-only. */
+  locked: boolean;
+  comments: ReadComment[];
+  next_cursor: string | null;
+}
+
+/** Like/comment state of the read behind a feed card; null when the card is not a social object. */
+export interface FeedInteraction {
+  read_id: string;
+  like_count: number;
+  comment_count: number;
+  viewer_has_liked: boolean;
+}
+
+export interface FeedItem {
+  id: string;
+  actor_id: string;
+  actor: InteractionUser;
+  verb: 'started' | 'finished' | 'rated' | 'reviewed' | 'dnf' | 'shelved' | 'followed' | 'goal_reached' | 'quoted';
+  work_id: string | null;
+  work: { id: string; title: string; author_name: string | null; cover_id: number | null } | null;
+  object_type: string | null;
+  object_id: string | null;
+  metadata: Record<string, unknown>;
+  visibility: 'public' | 'followers' | 'private';
+  created_at: string;
+  interaction?: FeedInteraction | null;
+}
+
+export interface FeedResponse {
+  items: FeedItem[];
+  next_cursor: string | null;
+  has_more: boolean;
+  tab: string;
+  is_cold_start?: boolean;
+  following_count?: number;
+  cold_start_reason?: string | null;
 }
 
 // ---------------------------------------------------------------- Dedupe & Admin
