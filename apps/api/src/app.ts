@@ -34,6 +34,7 @@ import { socialPlugin } from './social/index.js';
 import { activityPlugin } from './activity/index.js';
 import { interactionsPlugin } from './interactions/index.js';
 import type { EmailSender, RateLimiter } from './platform/index.js';
+import { queryCountingEnabled, registerQueryCounter } from './bench/query-counter.js';
 
 export interface CoreHookOptions {
   identityLookup?: (token: string) => Promise<string | null>;
@@ -201,6 +202,10 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
       files: 1,
     },
   });
+
+  // Audit bench only; registers nothing unless BENCH_COUNT_QUERIES=1. First,
+  // so the auth hook's queries are counted.
+  if (queryCountingEnabled) registerQueryCounter(app);
 
   registerCoreHooks(app, {
     identityLookup: options.identity ? (token) => options.identity!.lookup(token) : undefined,

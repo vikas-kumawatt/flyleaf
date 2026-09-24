@@ -12,7 +12,7 @@
 // worker.ts owns the process. Keeping them apart is what lets the tests run
 // the real handlers against a real Postgres without starting a process.
 
-import { PgBoss, fromDrizzle, type Db as BossDb, type Job } from 'pg-boss';
+import { PgBoss, fromDrizzle, type Db as BossDb, type Job, type ConstructorOptions } from 'pg-boss';
 export type { PgBoss } from 'pg-boss';
 import { sql } from 'drizzle-orm';
 import { config } from '../platform/index.js';
@@ -259,13 +259,28 @@ export async function processExportJobHandler(
  * path is exercised against the real engine with no Docker, the same way
  * every other suite here works.
  */
-export function makeBoss(opts: { db?: BossDb; backend?: 'postgres' | 'pglite' } = {}): PgBoss {
+export function makeBoss(
+  opts: { db?: BossDb; backend?: 'postgres' | 'pglite'; options?: Partial<ConstructorOptions> } = {},
+): PgBoss {
   return new PgBoss({
     ...(opts.db
       ? { db: opts.db, backend: opts.backend ?? 'postgres' }
       : { connectionString: config.databaseUrl }),
+    ...opts.options,
     schema: JOBS_SCHEMA,
   });
+}
+
+/**
+ * A boss for the API process: it ENQUEUES and nothing else.
+ *
+ * Supervision, maintenance and cron belong to the worker (worker.ts). Two
+ * processes both running maintenance is harmless but wasteful; two both
+ * running the cron would double-schedule. `supervise: false` and
+ * `schedule: false` keep the API a pure producer.
+ */
+export function makeProducerBoss(): PgBoss {
+  return makeBoss({ options: { supervise: false, schedule: false } });
 }
 
 /**

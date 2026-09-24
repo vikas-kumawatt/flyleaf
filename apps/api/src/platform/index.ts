@@ -4,6 +4,7 @@ import { drizzle } from 'drizzle-orm/postgres-js';
 import postgres from 'postgres';
 import { sql } from 'drizzle-orm';
 import * as schema from '../db/schema.js';
+import { countQuery, queryCountingEnabled } from '../bench/query-counter.js';
 
 export const config = {
   port: Number(process.env.PORT ?? 3000),
@@ -28,6 +29,8 @@ export function makeDb(
     // Batch jobs run `CREATE TABLE IF NOT EXISTS` on every start, and the
     // resulting NOTICE for each one buries the actual progress output.
     ...(opts.quiet ? { onnotice: () => {} } : {}),
+    // Audit bench only; absent unless BENCH_COUNT_QUERIES=1.
+    ...(queryCountingEnabled ? { debug: countQuery } : {}),
   });
   return drizzle(client, { schema });
 }

@@ -32,3 +32,6 @@ apps/api/drizzle/meta/_journal.json.bak
 # Open Library dumps (gigabytes)
 data/
 *.txt.gz
+
+# audit bench: signed tokens for local bench personas
+apps/api/src/bench/tokens.json

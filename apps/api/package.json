@@ -18,11 +18,15 @@
     "seed": "tsx src/seed.ts",
     "ingest": "tsx src/ingest.ts",
     "dedupe": "tsx src/dedupe.ts",
+    "devdb:build": "tsx src/devdb.ts",
     "ingest:fetch": "tsx src/fetch-dumps.ts",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "spec:generate": "tsx src/contract/generate.ts",
-    "spec:check": "tsx src/contract/generate.ts --check"
+    "spec:check": "tsx src/contract/generate.ts --check",
+    "bench:seed": "tsx src/bench/seed.ts",
+    "bench": "tsx src/bench/run.ts",
+    "bench:routes": "tsx src/bench/routes.ts"
   },
   "dependencies": {
     "@fastify/cors": "11.3.0",
@@ -43,6 +47,7 @@
   "devDependencies": {
     "@electric-sql/pglite": "0.5.8",
     "@types/node": "26.4.1",
+    "autocannon": "8.0.0",
     "drizzle-kit": "0.31.10",
     "tsx": "4.23.13",
     "typescript": "7.0.2",

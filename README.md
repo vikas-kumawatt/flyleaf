@@ -203,6 +203,22 @@ Useful flags: `--limit 5000` for a trial run, `--no-raw` to skip raw-payload ret
 
 **It is resumable.** Ctrl+C is safe — it finishes the current batch, writes a checkpoint and stops. Re-run the identical command to continue. The checkpoint is a line count, not a byte offset, because you cannot seek into the middle of a gzip member; resuming re-decompresses from the start and skips without parsing, which is far cheaper than the work it skips.
 
+### 2c-bis. A small dev database — `flyleaf_dev`
+
+The full catalog is ~30 GB. On an 8 GB machine its hot indexes can't stay in memory, so everything is slow and latency numbers mean little. For day-to-day work, build a popularity slice of it:
+
+```powershell
+cd apps\api
+npm run devdb:build                      # flyleaf -> flyleaf_dev: top 200,000 works (a few GB at most)
+$env:DATABASE_URL = "postgres://flyleaf:flyleaf@localhost:5432/flyleaf_dev"
+```
+
+- **Copies:** the top N works by `log_count`, **plus every work, edition, author and series any user row points at** (reads, reviews, shelves, favourites, mutes, activity, imports, merges), found from the database's own foreign keys. Also the catalog around them (editions, authorship, subjects, series, stats, external ids, provenance), and every user-owned table in full, including bench data. Bench tokens keep working because ids are identical.
+- **How:** migrations build the schema, then rows are pulled through `postgres_fdw` inside the same Postgres server, so there are no dump files and no re-ingest. The source is only read. Every foreign key is verified afterwards, and any orphan fails the build.
+- **Options:** `--works 100000` for a smaller slice. `--replace` rebuilds an existing `flyleaf_dev` (it never overwrites without this). `--with-raw-payloads` includes raw OL payloads, only needed for reprocessing work. `--target <name>_dev` for another name (it must end in `_dev`).
+- **Keep the full `flyleaf` database** for work that must be proven at 3.2M rows: search relevance and planner behaviour, and dedupe scans. Switch with `DATABASE_URL`, and remove the variable to go back to the default (full) database.
+- Rebuilding discards changes made in `flyleaf_dev`.
+
 ### 2d. Dedupe
 
 After ingesting, run the duplicate detection pipeline:

@@ -1,0 +1,1512 @@
+{
+  "meta": {
+    "label": "baseline",
+    "date": "2026-09-24T14:53:13.592Z",
+    "base_url": "http://localhost:3000",
+    "commit": "664a811",
+    "dirty": true,
+    "node": "v22.20.0",
+    "connections": 10,
+    "duration_s": 10,
+    "sequential_n": 15,
+    "seed_generated_at": "2026-09-24T13:46:15.893Z",
+    "seed_counts": {
+      "users": 3000,
+      "private_users": 300,
+      "follows": 186014,
+      "pending_follows": 9259,
+      "blocks": 150,
+      "mutes": 300,
+      "reads": 62365,
+      "import_reads": 9425,
+      "rereads": 5156,
+      "progress_events": 220584,
+      "reviews": 12000,
+      "likes": 40000,
+      "comments": 8000,
+      "shelves": 4005,
+      "shelf_items": 79251,
+      "saves": 1500,
+      "activity": 142152
+    },
+    "personas": {
+      "heavy": {
+        "username": "bench_u00006",
+        "following": 1158,
+        "followers": 141
+      },
+      "typical": {
+        "username": "bench_u00182",
+        "following": 40,
+        "followers": 22
+      },
+      "new": {
+        "username": "bench_u00011",
+        "following": 0,
+        "followers": 0
+      },
+      "private_owner": {
+        "username": "bench_u00012",
+        "following": 40,
+        "followers": 5
+      },
+      "blocked_pair_a": {
+        "username": "bench_u00013",
+        "following": 379,
+        "followers": 36
+      },
+      "blocked_pair_b": {
+        "username": "bench_u00014",
+        "following": 28,
+        "followers": 41
+      },
+      "celebrity": {
+        "username": "bench_u00001",
+        "following": 48,
+        "followers": 2577
+      },
+      "reviewer_of_hot_work": {
+        "username": "bench_u00015",
+        "following": 32,
+        "followers": 161
+      }
+    },
+    "notes": [
+      "search:cjk dropped \"ハリー\" (1 local results; would trigger live gap-fill)",
+      "search:isbn dropped \"9780593189641\" (1 local results; would trigger live gap-fill)",
+      "search:isbn dropped \"978-0-5931-8964-1\" (1 local results; would trigger live gap-fill)",
+      "Corrected after the run: autocannon counts a timeout as an error too, so the raw figures showed each timeout twice (as errors and timeouts) and under-counted unfinished requests by the timeout count. Fixed from the stored raw counts for: search:prefix, search:common, search:cjk, search:typo, work-reviews:friends:heavy. Percentiles were unaffected (each timeout had entered them once). run.ts is fixed for future runs."
+    ]
+  },
+  "results": [
+    {
+      "scenario": "search:prefix",
+      "group": "search",
+      "method": "GET",
+      "persona": null,
+      "notes": [],
+      "skipped": null,
+      "sequential": {
+        "statuses": {
+          "200": 9
+        },
+        "latencyP50": 5832.130400000024,
+        "queries": [
+          0,
+          1,
+          1,
+          1,
+          0,
+          1,
+          0,
+          1,
+          1
+        ],
+        "sampleError": null,
+        "n": 9
+      },
+      "load": {
+        "requests": 18,
+        "completed": 13,
+        "unfinished": 10,
+        "rps": 1.1,
+        "p50": 6399.5066,
+        "p95": 10000,
+        "p99": 10000,
+        "max": 10000,
+        "statuses": {
+          "200": 13
+        },
+        "errors": 0,
+        "timeouts": 5,
+        "drainMs": 29383.146999999997
+      }
+    },
+    {
+      "scenario": "search:common",
+      "group": "search",
+      "method": "GET",
+      "persona": null,
+      "notes": [],
+      "skipped": null,
+      "sequential": {
+        "statuses": {
+          "200": 1,
+          "timeout": 1
+        },
+        "latencyP50": 19328.41769999999,
+        "queries": [
+          1
+        ],
+        "sampleError": null,
+        "n": 2
+      },
+      "load": {
+        "requests": 10,
+        "completed": 0,
+        "unfinished": 10,
+        "rps": 0,
+        "p50": 10000,
+        "p95": 10000,
+        "p99": 10000,
+        "max": 10000,
+        "statuses": {},
+        "errors": 0,
+        "timeouts": 10,
+        "drainMs": 46379.1078
+      }
+    },
+    {
+      "scenario": "search:author",
+      "group": "search",
+      "method": "GET",
+      "persona": null,
+      "notes": [],
+      "skipped": null,
+      "sequential": {
+        "statuses": {
+          "200": 15
+        },
+        "latencyP50": 456.3166000000201,
+        "queries": [
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1
+        ],
+        "sampleError": null,
+        "n": 15
+      },
+      "load": {
+        "requests": 218,
+        "completed": 218,
+        "unfinished": 10,
+        "rps": 21.6,
+        "p50": 415.5386,
+        "p95": 784.7632,
+        "p99": 835.941,
+        "max": 960.8676,
+        "statuses": {
+          "200": 218
+        },
+        "errors": 0,
+        "timeouts": 0,
+        "drainMs": 2345.8368000000482
+      }
+    },
+    {
+      "scenario": "search:cjk",
+      "group": "search",
+      "method": "GET",
+      "persona": null,
+      "notes": [],
+      "skipped": null,
+      "sequential": {
+        "statuses": {
+          "timeout": 1
+        },
+        "latencyP50": 30000,
+        "queries": null,
+        "sampleError": null,
+        "n": 1
+      },
+      "load": {
+        "requests": 15,
+        "completed": 10,
+        "unfinished": 10,
+        "rps": 0.7,
+        "p50": 3218.8592,
+        "p95": 10000,
+        "p99": 10000,
+        "max": 10000,
+        "statuses": {
+          "200": 10
+        },
+        "errors": 0,
+        "timeouts": 5,
+        "drainMs": 158173.63760000002
+      }
+    },
+    {
+      "scenario": "search:typo",
+      "group": "search",
+      "method": "GET",
+      "persona": null,
+      "notes": [],
+      "skipped": null,
+      "sequential": {
+        "statuses": {
+          "200": 2,
+          "timeout": 1
+        },
+        "latencyP50": 7185.155999999959,
+        "queries": [
+          1,
+          1
+        ],
+        "sampleError": null,
+        "n": 3
+      },
+      "load": {
+        "requests": 12,
+        "completed": 6,
+        "unfinished": 10,
+        "rps": 0.6,
+        "p50": 1300.8818,
+        "p95": 10000,
+        "p99": 10000,
+        "max": 10000,
+        "statuses": {
+          "200": 6
+        },
+        "errors": 0,
+        "timeouts": 6,
+        "drainMs": 87530.99479999999
+      }
+    },
+    {
+      "scenario": "work:guest",
+      "group": "api",
+      "method": "GET",
+      "persona": null,
+      "notes": [
+        "served from a 60 s in-process cache after the first request"
+      ],
+      "skipped": null,
+      "sequential": {
+        "statuses": {
+          "200": 15
+        },
+        "latencyP50": 0.9377000001259148,
+        "queries": [
+          3,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "sampleError": null,
+        "n": 15
+      },
+      "load": {
+        "requests": 47345,
+        "completed": 47345,
+        "unfinished": 10,
+        "rps": 4404.2,
+        "p50": 1.2347,
+        "p95": 2.1277,
+        "p99": 4.0911,
+        "max": 1748.3608,
+        "statuses": {
+          "200": 47345
+        },
+        "errors": 0,
+        "timeouts": 0,
+        "drainMs": 1857.1508000001777
+      }
+    },
+    {
+      "scenario": "work:signed-in",
+      "group": "api",
+      "method": "GET",
+      "persona": "typical",
+      "notes": [
+        "served from a 60 s in-process cache after the first request"
+      ],
+      "skipped": null,
+      "sequential": {
+        "statuses": {
+          "200": 15
+        },
+        "latencyP50": 5.376400000182912,
+        "queries": [
+          2,
+          2,
+          2,
+          2,
+          2,
+          2,
+          2,
+          2,
+          2,
+          2,
+          2,
+          2,
+          2,
+          2,
+          2
+        ],
+        "sampleError": null,
+        "n": 15
+      },
+      "load": {
+        "requests": 8182,
+        "completed": 8182,
+        "unfinished": 10,
+        "rps": 813.3,
+        "p50": 9.7114,
+        "p95": 15.9225,
+        "p99": 99.3303,
+        "max": 606.0542,
+        "statuses": {
+          "200": 8182
+        },
+        "errors": 0,
+        "timeouts": 0,
+        "drainMs": 1932.5505999999586
+      }
+    },
+    {
+      "scenario": "work-reviews:friends:heavy",
+      "group": "api",
+      "method": "GET",
+      "persona": "heavy",
+      "notes": [],
+      "skipped": null,
+      "sequential": {
+        "statuses": {
+          "200": 15
+        },
+        "latencyP50": 459.6803999999538,
+        "queries": [
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5
+        ],
+        "sampleError": null,
+        "n": 15
+      },
+      "load": {
+        "requests": 10,
+        "completed": 7,
+        "unfinished": 10,
+        "rps": 0.7,
+        "p50": 7454.7054,
+        "p95": 10000,
+        "p99": 10000,
+        "max": 10000,
+        "statuses": {
+          "200": 7
+        },
+        "errors": 0,
+        "timeouts": 3,
+        "drainMs": 7671.021500000032
+      }
+    },
+    {
+      "scenario": "work-reviews:friends:guest",
+      "group": "api",
+      "method": "GET",
+      "persona": null,
+      "notes": [],
+      "skipped": null,
+      "sequential": {
+        "statuses": {
+          "200": 15
+        },
+        "latencyP50": 428.7397999998648,
+        "queries": [
+          2,
+          2,
+          2,
+          2,
+          2,
+          2,
+          2,
+          2,
+          2,
+          2,
+          2,
+          2,
+          2,
+          2,
+          2
+        ],
+        "sampleError": null,
+        "n": 15
+      },
+      "load": {
+        "requests": 75,
+        "completed": 75,
+        "unfinished": 10,
+        "rps": 7.4,
+        "p50": 742.1098,
+        "p95": 2163.0478,
+        "p99": 2467.0987,
+        "max": 2467.0987,
+        "statuses": {
+          "200": 75
+        },
+        "errors": 0,
+        "timeouts": 0,
+        "drainMs": 4671.074199999915
+      }
+    },
+    {
+      "scenario": "review:get",
+      "group": "api",
+      "method": "GET",
+      "persona": "typical",
+      "notes": [],
+      "skipped": null,
+      "sequential": {
+        "statuses": {
+          "200": 15
+        },
+        "latencyP50": 7.281900000059977,
+        "queries": [
+          2,
+          2,
+          2,
+          2,
+          2,
+          2,
+          2,
+          2,
+          2,
+          2,
+          2,
+          2,
+          2,
+          2,
+          2
+        ],
+        "sampleError": null,
+        "n": 15
+      },
+      "load": {
+        "requests": 4281,
+        "completed": 4281,
+        "unfinished": 10,
+        "rps": 421.4,
+        "p50": 13.8881,
+        "p95": 130.6946,
+        "p99": 197.6995,
+        "max": 365.6631,
+        "statuses": {
+          "200": 4281
+        },
+        "errors": 0,
+        "timeouts": 0,
+        "drainMs": 1934.9793000000063
+      }
+    },
+    {
+      "scenario": "reads:mine:reading",
+      "group": "api",
+      "method": "GET",
+      "persona": "heavy",
+      "notes": [],
+      "skipped": null,
+      "sequential": {
+        "statuses": {
+          "200": 15
+        },
+        "latencyP50": 5.950100000016391,
+        "queries": [
+          2,
+          2,
+          2,
+          2,
+          2,
+          2,
+          2,
+          2,
+          2,
+          2,
+          2,
+          2,
+          2,
+          2,
+          2
+        ],
+        "sampleError": null,
+        "n": 15
+      },
+      "load": {
+        "requests": 9100,
+        "completed": 9100,
+        "unfinished": 10,
+        "rps": 907.3,
+        "p50": 10.6985,
+        "p95": 13.1721,
+        "p99": 14.7678,
+        "max": 72.7857,
+        "statuses": {
+          "200": 9100
+        },
+        "errors": 0,
+        "timeouts": 0,
+        "drainMs": 1851.751200000057
+      }
+    },
+    {
+      "scenario": "reads:user",
+      "group": "api",
+      "method": "GET",
+      "persona": "heavy",
+      "notes": [],
+      "skipped": null,
+      "sequential": {
+        "statuses": {
+          "200": 15
+        },
+        "latencyP50": 13.290899999905378,
+        "queries": [
+          4,
+          4,
+          4,
+          4,
+          4,
+          4,
+          4,
+          4,
+          4,
+          4,
+          4,
+          4,
+          4,
+          4,
+          4
+        ],
+        "sampleError": null,
+        "n": 15
+      },
+      "load": {
+        "requests": 4114,
+        "completed": 4114,
+        "unfinished": 10,
+        "rps": 409.4,
+        "p50": 24.0649,
+        "p95": 28.5821,
+        "p99": 34.1115,
+        "max": 56.7616,
+        "statuses": {
+          "200": 4114
+        },
+        "errors": 0,
+        "timeouts": 0,
+        "drainMs": 1856.6587999998592
+      }
+    },
+    {
+      "scenario": "progress:post",
+      "group": "api",
+      "method": "POST",
+      "persona": "typical",
+      "notes": [
+        "writes a progress_events row per request to a bench read (removed by --clean)"
+      ],
+      "skipped": null,
+      "sequential": {
+        "statuses": {
+          "200": 15
+        },
+        "latencyP50": 13.568200000096112,
+        "queries": [
+          4,
+          4,
+          4,
+          4,
+          4,
+          4,
+          4,
+          4,
+          4,
+          4,
+          4,
+          4,
+          4,
+          4,
+          4
+        ],
+        "sampleError": null,
+        "n": 15
+      },
+      "load": {
+        "requests": 4936,
+        "completed": 4936,
+        "unfinished": 10,
+        "rps": 493.1,
+        "p50": 19.2147,
+        "p95": 27.1618,
+        "p99": 37.9322,
+        "max": 85.8141,
+        "statuses": {
+          "200": 4936
+        },
+        "errors": 0,
+        "timeouts": 0,
+        "drainMs": 2098.1800000001676
+      }
+    },
+    {
+      "scenario": "stats:me",
+      "group": "api",
+      "method": "GET",
+      "persona": "heavy",
+      "notes": [],
+      "skipped": null,
+      "sequential": {
+        "statuses": {
+          "200": 15
+        },
+        "latencyP50": 10.290000000037253,
+        "queries": [
+          4,
+          4,
+          4,
+          4,
+          4,
+          4,
+          4,
+          4,
+          4,
+          4,
+          4,
+          4,
+          4,
+          4,
+          4
+        ],
+        "sampleError": null,
+        "n": 15
+      },
+      "load": {
+        "requests": 4955,
+        "completed": 4955,
+        "unfinished": 10,
+        "rps": 495,
+        "p50": 19.9082,
+        "p95": 23.3405,
+        "p99": 25.9441,
+        "max": 37.6697,
+        "statuses": {
+          "200": 4955
+        },
+        "errors": 0,
+        "timeouts": 0,
+        "drainMs": 2110.468100000173
+      }
+    },
+    {
+      "scenario": "stats:user",
+      "group": "api",
+      "method": "GET",
+      "persona": "typical",
+      "notes": [],
+      "skipped": null,
+      "sequential": {
+        "statuses": {
+          "200": 15
+        },
+        "latencyP50": 10.801600000122562,
+        "queries": [
+          6,
+          6,
+          6,
+          6,
+          6,
+          6,
+          6,
+          6,
+          6,
+          6,
+          6,
+          6,
+          6,
+          6,
+          6
+        ],
+        "sampleError": null,
+        "n": 15
+      },
+      "load": {
+        "requests": 3841,
+        "completed": 3841,
+        "unfinished": 10,
+        "rps": 383,
+        "p50": 25.5782,
+        "p95": 30.5685,
+        "p99": 35.2647,
+        "max": 58.5054,
+        "statuses": {
+          "200": 3841
+        },
+        "errors": 0,
+        "timeouts": 0,
+        "drainMs": 2114.9424999998882
+      }
+    },
+    {
+      "scenario": "feed:friends:heavy",
+      "group": "feed",
+      "method": "GET",
+      "persona": "heavy",
+      "notes": [],
+      "skipped": null,
+      "sequential": {
+        "statuses": {
+          "200": 15
+        },
+        "latencyP50": 91.69730000011623,
+        "queries": [
+          3,
+          3,
+          3,
+          3,
+          3,
+          3,
+          3,
+          3,
+          3,
+          3,
+          3,
+          3,
+          3,
+          3,
+          3
+        ],
+        "sampleError": null,
+        "n": 15
+      },
+      "load": {
+        "requests": 502,
+        "completed": 502,
+        "unfinished": 10,
+        "rps": 49.8,
+        "p50": 182.2203,
+        "p95": 283.2439,
+        "p99": 898.84,
+        "max": 1037.8676,
+        "statuses": {
+          "200": 502
+        },
+        "errors": 0,
+        "timeouts": 0,
+        "drainMs": 2733.9872000000905
+      }
+    },
+    {
+      "scenario": "feed:friends:heavy:page2",
+      "group": "feed",
+      "method": "GET",
+      "persona": "heavy",
+      "notes": [],
+      "skipped": null,
+      "sequential": {
+        "statuses": {
+          "200": 15
+        },
+        "latencyP50": 56.14839999983087,
+        "queries": [
+          3,
+          3,
+          3,
+          3,
+          3,
+          3,
+          3,
+          3,
+          3,
+          3,
+          3,
+          3,
+          3,
+          3,
+          3
+        ],
+        "sampleError": null,
+        "n": 15
+      },
+      "load": {
+        "requests": 591,
+        "completed": 591,
+        "unfinished": 10,
+        "rps": 58.7,
+        "p50": 168.4183,
+        "p95": 228.7101,
+        "p99": 276.374,
+        "max": 321.169,
+        "statuses": {
+          "200": 591
+        },
+        "errors": 0,
+        "timeouts": 0,
+        "drainMs": 2100.1672999998555
+      }
+    },
+    {
+      "scenario": "feed:friends:typical",
+      "group": "feed",
+      "method": "GET",
+      "persona": "typical",
+      "notes": [],
+      "skipped": null,
+      "sequential": {
+        "statuses": {
+          "200": 15
+        },
+        "latencyP50": 33.13500000000931,
+        "queries": [
+          3,
+          3,
+          3,
+          3,
+          3,
+          3,
+          3,
+          3,
+          3,
+          3,
+          3,
+          3,
+          3,
+          3,
+          3
+        ],
+        "sampleError": null,
+        "n": 15
+      },
+      "load": {
+        "requests": 1355,
+        "completed": 1355,
+        "unfinished": 10,
+        "rps": 134.4,
+        "p50": 71.636,
+        "p95": 95.7106,
+        "p99": 118.4409,
+        "max": 236.6907,
+        "statuses": {
+          "200": 1355
+        },
+        "errors": 0,
+        "timeouts": 0,
+        "drainMs": 2111.648499999894
+      }
+    },
+    {
+      "scenario": "feed:friends:typical:page2",
+      "group": "feed",
+      "method": "GET",
+      "persona": "typical",
+      "notes": [],
+      "skipped": null,
+      "sequential": {
+        "statuses": {
+          "200": 15
+        },
+        "latencyP50": 33.29839999997057,
+        "queries": [
+          3,
+          3,
+          3,
+          3,
+          3,
+          3,
+          3,
+          3,
+          3,
+          3,
+          3,
+          3,
+          3,
+          3,
+          3
+        ],
+        "sampleError": null,
+        "n": 15
+      },
+      "load": {
+        "requests": 1224,
+        "completed": 1224,
+        "unfinished": 10,
+        "rps": 121.5,
+        "p50": 77.2245,
+        "p95": 116.164,
+        "p99": 135.4771,
+        "max": 183.7318,
+        "statuses": {
+          "200": 1224
+        },
+        "errors": 0,
+        "timeouts": 0,
+        "drainMs": 2118.9318000001367
+      }
+    },
+    {
+      "scenario": "feed:friends:new",
+      "group": "feed",
+      "method": "GET",
+      "persona": "new",
+      "notes": [],
+      "skipped": null,
+      "sequential": {
+        "statuses": {
+          "200": 15
+        },
+        "latencyP50": 44.274699999950826,
+        "queries": [
+          3,
+          3,
+          3,
+          3,
+          3,
+          3,
+          3,
+          3,
+          3,
+          3,
+          3,
+          3,
+          3,
+          3,
+          3
+        ],
+        "sampleError": null,
+        "n": 15
+      },
+      "load": {
+        "requests": 1291,
+        "completed": 1291,
+        "unfinished": 10,
+        "rps": 127.8,
+        "p50": 76.9601,
+        "p95": 87.0513,
+        "p99": 93.1882,
+        "max": 100.1744,
+        "statuses": {
+          "200": 1291
+        },
+        "errors": 0,
+        "timeouts": 0,
+        "drainMs": 2123.9923000000417
+      }
+    },
+    {
+      "scenario": "feed:friends:new:page2",
+      "group": "feed",
+      "method": "GET",
+      "persona": "new",
+      "notes": [],
+      "skipped": null,
+      "sequential": {
+        "statuses": {
+          "200": 15
+        },
+        "latencyP50": 15.683300000149757,
+        "queries": [
+          3,
+          3,
+          3,
+          3,
+          3,
+          3,
+          3,
+          3,
+          3,
+          3,
+          3,
+          3,
+          3,
+          3,
+          3
+        ],
+        "sampleError": null,
+        "n": 15
+      },
+      "load": {
+        "requests": 2821,
+        "completed": 2821,
+        "unfinished": 10,
+        "rps": 279.6,
+        "p50": 34.9814,
+        "p95": 40.8515,
+        "p99": 46.1355,
+        "max": 52.4594,
+        "statuses": {
+          "200": 2821
+        },
+        "errors": 0,
+        "timeouts": 0,
+        "drainMs": 1839.1340000000782
+      }
+    },
+    {
+      "scenario": "feed:popular:guest",
+      "group": "feed",
+      "method": "GET",
+      "persona": null,
+      "notes": [],
+      "skipped": null,
+      "sequential": {
+        "statuses": {
+          "200": 15
+        },
+        "latencyP50": 17.359300000127405,
+        "queries": [
+          2,
+          2,
+          2,
+          2,
+          2,
+          2,
+          2,
+          2,
+          2,
+          2,
+          2,
+          2,
+          2,
+          2,
+          2
+        ],
+        "sampleError": null,
+        "n": 15
+      },
+      "load": {
+        "requests": 2792,
+        "completed": 2792,
+        "unfinished": 10,
+        "rps": 277.8,
+        "p50": 35.0413,
+        "p95": 39.6604,
+        "p99": 47.755,
+        "max": 250.5314,
+        "statuses": {
+          "200": 2792
+        },
+        "errors": 0,
+        "timeouts": 0,
+        "drainMs": 2108.6515000001527
+      }
+    },
+    {
+      "scenario": "followers:celebrity",
+      "group": "api",
+      "method": "GET",
+      "persona": "typical",
+      "notes": [],
+      "skipped": null,
+      "sequential": {
+        "statuses": {
+          "200": 15
+        },
+        "latencyP50": 20.565299999900162,
+        "queries": [
+          6,
+          6,
+          6,
+          6,
+          6,
+          6,
+          6,
+          6,
+          6,
+          6,
+          6,
+          6,
+          6,
+          6,
+          6
+        ],
+        "sampleError": null,
+        "n": 15
+      },
+      "load": {
+        "requests": 999,
+        "completed": 999,
+        "unfinished": 10,
+        "rps": 99,
+        "p50": 98.9123,
+        "p95": 114.8799,
+        "p99": 124.8355,
+        "max": 150.3246,
+        "statuses": {
+          "200": 999
+        },
+        "errors": 0,
+        "timeouts": 0,
+        "drainMs": 2125.21669999999
+      }
+    },
+    {
+      "scenario": "shelves:browse",
+      "group": "api",
+      "method": "GET",
+      "persona": "typical",
+      "notes": [],
+      "skipped": null,
+      "sequential": {
+        "statuses": {
+          "200": 15
+        },
+        "latencyP50": 228.19469999987632,
+        "queries": [
+          26,
+          26,
+          26,
+          26,
+          26,
+          26,
+          26,
+          26,
+          26,
+          26,
+          26,
+          26,
+          26,
+          26,
+          26
+        ],
+        "sampleError": null,
+        "n": 15
+      },
+      "load": {
+        "requests": 191,
+        "completed": 191,
+        "unfinished": 10,
+        "rps": 18.9,
+        "p50": 502.5361,
+        "p95": 600.0883,
+        "p99": 822.0329,
+        "max": 838.802,
+        "statuses": {
+          "200": 191
+        },
+        "errors": 0,
+        "timeouts": 0,
+        "drainMs": 2108.3898000000045
+      }
+    },
+    {
+      "scenario": "shelves:big:items",
+      "group": "api",
+      "method": "GET",
+      "persona": "typical",
+      "notes": [],
+      "skipped": null,
+      "sequential": {
+        "statuses": {
+          "200": 15
+        },
+        "latencyP50": 298.8259000000544,
+        "queries": [
+          6,
+          6,
+          6,
+          6,
+          6,
+          6,
+          6,
+          6,
+          6,
+          6,
+          6,
+          6,
+          6,
+          6,
+          6
+        ],
+        "sampleError": null,
+        "n": 15
+      },
+      "load": {
+        "requests": 249,
+        "completed": 249,
+        "unfinished": 10,
+        "rps": 24.7,
+        "p50": 394.7156,
+        "p95": 418.55,
+        "p99": 458.7258,
+        "max": 638.8596,
+        "statuses": {
+          "200": 249
+        },
+        "errors": 0,
+        "timeouts": 0,
+        "drainMs": 2362.6311999999452
+      }
+    },
+    {
+      "scenario": "shelves:saved",
+      "group": "api",
+      "method": "GET",
+      "persona": "heavy",
+      "notes": [],
+      "skipped": null,
+      "sequential": {
+        "statuses": {
+          "200": 15
+        },
+        "latencyP50": 78.04709999985062,
+        "queries": [
+          56,
+          56,
+          56,
+          56,
+          56,
+          56,
+          56,
+          56,
+          56,
+          56,
+          56,
+          56,
+          56,
+          56,
+          56
+        ],
+        "sampleError": null,
+        "n": 15
+      },
+      "load": {
+        "requests": 480,
+        "completed": 480,
+        "unfinished": 10,
+        "rps": 47.6,
+        "p50": 205.9622,
+        "p95": 231.0048,
+        "p99": 242.6117,
+        "max": 246.5768,
+        "statuses": {
+          "200": 480
+        },
+        "errors": 0,
+        "timeouts": 0,
+        "drainMs": 2105.1119999999646
+      }
+    },
+    {
+      "scenario": "comments:thread",
+      "group": "api",
+      "method": "GET",
+      "persona": "typical",
+      "notes": [],
+      "skipped": null,
+      "sequential": {
+        "statuses": {
+          "200": 15
+        },
+        "latencyP50": 9.191900000208989,
+        "queries": [
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5
+        ],
+        "sampleError": null,
+        "n": 15
+      },
+      "load": {
+        "requests": 4243,
+        "completed": 4243,
+        "unfinished": 10,
+        "rps": 422.6,
+        "p50": 23.3039,
+        "p95": 26.9399,
+        "p99": 30.3334,
+        "max": 38.0008,
+        "statuses": {
+          "200": 4243
+        },
+        "errors": 0,
+        "timeouts": 0,
+        "drainMs": 2103.3633000000846
+      }
+    },
+    {
+      "scenario": "imports:list",
+      "group": "api",
+      "method": "GET",
+      "persona": "heavy",
+      "notes": [],
+      "skipped": null,
+      "sequential": {
+        "statuses": {
+          "200": 15
+        },
+        "latencyP50": 3.752600000007078,
+        "queries": [
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1
+        ],
+        "sampleError": null,
+        "n": 15
+      },
+      "load": {
+        "requests": 15001,
+        "completed": 15001,
+        "unfinished": 10,
+        "rps": 1498.6,
+        "p50": 6.4852,
+        "p95": 8.0712,
+        "p99": 9.2298,
+        "max": 15.474,
+        "statuses": {
+          "200": 15001
+        },
+        "errors": 0,
+        "timeouts": 0,
+        "drainMs": 1839.6488000000827
+      }
+    },
+    {
+      "scenario": "exports:list",
+      "group": "api",
+      "method": "GET",
+      "persona": "heavy",
+      "notes": [],
+      "skipped": null,
+      "sequential": {
+        "statuses": {
+          "200": 15
+        },
+        "latencyP50": 3.182899999897927,
+        "queries": [
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1
+        ],
+        "sampleError": null,
+        "n": 15
+      },
+      "load": {
+        "requests": 15221,
+        "completed": 15221,
+        "unfinished": 10,
+        "rps": 1519.1,
+        "p50": 6.3973,
+        "p95": 7.9332,
+        "p99": 9.0949,
+        "max": 14.3376,
+        "statuses": {
+          "200": 15221
+        },
+        "errors": 0,
+        "timeouts": 0,
+        "drainMs": 1847.1774000001606
+      }
+    },
+    {
+      "scenario": "auth:login",
+      "group": "auth",
+      "method": "POST",
+      "persona": null,
+      "notes": [
+        "2 connections, 40 requests, one per account (limit is 10/min per email); creates refresh_tokens rows for bench users (removed by --clean)"
+      ],
+      "skipped": null,
+      "sequential": {
+        "statuses": {
+          "200": 15
+        },
+        "latencyP50": 23.405100000090897,
+        "queries": [
+          3,
+          3,
+          3,
+          3,
+          3,
+          3,
+          3,
+          3,
+          3,
+          3,
+          3,
+          3,
+          3,
+          3,
+          3
+        ],
+        "sampleError": null,
+        "n": 15
+      },
+      "load": {
+        "requests": 40,
+        "completed": 40,
+        "unfinished": 0,
+        "rps": 39.6,
+        "p50": 29.516,
+        "p95": 34.2065,
+        "p99": 36.2209,
+        "max": 36.2209,
+        "statuses": {
+          "200": 40
+        },
+        "errors": 0,
+        "timeouts": 0,
+        "drainMs": 1856.7737000000197
+      }
+    }
+  ]
+}

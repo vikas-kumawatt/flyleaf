@@ -1,37 +1,27 @@
 // Phase -1 walking skeleton API. Six endpoints, one process, one database.
 // Deliberately crude — see phases.md, Phase -1.
 
-import { config, makeDb, waitForDb, closeDb, MemoryCache, PgRateLimiter, ConsoleEmailSender } from './platform/index.js';
-import { IdentityService } from './identity/index.js';
-import { CatalogService } from './catalog/index.js';
-import { GapFillService } from './catalog/gapfill.js';
-import { ReadingService } from './reading/index.js';
+import { config, makeDb, waitForDb, closeDb } from './platform/index.js';
 import { buildApp } from './app.js';
+import { makeProducerBoss, QUEUES } from './jobs/index.js';
+import { serverDependencies } from './server-wiring.js';
 
 async function main() {
   const db = makeDb();
   await waitForDb(db);
 
-  // Auth limits go through Postgres because they must be exact and correct
-  // across instances. General caching is in-process because for a single
-  // instance that is strictly faster than a network hop to Redis.
-  const limiter = new PgRateLimiter(db);
-  const cache = new MemoryCache(1000);
-  const mailer = new ConsoleEmailSender();
-
-  const identity = new IdentityService(db, limiter, mailer);
-  // Gap-fill turns a search miss into a permanent catalog entry (FN-32).
-  // Layer 2 of the accelerator: it exists whether or not the dumps have been
-  // ingested, because no ingest is ever complete.
-  const catalog = new CatalogService(db, cache, new GapFillService(db));
-  const reading = new ReadingService(db);
+  // The API enqueues imports and exports; the worker (`npm run worker`)
+  // processes them. Without this boss, both features were dead outside the
+  // tests (L-03). Queues are created here too, so enqueueing works even
+  // before a worker has ever started.
+  const boss = makeProducerBoss();
+  boss.on('error', (err) => console.error('pg-boss (api):', err));
+  await boss.start();
+  await boss.createQueue(QUEUES.processImport);
+  await boss.createQueue(QUEUES.processExport);
 
   const app = await buildApp({
-    db,
-    identity,
-    catalog,
-    reading,
-    limiter,
+    ...serverDependencies(db, boss),
     trustProxy: true,
     logger: {
       level: config.logLevel,
@@ -75,6 +65,8 @@ async function main() {
 
     try {
       await app.close();
+      // After the HTTP server (no new enqueues), before the pool.
+      await boss.stop({ graceful: true, timeout: 5_000 });
       await closeDb(db);
       app.log.info('shutdown complete');
       process.exit(0);
