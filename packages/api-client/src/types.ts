@@ -200,6 +200,9 @@ export interface EditionDetail {
 export interface EditionLookupResponse {
   work: Work;
   edition: EditionDetail;
+  maturity: 'general' | 'mature' | 'explicit' | 'unclassified';
+  /** Explicit, and hidden from this viewer in search: show the §7.8 interstitial. */
+  content_warning: boolean;
 }
 
 export interface YourRead {

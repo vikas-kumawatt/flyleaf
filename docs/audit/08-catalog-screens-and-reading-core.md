@@ -13,6 +13,18 @@ Part 01 measured it: **every insert, delete or status/rating change on `reads` r
 - Prove equivalence: `work_stats` values before and after the change match on the bench data within the stated tolerance.
 - Measure `progress:post` and a finish/rating write, before and after, on `flyleaf_dev`.
 
+### Decided in Part 02 (A-02-013): what `works.log_count` counts. Implement it together with L-01
+
+Today `log_count` mixes Open Library's reading-log baseline (set by the `--popularity` ingest pass) with Flyleaf's own logs (incremented in `ReadingService` on read insert), so it can't be reconciled from `reads`. Imports, deletes and dedupe merges also never adjust it. **Decision (made by the user):**
+- Keep the OL baseline in its own column (e.g. `ol_log_count`, backfilled from today's values minus what Flyleaf added, or from the popularity pass), and count Flyleaf readers separately as **distinct users with a read of the work** (e.g. `reader_count`). The latter is maintained by trigger in the same rewrite as L-01 and repaired by a nightly reconcile job (the `reads.reconcile` pattern from SO-20, scheduled in `worker.ts`).
+- Ranking uses a documented combination of the two. Keep `log_count` as that combination (a generated column, or maintained by the trigger) so search SQL and the relevance corpus don't have to change shape.
+- Re-reads, imports, deletes and dedupe merges must each have a defined effect, with a test for each.
+- **The relevance panel (FN-43) must stay ≥ 0.98 with its position rules unchanged.** Run it before and after. Search is on the full catalog, so verify on `flyleaf` as well as `flyleaf_dev`.
+
+### Also routed here from Part 02: the flaky `readingVelocity.test.ts` (SL-52)
+
+It failed CI run 1 during Part 02 for timing reasons (it depends on the wall clock). Fix it first in this part, so CI is reliable for everything after: inject the clock or freeze time, and never weaken what it asserts.
+
 Part 09 keeps the rest of SL-62 (the duplicate TS recompute, §9.7 manipulation rules) and will build on your fix.
 
 ## Server: SL-50 … SL-57

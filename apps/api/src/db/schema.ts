@@ -142,6 +142,15 @@ export const authors = pgTable('authors', {
   birthYear: integer('birth_year'),
   deathYear: integer('death_year'),
   disambiguation: text('disambiguation'),
+
+  /**
+   * Credited on at least one work. Set by a trigger on work_authors INSERT
+   * and never cleared (0019 explains why a stale TRUE is harmless). Only
+   * 10.8% of Open Library authors are credited; search matches those alone,
+   * through `authors_credited_trgm_idx` (hand-written in 0019: an expression
+   * index over a custom function, which drizzle cannot express).
+   */
+  hasWorks: boolean('has_works').notNull().default(false),
 }, (t) => [
   // Author names are searched by joining through this index rather than being
   // denormalised into works.search_vector, so renaming an author does not

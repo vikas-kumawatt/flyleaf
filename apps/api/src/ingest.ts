@@ -34,7 +34,7 @@ import {
 } from './catalog/ingest/normalise.js';
 import {
   createStaging, dropStaging, writeAuthors, writeWorks, writeEditions, writeRawPayloads,
-  RESOLVE_PENDING_WORK_AUTHORS,
+  RESOLVE_PENDING_WORK_AUTHORS, MARK_CREDITED_AUTHORS,
 } from './catalog/ingest/writer.js';
 
 // architecture.md §5.1 says 5,000. That is right for the COPY itself, but
@@ -183,11 +183,17 @@ async function withHeartbeat<T>(label: string, fn: () => Promise<T>): Promise<T>
  * that a hard crash can lose the last fraction of a second of commits --
  * which for THIS job is free, because the ingest is checkpointed and replay
  * is a no-op. It is a per-session setting and never touches the API.
+ *
+ * `flyleaf.bulk_load` turns the work_authors has_works trigger into a no-op
+ * for this session (migration 0020); `--finalise` sets the flag in one
+ * statement instead. Until it runs, authors first credited by this load are
+ * missing from author search, like the links still parked for it.
  */
 const BULK_LOAD_SETTINGS = [
   'SET synchronous_commit = off',
   `SET work_mem = '64MB'`,
   `SET maintenance_work_mem = '256MB'`,
+  `SET flyleaf.bulk_load = 'on'`,
 ];
 
 async function main() {
@@ -774,6 +780,11 @@ async function printStatus(db: ReturnType<typeof makeDb>) {
  * works_title_trgm_idx first and recreating them here is worth the trouble.
  */
 async function finalise(db: ReturnType<typeof makeDb>) {
+  // Pool of one, so these stick. The resolve below skips the has_works
+  // trigger like the load did; MARK_CREDITED_AUTHORS covers both at once.
+  await db.$client.unsafe(`SET flyleaf.bulk_load = 'on'`);
+  await db.$client.unsafe(`SET work_mem = '256MB'`);
+
   console.log('resolving parked authorship links…');
   const [pendingBefore] = await db.execute<{ n: number }>(
     sql`SELECT count(*)::int AS n FROM pending_work_authors`);
@@ -783,6 +794,10 @@ async function finalise(db: ReturnType<typeof makeDb>) {
   console.log(
     `  ${commas(pendingBefore!.n - pendingAfter!.n)} resolved, ` +
     `${commas(pendingAfter!.n)} still waiting on an author`);
+
+  console.log('flagging credited authors…');
+  const credited = await db.$client.unsafe(MARK_CREDITED_AUTHORS);
+  console.log(`  ${commas(credited.count ?? 0)} authors newly credited`);
 
   console.log('backfilling work covers from editions…');
   // A work with no cover of its own borrows its newest edition's.

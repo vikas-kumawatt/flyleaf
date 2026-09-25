@@ -6,6 +6,12 @@ Spec: PRD §6.20 (Diary), §6.37/§6.37a (Profile, Wall), §6.38–6.40, §16 (p
 
 Code: `apps/api/src/reading/index.ts` (`getStats`), `identity/index.ts` (profile GET/PATCH, favourites), `telemetry/{index,sentry}.ts`, migration `0012_events.sql`; mobile `app/diary.tsx`, `src/ui/DiaryView.tsx`, `app/wall*.tsx`, `app/(tabs)/profile.tsx`, `app/user/[id].tsx`, `app/profile/favourites.tsx`, `app/stats*.tsx`, `src/lib/{events,budgetTracker,sentry}.ts`, `src/ui/ErrorBoundary.tsx`. Tests: `profile-stats.test.ts`, `telemetry.test.ts`, mobile `profile-stats` and `telemetry-budgets`.
 
+## Routed here from Part 02 (A-02-024): search spelling suggestion and `search_zero_results`
+
+AC-7 and PRD §14.7 step 1 ask for a spelling suggestion on a search with no results, plus a `search_zero_results` log. Neither exists. Part 02b's findings (A-02-024) explain why it isn't cheap and propose an approach: log zero results first, then suggest from credited-author names and popular titles only.
+- **Required test case: `tolkein` must suggest "Tolkien".** Today it returns nothing: its word similarity to "Tolkien" is 0.50, under the author-typo arm's 0.6, and lowering that threshold flooded results (measured in Part 02b). Add it as a test that fails before the suggestion exists.
+- The relevance panel (FN-43) must stay ≥ 0.98 and search must not gain a second loose trigram pass on the request path (A-02-023 removed exactly that cost).
+
 ## SL-74 — stats (the highest-risk task in this part)
 
 - **§17.5 [LOCKED]**: the owner's stats include their private reads; **anyone else's view must not**, including counts, totals, extremes ("longest book") and the most-read author. A private read leaking through `GET /v1/users/:id/stats` is **P0**. Build fixtures with private and followers-only reads and check every stat field for owner, follower, stranger and guest. (ST-01 in Phase 5 formalises this, but the endpoint is live now.)

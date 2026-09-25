@@ -1313,7 +1313,8 @@ paths:
         - Catalog
       description: Searches works by title, subtitle, author, or alternate titles.
         Guest readable. Explicit works are excluded unless the viewer is 18+ and
-        has opted in (PRD §7.8); an exact ISBN still resolves.
+        has opted in (PRD §7.8), an exact ISBN included (the scan endpoint
+        always resolves).
       parameters:
         - schema:
             type: string
@@ -1566,8 +1567,12 @@ paths:
       summary: Get edition by ISBN
       tags:
         - Catalog
-      description: Resolves an edition and its parent work by ISBN-10 or ISBN-13
-        barcode (PRD §14.2, §3374).
+      description: "Resolves an edition and its parent work by ISBN-10 or ISBN-13
+        barcode (PRD §14.2, §3374). Always resolves, whatever the maturity of
+        the work (PRD §7.8: a user is never blocked from recording a book they
+        read). `content_warning` is true when the work is explicit and search
+        would hide it from this viewer (a guest, a minor or an adult who has not
+        opted in); the client shows its interstitial then."
       parameters:
         - schema:
             type: string
@@ -1715,9 +1720,22 @@ paths:
                       - id
                       - work_id
                       - format
+                  maturity:
+                    type: string
+                    enum:
+                      - general
+                      - mature
+                      - explicit
+                      - unclassified
+                  content_warning:
+                    type: boolean
+                    description: "The work is explicit and search hides it from this viewer: show
+                      the one-time interstitial (PRD §7.8)."
                 required:
                   - work
                   - edition
+                  - maturity
+                  - content_warning
         "404":
           description: Default Response
           content:

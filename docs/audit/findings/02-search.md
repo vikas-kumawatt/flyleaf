@@ -245,3 +245,255 @@ Documented in tasks.md: 430–815 ms cold, 47–85 ms warm, on other hardware. T
 | 2 (no changes in between, apart from a comment) | ✓ **green in 424 s**: api-client build, api typecheck, spec check (OpenAPI drift 0; descriptions of `GET /v1/search` and `q` updated), api tests **819 passed** (48 files), api build, audit, mobile typecheck, mobile offline tests **100 passed**, migrations on a real Postgres |
 
 `npm run migrate` against the full catalog: `migrations applied` (this part adds no migration).
+
+---
+
+# Part 02b — deferred search P1s (A-02-012, A-02-015, A-02-016) and decisions 1–4
+
+2026-09-25 · CI: see *Part 02b CI* at the end · tests **819 API + 100 mobile → 837 API + 100 mobile** (+6 `search.test.ts`, +9 `search-route.test.ts`, +3 `relevance.test.ts`: 1 hard case and 2 rows in its typo `it.each`; one plan-text assertion updated for the new operator, see A-02-023; no test weakened or removed)
+
+Decisions taken as given by the reviewer: (1) build the credited-authors partial index, then anchor 2-character author matching to name/word prefixes; (2) fix the typo arm by EXPLAIN evidence, the rate limit stays with Part 15; (3) PRD §14.3 follows the code; (4) an exact ISBN on search **and** on the scan endpoint follows the search maturity filter, with a distinguishable "restricted" response.
+
+Databases: plans from the full catalog `flyleaf` unless marked; relevance on PGlite with the committed corpus. **Baseline = the Part 02 "after" table above.** Re-captured at the start of this part with the unchanged SQL: `th` 36,234 buffers, `pir` 134,639, `harry` 156,747, `村上` 254,203, `the hobit` 117,934. `ishigoro`, `harry potter`, `murakami` and `lord of the rings` hit the 180 s timeout in that sequence, because the `村上` authors seq scan evicted the page cache first (the effect Part 02 documented).
+
+## Verdict per finding
+
+| Finding | Part 02 | Part 02b |
+|---|---|---|
+| A-02-012 author arm grows with the authors table; 2-char CJK authors seq-scan | P1 deferred | ✅ fixed (A-02-022) |
+| A-02-016 typo arm rechecks 1.3M rows on "the hobit" | P1 deferred | ✅ fixed (A-02-023); rate limit still Part 15 (RL) |
+| A-02-015 AC-7: `ishigoro`, "my status", spelling suggestion | P1 deferred | ⚠️ `ishigoro` ✅, `your_read` ✅ (API; UI → Part 08), suggestion deferred (A-02-024) |
+| A-02-014 ranking vs PRD §14.3 | decision needed | ✅ decided: PRD §14.3 updated to the code's weights (decision 3) |
+| A-02-001 opt-in to explicit | not done | ❌ confirmed: no way to opt in exists (A-02-026) |
+| Decision 4 ISBN maturity | decision needed | ✅ implemented (A-02-025); ⚠️ conflicts with PRD §7.8 [LOCKED] wording |
+
+## Findings
+
+### A-02-022 · P1 · FIXED · Author arm over credited authors only; 2-character author matching anchored (A-02-012)
+- **Where:** `apps/api/drizzle/0019_credited_authors.sql` (new), `src/db/schema.ts` `authors.hasWorks`, `SEARCH_SQL` `by_author` and the ranking author term, `buildSearchParams().authorLike`.
+- **Evidence (before):** 15,385,548 authors, 1,661,138 credited. `pir`: 16,771 authors matched, 16,507 `work_authors` probes, 134,639 buffers for the whole query. `村上`: `'%村上%'` has no trigram, so a Parallel Seq Scan on authors (254,203 buffers).
+- **Fix:**
+  - `authors.has_works boolean NOT NULL DEFAULT false`, set by a **statement-level** `AFTER INSERT` trigger on `work_authors` over its transition table (a bulk ingest is one UPDATE, not 3.8M), backfilled in the migration. New index `authors_credited_trgm_idx` = `gin (flyleaf_author_names(name, alternate_names) gin_trgm_ops) WHERE has_works`.
+  - **Set-only by design.** Nothing clears the flag. A stale TRUE costs index space only, because the arm still joins `work_authors`. A delete trigger that cleared it would race a concurrent insert (its `NOT EXISTS` cannot see the other transaction's link) and could hide a credited author from search. INSERT is the only event: nothing updates `work_authors.author_id` (dedupe repoints by insert + delete; checked by grep).
+  - `by_author` and the ranking author term: `a.has_works AND flyleaf_author_names(...) ILIKE ANY ($7)`. `$7` = `['%q%']` from 3 characters. For 2 characters it is `['q%', '% q%']`: the name, or a later word in it, starts with q.
+- **Two characters: the anchoring cost, measured, and the LIMIT that fixes it.** Anchoring did what Part 02 predicted: CJK became cheap and dense Latin pairs became a long walk. A sparse anchored pattern makes the planner walk `works_log_count_idx` further before 300 matches turn up (`th`: 14,204 works walked, 11,878 author probes; whole query **144,882 buffers vs 36,228** before). Author arm alone on the full catalog:
+
+  | Variant (2 characters) | `th` | `le` | `ur` | `村上` |
+  |---|---|---|---|---|
+  | name or word prefix, LIMIT 300 | 122k buf | 87k | 40k (bitmap) | 1.5k |
+  | name prefix only (`'q%'`) | 252k | 208k | 14k | 1.3k |
+  | either, with `+ 0` (force bitmap) | 249–452k | 205–555k | 14–40k | 1.3–1.5k |
+  | bounded walk of the top 5,000 / 10,000 works | 54k / 67k | 50k / 50k | 54k / 80k | 54k / 45k |
+  | **chosen: name or word prefix, LIMIT 50** | **16.7k** | **11.7k** | 40k | 1.5k |
+  | pre-audit `'%th%'` over all authors (baseline) | 26.6k | — | — | 254k (seq scan) |
+
+  A guard (skip the 2-character author arm when the title arms fill the page) was rejected on results rather than cost. On the full catalog `ur` now returns Le Guin at ranks 2, 3, 6, 12, 13 and *A Wizard of Earthsea* at #19; HEAD returned ranks 4, 5, 13 and no Earthsea. "Ur…" titles fill the page, so a guard would lose Earthsea again. With LIMIT 50 the `ur` ranking is identical to LIMIT 300 (Earthsea still #19). `LIMIT CASE WHEN char_length($1) < 3 THEN 50 ELSE 300 END` folds to a constant under the custom plan (plan shows `Limit … rows=50`). No PGlite test pins the 50: a tiny table never chooses the walk, and asserting the SQL text would be tautological. The evidence is the full-catalog plan above.
+- **Test:** `search.test.ts` › "matches author names only among credited authors", "two characters match the start of a name or of a word in it, not the middle of a word" (`le` → Le Guin; `rs` no longer reaches Ursula), "keeps a substring from three characters", and `authors.has_works` › "is set by a single insert and by a multi-row insert, and not cleared by a delete". Seen failing before the fix: **yes** (all four). "keeps a substring from three characters" was red only because the pattern changed form; behaviour at ≥ 3 characters is unchanged. The `U`/`Ur` search-as-you-type tests pass **unchanged**.
+- **`flyleaf_dev`:** 114,390 of 114,390 authors flagged, equal to `count(DISTINCT author_id)` in `work_authors`. `devdb.ts` copies every shared column with triggers off, so a rebuilt slice inherits the flag from the full catalog.
+- **Migration cost, measured (full catalog):** the backfill rewrites 1.66M rows of a 1.9 GB table with four indexes. A 5,000-row sample (inside a rolled-back transaction) took 20.3 s and 35.2k block reads; about 4.5 random reads per row are the update itself. The migration holds `ACCESS EXCLUSIVE` on `authors` for its whole run, so search's author arms block. The first attempt ran at ~15 reads/s under concurrent EXPLAIN load and was cancelled after 47 min (clean rollback, nothing committed). The second run: see *Part 02b CI*. **On a production database this needs a maintenance window or a batched online backfill.** It is a one-off.
+- **Not done:** `authors_search_trgm_idx` (938 MB, full table) has no user after this change. Dropping it gave no measurable gain for the backfill (35.0k vs 35.2k reads on the same sample), so it stays; see A-02-027.
+
+### A-02-023 · P1 · FIXED · Typo arm cost on multi-word queries with common words (A-02-016)
+- **Where:** `SEARCH_SQL` `title_fuzzy`, the new `author_fuzzy` and `exact` CTEs.
+- **Evidence (before):** `title % 'the hobit'`: 167,552 index candidates, **1,337,114 rows rechecked** (lossy bitmap), 112,838 buffers for the arm. "the" is 4 of the query's 10 trigrams, and at 0.45 any title with "the" and an h-word qualified.
+- **Options measured on the full catalog** (title arm alone, `EXPLAIN (ANALYZE, BUFFERS)`; "cand." = trigram index candidates):
+
+  | Option | `the hobit` | `lord of the rngs` | `war and peice` | `harry` | Relevance (PGlite panel) |
+  |---|---|---|---|---|---|
+  | before: `title % q` | 167,552 cand. · 1.34M rechecked · 112.8k buf | — | — | 32,938 cand. (Part 02) | 216/217 |
+  | long words only: `title %> 'hobit'` + whole-string recheck | **403** cand. · ~1.0k buf | 737 · 1.8k buf | 1,832 · 2.6k buf | **walks `works_log_count_idx`: 2.8M rows filtered, 993k buf, 98 s** | **213/217**; `war and peice`, `lord of the rngs` lost |
+  | long words at word threshold 0.5 | not measured | | | | 215/217, but the author arm floods (`remains of the dy` → *Atomic Habits*) |
+  | long words, strict `%>>` (title arm) | not measured | | | | 215/217; `war and peice`, `can't urt me` lost |
+  | **chosen: whole query, `title %> q` + `similarity ≥ 0.45` recheck, `ORDER BY log_count + 0`** | **46,101 cand. · 25,327 rechecked · 43.6k buf** (no lossy pages) | 3,333 · 8.0k buf | 2,398 · 5.3k buf | arm not run (guard) | **216/217**, same single miss (`king`) |
+
+  Measured word similarity of the long-words key was lower than trigram arithmetic suggested: `endswith`/"It Ends With Us" 0.58, `diary awimpy` 0.58, `lord rngs` 0.50, `peice` 0.33, against a threshold of 0.6. The whole query scores 0.71–0.78 on all of them. So the arm keeps judging the whole query and only its candidate generation changes: `%>` (word similarity ≥ 0.6) needs 6 of 10 trigrams where `%` at 0.45 needed 5. Since `word_similarity ≥ similarity` always, the new arm's result is the old arm's narrowed, never widened.
+- **Two protections, each from a measured failure:**
+  1. `ORDER BY log_count + 0 DESC`. With a common word the planner estimates `%>` at 12–37k rows (`matchingsel` evaluates the MCVs) and walks `works_log_count_idx`, filtering row by row: `harry` removed 2,823,807 rows, read 993,122 buffers, 98 s. `+ 0` makes the index unusable for the ORDER BY, so the arm is always bitmap candidates plus a top-N sort, bounded by the trigram index.
+  2. **The typo arms run only when the exact arms (prefix, substring, author) hold fewer than `limit` candidates** (`(SELECT count(*) FROM exact) < $5`, an InitPlan; otherwise the plan shows the arms as `never executed`). This is a heuristic. A typo candidate carries no prefix or exact-title score, so on a query the exact arms fill, it ranks below them in all but rare cases (a very popular fuzzy match against weak exact matches). The panel is the check: 216/217, and all 29 generated typo cases pass.
+- **Test:** `search.test.ts` › "the typo arms find candidates by word similarity of the whole query, not by %", "the typo arms do not run when the exact arms already fill the page", and "skips the trigram arm below 4 characters, keeps it from 4" (**updated**: it matched the operator text `title % `, now `title %> `; the rule it pins is unchanged). `relevance.test.ts` › typo hard cases `war and peice` and `lord of the rngs`, added because they pass before and after but fail under the cheaper long-words design, which is the regression they guard against. Seen failing before the fix: **yes** for the two plan tests. The `+ 0` walk cannot be reproduced on PGlite (tiny tables never choose the walk); its evidence is the full-catalog plan above.
+- **Behaviour change:** typo tolerance is skipped when the exact arms already return at least `limit` candidates.
+
+### A-02-024 · P1 · PARTLY FIXED · AC-7 (A-02-015)
+- **`ishigoro` → Kazuo Ishiguro:** new `author_fuzzy` arm, `flyleaf_author_names(...) %> $1` over credited authors (same partial index, same guard, same `+ 0`). On the PGlite corpus it returns *Never Let Me Go*, *Klara and the Sun* and *The Remains of the Day*. It also fixes `murakmi` → Murakami and `atwod` → Atwood (probed, not asserted). Full catalog: see Performance. **Test:** `relevance.test.ts` › "ishigoro finds works by Kazuo Ishiguro" (a hard case, as Part 02 planned). Seen failing before: **yes** (0 results on HEAD).
+- **"my status if any":** search results now carry `your_read`, the same shape as `GET /works/:id` (id, status, rating, hearted, page, percent of the latest attempt). It comes from **one** query for the page (`DISTINCT ON (work_id)` plus a `LATERAL` last progress event; `reads_user_work_attempt` serves it). Guests cost no query. **Test:** `search-route.test.ts` › "carries the viewer's latest attempt…" and "costs one query for the whole page, not one per row" (a spy on `db.execute` sees 2 calls when signed in, `#allowsExplicit` + `#yourReads`, and 0 for a guest, with a read on every row). Seen failing before: **yes**. No schema or client change: `Work.your_read` already existed in `workSchema` and `@flyleaf/api-client`. Showing it in the Discover list is UI → Part 08.
+- **Spelling suggestion: DEFERRED → Part 10**, together with `search_zero_results` logging. The spec asks for it (AC-7, §14.7 step 1), but it is not cheap here. A zero-result query has already failed both typo arms at their thresholds, so a suggestion needs a second, looser trigram pass over titles and credited authors, which is the very cost A-02-023 removed. Proposal: suggest only from credited-author names and popular titles (a small table), and log zero results first to learn whether it is worth building.
+- **Known misses (not fixed, recorded):** `tolkein` (word similarity to "Tolkien" 0.50, under 0.6) and `harry pottr` (whole-string similarity to the long Harry Potter titles is under 0.45) return nothing, before and after this part. Lowering the thresholds floods the author arm (measured above).
+
+### A-02-025 · P1 · FIXED · Decision 4: exact ISBN follows the search maturity filter, on search and on the scan
+- **Where:** `CatalogService.#findWorkByIsbn`, `getEditionByIsbn`, `isbnOrder()`, `GET /v1/editions/isbn/:isbn` (403 added to the route schema), `apps/mobile/app/scanner.tsx`.
+- **Before:** both paths resolved an explicit work for everyone. Part 02 had kept §7.8's "Direct link or ISBN scan: resolves".
+- **Fix:** both ISBN queries order by `(explicit AND NOT allowed)` first, then by the shared order (log_count, newest edition, id). A shared ISBN therefore resolves to an allowed work when one exists, and **identically on both paths**, which keeps A-02-011's invariant. On search, an explicit match the viewer may not see counts as no match, and text search runs filtered as usual. On the scan, the answer is **403 `content_restricted`** ("This book is hidden by your content settings.") with no work data; an unknown ISBN is still 404 `not_found`. 403 rather than 404 because the catalog is public, so existence hides nothing, and the scanner has to say why nothing opened; the 00-method 404-not-403 rule is about other users' resources. The scanner now shows that message instead of "No edition found".
+- **Test:** `search-route.test.ts` › "exact ISBN follows the maturity filter (decision 4)": the scan returns 403 for a guest, an adult not opted in, and an under-18 account with the flag set; an unknown ISBN returns 404; an opted-in adult gets 200; search surfaces the work only for the opted-in adult; a shared ISBN resolves to the allowed work for a guest on both paths, and to the explicit one for the opted-in adult. Seen failing before: **yes** (5 of 6; the 404 test passed before, as it should). Mobile: typecheck only, since no scanner test harness exists.
+- **Query count:** the maturity lookup now runs before the ISBN lookup, because it decides the order. A signed-in ISBN search is therefore sequential: allowsExplicit → ISBN → SEARCH_SQL → your_read (4 queries); a guest's is 2. The scan endpoint costs +1 query for a signed-in viewer (0 for a guest).
+- **⚠️ Spec conflict:** PRD §7.8 [LOCKED] says a direct link or ISBN scan "resolves and is loggable, with a one-time interstitial. **A user is never blocked from recording a book they actually read**." Decision 4 blocks the scan for filtered viewers. Direct links (`GET /works/:id`) still resolve. §7.8 was **not** edited because it is LOCKED; see Decisions needed.
+
+### A-02-026 · P1 · CONFIRMED, NOT FIXED · No way for an adult to opt in to explicit content (A-02-001)
+- **Evidence:** the only writer of `profiles` is `IdentityService.updateProfile` (`identity/index.ts:545-556`), which copies an explicit allowlist (`displayName`, `bio`, `isPrivate`, `favouriteWorkIds`). Apart from `#allowsExplicit`, nothing in `apps/api/src` or `apps/mobile` reads or writes `show_explicit`. LA-02 (Settings → Content) is `[ ]` in tasks.md.
+- **Behaviour change, stated explicitly:** since Part 02 no account can see explicit works in search. Since this part, none can open one by ISBN scan either; only a direct link resolves. **No UI until LA-02.** The §7.8 setting (18+ only, date of birth re-entered to change it) belongs to LA-02 / Part 10.
+
+### A-02-027 · P3 · Unused author trigram indexes
+- `authors_search_trgm_idx` (938 MB, all 15.4M authors) lost its only user (`by_author`) in this part. `authors_name_trgm_idx` (936 MB) already appears unused: the admin and import queries match `a.name` per work through `work_authors`, never through an author trigram index (grep of `apps/api/src`). Both cost something on every author write. Dropping them is a schema change with no measured benefit for this part's backfill. Recommendation: drop both after confirming `pg_stat_user_indexes.idx_scan` on a production-like run. Owner: Part 15.
+
+## Decision 3 (A-02-014)
+PRD §14.3 now states the code's formula (0.30 prefix · 0.20 exact · 0.20 author · 0.10 trigram · 0.35 capped popularity) and marks the old formula as never built. Architecture §5.4 now points to it, and tasks.md FN-41 records it as decided.
+
+## Performance (Part 02b)
+
+Full catalog, guest, final SQL, `EXPLAIN (ANALYZE, BUFFERS)` of the real `SEARCH_SQL` via `src/bench/explain-search.ts`. Buffers = top-level shared hit + read (8 kB pages). **Indicative only (8 GB dev machine).** The after-run started right after the 65-minute migration, so its first queries ran cold; `pir`, `harry` and `the hobit` were re-timed warm (second of two runs, same buffers).
+
+| Query | Part 02 after: buffers · ms | Part 02b after: buffers · ms | Plan notes |
+|---|---|---|---|
+| `th` | 36,228 · 1,346 | **24,068** · 216–353 | author arm LIMIT 50 at 2 chars (walk of 0.4k works, not 14k) |
+| `ur` | not measured | 63,617 · 2,512 | author arm is a bitmap on `authors_credited_trgm_idx` (5,340 candidates → 2,434 authors) |
+| `le` | not measured | 85,056 · 6,070 | 65k of it in the **title** arms (`title_like 'le%'` walk 49k, `fts` 16.5k), untouched here; author arm 11.7k |
+| `村上` | 254,202 · 39,796 | **2,844** · 376 | authors seq scan gone: bitmap on the partial index |
+| `pir` | 134,665 · 24,854 | **76,363** · 1,023 warm (40,169 cold) | author arm over 1.66M credited authors, not 15.4M |
+| `harry` | 156,709 · 13,355–17,070 | **62,660** · 745 warm (63,185 cold) | typo arms `never executed` (guard) |
+| `the hobit` | 117,934 · 11,118 (arm: 1.34M rechecked) | **51,126** · 2,186 warm | typo arm 46k candidates, 25k rechecked, no lossy pages |
+| `ishigoro` | 1,837 · 368 · **0 results** | 1,864 · 704 · **20 results, all Kazuo Ishiguro** | author typo arm |
+| `murakami` | 11,363 · 688–860 | **7,624** · 680 | |
+| `harry potter` | not measured (timed out at the start of this part) | 7,340 · 1,846 | |
+| `lord of the rings` | not measured (timed out at the start of this part) | 7,800 · 4,423 | |
+| `war and peice` | — | 9,887 · 3,345 | finds *War and Peace* (PGlite probe) |
+| `tolkien` | — | 8,014 · 2,196 | |
+
+Reading it: every query measured in both parts reads fewer buffers, from 1.5× (`murakami`, `th`) to 89× (`村上`), except `ishigoro` (+1.5%, the author typo arm it now needs to return anything). None grows with the authors table any more. Warm latencies for the formerly slow shapes are 0.2–2.2 s here. **Search p95 < 300 ms is still not demonstrated on this machine** (indicative only; the buffer counts are the portable evidence). The autocannon bench was not re-run this part: the database was I/O-starved for most of it (migration, cold cache), and back-to-back ratios would not have been clean.
+
+**Queries per request:** guest search 1 (2 with an ISBN hit); signed-in search 3 (`#allowsExplicit`, `SEARCH_SQL`, `#yourReads`), 4 with an ISBN, now sequential; scan endpoint +1 for a signed-in viewer.
+
+## Behaviour changes (Part 02b)
+
+1. **Exact ISBN follows the maturity filter.** For guests, minors and adults who have not opted in, `GET /v1/editions/isbn/:isbn` answers **403 `content_restricted`** for an explicit work (it was 200), and search no longer puts it first (it was #1). A shared ISBN resolves to the allowed work for a filtered viewer, on both paths. The scanner says "This book is hidden by your content settings."
+2. **Nobody can opt in yet** (A-02-026), so explicit works are reachable only by direct link. **No UI until LA-02.**
+3. **2-character author matching is anchored** to the start of the name or of a later word in it: `le` finds Le Guin, `rs` no longer matches "Ursula". At 2 characters the author arm takes the 50 most-logged matching works, not 300.
+4. **Typo tolerance for author names** (`ishigoro`, `murakmi`, `atwod`), new.
+5. **Typo arms are skipped when the exact arms already fill the page**, and their candidates need word similarity ≥ 0.6 on top of the old similarity ≥ 0.45 (never wider than before).
+6. **Search results carry `your_read`** for a signed-in viewer, as `GET /works/:id` does.
+7. Matching now covers credited authors only. No visible change, because an uncredited author has no works to return.
+
+## Decisions needed (Part 02b)
+
+1. **PRD §7.8 [LOCKED] vs decision 4.** §7.8 says an ISBN scan "resolves and is loggable… a user is never blocked from recording a book they actually read". Decision 4 blocks the scan for filtered viewers. Implemented as decided; §7.8 not edited. Options: (a) amend §7.8's "Direct link or ISBN scan" row to "direct link resolves with the interstitial; ISBN scan follows the search filter"; (b) revert the scan half of decision 4 and keep only search's. **Recommendation: (a), and once LA-02 exists, make the 403's copy point to the setting**, so a reader of explicit material has a way in.
+2. **Rolling 0019 out on a production-size database.** It took 64 min 41 s here under an `ACCESS EXCLUSIVE` lock on `authors`. Options: a maintenance window, or split the backfill into batches outside the migration (and build the index `CONCURRENTLY`, which cannot run inside drizzle's migration transaction). Recommendation: decide before the first production deploy; for dev and CI it is fine.
+3. **A-02-027:** drop `authors_search_trgm_idx` and `authors_name_trgm_idx` (1.9 GB, now unused)?
+4. **Author-typo threshold:** `tolkein` misses at word similarity 0.6. Lowering the threshold flooded results (measured at 0.5). Accept, or feed common misspellings in as author aliases? Recommendation: accept, and revisit with the zero-result log (Part 10).
+
+## Deferred (Part 02b)
+
+| Item | Owner | Reason |
+|---|---|---|
+| Spelling suggestion (AC-7, §14.7 step 1) + `search_zero_results` log | Part 10 | not cheap: a looser second trigram pass is the cost A-02-023 removed; A-02-024 has a proposal |
+| `your_read` shown in the Discover list | Part 08 | UI |
+| Search rate limit (RL, A-02-016) | Part 15 | limiter layer |
+| 2-character **title** arm walk (`le`: `title_like` 49k buffers) | Part 15 | Part 02's A-02-003 arm, untouched here; same LIMIT-by-length idea applies |
+| A-02-027 unused author trigram indexes | Part 15 | needs `idx_scan` evidence on a production-like run |
+| `tolkein`, `harry pottr` | Part 10 | with the suggestion work |
+
+## Tooling (Part 02b)
+
+- `src/bench/explain-search.ts`: PREPARE signature follows `searchArgs` (7 parameters); array parameters are emitted as `ARRAY[...]::text[]`.
+
+## Part 02b CI
+
+| Run | Result |
+|---|---|
+| 1 | ✗ after 909 s at **api · audit**: the npm registry answered `400 Bad Request … Invalid package tree` ("This endpoint is being retired"). Everything before it was green (api-client build, api typecheck, spec check, api tests **837/837**, api build). No dependency file changed in this part; `npm ls` reports no invalid tree, and the same `npm audit --audit-level=high` exited 0 minutes later. Transient, registry-side. (It now reports 7 moderate advisories where the `ci.mjs` comment says 4: pre-existing drift, not from this part.) |
+| 2 (no changes in between) | ✓ **green in 743 s**: api-client build, api typecheck, spec check (OpenAPI drift 0; `GET /v1/editions/isbn/:isbn` gained 403 and a description), api tests **837 passed** (48 files), api build, audit, mobile typecheck, mobile offline tests **100 passed**, migrations on a real Postgres |
+
+`npm run migrate`: `flyleaf_dev` applied 0019 in 17 s (114,390 authors flagged); full catalog `flyleaf` applied it in **64 min 41 s** (second attempt; the first was cancelled after 47 min and rolled back cleanly), **1,661,138 authors flagged = `count(DISTINCT author_id)` in `work_authors`**, `authors_credited_trgm_idx` 81 MB; a re-run prints `migrations applied`.
+
+---
+
+# Part 02c — scan maturity reverted to PRD §7.8, ingest cost of `has_works`, rollout notes
+
+2026-09-25 · CI: see *Part 02c CI* at the end · tests **837 API + 100 mobile → 840 API + 100 mobile** (+2 `ingest.test.ts`; `search-route.test.ts`'s decision-4 block rewritten, 7 → 8 tests, see A-02-028; no test weakened, skipped or removed for any other reason)
+
+Decisions taken as given by the reviewer: (1) revert decision 4 on the scan endpoint to honour PRD §7.8 [LOCKED]: it always resolves; search results, an ISBN typed into search included, keep the filter; §7.8 not edited. (2) Measure the `has_works` trigger on the ingest; if bulk writes update authors row by row, bypass it during the load and set the flag in `--finalise`. (3) Record 0019's rollout needs (LA-05) and the condition for dropping the author trigram indexes (Part 15). (4) Record `tolkein` as a required case for Part 10's spelling suggestion.
+
+## Verdict per finding
+
+| Finding | Part 02b | Part 02c |
+|---|---|---|
+| A-02-025 decision 4: the scan answered 403 for filtered viewers | implemented, ⚠️ conflicted with §7.8 | ✅ scan half reverted (A-02-028); search half kept |
+| A-02-019 no `maturity` for the §7.8 interstitial | deferred → Part 08 | ⚠️ done for the scan (`maturity` + `content_warning`, scanner interstitial); `GET /works/:id` and search results still carry none → Part 08 |
+| A-02-022 `has_works` trigger on `work_authors` | fixed | ✅ the ingest no longer pays for it inside every batch (A-02-029) |
+| 02b decision 2: rolling out 0019 | decision needed | recorded under LA-05 in tasks.md |
+| A-02-027 unused author trigram indexes | Part 15 | precondition added: only after Parts 03 and 12 confirm (below) |
+| 02b decision 4: `tolkein` | decision needed | accepted as a miss for search; **required test case** for Part 10's suggestion |
+
+## Findings
+
+### A-02-028 · P1 · FIXED · The scan endpoint blocked filtered viewers from a book they read (PRD §7.8 [LOCKED])
+- **Where:** `apps/api/src/catalog/index.ts` `getEditionByIsbn` and the `GET /v1/editions/isbn/:isbn` route schema; `src/contract/schemas.ts` `editionLookupResponseSchema`; `packages/api-client/src/types.ts` `EditionLookupResponse`; `apps/mobile/app/scanner.tsx`.
+- **Evidence:** A-02-025 (Part 02b, decision 4) made the scan answer **403 `content_restricted`** for an explicit work when the viewer was a guest, a minor or an adult who had not opted in. Since nobody can opt in yet (A-02-026), that was every account. §7.8 [LOCKED]: "Direct link or ISBN scan: resolves and is loggable, with a one-time interstitial. **A user is never blocked from recording a book they actually read**."
+- **Fix:** the scan always resolves: 200 with the work and edition, plus two new fields. `maturity` is the work's rating. `content_warning` is true when `maturity = 'explicit'` and the viewer is one search hides it from (the same `#allowsExplicit` rule: a guest always gets true, and the age is re-checked at read time). The shared-ISBN order still depends on the viewer, so a filtered viewer's scan and search pick the same allowed work (A-02-011's invariant kept). Search is unchanged: explicit works, an exact ISBN included, stay hidden from filtered viewers. The scanner's 403 branch is gone. When `content_warning` is true it shows an interstitial ("Explicit content… Your content settings hide it from search, but you can still open it and log it") with **Continue to book** (opens `/work/:id`, where a signed-in user logs it as usual) and **Scan another**.
+- **Why `content_warning` and not only `maturity`:** the client cannot tell whether a viewer is filtered (`show_explicit` and the date of birth are not exposed), so it cannot decide on its own whether §7.8's interstitial applies. The server already computes that rule for search, so it answers here.
+- **Tests (`search-route.test.ts` › "exact ISBN and maturity (PRD §7.8; audit 02c)"):**
+  - For a guest, an adult not opted in, and an under-18 account with the flag set, the scan resolves the explicit work with `maturity: 'explicit'` and `content_warning: true`.
+  - For an opted-in adult, `content_warning` is false.
+  - **A filtered adult can `POST /v1/reads` the work the scan opened** (the app under test now registers `ReadingService`).
+  - An unknown ISBN is 404 `not_found`.
+  - Search still hides the work from filtered viewers and ranks it first for the opted-in adult.
+  - A shared ISBN resolves to the allowed work on both paths (with `maturity: 'general'`, no warning).
+- **Deliberate change of expectation, stated:** four of Part 02b's tests asserted decision 4, which this part reverses on the reviewer's instruction: "the scan answers %s with 403 content_restricted and no work data" (×3) and "an unknown ISBN is still a 404, so the two are distinguishable". They were **rewritten to assert §7.8, not weakened**: each now checks more than before (status, work, `maturity`, `content_warning`), and the logging test is new. Seen failing before the fix: **yes**. With the 403 put back temporarily, 4 fail (the three scan cases and the logging case); the file was restored afterwards.
+- **Mobile:** typecheck only; there is still no scanner test harness (as in 02b). **Not built:** "one-time" is per scan. The interstitial shows each time an explicit, filtered work is scanned, and no acknowledgement is stored. Remembering it per work, and showing it on a direct link (`GET /works/:id` carries no `maturity`), go to Part 08 with A-02-019.
+- **Query count:** unchanged from 02b. The scan still costs +1 query for a signed-in viewer (`#allowsExplicit`, needed for the order and for `content_warning`), 0 for a guest.
+
+### A-02-029 · P2 · FIXED · The `has_works` trigger rewrote authors row by row inside every ingest batch
+- **Where:** `apps/api/drizzle/0019_credited_authors.sql` (trigger), `src/catalog/ingest/writer.ts` `MERGE_WORK_AUTHORS`, `src/ingest.ts` (works pass, `--finalise`).
+- **Measured on the real ingest code** in a scratch database, `flyleaf_ingest_probe` on `flyleaf-pg`, since dropped; `flyleaf` and `flyleaf_dev` were not touched. Setup: 200,000 works from the real dump, and the 200,993 authors they credit, copied from the full catalog. Before each run: `has_works` reset, links truncated, `VACUUM ANALYZE`, `pg_stat_reset()`. Then the works pass (`--limit 200000 --restart`: 10 batches of 20k, 226,524 links):
+
+  | Run (back to back) | Works pass | In the trigger (`pg_stat_user_functions`) | Set-based UPDATE after | `authors` row updates (`n_tup_upd` / HOT) |
+  |---|---|---|---|---|
+  | trigger on (1) | 190.1 s | 10 calls · 49.9 s | — | 200,993 / 0 |
+  | trigger off | 131.1 s | — | 37.8 s | 200,993 / 0 |
+  | trigger on (2) | 357.4 s | 10 calls · 131.6 s | — | 200,993 / 0 |
+  | **after the fix (bypass)** | 147.6 s | 10 calls · **0.01 s** (early return) | in `--finalise` | **0** during the pass |
+
+- **Reading it:** the trigger does **not** fire per row. It is statement-level, one call per batch. But each call rewrote every author the batch credited for the first time: one row update each, never HOT, because `has_works` is in `authors_credited_trgm_idx`'s predicate. Each of those updates also inserts into all five `authors` indexes, interleaved with the load's own random I/O. The number of row writes is the same either way (200,993), since the flag has to be set once per credited author. What changes is how: 50–132 s spread over the batches, against 38 s in one pass (1.3×–3.5× on this machine, noisy). The two trigger-on runs differ 2.6× doing the same work, which is this machine (see 00-method), so only the counts are portable. On the full catalog this is ~1.66M rewrites, the same rows 0019's backfill wrote (65 min under an exclusive lock).
+- **Fix:**
+  - Migration **`0020_has_works_bulk_bypass.sql`** replaces the function body only; no table is touched. `authors_has_works_fn()` returns immediately when `current_setting('flyleaf.bulk_load', true) = 'on'`.
+  - `ingest.ts` `BULK_LOAD_SETTINGS` gains `SET flyleaf.bulk_load = 'on'`. The ingest pins a pool of one, so the setting applies to that session only. Every other writer of `work_authors` (gap-fill, dedupe, imports, the API) keeps the trigger.
+  - `--finalise` sets the same flag for its own session, so resolving parked links doesn't pay the trigger either. Then it runs **`MARK_CREDITED_AUTHORS`** (new in `writer.ts`, the same statement as 0019's backfill) with `work_mem = 256MB`, and prints how many authors it flagged. Idempotent.
+  - **Rejected:** `ALTER TABLE work_authors DISABLE TRIGGER`: it is global, takes a lock, turns the trigger off for the app's concurrent writes, and stays off if the ingest dies. `session_replication_role = replica`: it also disables the FK triggers on `work_authors`.
+- **Verified end to end on real Postgres:** after the bypassed works pass, 0 authors were flagged. The real `npm run ingest -- --finalise` then printed "200,993 authors newly credited". Result: `flagged = 200,993 = count(DISTINCT author_id) FROM work_authors`, **0 mismatches** (`has_works <> EXISTS(link)`). `--finalise` took 126.8 s in total, most of it in the existing cover, default-edition, index and ANALYZE steps.
+- **Test:** `ingest.test.ts` › `merge statements › authors.has_works` has two tests:
+  - "outside a bulk load, the trigger flags every author the merge credited";
+  - "in a bulk-load session the trigger is skipped, and MARK_CREDITED_AUTHORS sets it": the flag is false after the bypassed merge with exactly one mismatch, then 0 mismatches after the statement and after running it again.
+
+  Both assert `has_works = EXISTS(work_authors link)` for every author. Seen failing before the fix: **yes**. With 0020 left out of the journal, the second test failed (`expected true to be false`); with it, 67/67. `finalise()` itself is not unit-tested, because it needs a postgres.js pool and runs ANALYZE and index DDL; the real-Postgres run above is its evidence.
+- **Behaviour change (operators only):** between a works pass and `--finalise`, authors first credited by that load are missing from author search, like the links still parked for it. `--finalise` was already required. Migration 0020 was applied with `npm run migrate` to `flyleaf_dev` and `flyleaf` (function body confirmed on `flyleaf`).
+
+## Recorded, not changed
+
+- **0019 rollout (02b decision 2) → LA-05 in tasks.md:** before the first production deploy, split 0019 into a batched backfill of `has_works` plus `CREATE INDEX CONCURRENTLY` for `authors_credited_trgm_idx`, both outside the migration transaction. Here it held `ACCESS EXCLUSIVE` on `authors` for ~65 min (64 min 41 s). 0019 was **not** edited: it is applied on both local databases.
+- **A-02-027 → Part 15, with a precondition:** `authors_search_trgm_idx` (938 MB) and `authors_name_trgm_idx` (936 MB) may be dropped **only after Part 03 (dedupe stage 3) and Part 12 (import matcher) confirm they don't use them**. Both parts do fuzzy author-name matching, and a grep of today's code is not proof of what they will need. The `idx_scan` check on a production-like run still applies.
+- **`tolkein` → Part 10:** a **required test case** for the spelling suggestion (`tolkein` must suggest "Tolkien"). It is recorded in `docs/audit/10-profile-stats-telemetry.md`, together with the suggestion and `search_zero_results` work routed from A-02-024. Search itself keeps missing it (word similarity 0.50 < 0.6); 02b decision 4 is accepted.
+
+## Behaviour changes (Part 02c)
+
+1. **`GET /v1/editions/isbn/:isbn` resolves explicit works for everyone again** (200, not 403 `content_restricted`), and every response carries `maturity` and `content_warning`. The 403 response is gone from the route schema and the OpenAPI spec.
+2. **The scanner shows an explicit-content interstitial** when `content_warning` is true, then opens the book on "Continue to book". The message "This book is hidden by your content settings" is gone.
+3. `GET /v1/search`'s description now says an exact ISBN follows the maturity filter. It had said "an exact ISBN still resolves", which has been false since 02b. Behaviour unchanged.
+4. Ingest (operators only): new authors are flagged for author search by `--finalise`, not during the load.
+
+## Decisions needed (Part 02c)
+
+None new. Still open from 02b: A-02-026 (no opt-in exists until LA-02). 02b's decisions 1, 2 and 4 are settled as above; 02b decision 3 has its precondition.
+
+## Deferred (Part 02c)
+
+| Item | Owner | Reason |
+|---|---|---|
+| Interstitial remembered per work ("one-time") and shown on direct links; `maturity` on `Work` (rest of A-02-019) | Part 08 | UI + `GET /works/:id` schema |
+| Spelling suggestion, with `tolkein` required | Part 10 | recorded in its brief |
+| Drop the two unused author trigram indexes | Part 15, **after Parts 03 and 12 confirm** | see above |
+| 0019 batched backfill + concurrent index | LA-05 | before the first production deploy |
+
+## Part 02c CI
+
+| Run | Result |
+|---|---|
+| 1 | ✓ **green in 467 s**: api-client build, api typecheck, spec check (OpenAPI drift 0; the scan route lost 403 and gained `maturity` and `content_warning`; the search description was corrected), api tests **840 passed** (48 files), api build, audit, mobile typecheck, mobile offline tests **100 passed**, migrations on a real Postgres |
+
+`npm run migrate`: 0020 applied to `flyleaf_dev` and `flyleaf` in seconds (function body only); a re-run prints `migrations applied`.

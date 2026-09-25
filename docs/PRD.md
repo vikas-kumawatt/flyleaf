@@ -2427,14 +2427,17 @@ Use the `simple` dictionary rather than `english` — stemming damages proper no
 ## 14.3 Ranking
 
 ```
-score = 0.45 * text_relevance
-      + 0.25 * log(1 + times_logged_on_flyleaf)
-      + 0.15 * has_cover_and_metadata
-      + 0.10 * your_library_boost
-      + 0.05 * recency
+score = 0.30 * title_starts_with_query
+      + 0.20 * title_equals_query            (case-insensitive)
+      + 0.20 * an_author_name_matches_query  (name or alias, same pattern as the author arm)
+      + 0.10 * trigram_similarity(title, query)
+      + 0.35 * min(ln(1 + log_count) / 10, 1)
+ties: log_count, then title
 ```
 
-**`times_logged_on_flyleaf` is the key term.** It solves the "seven identical editions" problem better than any deduplication pass: the edition real users actually log rises naturally to the top, and the ranking improves on its own as the product grows.
+**Decided 2026-09-25 (audit 02b, decision 3; FN-41).** The earlier formula (`0.45 text_relevance + 0.25 log(1 + times_logged) + 0.15 has_cover_and_metadata + 0.10 your_library_boost + 0.05 recency`) was never built. The weights above are what `SEARCH_SQL` (`apps/api/src/catalog/index.ts`) runs, and the FN-43 relevance panel validates them (216/217 top-position hits). Setting the popularity weight to 0 drops the panel to 94.5%. A cover, library-boost or recency term is added only if the panel shows a gain. `log_count` is the Open Library popularity baseline plus Flyleaf logs (see A-02-013).
+
+**`times_logged_on_flyleaf` (`log_count`) is the key term.** It solves the "seven identical editions" problem better than any deduplication pass: the edition real users actually log rises naturally to the top, and the ranking improves on its own as the product grows.
 
 `has_cover_and_metadata` matters because a result with no cover looks broken, regardless of how well it matches.
 

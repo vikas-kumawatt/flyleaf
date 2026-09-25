@@ -799,6 +799,8 @@ export interface OutboundLimiter { wait(): Promise<void> }
 
 ### 5.4 Search ranking
 
+> **Superseded (audit 02b, decision 3, 2026-09-25).** The formula below was never built. The weights in code, validated by the FN-43 panel, are recorded in PRD §14.3 and are the ones that apply.
+
 ```
 score = 0.45 * ts_rank_cd(search_vector, query)
       + 0.25 * ln(1 + works.log_count)

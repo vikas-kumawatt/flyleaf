@@ -11,10 +11,11 @@ import { buildApp } from '../app.js';
 import { CatalogService } from '../catalog/index.js';
 import { GapFillService } from '../catalog/gapfill.js';
 import { IdentityService } from '../identity/index.js';
+import { ReadingService } from '../reading/index.js';
 import { CircuitBreaker, OutboundClient, TokenBucket } from '../platform/outbound.js';
 import { MemoryCache, PgRateLimiter, TRIGRAM_THRESHOLD, makeDb, type Db } from '../platform/index.js';
 import { freshDrizzle } from './pg.js';
-import { makeUser, type TestUser } from './interaction-fixtures.js';
+import { makeRead, makeUser, type TestUser } from './interaction-fixtures.js';
 
 let db: Db;
 let close: () => Promise<void>;
@@ -31,6 +32,7 @@ beforeAll(async () => {
     db,
     identity: new IdentityService(db, new PgRateLimiter(db)),
     catalog: new CatalogService(db, new MemoryCache()),
+    reading: new ReadingService(db),
   });
   await app.ready();
 
@@ -82,6 +84,141 @@ describe('maturity (PRD §7.8 [LOCKED], §4.2)', () => {
   it('hides them from an under-18 account even when the flag is set', async () => {
     const res = await get('/v1/search?q=velvet', minorOptedIn.auth);
     expect(titlesOf(res.body)).not.toContain('Velvet Nights');
+  });
+});
+
+// Audit 02c: decision 4 (02b) made the scan answer 403 for a filtered viewer.
+// That broke PRD §7.8 [LOCKED] ("a user is never blocked from recording a book
+// they actually read"), so it was reverted deliberately: the scan ALWAYS
+// resolves and says whether the client must show the interstitial. Search
+// results, an exact ISBN typed into search included, keep the filter.
+describe('exact ISBN and maturity (PRD §7.8; audit 02c)', () => {
+  const EXPLICIT_ISBN = '9780140328721';
+  const SHARED_ISBN = '9780441013593';
+  const UNKNOWN_ISBN = '9780804429573';
+
+  beforeAll(async () => {
+    // A shared ISBN: the explicit work is the more-logged one, so ISBN_ORDER
+    // alone would pick it. A filtered viewer must get the allowed one.
+    await db.execute(sql`
+      INSERT INTO works (title, log_count, maturity) VALUES
+        ('Scarlet Ledger', 5000, 'explicit'),
+        ('Scarlet Ledger (Student Edition)', 1, 'general')`);
+    await db.execute(sql`
+      INSERT INTO editions (work_id, isbn_13, format)
+      SELECT id, ${EXPLICIT_ISBN}, 'paperback' FROM works WHERE title = 'Velvet Nights'
+      UNION ALL
+      SELECT id, ${SHARED_ISBN}, 'paperback' FROM works WHERE title LIKE 'Scarlet Ledger%'`);
+  });
+
+  const scan = (isbn: string, headers?: Record<string, string>) => get(`/v1/editions/isbn/${isbn}`, headers);
+
+  it.each([
+    ['a guest', () => undefined],
+    ['an adult who has not opted in', () => adultDefault.auth],
+    ['an under-18 account with the flag set', () => minorOptedIn.auth],
+  ])('the scan resolves an explicit work for %s, with its maturity and the interstitial flag', async (_who, auth) => {
+    const res = await scan(EXPLICIT_ISBN, auth());
+    expect(res.statusCode).toBe(200);
+    const body = JSON.parse(res.body);
+    expect(body.work.title).toBe('Velvet Nights');
+    expect(body.maturity).toBe('explicit');
+    expect(body.content_warning).toBe(true);
+  });
+
+  it('no interstitial for an adult who opted in', async () => {
+    const res = await scan(EXPLICIT_ISBN, adultOptedIn.auth);
+    expect(res.statusCode).toBe(200);
+    const body = JSON.parse(res.body);
+    expect(body.work.title).toBe('Velvet Nights');
+    expect(body.maturity).toBe('explicit');
+    expect(body.content_warning).toBe(false);
+  });
+
+  it('a filtered adult can log the book the scan opened', async () => {
+    const opened = JSON.parse((await scan(EXPLICIT_ISBN, adultDefault.auth)).body);
+    const res = await app.inject({
+      method: 'POST', url: '/v1/reads', headers: adultDefault.auth,
+      payload: { work_id: opened.work.id, status: 'finished' },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(JSON.parse(res.body).work_id).toBe(opened.work.id);
+  });
+
+  it('an unknown ISBN is a 404', async () => {
+    const res = await scan(UNKNOWN_ISBN);
+    expect(res.statusCode).toBe(404);
+    expect(JSON.parse(res.body).error.code).toBe('not_found');
+  });
+
+  it('search does not surface it for a filtered viewer, and puts it first for an opted-in adult', async () => {
+    for (const auth of [undefined, adultDefault.auth, minorOptedIn.auth]) {
+      const res = await get(`/v1/search?q=${EXPLICIT_ISBN}`, auth);
+      expect(res.statusCode).toBe(200);
+      expect(titlesOf(res.body)).not.toContain('Velvet Nights');
+    }
+    const res = await get(`/v1/search?q=${EXPLICIT_ISBN}`, adultOptedIn.auth);
+    expect(titlesOf(res.body)[0]).toBe('Velvet Nights');
+  });
+
+  it('a shared ISBN resolves to the allowed work for a filtered viewer, on both paths', async () => {
+    const guestScan = JSON.parse((await scan(SHARED_ISBN)).body);
+    expect(guestScan.work.title).toBe('Scarlet Ledger (Student Edition)');
+    expect(guestScan.maturity).toBe('general');
+    expect(guestScan.content_warning).toBe(false);
+    expect(titlesOf((await get(`/v1/search?q=${SHARED_ISBN}`)).body)[0]).toBe('Scarlet Ledger (Student Edition)');
+
+    const adultScan = JSON.parse((await scan(SHARED_ISBN, adultOptedIn.auth)).body);
+    expect(adultScan.work.title).toBe('Scarlet Ledger');
+    expect(adultScan.content_warning).toBe(false);
+    expect(titlesOf((await get(`/v1/search?q=${SHARED_ISBN}`, adultOptedIn.auth)).body)[0]).toBe('Scarlet Ledger');
+  });
+});
+
+// AC-7: "each result shows ... my status if any".
+describe('your_read on search results (AC-7)', () => {
+  afterEach(() => { vi.restoreAllMocks(); });
+
+  it('carries the viewer\'s latest attempt on the rows they have read, and nothing on the rest', async () => {
+    const reader = await makeUser(db, 'status_reader');
+    const [morning] = await db.execute<{ id: string }>(sql`SELECT id FROM works WHERE title = 'Velvet Morning'`);
+    const [hour] = await db.execute<{ id: string }>(sql`SELECT id FROM works WHERE title = 'Velvet Hour'`);
+    const first = await makeRead(db, reader.id, morning!.id, { status: 'finished', attemptNo: 1, rating: '4.5' });
+    const reread = await makeRead(db, reader.id, morning!.id, { status: 'reading', attemptNo: 2 });
+    await db.execute(sql`INSERT INTO progress_events (read_id, page, at, client_event_id) VALUES
+      (${reread}, 12, now() - interval '1 day', gen_random_uuid()), (${reread}, 42, now(), gen_random_uuid())`);
+    await makeRead(db, reader.id, hour!.id, { status: 'want' });
+
+    const rows = JSON.parse((await get('/v1/search?q=velvet', reader.auth)).body).data as
+      { title: string; your_read?: { id: string; status: string; page: number | null } }[];
+    const by = new Map(rows.map((r) => [r.title, r.your_read]));
+    expect(by.get('Velvet Morning')).toMatchObject({ id: reread, status: 'reading', page: 42 });
+    expect(by.get('Velvet Morning')!.id).not.toBe(first);
+    expect(by.get('Velvet Hour')).toMatchObject({ status: 'want', page: null });
+    expect(by.get('Velvet Revolution')).toBeUndefined();
+
+    // Someone else's reads never show, and a guest has none.
+    const other = JSON.parse((await get('/v1/search?q=velvet', adultDefault.auth)).body).data;
+    expect(other.every((r: { your_read?: unknown }) => r.your_read === undefined)).toBe(true);
+    const guest = JSON.parse((await get('/v1/search?q=velvet')).body).data;
+    expect(guest.every((r: { your_read?: unknown }) => r.your_read === undefined)).toBe(true);
+  });
+
+  it('costs one query for the whole page, not one per row', async () => {
+    const reader = await makeUser(db, 'status_counter');
+    const ids = await db.execute<{ id: string }>(sql`SELECT id FROM works WHERE title LIKE 'Velvet %' AND maturity <> 'explicit'`);
+    for (const { id } of ids) await makeRead(db, reader.id, id, { status: 'want' });
+
+    const catalog = new CatalogService(db, new MemoryCache());
+    const spy = vi.spyOn(db, 'execute');
+    const rows = await catalog.search(reader.id, 'velvet');
+    expect(rows.filter((r) => r.your_read)).toHaveLength(ids.length);
+    // #allowsExplicit + #yourReads. SEARCH_SQL itself goes through $client.
+    expect(spy).toHaveBeenCalledTimes(2);
+
+    spy.mockClear();
+    await catalog.search(null, 'velvet');
+    expect(spy).toHaveBeenCalledTimes(0);
   });
 });
 

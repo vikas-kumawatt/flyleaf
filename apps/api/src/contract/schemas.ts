@@ -304,8 +304,13 @@ export const editionLookupResponseSchema = {
   properties: {
     work: workSchema,
     edition: editionDetailSchema,
+    maturity: { type: 'string', enum: ['general', 'mature', 'explicit', 'unclassified'] },
+    content_warning: {
+      type: 'boolean',
+      description: 'The work is explicit and search hides it from this viewer: show the one-time interstitial (PRD §7.8).',
+    },
   },
-  required: ['work', 'edition'],
+  required: ['work', 'edition', 'maturity', 'content_warning'],
 } as const;
 
 export const isbnParamSchema = {

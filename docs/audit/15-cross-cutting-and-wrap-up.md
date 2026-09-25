@@ -30,6 +30,7 @@ List every `DECISION NEEDED` from all findings files in `docs/audit/DECISIONS.md
 These are the sibling-feature inconsistencies that each part saw only half of:
 - Every user-owned resource answers the same 8-viewer matrix the same way (re-run Part 05's matrix; it should now include every resource added by later parts).
 - Every counter has a trigger **and** a scheduled reconcile job with a drift-repair test: reads, follows, shelves, `work_stats`, `works.log_count`.
+- **`authors.has_works`** (migration 0019/0020, from Part 02b/02c): the ingest bypasses its trigger with `flyleaf.bulk_load` and relies on `--finalise` (`MARK_CREDITED_AUTHORS`) to set it. An ingest that crashes before `--finalise` leaves new authors invisible to author search. Add a nightly repair job (the same set-based statement, plus clearing authors whose works were all merged away) with a drift-repair test.
 - Every soft-delete has a defined hard-delete or retention path (shelves, reviews, comments, imports' uploaded files, exports, events, rate_limits, the activity prune).
 - Every server-rendered HTML surface escapes output and sends a CSP.
 - Every mutation reachable offline is replay-safe (Part 07's table, updated).

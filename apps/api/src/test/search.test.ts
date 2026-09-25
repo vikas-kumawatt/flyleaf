@@ -238,9 +238,11 @@ describe('short queries do not run the arms that cannot use an index', () => {
     return rows.map((r) => r['QUERY PLAN']).join('\n');
   }
 
+  // Audit 02b: the typo arm matches words of 4+ characters by word
+  // similarity (%>), so the same rule now applies per word.
   it('skips the trigram arm below 4 characters, keeps it from 4', async () => {
-    expect(await plan('pir')).not.toMatch(/title % /);
-    expect(await plan('pira')).toMatch(/title % /);
+    expect(await plan('pir')).not.toMatch(/title %> /);
+    expect(await plan('pira')).toMatch(/title %> /);
   });
 
   it('anchors the title substring arm for a 2-character query', async () => {
@@ -248,6 +250,85 @@ describe('short queries do not run the arms that cannot use an index', () => {
     expect(p).toMatch(/title ~~\* 'th%'/);
     expect(p).not.toMatch(/title ~~\* '%th%'/);
     expect(await plan('the')).toMatch(/title ~~\* '%the%'/);
+  });
+});
+
+// Audit 02b (A-02-012, A-02-016). Plan SHAPE and EXECUTION on PGlite; the
+// costs these prevent are measured on the full catalog in
+// docs/audit/findings/02-search.md, "Part 02b".
+describe('audit 02b: author arm and typo arms', () => {
+  async function plan(q: string, limit = 20, analyze = false) {
+    const { rows } = await db.query<{ 'QUERY PLAN': string }>(
+      `EXPLAIN (${analyze ? 'ANALYZE, ' : ''}COSTS OFF) ${SEARCH_SQL}`, searchArgs(q, limit, false));
+    return rows.map((r) => r['QUERY PLAN']).join('\n');
+  }
+
+  it('matches author names only among credited authors (authors_credited_trgm_idx)', async () => {
+    expect(await plan('murakami')).toMatch(/has_works/);
+  });
+
+  it('two characters match the start of a name or of a word in it, not the middle of a word', async () => {
+    // Postgres prints the pattern array as an array literal.
+    const p = await plan('th');
+    expect(p).toMatch(/names\) ~~\* ANY \('\{th%,"% th%"\}'/);
+    expect(p).not.toMatch(/\{%th%\}/);
+    // "le" starts the word "Le" in Ursula K. Le Guin; "rs" is inside "Ursula".
+    expect(titles(await search('le', 20))).toContain('A Wizard of Earthsea');
+    const rs = await search('rs', 20);
+    expect(rs.filter((r) => r.author_name === 'Ursula K. Le Guin')).toEqual([]);
+  });
+
+  it('keeps a substring from three characters', async () => {
+    expect(await plan('gui')).toMatch(/names\) ~~\* ANY \('\{%gui%\}'/);
+  });
+
+  it('the typo arms find candidates by word similarity of the whole query, not by %', async () => {
+    const p = await plan('the hobit');
+    expect(p).toMatch(/title %> 'the hobit'/);
+    expect(p).not.toMatch(/title % 'the hobit'/);
+  });
+
+  it('the typo arms do not run when the exact arms already fill the page', async () => {
+    // "dune" is an exact title: with limit 1 the exact arms fill the page.
+    const filled = await plan('dune', 1, true);
+    expect(filled).toMatch(/title_fuzzy[\s\S]*?never executed/);
+    expect(filled).toMatch(/author_fuzzy[\s\S]*?never executed/);
+    // A typo the exact arms cannot answer still reaches them.
+    expect(titles(await search('the hobit', 5))).toContain('The Hobbit');
+  });
+});
+
+// 0019: has_works is maintained by a statement trigger on work_authors and
+// is never cleared (a stale TRUE costs index space; a cleared one could hide
+// a credited author from search after a concurrent insert).
+describe('authors.has_works', () => {
+  it('is set by a single insert and by a multi-row insert, and not cleared by a delete', async () => {
+    const { rows: a } = await db.query<{ id: string }>(
+      `INSERT INTO authors (name) VALUES ('Credit Test One'), ('Credit Test Two'), ('Never Credited') RETURNING id`);
+    const { rows: w } = await db.query<{ id: string }>(
+      `INSERT INTO works (title) VALUES ('Credit Test Work') RETURNING id`);
+    const flags = async () => (await db.query<{ name: string; has_works: boolean }>(
+      `SELECT name, has_works FROM authors WHERE id = ANY($1) ORDER BY name`, [a.map((r) => r.id)])).rows;
+    try {
+      expect((await flags()).every((r) => !r.has_works)).toBe(true);
+
+      await db.query(`INSERT INTO work_authors (work_id, author_id) VALUES ($1, $2)`, [w[0]!.id, a[0]!.id]);
+      // One statement, two rows, one of them a new author: the trigger is
+      // per statement, over its transition table.
+      await db.query(`INSERT INTO work_authors (work_id, author_id, role) VALUES ($1, $2, 'editor'), ($1, $3, 'author')`,
+        [w[0]!.id, a[0]!.id, a[1]!.id]);
+      expect(await flags()).toEqual([
+        { name: 'Credit Test One', has_works: true },
+        { name: 'Credit Test Two', has_works: true },
+        { name: 'Never Credited', has_works: false },
+      ]);
+
+      await db.query(`DELETE FROM work_authors WHERE work_id = $1`, [w[0]!.id]);
+      expect((await flags()).find((r) => r.name === 'Credit Test One')!.has_works).toBe(true);
+    } finally {
+      await db.query(`DELETE FROM works WHERE id = $1`, [w[0]!.id]);
+      await db.query(`DELETE FROM authors WHERE id = ANY($1)`, [a.map((r) => r.id)]);
+    }
   });
 });
 

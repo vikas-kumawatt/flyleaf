@@ -223,9 +223,23 @@ describe('the hard cases', () => {
   it.each([
     ['piranese', /piranesi/i],
     ['the hobit', /hobbit/i],
+    // Audit 02b: the typo arm must still judge the WHOLE query. Matching
+    // only its long words (cheaper) lost these: 'peice' alone is too far
+    // from 'Peace', and 'lord rngs' too far from the title's words.
+    ['war and peice', /war and peace/i],
+    ['lord of the rngs', /lord of the rings/i],
   ])('absorbs the typo %j', async (q, pattern) => {
     const rows = await search(q, 10);
     expect(rows.some((r) => pattern.test(r.title))).toBe(true);
+  });
+
+  // AC-7 and PRD §14.6 ("Common misspellings: Ishigoro"). Audit 02b: no arm
+  // matched author names fuzzily, so this returned nothing on the full
+  // catalog. The author typo arm (word similarity over credited authors)
+  // answers it.
+  it('ishigoro finds works by Kazuo Ishiguro', async () => {
+    const rows = await search('ishigoro', 20);
+    expect(rows.some((r) => r.author_name === 'Kazuo Ishiguro')).toBe(true);
   });
 
   it('piranesi ranks the novel above the architecture monographs', async () => {

@@ -27,7 +27,7 @@ import {
 import {
   copyTextArray, copyValue, STAGING,
   MERGE_AUTHORS, MERGE_EDITIONS, MERGE_RAW, MERGE_WORKS, MERGE_WORK_AUTHORS,
-  PARK_UNRESOLVED_WORK_AUTHORS, RESOLVE_PENDING_WORK_AUTHORS,
+  PARK_UNRESOLVED_WORK_AUTHORS, RESOLVE_PENDING_WORK_AUTHORS, MARK_CREDITED_AUTHORS,
 } from '../catalog/ingest/writer.js';
 import { freshDb } from './pg.js';
 
@@ -436,6 +436,47 @@ describe('merge statements', () => {
     const orphaned = await db.query<{ n: number }>(
       `SELECT count(*)::int AS n FROM editions WHERE work_id IS NULL`);
     expect(orphaned.rows[0]!.n).toBe(0);
+  });
+
+  // Audit 02c: the ingest session skips the has_works trigger (migration
+  // 0020) and --finalise sets the flag in one statement. Either way every
+  // credited author, and only those, ends up flagged.
+  describe('authors.has_works', () => {
+    const mismatched = async () => (await db.query<{ n: number }>(`
+      SELECT count(*)::int AS n FROM authors a
+      WHERE a.has_works <> EXISTS (SELECT 1 FROM work_authors wa WHERE wa.author_id = a.id)`)).rows[0]!.n;
+    const flagged = async (key: string) => (await db.query<{ has_works: boolean }>(
+      `SELECT has_works FROM authors WHERE ol_author_key = $1`, [key])).rows[0]!.has_works;
+
+    const loadLink = async (n: number) => {
+      await db.exec(`TRUNCATE stage_work_authors`);
+      await db.query(`INSERT INTO works (ol_work_key, title) VALUES ($1, 'Bulk Book')`, [`/works/OLBULK${n}W`]);
+      await db.query(`INSERT INTO authors (ol_author_key, name) VALUES ($1, 'Bulk Author')`, [`/authors/OLBULK${n}A`]);
+      await db.query(`INSERT INTO stage_work_authors VALUES ($1, $2, 0)`, [`/works/OLBULK${n}W`, `/authors/OLBULK${n}A`]);
+      await db.exec(MERGE_WORK_AUTHORS);
+    };
+
+    it('outside a bulk load, the trigger flags every author the merge credited', async () => {
+      expect(await mismatched()).toBe(0);
+      await loadLink(1);
+      expect(await flagged('/authors/OLBULK1A')).toBe(true);
+    });
+
+    it('in a bulk-load session the trigger is skipped, and MARK_CREDITED_AUTHORS sets it', async () => {
+      await db.exec(`SET flyleaf.bulk_load = 'on'`);
+      try {
+        await loadLink(2);
+        expect(await flagged('/authors/OLBULK2A')).toBe(false);
+        expect(await mismatched()).toBe(1);
+      } finally {
+        await db.exec(`RESET flyleaf.bulk_load`);
+      }
+      await db.exec(MARK_CREDITED_AUTHORS);
+      expect(await flagged('/authors/OLBULK2A')).toBe(true);
+      expect(await mismatched()).toBe(0);
+      await db.exec(MARK_CREDITED_AUTHORS); // --finalise runs more than once
+      expect(await mismatched()).toBe(0);
+    });
   });
 });
 

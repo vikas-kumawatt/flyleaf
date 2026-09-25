@@ -7,6 +7,8 @@
 // - Torch toggle
 // - Instant ISBN resolution via api.lookupIsbn(isbn)
 // - Manual ISBN entry fallback
+// - Content interstitial for an explicit work the viewer's search filter
+//   hides (PRD §7.8): shown before the book opens, never blocks it
 
 import React, { useState } from 'react';
 import {
@@ -39,6 +41,9 @@ export default function ScannerScreen() {
   const [scanned, setScanned] = useState(false);
   const [loading, setLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  // Set when the scanned work is explicit and search hides it from this
+  // viewer (the API's content_warning). The book still opens, after this.
+  const [warning, setWarning] = useState<{ workId: string; title: string } | null>(null);
 
   // Manual fallback state
   const [manualMode, setManualMode] = useState(false);
@@ -57,7 +62,11 @@ export default function ScannerScreen() {
       const res = await api.lookupIsbn(cleaned);
       if (res && res.work) {
         void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-        router.replace(`/work/${res.work.id}`);
+        if (res.content_warning) {
+          setWarning({ workId: res.work.id, title: res.work.title });
+        } else {
+          router.replace(`/work/${res.work.id}`);
+        }
       } else {
         setErrorMessage(`No edition found in catalog for ISBN ${cleaned}.`);
         setScanned(false);
@@ -76,6 +85,42 @@ export default function ScannerScreen() {
     void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     void handleLookupIsbn(data);
   };
+
+  // 0. Content interstitial (PRD §7.8 [LOCKED]): "a user is never blocked
+  // from recording a book they actually read", so it only asks, once per scan.
+  if (warning) {
+    return (
+      <Screen>
+        <View style={{ flex: 1, padding: space[6], justifyContent: 'center', gap: space[6] }}>
+          <View style={{ alignItems: 'center', gap: space[3] }}>
+            <Ionicons name="eye-off-outline" size={36} color={c.accent} />
+            <Txt variant="displayM" style={{ textAlign: 'center' }}>
+              Explicit content
+            </Txt>
+            <Txt variant="body" color="muted" style={{ textAlign: 'center', lineHeight: 22 }}>
+              {warning.title} is marked explicit. Your content settings hide it from search, but you
+              can still open it and log it.
+            </Txt>
+          </View>
+          <View style={{ gap: space[3] }}>
+            <Button
+              label="Continue to book"
+              variant="primary"
+              onPress={() => router.replace(`/work/${warning.workId}`)}
+            />
+            <Button
+              label="Scan another"
+              variant="secondary"
+              onPress={() => {
+                setWarning(null);
+                setScanned(false);
+              }}
+            />
+          </View>
+        </View>
+      </Screen>
+    );
+  }
 
   // 1. Permission Rationale View (PRD §6.23: "Rationale shown before the OS prompt")
   if (!permission || !permission.granted) {

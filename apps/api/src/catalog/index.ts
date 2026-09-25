@@ -37,9 +37,13 @@ export type EditionDetail = {
   cover_id: number | null;
 };
 
+export type Maturity = 'general' | 'mature' | 'explicit' | 'unclassified';
+
 export type EditionLookupResult = {
   work: Work;
   edition: EditionDetail;
+  maturity: Maturity;
+  content_warning: boolean;
 };
 
 export type YourRead = {
@@ -117,6 +121,11 @@ export function buildSearchParams(q: string) {
     // author arm keeps the substring (see by_author in SEARCH_SQL).
     like: Array.from(raw).length < 3 ? `${esc}%` : `%${esc}%`,
     prefix: `${esc}%`,
+    // Author names: a substring from 3 characters. Below that '%q%' has no
+    // trigram (a seq scan of authors for 村上), so two characters match the
+    // start of a name or of any later word in it ("Ur" -> Ursula K. Le Guin,
+    // "le" -> Le Guin). Decided in audit 02b (A-02-012).
+    authorLike: Array.from(raw).length < 3 ? [`${esc}%`, `% ${esc}%`] : [`%${esc}%`],
   };
 }
 
@@ -136,7 +145,7 @@ function cleanQuery(q: string): string {
 /** SEARCH_SQL's parameters, in order. The one place that knows the order. */
 export function searchArgs(q: string, limit: number, allowExplicit: boolean) {
   const p = buildSearchParams(q);
-  return [p.raw, p.tsquery, p.like, p.prefix, limit, allowExplicit];
+  return [p.raw, p.tsquery, p.like, p.prefix, limit, allowExplicit, p.authorLike];
 }
 
 /**
@@ -144,7 +153,8 @@ export function searchArgs(q: string, limit: number, allowExplicit: boolean) {
  * than a copy of it.
  *
  *   $1 raw text   $2 tsquery (or NULL)   $3 '%like%'   $4 'prefix%'   $5 limit
- *   $6 allow explicit works (PRD §7.8) -- build these with searchArgs()
+ *   $6 allow explicit works (PRD §7.8)   $7 author name patterns (text[])
+ *   -- build these with searchArgs()
  *
  * Every arm repeats the exclusions (merged, provisional, explicit). The
  * final select alone is too late: an arm's LIMIT has already been spent on
@@ -161,8 +171,12 @@ export function searchArgs(q: string, limit: number, allowExplicit: boolean) {
  *     the word is finished.
  *   - ILIKE substring — matches inside a word ("otter"), which a prefix
  *     query cannot. Uses the trigram GIN index.
- *   - Trigram similarity — absorbs typos ("piranese", "the hobit").
  *   - Author name — a separate arm because authorship is a join table.
+ *   - Typos, in titles ("piranese", "the hobit") and author names
+ *     ("ishigoro", AC-7) — only when the three EXACT arms above cannot fill
+ *     the page. Their candidates carry no prefix or exact-title score, so on
+ *     a query the exact arms answer they rank below it anyway, and a common
+ *     word ("harry") is exactly where word similarity is most expensive.
  *
  * The per-arm LIMITs are what keep this bounded: a common word can match
  * hundreds of thousands of rows, and ranking those would be the seq scan
@@ -187,19 +201,6 @@ export const SEARCH_SQL = `
     ORDER BY log_count DESC
     LIMIT 300
   ),
-  title_fuzzy AS (
-    SELECT id FROM works
-    WHERE title % $1::text
-      -- Under 4 characters every title sharing a word-initial pair is a
-      -- candidate: on the full catalog "th" pulled 1.1M of 3.2M titles
-      -- through the index and rechecked 2.8M rows to keep 11. Typo tolerance
-      -- means nothing that short; the prefix arm covers it.
-      AND char_length($1::text) >= 4
-      AND merged_into_id IS NULL AND NOT is_provisional
-      AND (maturity <> 'explicit' OR $6::boolean)
-    ORDER BY log_count DESC
-    LIMIT 150
-  ),
   by_author AS (
     -- ORDER BY log_count, like every other arm. Without it this took an
     -- ARBITRARY 300 works by authors matching the pattern -- and there are
@@ -213,25 +214,79 @@ export const SEARCH_SQL = `
     -- Name PLUS aliases. Open Library files Haruki Murakami's novels under
     -- an author record named 村上春樹, so matching a.name alone can never
     -- reach them. Must be the same call as the index expression in
-    -- authors_search_trgm_idx, or Postgres will not use it.
+    -- authors_credited_trgm_idx, or Postgres will not use it.
     --
-    -- Always a SUBSTRING ('%' || 'q%' = '%q%'), even for two characters
-    -- where title_like anchors. Anchored, 'th%' made the planner walk 61k
-    -- works by popularity (vs 3.6k for '%th%'); unanchored, a 2-character
-    -- CJK name seq-scans authors. Which to give up is DECISION NEEDED in
-    -- docs/audit/findings/02-search.md (A-02-012); this is the pre-audit
-    -- behaviour, kept until it is decided.
-    WHERE flyleaf_author_names(a.name, a.alternate_names) ILIKE ('%' || $4::text)
+    -- has_works: only the 1.66M of 15.4M authors credited on a work (0019).
+    -- Matching all of them made this arm's cost grow with the authors table
+    -- ("pir": 16,771 authors probed, 9 s). $7 is '%q%', or for two
+    -- characters 'q%' + '% q%' (a name or a word in it starts with q):
+    -- '%q%' has no trigram at two characters and seq-scanned authors.
+    WHERE a.has_works
+      AND flyleaf_author_names(a.name, a.alternate_names) ILIKE ANY ($7::text[])
       AND w.merged_into_id IS NULL AND NOT w.is_provisional
       AND (w.maturity <> 'explicit' OR $6::boolean)
     ORDER BY w.log_count DESC
-    LIMIT 300
+    -- 50 at two characters. An anchored pair is sparse, so the planner's
+    -- walk of works by popularity runs long before it finds 300 matches
+    -- ("th": 14k works walked, 122k buffers); 50 costs 16.7k, below the
+    -- pre-audit '%th%'. A two-character page needs no more (audit 02b).
+    LIMIT CASE WHEN char_length($1::text) < 3 THEN 50 ELSE 300 END
   ),
-  candidate AS (
+  exact AS (
     SELECT id FROM fts
     UNION SELECT id FROM title_like
-    UNION SELECT id FROM title_fuzzy
     UNION SELECT id FROM by_author
+  ),
+  -- The typo arms. WORD similarity (%>, threshold 0.6) finds the candidates,
+  -- not similarity (%, 0.45): in "the hobit" the word "the" holds 4 of the
+  -- 10 trigrams, and at 0.45 any title with "the" and an h-word qualified
+  -- (167k index candidates, 1.3M rows rechecked on the full catalog). %> needs
+  -- 6 of 10: 46k candidates, 25k rechecked (audit 02b, A-02-016).
+  --
+  -- Under 4 characters every title sharing a word-initial pair is a
+  -- candidate ("th": 1.1M of 3.2M titles), and a typo means nothing that
+  -- short; the prefix arm covers it.
+  --
+  -- ORDER BY log_count + 0 so the popularity index cannot serve the ORDER
+  -- BY. Word similarity on a common word is estimated at tens of thousands
+  -- of rows, and the planner then walks works by popularity filtering row by
+  -- row ("harry": 2.8M rows, 98 s) instead of collecting the candidates from
+  -- the trigram index and sorting those.
+  title_fuzzy AS (
+    SELECT id FROM works
+    WHERE char_length($1::text) >= 4
+      AND (SELECT count(*) FROM exact) < $5
+      AND title %> $1::text
+      -- The whole query must still resemble the title at 0.45, the arm's
+      -- rule before audit 02b; word similarity is never below similarity,
+      -- so this only narrows the old candidates. Not '%': that operator is
+      -- indexable, and as an index condition it brings back "the".
+      AND similarity(title, $1::text) >= current_setting('pg_trgm.similarity_threshold')::real
+      AND merged_into_id IS NULL AND NOT is_provisional
+      AND (maturity <> 'explicit' OR $6::boolean)
+    ORDER BY log_count + 0 DESC
+    LIMIT 150
+  ),
+  author_fuzzy AS (
+    -- AC-7: "ishigoro" finds Kazuo Ishiguro. Credited authors only, through
+    -- the same partial index as by_author; unaffordable over all 15.4M.
+    SELECT w.id
+    FROM authors a
+    JOIN work_authors wa ON wa.author_id = a.id
+    JOIN works w ON w.id = wa.work_id
+    WHERE char_length($1::text) >= 4
+      AND (SELECT count(*) FROM exact) < $5
+      AND a.has_works
+      AND flyleaf_author_names(a.name, a.alternate_names) %> $1::text
+      AND w.merged_into_id IS NULL AND NOT w.is_provisional
+      AND (w.maturity <> 'explicit' OR $6::boolean)
+    ORDER BY w.log_count + 0 DESC
+    LIMIT 150
+  ),
+  candidate AS (
+    SELECT id FROM exact
+    UNION SELECT id FROM title_fuzzy
+    UNION SELECT id FROM author_fuzzy
   )
   SELECT
     w.id, w.title, w.first_publish_year, w.log_count,
@@ -262,7 +317,7 @@ export const SEARCH_SQL = `
     + (CASE WHEN EXISTS (
         SELECT 1 FROM work_authors wa JOIN authors a ON a.id = wa.author_id
         WHERE wa.work_id = w.id
-          AND flyleaf_author_names(a.name, a.alternate_names) ILIKE ('%' || $4::text)
+          AND flyleaf_author_names(a.name, a.alternate_names) ILIKE ANY ($7::text[])
       ) THEN 0.20 ELSE 0 END)
     + similarity(w.title, $1::text) * 0.10
     -- Popularity, from the reading-log and ratings dumps (--popularity).
@@ -279,9 +334,12 @@ export const SEARCH_SQL = `
 /**
  * One ISBN can sit on editions of two works until dedupe merges them. Search
  * and the scan endpoint must pick the same one, and the same one every time:
- * the more-logged work, then the newest edition, then the id as a tiebreak.
+ * for a viewer who may not see explicit works, a non-explicit one first (so
+ * a shared ISBN opens the allowed work when one carries it), then the
+ * more-logged work, the newest edition, and the id as a tiebreak.
  */
-const ISBN_ORDER = sql.raw('w.log_count DESC, e.publish_year DESC NULLS LAST, e.id');
+const isbnOrder = (allowExplicit: boolean) =>
+  sql`(w.maturity = 'explicit' AND NOT ${allowExplicit}::boolean), w.log_count DESC, e.publish_year DESC NULLS LAST, e.id`;
 
 export type SearchRow = {
   id: string;
@@ -309,8 +367,10 @@ export class CatalogService {
 
   /**
    * Looks up the work corresponding to an exact ISBN match (FN-42, PRD §14.2).
+   * An explicit work the viewer may not see is no match: search then runs as
+   * text, filtered like any other query (audit 02b, decision 4).
    */
-  async #findWorkByIsbn(isbn: DetectedIsbn): Promise<SearchRow | null> {
+  async #findWorkByIsbn(isbn: DetectedIsbn, allowExplicit: boolean): Promise<SearchRow | null> {
     const candidates = [isbn.isbn13, isbn.isbn10].filter((v): v is string => Boolean(v));
     if (candidates.length === 0) return null;
 
@@ -321,6 +381,7 @@ export class CatalogService {
       log_count: number;
       author_name: string | null;
       cover_id: number | null;
+      explicit: boolean;
     }>(sql`
       SELECT
         w.id, w.title, w.first_publish_year, w.log_count,
@@ -329,17 +390,18 @@ export class CatalogService {
           WHERE wa.work_id = w.id
           ORDER BY wa.position, a.name
           LIMIT 1) AS author_name,
-        COALESCE(e.ol_cover_id, w.ol_cover_id) AS cover_id
+        COALESCE(e.ol_cover_id, w.ol_cover_id) AS cover_id,
+        w.maturity = 'explicit' AS explicit
       FROM editions e
       JOIN works w ON w.id = e.work_id
       WHERE (e.isbn_13 IN ${candidates} OR e.isbn_10 IN ${candidates})
         AND w.merged_into_id IS NULL
         AND w.is_provisional = false
-      ORDER BY ${ISBN_ORDER}
+      ORDER BY ${isbnOrder(allowExplicit)}
       LIMIT 1
     `);
 
-    if (!row) return null;
+    if (!row || (row.explicit && !allowExplicit)) return null;
 
     return {
       id: row.id,
@@ -372,13 +434,11 @@ export class CatalogService {
     if (Array.from(query).length < 2) return [];
 
     const isbn = detectIsbn(query);
-    // An exact ISBN is a lookup, not discovery: like a scan (§7.8), it
-    // resolves whatever the work's maturity.
-    const [allowExplicit, found] = await Promise.all([
-      this.#allowsExplicit(viewer),
-      isbn ? this.#findWorkByIsbn(isbn) : null,
-    ]);
-    let isbnMatch: SearchRow | null = found;
+    // An exact ISBN typed into search follows the same maturity filter as
+    // text (audit 02b; the scan endpoint does not, see getEditionByIsbn), so
+    // the lookup waits for it. Guests cost no query here.
+    const allowExplicit = await this.#allowsExplicit(viewer);
+    let isbnMatch: SearchRow | null = isbn ? await this.#findWorkByIsbn(isbn, allowExplicit) : null;
     const localSearch = (n: number) => this.#localSearch(query, n, allowExplicit);
 
     let rows: SearchRow[] = [];
@@ -397,7 +457,7 @@ export class CatalogService {
         const stored = await this.gapFill.fill(query);
         if (stored > 0) {
           if (isbn) {
-            isbnMatch = await this.#findWorkByIsbn(isbn);
+            isbnMatch = await this.#findWorkByIsbn(isbn, allowExplicit);
             if (isbnMatch) {
               const otherRows = await localSearch(limit - 1);
               rows = [isbnMatch, ...otherRows.filter((r) => r.id !== isbnMatch!.id)];
@@ -411,14 +471,48 @@ export class CatalogService {
       }
     }
 
-    return rows.map((r) => ({
+    const yours = await this.#yourReads(viewer, rows.map((r) => r.id));
+    return rows.map((r) => {
+      const work: Work = {
+        id: r.id,
+        title: r.title,
+        author_name: r.author_name ?? 'Unknown',
+        first_publish_year: r.first_publish_year,
+        cover_id: r.cover_id,
+        log_count: Number(r.log_count),
+      };
+      const mine = yours.get(r.id);
+      return mine ? { ...work, your_read: mine } : work;
+    });
+  }
+
+  /**
+   * AC-7 "my status if any": the viewer's latest attempt at each result, the
+   * same shape getWork returns. ONE query for the whole page, never per row.
+   */
+  async #yourReads(viewer: string | null, workIds: string[]): Promise<Map<string, YourRead>> {
+    if (!viewer || workIds.length === 0) return new Map();
+    const rows = await this.db.execute<{
+      work_id: string; id: string; status: string; rating: string | null; hearted: boolean;
+      page: number | null; percent: string | null;
+    }>(sql`
+      SELECT DISTINCT ON (r.work_id)
+        r.work_id, r.id, r.status, r.rating, r.hearted, p.page, p.percent
+      FROM reads r
+      LEFT JOIN LATERAL (
+        SELECT pe.page, pe.percent FROM progress_events pe
+        WHERE pe.read_id = r.id ORDER BY pe.at DESC LIMIT 1
+      ) p ON true
+      WHERE r.user_id = ${viewer} AND r.work_id IN ${workIds}
+      ORDER BY r.work_id, r.attempt_no DESC`);
+    return new Map(rows.map((r) => [r.work_id, {
       id: r.id,
-      title: r.title,
-      author_name: r.author_name ?? 'Unknown',
-      first_publish_year: r.first_publish_year,
-      cover_id: r.cover_id,
-      log_count: Number(r.log_count),
-    }));
+      status: r.status,
+      rating: r.rating === null ? null : Number(r.rating),
+      hearted: r.hearted,
+      page: r.page ?? null,
+      percent: r.percent == null ? null : Number(r.percent),
+    }]));
   }
 
   // $client.unsafe, not sql`...`, so SEARCH_SQL stays one shared string that
@@ -555,6 +649,13 @@ export class CatalogService {
   /**
    * Resolves an edition and its parent work by ISBN-10 or ISBN-13 (FN-42, PRD §14.2, §3374).
    * Used for barcode scanning and exact ISBN resolution.
+   *
+   * PRD §7.8 [LOCKED]: a scan always resolves, whatever the maturity, because
+   * "a user is never blocked from recording a book they actually read"
+   * (audit 02c reverted decision 4's 403). `content_warning` tells the client
+   * to show the interstitial: the work is explicit and the viewer is one
+   * search would hide it from. The viewer still orders a shared ISBN, so the
+   * scan and search pick the same work (A-02-011).
    */
   async getEditionByIsbn(viewer: string | null, rawIsbn: string): Promise<EditionLookupResult | null> {
     const detected = detectIsbn(rawIsbn);
@@ -563,6 +664,7 @@ export class CatalogService {
     }
 
     const candidates = [detected.isbn13, detected.isbn10].filter((v): v is string => Boolean(v));
+    const allowExplicit = await this.#allowsExplicit(viewer);
 
     const [e] = await this.db.execute<{
       id: string;
@@ -575,16 +677,18 @@ export class CatalogService {
       page_count: number | null;
       format: string;
       ol_cover_id: number | null;
+      maturity: Maturity;
     }>(sql`
       SELECT
         e.id, e.work_id, e.isbn_13, e.isbn_10, e.title,
-        e.publisher, e.publish_year, e.page_count, e.format, e.ol_cover_id
+        e.publisher, e.publish_year, e.page_count, e.format, e.ol_cover_id,
+        w.maturity
       FROM editions e
       JOIN works w ON w.id = e.work_id
       WHERE (e.isbn_13 IN ${candidates} OR e.isbn_10 IN ${candidates})
         AND w.merged_into_id IS NULL
         AND w.is_provisional = false
-      ORDER BY ${ISBN_ORDER}
+      ORDER BY ${isbnOrder(allowExplicit)}
       LIMIT 1
     `);
 
@@ -607,6 +711,8 @@ export class CatalogService {
         format: e.format,
         cover_id: e.ol_cover_id,
       },
+      maturity: e.maturity,
+      content_warning: e.maturity === 'explicit' && !allowExplicit,
     };
   }
 }
@@ -633,7 +739,7 @@ export function catalogRoutes(service: CatalogService) {
         schema: {
           tags: ['Catalog'],
           summary: 'Search catalog',
-          description: 'Searches works by title, subtitle, author, or alternate titles. Guest readable. Explicit works are excluded unless the viewer is 18+ and has opted in (PRD §7.8); an exact ISBN still resolves.',
+          description: 'Searches works by title, subtitle, author, or alternate titles. Guest readable. Explicit works are excluded unless the viewer is 18+ and has opted in (PRD §7.8), an exact ISBN included (the scan endpoint always resolves).',
           querystring: searchQuerySchema,
           response: {
             200: searchResponseSchema,
@@ -673,7 +779,7 @@ export function catalogRoutes(service: CatalogService) {
         schema: {
           tags: ['Catalog'],
           summary: 'Get edition by ISBN',
-          description: 'Resolves an edition and its parent work by ISBN-10 or ISBN-13 barcode (PRD §14.2, §3374).',
+          description: 'Resolves an edition and its parent work by ISBN-10 or ISBN-13 barcode (PRD §14.2, §3374). Always resolves, whatever the maturity of the work (PRD §7.8: a user is never blocked from recording a book they read). `content_warning` is true when the work is explicit and search would hide it from this viewer (a guest, a minor or an adult who has not opted in); the client shows its interstitial then.',
           params: isbnParamSchema,
           response: {
             200: editionLookupResponseSchema,

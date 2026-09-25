@@ -184,6 +184,17 @@ export const RESOLVE_PENDING_WORK_AUTHORS = `
       USING resolvable r
       WHERE p.work_key = r.work_key AND p.author_key = r.author_key`;
 
+/**
+ * authors.has_works for everything the bulk load linked. The ingest session
+ * sets flyleaf.bulk_load, which makes the work_authors trigger a no-op
+ * (migration 0020), so `--finalise` sets the flag here in one pass instead of
+ * one author row at a time per batch. Idempotent; set-only, like the trigger.
+ */
+export const MARK_CREDITED_AUTHORS = `
+      UPDATE authors a SET has_works = true
+      WHERE NOT a.has_works
+        AND EXISTS (SELECT 1 FROM work_authors wa WHERE wa.author_id = a.id)`;
+
 export const MERGE_EDITIONS = `
     INSERT INTO editions (ol_edition_key, work_id, isbn_13, isbn_10, title, publisher,
                           publish_date_raw, publish_year, page_count, format, language, ol_cover_id)
