@@ -102,7 +102,9 @@ export class GapFillService {
   /**
    * Persist. CC0, so this is allowed and permanent.
    *
-   * Runs after the response has gone out. A failure here costs us nothing
+   * Runs INSIDE the search request: CatalogService.search awaits fill() and
+   * then re-runs its local query, so the user waits for these writes (and
+   * for the fetch, up to its 2.5 s timeout). A failure here costs us nothing
    * except that the next search for the same thing fetches it again, so it
    * must never propagate into the request.
    */

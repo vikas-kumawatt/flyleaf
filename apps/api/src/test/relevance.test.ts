@@ -32,7 +32,7 @@ import { beforeAll, afterAll, describe, expect, it } from 'vitest';
 import fs from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import type { PGlite } from '@electric-sql/pglite';
-import { SEARCH_SQL, buildSearchParams } from '../catalog/index.js';
+import { SEARCH_SQL, searchArgs } from '../catalog/index.js';
 import { freshDb } from './pg.js';
 
 type CorpusAuthor = { name: string; alternate_names: string[] | null };
@@ -129,9 +129,8 @@ beforeAll(async () => {
 afterAll(async () => { await db?.close(); });
 
 async function search(q: string, limit = 10) {
-  const p = buildSearchParams(q);
   const { rows } = await db.query<{ id: string; title: string; author_name: string }>(
-    SEARCH_SQL, [p.raw, p.tsquery, p.like, p.prefix, limit],
+    SEARCH_SQL, searchArgs(q, limit, false),
   );
   return rows;
 }

@@ -17,7 +17,7 @@ import { drizzle } from 'drizzle-orm/postgres-js';
 import { migrate } from 'drizzle-orm/postgres-js/migrator';
 import { sql } from 'drizzle-orm';
 import postgres from 'postgres';
-import { config } from './platform/index.js';
+import { config, TRIGRAM_THRESHOLD } from './platform/index.js';
 
 // fileURLToPath, not URL.pathname: on Windows the latter yields "/D:/..."
 // with a leading slash, and every path built from it is wrong.
@@ -25,12 +25,13 @@ const MIGRATIONS_DIR = fileURLToPath(new URL('../drizzle', import.meta.url));
 
 /**
  * pg_trgm's match threshold, raised from the 0.3 default. See the note in
- * PREREQUISITE_SQL. Exported so the test harness can apply the same value --
- * `ALTER DATABASE` only affects NEW connections, and a test's connection is
- * already open, so without this tests would silently run at 0.3 while
- * production runs at 0.45.
+ * PREREQUISITE_SQL. Re-exported so the test harness can apply the same value
+ * -- `ALTER DATABASE` only affects NEW connections, and a test's connection
+ * is already open, so without this tests would silently run at 0.3 while
+ * production runs at 0.45. Defined in platform/, which also sends it on
+ * every pooled connection.
  */
-export const TRIGRAM_THRESHOLD = 0.45;
+export { TRIGRAM_THRESHOLD };
 
 /**
  * Everything the generated migrations assume already exists.

@@ -82,20 +82,28 @@ export type Work = {
  * an index scan.
  */
 export function buildSearchParams(q: string) {
-  const raw = q.trim();
+  const raw = cleanQuery(q);
 
-  // Fold accents the same way `flyleaf_unaccent` did when the vector was
-  // built, or "Miserables" will not match the stored 'miserables'.
-  const tokens = raw
-    .split(/\s+/)
-    .map((t) =>
-      t.toLowerCase()
-        .normalize('NFD')
-        .replace(/[\u0300-\u036f]/g, '')
-        // to_tsquery is a PARSER: an apostrophe or a colon in raw input is a
-        // syntax error, not a character to match on.
-        .replace(/[^a-z0-9]/g, ''))
+  // Accents are NOT folded here. SEARCH_SQL passes the tsquery through
+  // `flyleaf_unaccent`, the function the vector was built with, so both
+  // sides fold identically. Folding in JS disagreed with it: NFD-stripping
+  // turned 'толстой' into 'толстои', which unaccent keeps as 'толстой'.
+  // NFC so a decomposed "Café" is one word, like the stored title.
+  const words = raw
+    .toLowerCase()
+    .normalize('NFC')
+    // to_tsquery is a PARSER: an apostrophe or a colon in raw input is a
+    // syntax error, not a character to match on. Splitting (not deleting)
+    // mirrors the tsvector parser, which stores "O'Brien" as 'o' + 'brien'.
+    // Letters of every script survive: 'simple' indexes Cyrillic and CJK.
+    // Marks stay inside the word (Devanagari vowel signs are marks).
+    .split(/[^\p{L}\p{M}\p{N}]+/u)
     .filter(Boolean);
+
+  // A one-letter prefix ('p:*') expands to every lexeme starting with that
+  // letter and costs seconds on the full catalog. Mid-typing ("harry potter
+  // and the p") the other terms already carry the query.
+  const tokens = words.some((t) => t.length > 1) ? words.filter((t) => t.length > 1) : words;
 
   // LIKE metacharacters. Without escaping, a query of "%" matches everything.
   const esc = raw.replace(/\\/g, '\\\\').replace(/%/g, '\\%').replace(/_/g, '\\_');
@@ -103,9 +111,32 @@ export function buildSearchParams(q: string) {
   return {
     raw,
     tsquery: tokens.length ? tokens.map((t) => `${t}:*`).join(' & ') : null,
-    like: `%${esc}%`,
+    // A two-character '%q%' contains no complete trigram, so no index can
+    // serve it: on the full catalog title ILIKE '%村上%' seq-scanned works
+    // (25 s). Anchored, the pattern has trigrams again. Titles only: the
+    // author arm keeps the substring (see by_author in SEARCH_SQL).
+    like: Array.from(raw).length < 3 ? `${esc}%` : `%${esc}%`,
     prefix: `${esc}%`,
   };
+}
+
+/**
+ * Longer input is cut rather than rejected: search runs on every keystroke,
+ * and every word adds a prefix term and trigrams. Measured on the full
+ * catalog, a 200-character query spent 12 s in the prefix arm and 12 s in
+ * the trigram arm. No title a person types is longer than this.
+ */
+export const MAX_QUERY_CHARS = 100;
+
+/** NUL cannot reach Postgres in a text parameter (22021 -> a 500). */
+function cleanQuery(q: string): string {
+  return Array.from(q.replace(/\u0000/g, '').trim()).slice(0, MAX_QUERY_CHARS).join('').trim();
+}
+
+/** SEARCH_SQL's parameters, in order. The one place that knows the order. */
+export function searchArgs(q: string, limit: number, allowExplicit: boolean) {
+  const p = buildSearchParams(q);
+  return [p.raw, p.tsquery, p.like, p.prefix, limit, allowExplicit];
 }
 
 /**
@@ -113,6 +144,12 @@ export function buildSearchParams(q: string) {
  * than a copy of it.
  *
  *   $1 raw text   $2 tsquery (or NULL)   $3 '%like%'   $4 'prefix%'   $5 limit
+ *   $6 allow explicit works (PRD §7.8) -- build these with searchArgs()
+ *
+ * Every arm repeats the exclusions (merged, provisional, explicit). The
+ * final select alone is too late: an arm's LIMIT has already been spent on
+ * rows that are then thrown away, and enough of them push a live work out of
+ * every arm.
  *
  * Shape: gather a small candidate set from several INDEPENDENT indexed arms,
  * union them, then rank only those. Each arm fails at something the others
@@ -135,19 +172,31 @@ export const SEARCH_SQL = `
   WITH fts AS (
     SELECT id FROM works
     WHERE $2::text IS NOT NULL
-      AND search_vector @@ to_tsquery('simple', $2::text)
+      -- Unaccented like the vector was, so "łódź" and "straße" match.
+      AND search_vector @@ to_tsquery('simple', flyleaf_unaccent($2::text))
+      AND merged_into_id IS NULL AND NOT is_provisional
+      AND (maturity <> 'explicit' OR $6::boolean)
     ORDER BY log_count DESC
     LIMIT 300
   ),
   title_like AS (
     SELECT id FROM works
     WHERE title ILIKE $3::text
+      AND merged_into_id IS NULL AND NOT is_provisional
+      AND (maturity <> 'explicit' OR $6::boolean)
     ORDER BY log_count DESC
     LIMIT 300
   ),
   title_fuzzy AS (
     SELECT id FROM works
     WHERE title % $1::text
+      -- Under 4 characters every title sharing a word-initial pair is a
+      -- candidate: on the full catalog "th" pulled 1.1M of 3.2M titles
+      -- through the index and rechecked 2.8M rows to keep 11. Typo tolerance
+      -- means nothing that short; the prefix arm covers it.
+      AND char_length($1::text) >= 4
+      AND merged_into_id IS NULL AND NOT is_provisional
+      AND (maturity <> 'explicit' OR $6::boolean)
     ORDER BY log_count DESC
     LIMIT 150
   ),
@@ -165,7 +214,16 @@ export const SEARCH_SQL = `
     -- an author record named 村上春樹, so matching a.name alone can never
     -- reach them. Must be the same call as the index expression in
     -- authors_search_trgm_idx, or Postgres will not use it.
-    WHERE flyleaf_author_names(a.name, a.alternate_names) ILIKE $3::text
+    --
+    -- Always a SUBSTRING ('%' || 'q%' = '%q%'), even for two characters
+    -- where title_like anchors. Anchored, 'th%' made the planner walk 61k
+    -- works by popularity (vs 3.6k for '%th%'); unanchored, a 2-character
+    -- CJK name seq-scans authors. Which to give up is DECISION NEEDED in
+    -- docs/audit/findings/02-search.md (A-02-012); this is the pre-audit
+    -- behaviour, kept until it is decided.
+    WHERE flyleaf_author_names(a.name, a.alternate_names) ILIKE ('%' || $4::text)
+      AND w.merged_into_id IS NULL AND NOT w.is_provisional
+      AND (w.maturity <> 'explicit' OR $6::boolean)
     ORDER BY w.log_count DESC
     LIMIT 300
   ),
@@ -193,6 +251,7 @@ export const SEARCH_SQL = `
   JOIN works w ON w.id = c.id
   WHERE w.merged_into_id IS NULL      -- a merged work is never a result
     AND w.is_provisional = false      -- user-created, not yet promoted
+    AND (w.maturity <> 'explicit' OR $6::boolean)
   ORDER BY
       (CASE WHEN w.title ILIKE $4::text THEN 0.30 ELSE 0 END)
     + (CASE WHEN lower(w.title) = lower($1::text) THEN 0.20 ELSE 0 END)
@@ -203,7 +262,7 @@ export const SEARCH_SQL = `
     + (CASE WHEN EXISTS (
         SELECT 1 FROM work_authors wa JOIN authors a ON a.id = wa.author_id
         WHERE wa.work_id = w.id
-          AND flyleaf_author_names(a.name, a.alternate_names) ILIKE $3::text
+          AND flyleaf_author_names(a.name, a.alternate_names) ILIKE ('%' || $4::text)
       ) THEN 0.20 ELSE 0 END)
     + similarity(w.title, $1::text) * 0.10
     -- Popularity, from the reading-log and ratings dumps (--popularity).
@@ -216,6 +275,13 @@ export const SEARCH_SQL = `
     w.title
   LIMIT $5
 `;
+
+/**
+ * One ISBN can sit on editions of two works until dedupe merges them. Search
+ * and the scan endpoint must pick the same one, and the same one every time:
+ * the more-logged work, then the newest edition, then the id as a tiebreak.
+ */
+const ISBN_ORDER = sql.raw('w.log_count DESC, e.publish_year DESC NULLS LAST, e.id');
 
 export type SearchRow = {
   id: string;
@@ -269,7 +335,7 @@ export class CatalogService {
       WHERE (e.isbn_13 IN ${candidates} OR e.isbn_10 IN ${candidates})
         AND w.merged_into_id IS NULL
         AND w.is_provisional = false
-      ORDER BY w.log_count DESC, e.publish_year DESC NULLS LAST
+      ORDER BY ${ISBN_ORDER}
       LIMIT 1
     `);
 
@@ -285,24 +351,43 @@ export class CatalogService {
     };
   }
 
+  /**
+   * PRD §7.8 [LOCKED]: explicit works reach search only for an 18+ account
+   * that turned the setting on. A guest never qualifies (§4.2). The age is
+   * checked here as well as when the setting is changed, so a stale or
+   * hand-edited flag cannot expose them to a minor.
+   */
+  async #allowsExplicit(viewer: string | null): Promise<boolean> {
+    if (!viewer) return false;
+    const [row] = await this.db.execute<{ ok: boolean }>(sql`
+      SELECT p.show_explicit AND u.date_of_birth <= (current_date - interval '18 years')::date AS ok
+      FROM users u JOIN profiles p ON p.user_id = u.id
+      WHERE u.id = ${viewer} AND u.deleted_at IS NULL`);
+    return row?.ok === true;
+  }
+
   /** See SEARCH_SQL above for how matching and ranking work. */
-  async search(q: string, limit = 20): Promise<Work[]> {
-    const query = q.trim();
-    if (query.length < 2) return [];
+  async search(viewer: string | null, q: string, limit = 20): Promise<Work[]> {
+    const query = cleanQuery(q);
+    if (Array.from(query).length < 2) return [];
 
     const isbn = detectIsbn(query);
-    let isbnMatch: SearchRow | null = null;
-    if (isbn) {
-      isbnMatch = await this.#findWorkByIsbn(isbn);
-    }
+    // An exact ISBN is a lookup, not discovery: like a scan (§7.8), it
+    // resolves whatever the work's maturity.
+    const [allowExplicit, found] = await Promise.all([
+      this.#allowsExplicit(viewer),
+      isbn ? this.#findWorkByIsbn(isbn) : null,
+    ]);
+    let isbnMatch: SearchRow | null = found;
+    const localSearch = (n: number) => this.#localSearch(query, n, allowExplicit);
 
     let rows: SearchRow[] = [];
     if (isbnMatch) {
       // PRD §1013: ISBN pasted -> exact edition match first.
-      const otherRows = await this.#localSearch(query, limit - 1);
+      const otherRows = await localSearch(limit - 1);
       rows = [isbnMatch, ...otherRows.filter((r) => r.id !== isbnMatch!.id)];
     } else {
-      rows = await this.#localSearch(query, limit);
+      rows = await localSearch(limit);
 
       // Layer 2 of the catalog accelerator. Bounded by the outbound client's
       // 2.5s timeout and skipped entirely when the circuit is open or the
@@ -314,13 +399,13 @@ export class CatalogService {
           if (isbn) {
             isbnMatch = await this.#findWorkByIsbn(isbn);
             if (isbnMatch) {
-              const otherRows = await this.#localSearch(query, limit - 1);
+              const otherRows = await localSearch(limit - 1);
               rows = [isbnMatch, ...otherRows.filter((r) => r.id !== isbnMatch!.id)];
             } else {
-              rows = await this.#localSearch(query, limit);
+              rows = await localSearch(limit);
             }
           } else {
-            rows = await this.#localSearch(query, limit);
+            rows = await localSearch(limit);
           }
         }
       }
@@ -339,11 +424,17 @@ export class CatalogService {
   // $client.unsafe, not sql`...`, so SEARCH_SQL stays one shared string that
   // the test executes verbatim. Parameters are still bound by the driver --
   // "unsafe" refers to the query text, not to the values.
-  async #localSearch(query: string, limit: number): Promise<SearchRow[]> {
-    const p = buildSearchParams(query);
+  //
+  // It also means postgres.js sends an UNNAMED statement (unsafe() defaults
+  // to prepare: false), so Postgres plans each search with its actual
+  // parameters. Keep it that way. As a named prepared statement, Postgres
+  // may switch to a generic plan after five executions, and SEARCH_SQL's
+  // generic plan walks works_log_count_idx in every arm, filtering row by row:
+  // the 3.2M-row scan this query was rebuilt to avoid (audit 02, A-02-004).
+  async #localSearch(query: string, limit: number, allowExplicit: boolean): Promise<SearchRow[]> {
     return (await this.db.$client.unsafe(
       SEARCH_SQL,
-      [p.raw, p.tsquery, p.like, p.prefix, limit],
+      searchArgs(query, limit, allowExplicit) as (string | number | boolean | null)[],
     )) as unknown as SearchRow[];
   }
 
@@ -493,7 +584,7 @@ export class CatalogService {
       WHERE (e.isbn_13 IN ${candidates} OR e.isbn_10 IN ${candidates})
         AND w.merged_into_id IS NULL
         AND w.is_provisional = false
-      ORDER BY e.publish_year DESC NULLS LAST
+      ORDER BY ${ISBN_ORDER}
       LIMIT 1
     `);
 
@@ -530,7 +621,8 @@ import {
   errorResponseSchema,
 } from '../contract/schemas.js';
 
-const searchQuery = z.object({ q: z.string().optional() });
+// limit is range-checked and coerced by searchQuerySchema before this runs.
+const searchQuery = z.object({ q: z.string().optional(), limit: z.number().int().optional() });
 
 export function catalogRoutes(service: CatalogService) {
   return async (app: FastifyInstance) => {
@@ -541,7 +633,7 @@ export function catalogRoutes(service: CatalogService) {
         schema: {
           tags: ['Catalog'],
           summary: 'Search catalog',
-          description: 'Searches works by title, subtitle, author, or alternate titles. Guest readable.',
+          description: 'Searches works by title, subtitle, author, or alternate titles. Guest readable. Explicit works are excluded unless the viewer is 18+ and has opted in (PRD §7.8); an exact ISBN still resolves.',
           querystring: searchQuerySchema,
           response: {
             200: searchResponseSchema,
@@ -549,8 +641,8 @@ export function catalogRoutes(service: CatalogService) {
         },
       },
       async (req) => {
-        const { q } = searchQuery.parse(req.query);
-        return { data: await service.search(q ?? '') };
+        const { q, limit } = searchQuery.parse(req.query);
+        return { data: await service.search(req.viewer, q ?? '', limit) };
       },
     );
 

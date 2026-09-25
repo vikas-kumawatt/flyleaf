@@ -17,6 +17,9 @@ export const config = {
     process.env.JWT_SECRET ?? 'flyleaf-dev-secret-do-not-use-in-production-must-be-at-least-32-chars!',
 } as const;
 
+/** pg_trgm's match threshold. Why 0.45, and how it was measured: migrate.ts. */
+export const TRIGRAM_THRESHOLD = 0.45;
+
 export type Db = ReturnType<typeof makeDb>;
 
 export function makeDb(
@@ -26,6 +29,11 @@ export function makeDb(
   const client = postgres(url, {
     max: opts.max ?? 10,
     idle_timeout: 30,
+    // Sent in each connection's startup packet, so search never depends on
+    // the `ALTER DATABASE` in migrate.ts surviving. A database restored from
+    // a dump or recreated loses that setting silently, and at pg_trgm's 0.3
+    // default the trigram arm reads ~10x the heap (audit 02, A-02-009).
+    connection: { 'pg_trgm.similarity_threshold': String(TRIGRAM_THRESHOLD) },
     // Batch jobs run `CREATE TABLE IF NOT EXISTS` on every start, and the
     // resulting NOTICE for each one buries the actual progress output.
     ...(opts.quiet ? { onnotice: () => {} } : {}),

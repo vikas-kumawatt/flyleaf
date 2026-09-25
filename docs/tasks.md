@@ -95,10 +95,14 @@
 > Gap-filled works stay `maturity = 'unclassified'` because `search.json` carries no subjects. Guessing `general` to make the catalog look tidier is precisely the App Store §1.2 mistake.
 
 ### Search — `FN-4x` · 3d
-- [x] **FN-40** Search query: **prefix** tsvector (`token:*`) + ILIKE substring + trigram + author, as four INDEPENDENT indexed arms unioned into a small candidate set. Merged and provisional works excluded; LIKE metacharacters escaped; `to_tsquery` input sanitised. `SEARCH_SQL` is exported so the tests run the real query, not a copy — 1d
+- [x] **FN-40** Search query: **prefix** tsvector (`token:*`) + ILIKE substring + trigram + author, as four INDEPENDENT indexed arms unioned into a small candidate set. ~~Merged and provisional works excluded~~ Excluded only in the final select, after every arm had spent its LIMIT on them (fixed in audit 02: filters in every arm); LIKE metacharacters escaped; `to_tsquery` input sanitised ~~(complete)~~ except NUL, which was a 500. `SEARCH_SQL` is exported so the tests run the real query, not a copy — 1d
+  - **Audit (2026-09-25):** ⚠️ — correct matching, but no PRD §7.8 maturity filter at all, arms that were not indexed for 2-character queries and scanned ~⅓ of the catalog for queries under 4 characters, and non-Latin letters dropped from the prefix arm; fixed except the author-arm costs (DECISION NEEDED / deferred); see A-02-001…A-02-010, A-02-012.
 - [x] **FN-41** Popularity (`--popularity`) + ranking: title prefix 0.30 · exact title 0.20 · author match 0.20 · trigram 0.10 · `ln(1+log_count)` capped, 0.35. **3,203,476 works scored**; most-logged is Atomic Habits at 64,006 — 0.5d
+  - **Audit (2026-09-25):** ⚠️ — the weights match this bullet and the panel, but not PRD §14.3 / architecture §5.4 (no cover, library-boost or recency term; `alternate_titles` weight-C term structurally 0), and `works.log_count` has no trigger, no decrement, no import increment and no reconcile; DECISION NEEDED; see A-02-013, A-02-014.
 
 > ### Search on 3.2M works: 40s → 47ms
+>
+> ⚠️ **Audit 02 correction:** 47 ms is `murakami`, warm. Short and common queries were never measured: on the same catalog `th`, `the` and `a` took 23–54 s, spent in the trigram arm (1.1–1.3M index candidates, 2.8M rows rechecked), and `村上` took 80 s in two sequential scans. See `docs/audit/findings/02-search.md`.
 >
 > Measured warm, on the real catalog. Four separate causes, in the order they were found — the first three were my guesses and only the last two came from evidence:
 >
@@ -111,14 +115,16 @@
 
 > ⚠️ **An unordered `LIMIT` is a silent quality bug.** The `by_author` arm took an arbitrary 300 rows with no `ORDER BY`, so it discarded the best results while looking perfectly correct. Every arm now orders by `log_count` before truncating.
 
-> **Settings that must be set on the DATABASE, not the session.** `pg_trgm.similarity_threshold` via `ALTER DATABASE`, because a plain `SET` lands on one pooled connection out of ten. It reaches NEW connections only, so the API needs a restart — and the test harness sets it explicitly, or tests would quietly run at 0.3 while production runs at 0.45.
+> **Settings that must be set on the DATABASE, not the session.** `pg_trgm.similarity_threshold` via `ALTER DATABASE`, because a plain `SET` lands on one pooled connection out of ten. It reaches NEW connections only, so the API needs a restart — and the test harness sets it explicitly, or tests would quietly run at 0.3 while production runs at 0.45. **Audit 02:** a restored or recreated database loses an `ALTER DATABASE` setting silently, so `makeDb` now also sends it in every connection's startup packet (A-02-009).
 - [x] **FN-42** ISBN detection → exact edition path — 0.5d
   - Added `apps/api/src/catalog/isbn.ts`: `cleanIsbn`, `isValidIsbn10` (mod-11), `isValidIsbn13` (mod-10), `isbn10ToIsbn13`, `isbn13ToIsbn10`, and `detectIsbn` with bidirectional 10↔13 checksum cross-conversion.
-  - Added exact edition resolver `CatalogService.getEditionByIsbn(viewer, isbn)` and updated `search(q, limit)` to prioritize exact ISBN matches as result #1 (PRD §1013, §14.2).
+  - Added exact edition resolver `CatalogService.getEditionByIsbn(viewer, isbn)` and updated `search(q, limit)` to prioritize exact ISBN matches as result #1 (PRD §1013, §14.2). ~~The same ISBN resolves the same way on both paths~~ (never claimed, and false: with a pre-dedupe duplicate, search picked the more-logged work and the scan endpoint the newest edition; fixed in audit 02). `search` is now `search(viewer, q, limit)`, and the route's `limit` was ignored until audit 02.
+  - **Audit (2026-09-25):** ⚠️ — detection, conversion and 979 handling are correct; search and the scan endpoint disagreed on shared ISBNs (fixed), merged works resolve to the survivor (proven by test), and responses carry no `maturity` for the §7.8 interstitial (deferred → Part 08); see A-02-011, A-02-019.
   - Added `GET /v1/editions/isbn/:isbn` endpoint (guest-readable barcode scan path, PRD §3374) with `editionLookupResponseSchema` and `isbnParamSchema`.
   - Regenerated `openapi.yaml` with 0 drift and added typed `getEditionByIsbn` to `@flyleaf/api-client`.
   - 18 tests in `apps/api/src/test/isbn.test.ts`; 217-query relevance panel holds 99.5% (216/217); full CI suite green (313 tests across 11 test suites).
 - [x] **FN-43** ⚠️ **217-query relevance panel**, hard cases included, runs in CI — 1d
+  - **Audit (2026-09-25):** ✅ — runs the exported `SEARCH_SQL` (zeroing the popularity weight dropped it to 205/217 and failed the floor), measures position, runs in `api · tests`, keeps the `1984` gap test; 216/217 before and after audit 02's changes. It does not cover PRD §14.6's top-3 metric on real queries, AC-7's `ishigoro` (author typo) or planner behaviour; see A-02-015.
       Hard cases, all confirmed against the real catalog and now all asserted individually:
       `murakami` (author is 村上春樹), `piranesi` (novel vs. the architect),
       `the hobit` and `piranese` (typos), `guin` (a later part of a name),

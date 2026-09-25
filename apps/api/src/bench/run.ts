@@ -129,7 +129,7 @@ async function preflightSearch(): Promise<string[]> {
       const kept: string[] = [];
       for (const s of list) {
         if (s.trim().length < 3) { kept.push(s); continue; } // gap-fill needs 3+ characters
-        const n = (await catalog.search(s)).length;
+        const n = (await catalog.search(null, s)).length;
         // An ISBN that resolves to an edition never reaches gap-fill (it is
         // in the no-ISBN-match branch of CatalogService.search).
         const isbnHit = /^[\d\s-]{10,17}[\dXx]?$/.test(s.trim()) && n >= 1;

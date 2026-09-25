@@ -16,7 +16,7 @@
 
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { PGlite } from '@electric-sql/pglite';
-import { SEARCH_SQL, buildSearchParams } from '../catalog/index.js';
+import { SEARCH_SQL, buildSearchParams, searchArgs, MAX_QUERY_CHARS } from '../catalog/index.js';
 import { freshDb } from './pg.js';
 
 let db: PGlite;
@@ -37,10 +37,9 @@ const BOOKS: [title: string, author: string, year: number, cover: number | null,
   ["The Handmaid's Tale",       'Margaret Atwood',   1985, 120, 33000],
 ];
 
-async function search(q: string, limit = 5) {
-  const p = buildSearchParams(q);
+async function search(q: string, limit = 5, allowExplicit = false) {
   const { rows } = await db.query<{ title: string; author_name: string; cover_id: number | null }>(
-    SEARCH_SQL, [p.raw, p.tsquery, p.like, p.prefix, limit],
+    SEARCH_SQL, searchArgs(q, limit, allowExplicit),
   );
   return rows;
 }
@@ -156,6 +155,140 @@ describe('result shape', () => {
     await db.exec(`UPDATE works SET is_provisional = true WHERE title = 'Animal Farm'`);
     expect(titles(await search('animal'))).not.toContain('Animal Farm');
     await db.exec(`UPDATE works SET is_provisional = false WHERE title = 'Animal Farm'`);
+  });
+});
+
+// Audit 02 (FN-40). Everything a user can type reaches buildSearchParams and
+// then two parsers (to_tsquery, LIKE) and a trigram operator.
+describe('hostile input, exhaustively', () => {
+  it.each([
+    ':', '&', '|', '!', '(', ')', "'", '\\', '*', '<', '>', '-', ' - ', '!@#$%^&*()',
+    '\t\n  ', 'a:*', 'a & !b', '((a|b))', "'; DROP TABLE works; --", '<script>alert(1)</script>',
+    '📚🐉', 'שלום עולם', 'مرحبا', 'é', 'Café', '村上', 'Толстой',
+    'a\u0000b', '\u0000', 'x'.repeat(1000), 'the '.repeat(300),
+  ])('never throws: %j', async (q) => {
+    await expect(search(q)).resolves.toBeDefined();
+  });
+
+  it('a search for "100%" matches the literal percent sign, not everything', async () => {
+    await db.exec(`INSERT INTO works (title, log_count) VALUES ('100% Real', 5)`);
+    try {
+      const rows = await search('100%', 20);
+      expect(titles(rows)).toContain('100% Real');
+      for (const t of titles(rows)) expect(t).toContain('100%');
+    } finally {
+      await db.exec(`DELETE FROM works WHERE title = '100% Real'`);
+    }
+  });
+});
+
+// The per-arm LIMITs run BEFORE the final select. A row the final select
+// throws away (merged, provisional, explicit) still used up an arm's slot, so
+// enough of them push a live work out of every arm. The filters have to be
+// inside each arm.
+describe('exclusions apply inside every arm, before its LIMIT', () => {
+  it.each([
+    ['merged', `merged_into_id = (SELECT id FROM works WHERE title = 'Dune')`],
+    ['provisional', `is_provisional = true`],
+    ['explicit', `maturity = 'explicit'`],
+  ])('320 popular %s works cannot push a live work out', async (_kind, flag) => {
+    await db.exec(`
+      INSERT INTO works (title, log_count)
+      SELECT 'Quasar Chronicle ' || g, 100000 + g FROM generate_series(1, 320) g;
+      UPDATE works SET ${flag} WHERE title LIKE 'Quasar Chronicle %';
+      INSERT INTO works (title, log_count) VALUES ('The Quasar Omnibus Collected Edition', 1);`);
+    try {
+      const rows = await search('quasar', 20);
+      expect(titles(rows)).toContain('The Quasar Omnibus Collected Edition');
+      expect(titles(rows).filter((t) => t.startsWith('Quasar Chronicle'))).toHaveLength(0);
+    } finally {
+      await db.exec(`DELETE FROM works WHERE title LIKE 'Quasar Chronicle %' OR title LIKE 'The Quasar Omnibus%'`);
+    }
+  });
+});
+
+// PRD §7.8 [LOCKED]: explicit works are excluded from search unless the
+// viewer is 18+ AND opted in. The SQL takes that decision as a parameter.
+describe('maturity (PRD §7.8)', () => {
+  beforeAll(async () => {
+    await db.exec(`
+      INSERT INTO works (title, log_count, maturity) VALUES
+        ('Velvet Nights', 900, 'explicit'),
+        ('Velvet Revolution', 10, 'mature'),
+        ('Velvet Hour', 5, 'unclassified')`);
+  });
+  afterAll(async () => { await db.exec(`DELETE FROM works WHERE title LIKE 'Velvet %'`); });
+
+  it('excludes explicit works unless explicitly allowed, and nothing else', async () => {
+    expect(titles(await search('velvet', 10, false))).toEqual(['Velvet Revolution', 'Velvet Hour']);
+    expect(titles(await search('velvet', 10, true))).toContain('Velvet Nights');
+  });
+});
+
+// Planner behaviour on the real catalog (docs/audit/findings/02-search.md):
+// for a query shorter than 4 characters the trigram arm matched ~1.1M of 3.2M
+// titles and discarded all but a handful; a 2-character '%q%' pattern has no
+// trigram at all, so the substring arms could not use an index. These
+// assert the arms are shaped away at PLAN time, which PGlite shows faithfully
+// even though its timings mean nothing.
+describe('short queries do not run the arms that cannot use an index', () => {
+  async function plan(q: string) {
+    const { rows } = await db.query<{ 'QUERY PLAN': string }>(
+      `EXPLAIN (COSTS OFF) ${SEARCH_SQL}`, searchArgs(q, 20, false));
+    return rows.map((r) => r['QUERY PLAN']).join('\n');
+  }
+
+  it('skips the trigram arm below 4 characters, keeps it from 4', async () => {
+    expect(await plan('pir')).not.toMatch(/title % /);
+    expect(await plan('pira')).toMatch(/title % /);
+  });
+
+  it('anchors the title substring arm for a 2-character query', async () => {
+    const p = await plan('th');
+    expect(p).toMatch(/title ~~\* 'th%'/);
+    expect(p).not.toMatch(/title ~~\* '%th%'/);
+    expect(await plan('the')).toMatch(/title ~~\* '%the%'/);
+  });
+});
+
+describe('diacritics are stripped on both sides (PRD §14.4)', () => {
+  // Query and title differ only in what unaccent folds, so neither ILIKE nor
+  // trigram similarity can match them; only the unaccented prefix query can.
+  it.each([['łodz', 'Łódź Stories'], ['straße', 'Strasse der Sieger']])(
+    '%j finds %j through the prefix arm', async (q, title) => {
+      await db.query(`INSERT INTO works (title, log_count) VALUES ($1, 5)`, [title]);
+      try {
+        expect(titles(await search(q, 10))).toContain(title);
+      } finally {
+        await db.query(`DELETE FROM works WHERE title = $1`, [title]);
+      }
+    });
+});
+
+describe('buildSearchParams', () => {
+  it('keeps letters from every script in the prefix query, not only a-z', () => {
+    expect(buildSearchParams('Толстой').tsquery).toBe('толстой:*');
+    expect(buildSearchParams('村上').tsquery).toBe('村上:*');
+    expect(buildSearchParams('हिन्दी').tsquery).toBe('हिन्दी:*');
+    // Composed, and left for flyleaf_unaccent to fold in SQL.
+    expect(buildSearchParams('Café').tsquery).toBe('café:*');
+  });
+
+  it('splits on punctuation the way the tsvector parser does', () => {
+    // to_tsvector('simple', 'O''Brien') is 'o' + 'brien'; 'obrien:*' matched neither.
+    expect(buildSearchParams("o'brien").tsquery).toBe('brien:*');
+    expect(buildSearchParams('eighty-four').tsquery).toBe('eighty:* & four:*');
+  });
+
+  it('drops one-letter prefix terms when a longer term exists', () => {
+    // "harry potter and the p": 'p:*' expands to every lexeme starting with p.
+    expect(buildSearchParams('harry potter and the p').tsquery).toBe('harry:* & potter:* & and:* & the:*');
+    expect(buildSearchParams('a').tsquery).toBe('a:*');
+  });
+
+  it('bounds the query length and strips NUL', () => {
+    expect(buildSearchParams('x'.repeat(1000)).raw).toHaveLength(MAX_QUERY_CHARS);
+    expect(buildSearchParams('a\u0000b').raw).toBe('ab');
   });
 });
 

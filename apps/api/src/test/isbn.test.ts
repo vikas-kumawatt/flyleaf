@@ -13,6 +13,7 @@ import {
   detectIsbn,
 } from '../catalog/isbn.js';
 import { CatalogService, catalogRoutes } from '../catalog/index.js';
+import { mergeWorks, type MergeCandidate } from '../catalog/dedupe.js';
 import { MemoryCache, type Db } from '../platform/index.js';
 import { freshDrizzle } from './pg.js';
 import { works, editions, authors, workAuthors } from '../db/schema.js';
@@ -210,14 +211,14 @@ describe('CatalogService exact edition lookup & search (FN-42)', () => {
   });
 
   it('search prioritizes exact ISBN match as result #1 (PRD §1013)', async () => {
-    const results = await service.search('978-0-441-01359-3');
+    const results = await service.search(null, '978-0-441-01359-3');
     expect(results.length).toBeGreaterThan(0);
     expect(results[0]!.id).toBe(WORK_DUNE_ID);
     expect(results[0]!.title).toBe('Dune');
   });
 
   it('search with ISBN-10 query returns exact match first', async () => {
-    const results = await service.search('0441013597');
+    const results = await service.search(null, '0441013597');
     expect(results.length).toBeGreaterThan(0);
     expect(results[0]!.id).toBe(WORK_DUNE_ID);
   });
@@ -257,5 +258,99 @@ describe('CatalogService exact edition lookup & search (FN-42)', () => {
     const res = await client.getEditionByIsbn('978-0-441-01359-3');
     expect(res.work.title).toBe('Dune');
     expect(res.edition.id).toBe(EDITION_DUNE_ID);
+  });
+});
+
+// Audit 02 (FN-42): input shapes, determinism, merged works, and 404 bodies.
+describe('ISBN edge cases (audit 02)', () => {
+  it('accepts a lowercase x check digit and embedded spaces', () => {
+    expect(detectIsbn('0-8044-2957-x')?.isbn13).toBe('9780804429573');
+    expect(detectIsbn('978 0 441 01359 3')?.isbn10).toBe('0441013597');
+  });
+
+  it('a 979 ISBN is detected and has no ISBN-10 form', () => {
+    const d = detectIsbn('979-10-90636-07-1');
+    expect(d).toEqual({ isbn13: '9791090636071', canonical: '9791090636071' });
+  });
+
+  it.each(['044101359', '04410135970', '978044101359', '97804410135930'])(
+    'a %s-digit-ish number is not an ISBN', (s) => {
+      expect(detectIsbn(s)).toBeNull();
+    });
+});
+
+describe('ISBN resolution against the database (audit 02)', () => {
+  let db: Db;
+  let client: PGlite;
+  let service: CatalogService;
+  let app: FastifyInstance;
+  const ids: Record<string, string> = {};
+
+  beforeAll(async () => {
+    const fresh = await freshDrizzle();
+    db = fresh.db;
+    client = fresh.client;
+    service = new CatalogService(db, new MemoryCache(100));
+
+    const [popular] = await db.insert(works).values({ title: 'Dune', logCount: 44000 }).returning();
+    const [dup] = await db.insert(works).values({ title: 'Dune (duplicate record)', logCount: 3 }).returning();
+    const [prov] = await db.insert(works).values({ title: 'My Own Book', isProvisional: true }).returning();
+    ids.popular = popular!.id; ids.dup = dup!.id; ids.prov = prov!.id;
+
+    // Pre-dedupe duplicates: the same ISBN on editions of two works. The
+    // NEWER edition belongs to the less popular record.
+    const [e1] = await db.insert(editions).values(
+      { workId: popular!.id, isbn13: '9780441013593', publishYear: 2005, format: 'paperback' }).returning();
+    const [e2] = await db.insert(editions).values(
+      { workId: dup!.id, isbn13: '9780441013593', publishYear: 2019, format: 'paperback' }).returning();
+    ids.e1 = e1!.id; ids.e2 = e2!.id;
+    await db.insert(editions).values({ workId: prov!.id, isbn13: '9780140328721', format: 'paperback' });
+
+    app = Fastify();
+    registerCoreHooks(app);
+    await app.register(catalogRoutes(service), { prefix: '/v1' });
+    await app.ready();
+  }, 60_000);
+
+  afterAll(async () => {
+    await app?.close();
+    await client?.close();
+  });
+
+  it('the scan endpoint and search resolve a shared ISBN to the same work, every time', async () => {
+    const viaSearch = (await service.search(null, '9780441013593'))[0]!.id;
+    for (let i = 0; i < 3; i++) {
+      const viaScan = await service.getEditionByIsbn(null, '9780441013593');
+      expect(viaScan!.work.id).toBe(viaSearch);
+    }
+    expect(viaSearch).toBe(ids.popular);
+  });
+
+  it('an invalid checksum falls back to text search instead of failing', async () => {
+    await expect(service.search(null, '1234567890')).resolves.toEqual(expect.any(Array));
+  });
+
+  it('a provisional work behind an ISBN 404s exactly like an unknown ISBN', async () => {
+    const hidden = await app.inject({ method: 'GET', url: '/v1/editions/isbn/9780140328721' });
+    const unknown = await app.inject({ method: 'GET', url: '/v1/editions/isbn/9780000000026' });
+    expect(hidden.statusCode).toBe(404);
+    expect(hidden.body).toBe(unknown.body);
+  });
+
+  it('a 9-digit value is a 422, not a 404 or a 500', async () => {
+    const res = await app.inject({ method: 'GET', url: '/v1/editions/isbn/044101359' });
+    expect(res.statusCode).toBe(422);
+  });
+
+  it('after a merge, the loser\'s ISBN resolves to the survivor', async () => {
+    const [loser] = await db.insert(works).values({ title: 'Earthsea (old record)', logCount: 1 }).returning();
+    const [survivor] = await db.insert(works).values({ title: 'A Wizard of Earthsea', logCount: 9000 }).returning();
+    await db.insert(editions).values({ workId: loser!.id, isbn13: '9780553383041', format: 'paperback' });
+    await mergeWorks(db, { survivorId: survivor!.id, loserId: loser!.id, stage: 2, reason: 'audit test' } satisfies MergeCandidate);
+
+    const res = await service.getEditionByIsbn(null, '9780553383041');
+    expect(res!.work.id).toBe(survivor!.id);
+    expect(res!.edition.work_id).toBe(survivor!.id);
+    expect((await service.search(null, '9780553383041'))[0]!.id).toBe(survivor!.id);
   });
 });

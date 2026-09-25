@@ -1312,14 +1312,15 @@ paths:
       tags:
         - Catalog
       description: Searches works by title, subtitle, author, or alternate titles.
-        Guest readable.
+        Guest readable. Explicit works are excluded unless the viewer is 18+ and
+        has opted in (PRD §7.8); an exact ISBN still resolves.
       parameters:
         - schema:
             type: string
           in: query
           name: q
           required: false
-          description: Search term (minimum 2 chars)
+          description: Search term (minimum 2 characters; anything past 100 is ignored)
         - schema:
             type: integer
             minimum: 1

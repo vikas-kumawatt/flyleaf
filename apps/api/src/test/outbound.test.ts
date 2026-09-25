@@ -291,7 +291,7 @@ describe('GapFillService', () => {
       makeService(db),
     );
 
-    const results = await catalog.search('fantastic mr fox');
+    const results = await catalog.search(null, 'fantastic mr fox');
     expect(results).toHaveLength(1);
     expect(results[0]!.title).toBe('Fantastic Mr Fox');
     // A real uuid, because the rows were persisted before the list was built.
@@ -300,7 +300,7 @@ describe('GapFillService', () => {
     expect(await count('works')).toBe(2);
 
     // And the one that was stored but not shown is now findable.
-    const later = await catalog.search('lord of the rings');
+    const later = await catalog.search(null, 'lord of the rings');
     expect(later[0]!.title).toBe('The Lord of the Rings');
   });
 

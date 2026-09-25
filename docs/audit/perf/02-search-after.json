@@ -1,0 +1,332 @@
+{
+  "meta": {
+    "label": "02-search-after",
+    "date": "2026-09-25T04:44:41.146Z",
+    "base_url": "http://localhost:3000",
+    "commit": "1e1bf50",
+    "dirty": true,
+    "node": "v22.20.0",
+    "connections": 10,
+    "duration_s": 10,
+    "sequential_n": 15,
+    "seed_generated_at": "2026-09-24T13:46:15.893Z",
+    "seed_counts": {
+      "users": 3000,
+      "private_users": 300,
+      "follows": 186014,
+      "pending_follows": 9259,
+      "blocks": 150,
+      "mutes": 300,
+      "reads": 62365,
+      "import_reads": 9425,
+      "rereads": 5156,
+      "progress_events": 220584,
+      "reviews": 12000,
+      "likes": 40000,
+      "comments": 8000,
+      "shelves": 4005,
+      "shelf_items": 79251,
+      "saves": 1500,
+      "activity": 142152
+    },
+    "personas": {
+      "heavy": {
+        "username": "bench_u00006",
+        "following": 1158,
+        "followers": 141
+      },
+      "typical": {
+        "username": "bench_u00182",
+        "following": 40,
+        "followers": 22
+      },
+      "new": {
+        "username": "bench_u00011",
+        "following": 0,
+        "followers": 0
+      },
+      "private_owner": {
+        "username": "bench_u00012",
+        "following": 40,
+        "followers": 5
+      },
+      "blocked_pair_a": {
+        "username": "bench_u00013",
+        "following": 379,
+        "followers": 36
+      },
+      "blocked_pair_b": {
+        "username": "bench_u00014",
+        "following": 28,
+        "followers": 41
+      },
+      "celebrity": {
+        "username": "bench_u00001",
+        "following": 48,
+        "followers": 2577
+      },
+      "reviewer_of_hot_work": {
+        "username": "bench_u00015",
+        "following": 32,
+        "followers": 161
+      }
+    },
+    "notes": [
+      "search:cjk dropped \"ハリー\" (1 local results; would trigger live gap-fill)"
+    ]
+  },
+  "results": [
+    {
+      "scenario": "search:prefix",
+      "group": "search",
+      "method": "GET",
+      "persona": null,
+      "notes": [],
+      "skipped": null,
+      "sequential": {
+        "statuses": {
+          "200": 15
+        },
+        "latencyP50": 270.64260000002105,
+        "queries": [
+          0,
+          1,
+          1,
+          1,
+          0,
+          1,
+          0,
+          1,
+          1,
+          1,
+          0,
+          1,
+          0,
+          1,
+          1
+        ],
+        "sampleError": null,
+        "n": 15
+      },
+      "load": {
+        "requests": 224,
+        "completed": 224,
+        "unfinished": 10,
+        "rps": 22.1,
+        "p50": 297.8394,
+        "p95": 1018.4285,
+        "p99": 1090.8313,
+        "max": 1104.7094,
+        "statuses": {
+          "200": 224
+        },
+        "errors": 0,
+        "timeouts": 0,
+        "drainMs": 2358.855799999961
+      }
+    },
+    {
+      "scenario": "search:common",
+      "group": "search",
+      "method": "GET",
+      "persona": null,
+      "notes": [],
+      "skipped": null,
+      "sequential": {
+        "statuses": {
+          "200": 2,
+          "timeout": 1
+        },
+        "latencyP50": 26245.77099999995,
+        "queries": [
+          1,
+          1
+        ],
+        "sampleError": null,
+        "n": 3
+      },
+      "load": {
+        "requests": 10,
+        "completed": 0,
+        "unfinished": 10,
+        "rps": 0,
+        "p50": 10000,
+        "p95": 10000,
+        "p99": 10000,
+        "max": 10000,
+        "statuses": {},
+        "errors": 0,
+        "timeouts": 10,
+        "drainMs": 126407.22870000004
+      }
+    },
+    {
+      "scenario": "search:author",
+      "group": "search",
+      "method": "GET",
+      "persona": null,
+      "notes": [],
+      "skipped": null,
+      "sequential": {
+        "statuses": {
+          "200": 15
+        },
+        "latencyP50": 460.93479999992996,
+        "queries": [
+          2,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1
+        ],
+        "sampleError": null,
+        "n": 15
+      },
+      "load": {
+        "requests": 198,
+        "completed": 198,
+        "unfinished": 10,
+        "rps": 19.6,
+        "p50": 441.1483,
+        "p95": 839.5791,
+        "p99": 1261.7738,
+        "max": 1322.8976,
+        "statuses": {
+          "200": 198
+        },
+        "errors": 0,
+        "timeouts": 0,
+        "drainMs": 2214.6666000001132
+      }
+    },
+    {
+      "scenario": "search:cjk",
+      "group": "search",
+      "method": "GET",
+      "persona": null,
+      "notes": [],
+      "skipped": null,
+      "sequential": {
+        "statuses": {
+          "timeout": 1
+        },
+        "latencyP50": 30000,
+        "queries": null,
+        "sampleError": null,
+        "n": 1
+      },
+      "load": {
+        "requests": 15,
+        "completed": 10,
+        "unfinished": 10,
+        "rps": 1,
+        "p50": 1194.8386,
+        "p95": 10000,
+        "p99": 10000,
+        "max": 10000,
+        "statuses": {
+          "200": 10
+        },
+        "errors": 0,
+        "timeouts": 5,
+        "drainMs": 183819.1311
+      }
+    },
+    {
+      "scenario": "search:typo",
+      "group": "search",
+      "method": "GET",
+      "persona": null,
+      "notes": [],
+      "skipped": null,
+      "sequential": {
+        "statuses": {
+          "200": 2,
+          "timeout": 2
+        },
+        "latencyP50": 1607.7571999999927,
+        "queries": [
+          1,
+          1
+        ],
+        "sampleError": null,
+        "n": 4
+      },
+      "load": {
+        "requests": 9,
+        "completed": 6,
+        "unfinished": 10,
+        "rps": 0.3,
+        "p50": 2841.6357,
+        "p95": 10000,
+        "p99": 10000,
+        "max": 10000,
+        "statuses": {
+          "200": 6
+        },
+        "errors": 0,
+        "timeouts": 3,
+        "drainMs": 94916.48219999997
+      }
+    },
+    {
+      "scenario": "search:isbn",
+      "group": "search",
+      "method": "GET",
+      "persona": null,
+      "notes": [],
+      "skipped": null,
+      "sequential": {
+        "statuses": {
+          "200": 15
+        },
+        "latencyP50": 105.64299999992363,
+        "queries": [
+          2,
+          2,
+          2,
+          2,
+          2,
+          2,
+          2,
+          2,
+          2,
+          2,
+          2,
+          2,
+          2,
+          2,
+          2
+        ],
+        "sampleError": null,
+        "n": 15
+      },
+      "load": {
+        "requests": 694,
+        "completed": 694,
+        "unfinished": 10,
+        "rps": 68.8,
+        "p50": 158.9643,
+        "p95": 219.1324,
+        "p99": 469.4633,
+        "max": 813.6334,
+        "statuses": {
+          "200": 694
+        },
+        "errors": 0,
+        "timeouts": 0,
+        "drainMs": 2110.4269999999087
+      }
+    }
+  ]
+}

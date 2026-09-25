@@ -286,7 +286,7 @@ export const workSchema = {
 export const searchQuerySchema = {
   type: 'object',
   properties: {
-    q: { type: 'string', description: 'Search term (minimum 2 chars)' },
+    q: { type: 'string', description: 'Search term (minimum 2 characters; anything past 100 is ignored)' },
     limit: { type: 'integer', minimum: 1, maximum: 100, default: 20 },
   },
 } as const;
