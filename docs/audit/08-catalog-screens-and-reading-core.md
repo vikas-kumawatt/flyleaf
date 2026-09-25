@@ -27,6 +27,23 @@ It failed CI run 1 during Part 02 for timing reasons (it depends on the wall clo
 
 Part 09 keeps the rest of SL-62 (the duplicate TS recompute, §9.7 manipulation rules) and will build on your fix.
 
+## Routed from Part 03 (dedupe)
+
+Findings: `docs/audit/findings/03-dedupe.md` (A-03-008, A-03-016, Part 03b).
+
+### D3 (decided by the user): a merged work id keeps working, for reads AND writes
+
+A dedupe merge tombstones the loser (`works.merged_into_id = survivor`; chains are flattened, so it is always one hop). Today `CatalogService.getWork` filters `merged_into_id IS NULL` (`catalog/index.ts`), so an old link or an already-shared card gives 404, and `ReadingService.upsert` (`reading/index.ts`) and shelf adds accept the merged id and write onto the tombstone, where the read is hidden from the survivor's page and stats (A-03-008). PRD §40.3 and §34.1: "the old ID redirects permanently".
+
+- **Reads of a merged id return the survivor:** `200` with the survivor's body (its own `id`) and a `merged_into` field naming the survivor, on `GET /v1/works/:id`, and the equivalent resolution on every other read that takes a work id (`GET /v1/works/:id/reviews`; take the list from `docs/audit/route-inventory.md`). Not a 308, not a 404. Mobile already navigates by the returned id.
+- **Writes to a merged id are applied to the survivor server-side, never 404:** creating or updating a read, logging progress, shelving (`POST`/`PATCH`/`DELETE` on shelf items), favourites, mutes (`/v1/works/:id/mute` and `/v1/mutes/works/:workId`), and reviews via reads. Resolve `COALESCE(merged_into_id, id)` once at the service boundary. The point is that an **offline replay survives a merge**: a client that queued "finished, 4★" against the loser id while offline must land on the survivor when it syncs. Coordinate with Part 07 (the offline queue and `client_event_id`).
+- Tests: a read, a progress event, a shelf add and a favourite, each sent to a merged id → stored on the survivor; `GET` of a merged id → 200 with `merged_into`; a write racing a merge (lock order: the merge locks `works` rows `FOR UPDATE`); undo afterwards still refuses with 409 `loser_modified` only if something did land on the loser.
+- Once writes resolve to the survivor, `undoMerge`'s 409 `loser_modified` guard (A-03-003) should stop firing in practice; keep it as the safety net.
+
+### The merge scans `reads` twice per moved read, through the ratings trigger (A-03-016, with L-01)
+
+`reads_work_stats_trigger` calls `recompute_work_stats_for_work` for NEW and OLD on every row a merge moves, and that function runs the full-table `AVG(rating) FROM reads WHERE work_id <> x` scan that L-01 removes. Merging a work with N reads is therefore 2N full scans of `reads`. It is the same scan as L-01, so **fixing L-01 fixes this**. After the fix, measure a merge of a work with many reads on `flyleaf_dev` (for example a bench work with 500 reads, merged and then undone with `undoMerge`, in a transaction you roll back) and record the before/after. Also consider whether the merge should recompute `work_stats` once per work at the end, set-based, instead of per row.
+
 ## Server: SL-50 … SL-57
 
 - **Status transitions** (PRD §8.2 [LOCKED]): build the full want/reading/paused/finished/dnf × target matrix and test every cell against the spec. Starting a finished or DNF book creates a **new attempt** (claimed). Test the other transitions: finished → want, dnf → finished directly, reading → want.

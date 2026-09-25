@@ -4237,7 +4237,8 @@ paths:
       summary: List dedupe review queue
       tags:
         - Admin Dedupe
-      description: Lists pending or resolved Stage 3 & 4 duplicate candidates.
+      description: "Lists pending or resolved duplicate candidates, highest impact
+        first: stage 1-2 pairs too ambiguous to auto-merge, and stages 3 and 4."
       parameters:
         - schema:
             type: string
@@ -4252,6 +4253,8 @@ paths:
         - schema:
             type: integer
             enum:
+              - 1
+              - 2
               - 3
               - 4
           in: query
@@ -4291,6 +4294,8 @@ paths:
                         stage:
                           type: integer
                           enum:
+                            - 1
+                            - 2
                             - 3
                             - 4
                         status:
@@ -4303,6 +4308,10 @@ paths:
                           type:
                             - "null"
                             - number
+                        impact:
+                          type: integer
+                          description: User-data rows (reads, reviews, shelf items, favourites) on either
+                            work. The queue is ordered by this, highest first.
                         reason:
                           type: string
                         dismiss_reason:

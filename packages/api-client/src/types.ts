@@ -455,9 +455,12 @@ export interface DedupeWorkSummary {
 
 export interface DedupeQueueItem {
   id: string;
-  stage: 3 | 4;
+  /** 1-2: pairs too ambiguous to auto-merge (Audit 03b); 3: fuzzy; 4: reported. */
+  stage: 1 | 2 | 3 | 4;
   status: 'pending' | 'merged' | 'dismissed';
   confidence: number | null;
+  /** User-data rows on either work; the queue is ordered by this, highest first. */
+  impact: number;
   reason: string;
   dismiss_reason?: string | null;
   created_at: string;

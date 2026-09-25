@@ -26,6 +26,75 @@ import { sql } from 'drizzle-orm';
 import type { Db } from '../platform/index.js';
 import { ApiError } from '../http.js';
 
+// ---------------------------------------------------------------------------
+// Title normalisation, in TypeScript AND in SQL.
+//
+// The rule exists twice: TypeScript for the import matcher, SQL for the 3.2M
+// row scan. Both are built from the SAME explicit character classes below, and
+// neither depends on the database's locale (Audit 03b, A-03-014). The first
+// version used `[[:punct:]]`, `\s` and `lower()`, whose meaning comes from the
+// server's libc: on the real catalog (musl, en_US.utf8) the SQL split
+// decomposed accents off their letters ("Omisión" -> "omisio n"), dropped bidi
+// marks and lowercased U+0130 differently, so the two disagreed on 50,622 titles
+// while PGlite, in another locale, agreed on every test title.
+//
+//   NFC            composed and decomposed accents are the same title. The
+//                  dump has both, and without it they never match.
+//   lower          Unicode SIMPLE case mapping, one code point at a time.
+//                  SQL: `COLLATE pg_c_utf8` (Postgres' built-in provider, the
+//                  same on every platform). TS: per code point, because JS's
+//                  whole-string toLowerCase applies the final-sigma rule and
+//                  maps U+0130 to two code points.
+//   separators     Unicode punctuation and symbols (\p{P}, \p{S}) plus the
+//                  invisible bidi/zero-width marks that pasted titles carry.
+//                  Combining marks are NOT separators: they belong to their
+//                  letter, and removing them would accent-fold (below).
+//   whitespace     exactly JavaScript's \s.
+// ---------------------------------------------------------------------------
+
+/** Code points matching `re`, as inclusive ranges. Planes 0-3: nothing above is punctuation, a symbol or a space. */
+function codePointRanges(re: RegExp): [number, number][] {
+  const ranges: [number, number][] = [];
+  for (let cp = 0; cp <= 0x3ffff; cp++) {
+    if (cp >= 0xd800 && cp <= 0xdfff) continue;
+    if (!re.test(String.fromCodePoint(cp))) continue;
+    const last = ranges.at(-1);
+    if (last && last[1] === cp - 1) last[1] = cp;
+    else ranges.push([cp, cp]);
+  }
+  return ranges;
+}
+
+const SEPARATOR_RANGES = codePointRanges(/[\p{P}\p{S}\u061c\u200b\u200e\u200f\u202a-\u202e\u2066-\u2069]/u);
+const WHITESPACE_RANGES = codePointRanges(/\s/u);
+
+const jsClass = (ranges: [number, number][]) => {
+  const cp = (n: number) => `\\u{${n.toString(16)}}`;
+  return `[${ranges.map(([a, b]) => (a === b ? cp(a) : `${cp(a)}-${cp(b)}`)).join('')}]`;
+};
+// Postgres ARE character-entry escapes: \uXXXX, or \UXXXXXXXX above the BMP.
+const sqlClass = (ranges: [number, number][]) => {
+  const cp = (n: number) =>
+    n <= 0xffff ? `\\u${n.toString(16).padStart(4, '0')}` : `\\U${n.toString(16).padStart(8, '0')}`;
+  return `[${ranges.map(([a, b]) => (a === b ? cp(a) : `${cp(a)}-${cp(b)}`)).join('')}]`;
+};
+
+const SEPARATOR_JS = new RegExp(jsClass(SEPARATOR_RANGES), 'gu');
+const WHITESPACE_RUN_JS = new RegExp(`${jsClass(WHITESPACE_RANGES)}+`, 'gu');
+const ARTICLE_JS = new RegExp(`^(the|a|an)${jsClass(WHITESPACE_RANGES)}+`, 'u');
+const SEPARATOR_SQL = sqlClass(SEPARATOR_RANGES);
+const WHITESPACE_SQL = sqlClass(WHITESPACE_RANGES);
+
+/** Unicode simple lowercase, the mapping `lower(… COLLATE pg_c_utf8)` applies. */
+function lowerSimple(s: string): string {
+  let out = '';
+  // U+0130 is the one code point whose full lowercase mapping is two code points.
+  for (const ch of s) out += ch === '\u0130' ? 'i' : ch.toLowerCase();
+  return out;
+}
+
+const tidy = (s: string) => s.replace(SEPARATOR_JS, ' ').replace(WHITESPACE_RUN_JS, ' ').trim();
+
 /**
  * Title normalisation for stage 2.
  *
@@ -38,14 +107,16 @@ import { ApiError } from '../http.js';
  * book. Stripping accents would collide distinct translations.
  */
 export function normaliseTitle(title: string): string {
-  return title
-    .toLowerCase()
-    // Subtitle: everything after the first colon. "Dune: A Novel" -> "dune".
-    .split(':')[0]!
-    .replace(/^(the|a|an)\s+/u, '')
-    .replace(/[\p{P}\p{S}]/gu, ' ')
-    .replace(/\s+/g, ' ')
-    .trim();
+  // Subtitle: everything after the first colon. "Dune: A Novel" -> "dune".
+  const main = lowerSimple(title.normalize('NFC')).split(':')[0]!;
+  return tidy(main.replace(ARTICLE_JS, ''));
+}
+
+/** Everything after the first colon, with the title's case, punctuation and space rules. '' when there is none. */
+export function normaliseSubtitle(title: string): string {
+  const nfc = title.normalize('NFC');
+  const colon = nfc.indexOf(':');
+  return colon === -1 ? '' : tidy(lowerSimple(nfc.slice(colon + 1)));
 }
 
 export type MergeCandidate = {
@@ -93,36 +164,47 @@ const SURVIVOR_ORDER = sql`
 export const NORMALISED_TITLE_EXPR = `
   btrim(regexp_replace(
     regexp_replace(
-      regexp_replace(lower(split_part(title, ':', 1)), '^(the|a|an)\\s+', ''),
-      '[[:punct:]]', ' ', 'g'),
-    '\\s+', ' ', 'g'))`;
+      regexp_replace(
+        lower(split_part(normalize(title, NFC), ':', 1) COLLATE pg_c_utf8),
+        '^(the|a|an)${WHITESPACE_SQL}+', ''),
+      '${SEPARATOR_SQL}', ' ', 'g'),
+    '${WHITESPACE_SQL}+', ' ', 'g'), ' ')`;
 
 /**
- * Everything after the first colon, with the same case, punctuation and space
- * rules as the title. Empty when there is no subtitle.
+ * `normaliseSubtitle` as a SQL expression: everything after the first colon,
+ * with the title's case, punctuation and space rules. Empty when there is no
+ * subtitle.
  *
  * Stage 2 strips subtitles so "Dune" meets "Dune: A Novel". But two DIFFERENT
  * subtitles on the same main title are usually two books — on the full
  * catalog, 10,572 stage-2 pairs had both subtitles present and different, and
  * all 25 sampled were distinct ("Harry Potter: Diagon Alley" / "Harry Potter:
- * Magical Creatures", "Forbidden Worlds: Volume 15" / "Volume 8"). PRD §40.3
- * itself says series entries with near-identical titles must never be
- * auto-merged. Those pairs are HELD: detected, counted, not merged
- * (A-03-004, decision pending).
+ * Magical Creatures", "Forbidden Worlds: Volume 15" / "Volume 8"). And a
+ * subtitle on one side only is sometimes the same book ("Dune" / "Dune: A
+ * Novel") and sometimes not ("Chicken Soup for the Soul" / "…: Like Mother,
+ * Like Daughter"). So stage 2 auto-merges only when the subtitles match, and
+ * queues everything else (D1, Audit 03b).
  */
 export const SUBTITLE_EXPR = `
   btrim(regexp_replace(
     regexp_replace(
-      lower(CASE WHEN strpos(title, ':') > 0 THEN substr(title, strpos(title, ':') + 1) ELSE '' END),
-      '[[:punct:]]', ' ', 'g'),
-    '\\s+', ' ', 'g'))`;
+      lower((CASE WHEN strpos(normalize(title, NFC), ':') > 0
+                  THEN substr(normalize(title, NFC), strpos(normalize(title, NFC), ':') + 1)
+                  ELSE '' END) COLLATE pg_c_utf8),
+      '${SEPARATOR_SQL}', ' ', 'g'),
+    '${WHITESPACE_SQL}+', ' ', 'g'), ' ')`;
 
 const onColumn = (expr: string, column: string) => expr.replace(/\btitle\b/g, column);
 
+/**
+ * Stage 2 pairs: identical normalised main title AND at least one shared
+ * author. Every pair, unbounded: runDedupe decides which are unambiguous
+ * enough to auto-merge (identical subtitles too) and queues the rest.
+ */
 export const STAGE2_SQL = `
   WITH author_works AS (
     SELECT wa.author_id, w.id, w.log_count,
-           ${NORMALISED_TITLE_EXPR.replace(/\btitle\b/g, 'w.title')} AS norm
+           ${onColumn(NORMALISED_TITLE_EXPR, 'w.title')} AS norm
     FROM work_authors wa
     JOIN works w ON w.id = wa.work_id
     WHERE w.merged_into_id IS NULL AND NOT w.is_provisional
@@ -155,50 +237,48 @@ export const STAGE2_SQL = `
     )
   )
   SELECT p.a_id AS survivor_id, p.b_id AS loser_id, p.norm,
-         (${onColumn(SUBTITLE_EXPR, 'wa.title')} <> ''
-          AND ${onColumn(SUBTITLE_EXPR, 'wb.title')} <> ''
-          AND ${onColumn(SUBTITLE_EXPR, 'wa.title')} <> ${onColumn(SUBTITLE_EXPR, 'wb.title')}) AS held
+         ${onColumn(SUBTITLE_EXPR, 'wa.title')} AS survivor_sub,
+         ${onColumn(SUBTITLE_EXPR, 'wb.title')} AS loser_sub
   FROM pairs p
   JOIN works wa ON wa.id = p.a_id
-  JOIN works wb ON wb.id = p.b_id
-  -- Mergeable pairs first, so held pairs can never fill the LIMIT month after
-  -- month and starve the pass.
-  ORDER BY held, p.norm
-  LIMIT $1`;
+  JOIN works wb ON wb.id = p.b_id`;
 
 /**
- * Stage 1 pairs: two live works whose editions claim the same ISBN-13.
+ * Stage 1 pairs: two live works whose editions claim the same ISBN-13, one row
+ * per pair, with the two facts runDedupe needs to decide whether the pair is
+ * unambiguous.
  *
- * No longer inert: the editions pass has run (4.9M ISBN-13s on the full
- * catalog) and this finds 30,240 pairs. PRD §40.3 says an ISBN identifies one
- * edition, so two works claiming it are one work — but in the dump publishers
- * re-use ISBNs for unrelated books ("Bidirectional Control of DC Motor…" and
- * "Behaviour of Concrete…" share 9788193323519). A pair whose normalised
- * titles differ is HELD: detected, counted, not merged (A-03-005, decision
- * pending).
+ * PRD §40.3 said an ISBN identifies one edition, so two works claiming it are
+ * one work. The dump contradicts that: publishers re-use ISBNs for unrelated
+ * books ("Bidirectional Control of DC Motor…" and "Behaviour of Concrete…"
+ * share 9788193323519; A-03-005). So a shared ISBN alone is not enough to
+ * auto-merge (D1, Audit 03b).
  */
 export const STAGE1_SQL = `
   WITH shared AS (
-    SELECT e1.work_id AS a_id, e2.work_id AS b_id, e1.isbn_13
+    SELECT e1.work_id AS a_id, e2.work_id AS b_id, min(e1.isbn_13) AS isbn_13
     FROM editions e1
     JOIN editions e2 ON e2.isbn_13 = e1.isbn_13 AND e2.work_id <> e1.work_id
     WHERE e1.isbn_13 IS NOT NULL
+    GROUP BY e1.work_id, e2.work_id
   ),
   live AS (
     SELECT s.*,
            (SELECT count(*) FROM editions e WHERE e.work_id = s.a_id) AS a_editions,
            (SELECT count(*) FROM editions e WHERE e.work_id = s.b_id) AS b_editions,
            wa.log_count AS a_logs, wb.log_count AS b_logs,
-           ${onColumn(NORMALISED_TITLE_EXPR, 'wa.title')} <> ${onColumn(NORMALISED_TITLE_EXPR, 'wb.title')} AS held
+           ${onColumn(NORMALISED_TITLE_EXPR, 'wa.title')} = ${onColumn(NORMALISED_TITLE_EXPR, 'wb.title')} AS same_title,
+           EXISTS (
+             SELECT 1 FROM work_authors x JOIN work_authors y ON y.author_id = x.author_id
+             WHERE x.work_id = s.a_id AND y.work_id = s.b_id
+           ) AS shared_author
     FROM shared s
     JOIN works wa ON wa.id = s.a_id AND wa.merged_into_id IS NULL AND NOT wa.is_provisional
     JOIN works wb ON wb.id = s.b_id AND wb.merged_into_id IS NULL AND NOT wb.is_provisional
   )
-  SELECT DISTINCT a_id AS survivor_id, b_id AS loser_id, isbn_13, held
+  SELECT a_id AS survivor_id, b_id AS loser_id, isbn_13, same_title, shared_author
   FROM live
-  WHERE (a_editions, a_logs, b_id) > (b_editions, b_logs, a_id)
-  ORDER BY held
-  LIMIT $1`;
+  WHERE (a_editions, a_logs, b_id) > (b_editions, b_logs, a_id)`;
 
 /**
  * Move everything that points at the loser, then tombstone it.
@@ -833,91 +913,162 @@ export async function previewMerge(
 }
 
 /**
- * Stage 3 pairs: trigram title > 0.85, author > 0.9, years +-2.
+ * A work is a stage-3 PROBE when it is popular (dump + Flyleaf logs) or has
+ * Flyleaf user data. Only the authors of probe works are matched against
+ * other author records by name (part B of STAGE3_SQL).
  *
- * QUEUED, never auto-merged (PRD §40.3). This band contains subtle differences
- * like reissues, different translations, or series volumes with nearly identical
- * titles.
+ * Why a probe set at all: one `name % name` lookup in authors_name_trgm_idx
+ * (15.4M names, 952 MB) costs ~80 ms warm and 1-1.7 s cold on the 8 GB dev
+ * machine, so probing all 1.66M credited authors would take 37+ hours. At 100
+ * logs the probe set is ~7.3k authors of 9.4k works on the full catalog, plus
+ * the authors of every work anyone has read, shelved or favourited. Those are
+ * the duplicates whose split ratings anyone would see.
  *
- * DOES NOT SCALE (A-03-006): a self-join of every live work against every
- * other, with `similarity()` in the join filter. No index can serve it — not
- * works_title_trgm_idx, and not authors_name_trgm_idx / authors_search_trgm_idx
- * either, because the author names are computed columns of a CTE. On the full
- * catalog the plan is a nested loop over 3.65M × 3.65M rows (cost 1.09e12).
- * It is correct at test scale only; runDedupe runs it last so it cannot block
- * the stage 1–2 merges.
+ * Decided scope limit (Audit 03b, A-03-023): cross-record duplicates among
+ * works below the line are covered instead by user reports (stage 4) and by
+ * probing, once, every work created since the previous finished pass
+ * (`since`: ingested or gap-filled works; see dedupe_runs).
  */
-export const STAGE3_SQL = `
-  WITH live_works AS (
-    SELECT
-      w.id,
-      w.title,
-      ${NORMALISED_TITLE_EXPR.replace(/\btitle\b/g, 'w.title')} AS norm,
-      w.first_publish_year,
-      w.log_count,
-      (SELECT count(*) FROM editions e WHERE e.work_id = w.id) AS edition_count,
-      (SELECT a.name FROM work_authors wa JOIN authors a ON a.id = wa.author_id WHERE wa.work_id = w.id ORDER BY wa.position LIMIT 1) AS author_name,
-      (SELECT a.id FROM work_authors wa JOIN authors a ON a.id = wa.author_id WHERE wa.work_id = w.id ORDER BY wa.position LIMIT 1) AS author_id
-    FROM works w
+export const STAGE3_PROBE_MIN_LOGS = 100;
+
+/**
+ * Stage 3 pairs: trigram similarity on the normalised title > 0.85, author
+ * name similarity > 0.9, first-publication years within 2 (PRD §40.3).
+ * QUEUED, never auto-merged: this band contains reissues, different
+ * translations and series volumes with nearly identical titles.
+ *
+ * Titles are only ever compared WITHIN an author's works (D2, Audit 03b). The
+ * first version compared every live work with every other: a 3.65M × 3.65M
+ * nested loop (cost 1.09e12) that could not run on the full catalog.
+ *
+ *   A. Same author id. Every author's works, pairwise: 54M comparisons on
+ *      the full catalog (the largest author has 1,930 works). A pair whose
+ *      normalised titles are IDENTICAL is stage 2's, not this one's.
+ *   B. The same author under two author records ("J.R.R. Tolkien" /
+ *      "J. R. R. Tolkien"). For each probe author (STAGE3_PROBE_MIN_LOGS),
+ *      the other credited authors whose name is > 0.9 similar come from
+ *      authors_name_trgm_idx — this is that index's only user, so it must
+ *      not be dropped — and their works are compared with the probe
+ *      author's.
+ *
+ * B's author lookup is ONE STATEMENT PER PROBE NAME, on purpose. Written as a
+ * join (one query, or a LATERAL over a batch of names), the planner never
+ * builds a parameterised scan of the trigram index: it seq-scans or
+ * bitmap-scans all 1.56M credited authors with `name % name` as a join
+ * filter (measured: cost 1.3e12 in one query; 10 s for 2 names in a batch).
+ * With the name as a constant it is a bitmap scan of authors_name_trgm_idx,
+ * ~300 ms per name on the 8 GB dev machine, cold cache included.
+ */
+export const stage3ProbeSql = (since: string | null) => sql`
+  WITH used AS (
+    SELECT work_id FROM reads
+    UNION SELECT work_id FROM shelf_items
+    UNION SELECT unnest(favourite_work_ids) FROM profiles
+  )
+  SELECT DISTINCT a.id, a.name
+  FROM work_authors wa
+  JOIN works w ON w.id = wa.work_id
+  JOIN authors a ON a.id = wa.author_id
+  WHERE w.merged_into_id IS NULL AND NOT w.is_provisional
+    AND (w.log_count >= ${sql.raw(String(STAGE3_PROBE_MIN_LOGS))}
+         OR w.id IN (SELECT work_id FROM used)
+         OR w.created_at > ${since}::timestamptz)`;
+
+/** Other credited authors whose name is > 0.9 similar to one probe author's. */
+const STAGE3_PEERS_SQL = (probe: { id: string; name: string }) => sql`
+  SELECT b.id AS a2, similarity(${probe.name}, b.name) AS author_sim
+  FROM authors b
+  WHERE b.name % ${probe.name} AND b.id <> ${probe.id} AND b.has_works
+    AND similarity(${probe.name}, b.name) > 0.9`;
+
+/** Parts A and B → survivor-first pairs. $1: the author pairs from STAGE3_PEERS_SQL. */
+const STAGE3_PAIRS_SQL = (peers: { a1: string; a2: string; author_sim: number }[]) => sql`
+  WITH aw AS MATERIALIZED (
+    SELECT wa.author_id, w.id, w.first_publish_year AS y,
+           ${sql.raw(onColumn(NORMALISED_TITLE_EXPR, 'w.title'))} AS norm
+    FROM work_authors wa
+    JOIN works w ON w.id = wa.work_id
     WHERE w.merged_into_id IS NULL AND NOT w.is_provisional
   ),
-  candidates AS (
-    SELECT
-      a.id AS a_id,
-      b.id AS b_id,
-      a.title AS a_title,
-      b.title AS b_title,
-      similarity(a.norm, b.norm) AS title_sim,
-      COALESCE(similarity(a.author_name, b.author_name), 0) AS author_sim,
-      a.first_publish_year AS a_year,
-      b.first_publish_year AS b_year
-    FROM live_works a
-    JOIN live_works b
-      ON b.id <> a.id
-     -- Order so survivor is always first
-     AND (a.edition_count, a.log_count, b.id) > (b.edition_count, b.log_count, a.id)
-     -- Shared author ID OR author similarity > 0.9
-     AND (
-       (a.author_id IS NOT NULL AND a.author_id = b.author_id)
-       OR (a.author_name IS NOT NULL AND b.author_name IS NOT NULL AND similarity(a.author_name, b.author_name) > 0.9)
-     )
-     -- Years +-2 if both known
-     AND (
-       a.first_publish_year IS NULL OR b.first_publish_year IS NULL
-       OR abs(a.first_publish_year - b.first_publish_year) <= 2
-     )
-     -- Trigram similarity on the NORMALISED title > 0.85 (PRD §40.3)
-     AND similarity(a.norm, b.norm) > 0.85
-     -- Exclude Stage 2 exact matches: normalized title identical AND shared author ID
-     AND NOT (a.norm <> '' AND a.norm = b.norm AND a.author_id IS NOT NULL AND a.author_id = b.author_id)
+  same_author AS (
+    SELECT a.id AS x, b.id AS y, similarity(a.norm, b.norm) AS title_sim, 1.0::real AS author_sim
+    FROM aw a
+    JOIN aw b ON b.author_id = a.author_id AND b.id > a.id
+    WHERE a.norm <> '' AND b.norm <> '' AND a.norm <> b.norm
+      AND (a.y IS NULL OR b.y IS NULL OR abs(a.y - b.y) <= 2)
+      AND similarity(a.norm, b.norm) > 0.85
+  ),
+  peers AS (
+    SELECT * FROM jsonb_to_recordset(${JSON.stringify(peers)}::jsonb) AS p(a1 uuid, a2 uuid, author_sim real)
+  ),
+  cross_record AS (
+    SELECT least(a.id, b.id) AS x, greatest(a.id, b.id) AS y,
+           similarity(a.norm, b.norm) AS title_sim, pr.author_sim
+    FROM peers pr
+    JOIN aw a ON a.author_id = pr.a1
+    JOIN aw b ON b.author_id = pr.a2
+    WHERE a.id <> b.id AND a.norm <> '' AND b.norm <> ''
+      AND (a.y IS NULL OR b.y IS NULL OR abs(a.y - b.y) <= 2)
+      AND similarity(a.norm, b.norm) > 0.85
+      -- A shared author id makes it part A's pair (or stage 2's).
+      AND NOT EXISTS (
+        SELECT 1 FROM work_authors x JOIN work_authors z ON z.author_id = x.author_id
+        WHERE x.work_id = a.id AND z.work_id = b.id)
+  ),
+  pairs AS (
+    SELECT x, y, max(title_sim) AS title_sim, max(author_sim) AS author_sim
+    FROM (SELECT * FROM same_author UNION ALL SELECT * FROM cross_record) u
+    GROUP BY x, y
+  ),
+  ranked AS (
+    SELECT p.*,
+           (SELECT count(*) FROM editions e WHERE e.work_id = p.x) AS x_editions,
+           (SELECT count(*) FROM editions e WHERE e.work_id = p.y) AS y_editions,
+           wx.log_count AS x_logs, wy.log_count AS y_logs
+    FROM pairs p
+    JOIN works wx ON wx.id = p.x
+    JOIN works wy ON wy.id = p.y
   )
-  SELECT
-    c.a_id AS survivor_id,
-    c.b_id AS loser_id,
-    c.title_sim,
-    c.author_sim
-  FROM candidates c
-  WHERE NOT EXISTS (
-    SELECT 1 FROM dedupe_queue dq
-    WHERE dq.survivor_id = c.a_id AND dq.loser_id = c.b_id AND dq.status = 'pending'
-  )
-  AND NOT EXISTS (
-    SELECT 1 FROM work_merges wm
-    WHERE wm.survivor_id = c.a_id AND wm.loser_id = c.b_id AND wm.undone_at IS NULL
-  )
-  ORDER BY c.title_sim DESC
-  LIMIT $1`;
+  SELECT CASE WHEN (x_editions, x_logs, y) > (y_editions, y_logs, x) THEN x ELSE y END AS survivor_id,
+         CASE WHEN (x_editions, x_logs, y) > (y_editions, y_logs, x) THEN y ELSE x END AS loser_id,
+         title_sim, author_sim
+  FROM ranked
+  ORDER BY title_sim DESC, survivor_id, loser_id`;
+
+export type Stage3Timings = { probeAuthors: number; authorPairs: number; probeMs: number; peersMs: number; pairsMs: number };
 
 export async function findStage3Candidates(
   db: Db,
-  limit = 500,
+  limit?: number,
+  onTimings?: (t: Stage3Timings) => void,
+  /** Also probe works created after this instant (the previous finished run's start). */
+  since: string | null = null,
 ): Promise<{ survivorId: string; loserId: string; titleSimilarity: number; authorSimilarity: number }[]> {
-  const rows = await db.execute<{
-    survivor_id: string;
-    loser_id: string;
-    title_sim: number;
-    author_sim: number;
-  }>(sql.raw(STAGE3_SQL.replace('$1', String(limit))));
+  const t0 = Date.now();
+  const probes = await db.execute<{ id: string; name: string }>(stage3ProbeSql(since));
+  const t1 = Date.now();
+
+  const peers: { a1: string; a2: string; author_sim: number }[] = [];
+  // Local to this transaction: every other query keeps the search threshold.
+  // At 0.9 the index returns few candidates per name; at the search default
+  // (0.45) each lookup rechecks far more heap rows. Custom plans, so a cached
+  // generic plan can never fall back to scanning every author.
+  await db.transaction(async (tx) => {
+    await tx.execute(sql`SELECT set_config('pg_trgm.similarity_threshold', '0.9', true)`);
+    await tx.execute(sql`SELECT set_config('plan_cache_mode', 'force_custom_plan', true)`);
+    for (const p of probes) {
+      const rows = await tx.execute<{ a2: string; author_sim: number }>(STAGE3_PEERS_SQL(p));
+      peers.push(...rows.map((r) => ({ a1: p.id, a2: r.a2, author_sim: Number(r.author_sim) })));
+    }
+  });
+  const t2 = Date.now();
+
+  const rows = await db.execute<{ survivor_id: string; loser_id: string; title_sim: number; author_sim: number }>(
+    limit == null ? STAGE3_PAIRS_SQL(peers) : sql`${STAGE3_PAIRS_SQL(peers)} LIMIT ${Math.trunc(limit)}`);
+  onTimings?.({
+    probeAuthors: probes.length, authorPairs: peers.length,
+    probeMs: t1 - t0, peersMs: t2 - t1, pairsMs: Date.now() - t2,
+  });
 
   return rows.map((r) => ({
     survivorId: r.survivor_id,
@@ -927,32 +1078,112 @@ export async function findStage3Candidates(
   }));
 }
 
-export async function queueStage3Candidates(
-  db: Db,
-  limit = 500,
-): Promise<number> {
-  const candidates = await findStage3Candidates(db, limit);
-  let queued = 0;
+export async function queueStage3Candidates(db: Db, limit?: number): Promise<number> {
+  return queueStage3(db, await findStage3Candidates(db, limit));
+}
 
-  for (const c of candidates) {
+async function queueStage3(
+  db: Db,
+  candidates: Awaited<ReturnType<typeof findStage3Candidates>>,
+): Promise<number> {
+  const queued = await queuePairs(db, candidates.map((c) => {
     const titlePct = Math.round(c.titleSimilarity * 100);
     const authorPct = Math.round(c.authorSimilarity * 100);
-    const confidence = Math.round((c.titleSimilarity * 0.6 + c.authorSimilarity * 0.4) * 100) / 100;
-    const reason = `trigram title similarity ${titlePct}%, author similarity ${authorPct}% (Stage 3 probable)`;
+    return {
+      survivorId: c.survivorId,
+      loserId: c.loserId,
+      stage: 3 as const,
+      confidence: Math.round((c.titleSimilarity * 0.6 + c.authorSimilarity * 0.4) * 100) / 100,
+      reason: `trigram title similarity ${titlePct}%, author similarity ${authorPct}% (Stage 3 probable)`,
+      metadata: { titleSimilarity: c.titleSimilarity, authorSimilarity: c.authorSimilarity },
+    };
+  }), { automated: true });
+  return queued.filter((q) => q.inserted).length;
+}
 
-    const inserted = await db.execute(sql`
-      INSERT INTO dedupe_queue (survivor_id, loser_id, stage, status, confidence, reason, metadata)
-      VALUES (${c.survivorId}, ${c.loserId}, 3, 'pending', ${confidence}, ${reason}, ${JSON.stringify({
-        titleSimilarity: c.titleSimilarity,
-        authorSimilarity: c.authorSimilarity,
-      })}::jsonb)
-      ON CONFLICT (survivor_id, loser_id) WHERE status = 'pending' DO NOTHING
-      RETURNING id
-    `);
-    if (inserted.length > 0) queued++;
+type QueueItem = {
+  survivorId: string;
+  loserId: string;
+  stage: 1 | 2 | 3 | 4;
+  reason: string;
+  confidence?: number | null;
+  metadata?: Record<string, unknown>;
+};
+
+/**
+ * Put pairs in the review queue, set-based, with their impact.
+ *
+ * `impact` is the number of user-data rows (reads, reviews, shelf items,
+ * favourites) on either work: the queue is reviewed highest-impact first (D1).
+ * A pair already pending keeps its row, and its impact is refreshed. Skipped:
+ * pairs where either work has been merged away since detection, pairs pending
+ * in the other orientation, and — for `automated` stages only — pairs a
+ * reviewer has already dismissed. A new user report of a dismissed pair is new
+ * evidence and is queued again.
+ */
+async function queuePairs(
+  db: Db,
+  items: QueueItem[],
+  { automated }: { automated: boolean },
+): Promise<{ id: string; inserted: boolean }[]> {
+  const out: { id: string; inserted: boolean }[] = [];
+  const seen = new Set<string>();
+  const unique = items.filter((i) => {
+    const key = `${i.survivorId}:${i.loserId}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+
+  // Batches keep each statement's jsonb parameter and hash tables small.
+  for (let at = 0; at < unique.length; at += 2000) {
+    const batch = unique.slice(at, at + 2000).map((i) => ({
+      survivor_id: i.survivorId,
+      loser_id: i.loserId,
+      stage: i.stage,
+      reason: i.reason,
+      confidence: i.confidence ?? null,
+      metadata: i.metadata ?? {},
+    }));
+    const rows = await db.execute<{ id: string; inserted: boolean }>(sql`
+      WITH p AS (
+        SELECT * FROM jsonb_to_recordset(${JSON.stringify(batch)}::jsonb)
+          AS p(survivor_id uuid, loser_id uuid, stage smallint, reason text, confidence real, metadata jsonb)
+      ),
+      ids AS (SELECT survivor_id AS id FROM p UNION SELECT loser_id FROM p),
+      used AS (
+        SELECT u.id, count(*)::int AS n
+        FROM (
+          SELECT r.work_id AS id FROM reads r WHERE r.work_id IN (SELECT id FROM ids)
+          UNION ALL SELECT v.work_id FROM reviews v WHERE v.work_id IN (SELECT id FROM ids)
+          UNION ALL SELECT s.work_id FROM shelf_items s WHERE s.work_id IN (SELECT id FROM ids)
+          UNION ALL SELECT f.id FROM profiles pr, unnest(pr.favourite_work_ids) AS f(id)
+                    WHERE f.id IN (SELECT id FROM ids)
+        ) u
+        GROUP BY u.id
+      )
+      INSERT INTO dedupe_queue (survivor_id, loser_id, stage, status, confidence, reason, metadata, impact)
+      SELECT p.survivor_id, p.loser_id, p.stage, 'pending', p.confidence, p.reason, p.metadata,
+             COALESCE(us.n, 0) + COALESCE(ul.n, 0)
+      FROM p
+      JOIN works ws ON ws.id = p.survivor_id AND ws.merged_into_id IS NULL
+      JOIN works wl ON wl.id = p.loser_id AND wl.merged_into_id IS NULL
+      LEFT JOIN used us ON us.id = p.survivor_id
+      LEFT JOIN used ul ON ul.id = p.loser_id
+      WHERE NOT EXISTS (
+          SELECT 1 FROM dedupe_queue d
+          WHERE d.status = 'pending' AND d.survivor_id = p.loser_id AND d.loser_id = p.survivor_id)
+        AND (NOT ${automated}::boolean OR NOT EXISTS (
+          SELECT 1 FROM dedupe_queue d
+          WHERE d.status = 'dismissed'
+            AND ((d.survivor_id = p.survivor_id AND d.loser_id = p.loser_id)
+              OR (d.survivor_id = p.loser_id AND d.loser_id = p.survivor_id))))
+      ON CONFLICT (survivor_id, loser_id) WHERE status = 'pending'
+        DO UPDATE SET impact = EXCLUDED.impact
+      RETURNING id, (xmax = 0) AS inserted`);
+    out.push(...rows.map((r) => ({ id: r.id, inserted: r.inserted === true || String(r.inserted) === 'true' })));
   }
-
-  return queued;
+  return out;
 }
 
 /**
@@ -986,30 +1217,29 @@ export async function queueReportedDuplicate(
   // Insert-or-find rather than find-then-insert: two reports of the same pair
   // at once would otherwise both miss the SELECT and one would hit the
   // pending-pair unique index as a 500.
-  const [inserted] = await db.execute<{ id: string }>(sql`
-    INSERT INTO dedupe_queue (survivor_id, loser_id, stage, status, reason, metadata)
-    VALUES (
-      ${data.survivorId},
-      ${data.loserId},
-      4,
-      'pending',
-      ${data.reason},
-      ${JSON.stringify({ reportedByUserId: data.reporterUserId ?? null })}::jsonb
-    )
-    ON CONFLICT (survivor_id, loser_id) WHERE status = 'pending' DO NOTHING
-    RETURNING id
-  `);
-  if (inserted) return { id: inserted.id, queued: true };
+  const [queued] = await queuePairs(db, [{
+    survivorId: data.survivorId,
+    loserId: data.loserId,
+    stage: 4,
+    reason: data.reason,
+    metadata: { reportedByUserId: data.reporterUserId ?? null },
+  }], { automated: false });
+  if (queued) return { id: queued.id, queued: true };
 
+  // Already pending the other way round (or merged since the checks above).
   const [existing] = await db.execute<{ id: string }>(sql`
     SELECT id FROM dedupe_queue
-    WHERE survivor_id = ${data.survivorId} AND loser_id = ${data.loserId} AND status = 'pending'
+    WHERE status = 'pending'
+      AND ((survivor_id = ${data.survivorId} AND loser_id = ${data.loserId})
+        OR (survivor_id = ${data.loserId} AND loser_id = ${data.survivorId}))
   `);
-  return { id: existing!.id, queued: true };
+  if (!existing) throw ApiError.conflict('work_merged', 'One of these works has just been merged into another.');
+  return { id: existing.id, queued: true };
 }
 
 /**
- * Returns paginated dedupe queue entries with joined survivor and loser details.
+ * Returns paginated dedupe queue entries with joined survivor and loser details,
+ * highest impact first.
  */
 export async function getDedupeQueue(
   db: Db,
@@ -1032,6 +1262,7 @@ export async function getDedupeQueue(
       dq.confidence,
       dq.reason,
       dq.dismiss_reason,
+      dq.impact,
       dq.created_at,
       dq.reviewed_at,
       dq.reviewed_by_user_id,
@@ -1063,7 +1294,9 @@ export async function getDedupeQueue(
     query = sql`${query} AND dq.stage = ${opts.stage}`;
   }
 
-  query = sql`${query} ORDER BY dq.created_at DESC LIMIT ${limit} OFFSET ${offset}`;
+  // Highest impact first: pairs where either work has user data are the
+  // ones whose split ratings people see (D1, Audit 03b).
+  query = sql`${query} ORDER BY dq.impact DESC, dq.created_at DESC, dq.id LIMIT ${limit} OFFSET ${offset}`;
 
   const rows = await db.execute<any>(query);
 
@@ -1073,6 +1306,7 @@ export async function getDedupeQueue(
     status: r.status,
     confidence: r.confidence != null ? Number(r.confidence) : null,
     reason: r.reason,
+    impact: Number(r.impact),
     dismiss_reason: r.dismiss_reason,
     dismissReason: r.dismiss_reason,
     created_at: new Date(r.created_at).toISOString(),
@@ -1252,70 +1486,226 @@ export async function getRecentMerges(
 }
 
 export type DedupeReport = {
+  /** Stage 1 pairs detected (shared ISBN-13). */
   stage1: number;
+  /** Stage 2 pairs detected (normalised main title + shared author). */
   stage2: number;
-  /** Stage 1–2 pairs detected but not auto-merged (A-03-004, A-03-005). */
-  held: number;
+  /** Distinct stage 1-2 pairs that are unambiguous under D1 (either stage). */
+  autoMergeable: number;
+  /** Distinct stage 1-2 pairs that go to review instead (in a dry run: would go). */
+  toReview: number;
+  /** Of those, how many were newly queued (0 in a dry run). */
+  queued: number;
+  /** Stage 3 pairs detected. */
+  stage3: number;
   stage3Queued: number;
+  /** Stage 3 also probed works created after this (the previous finished run's start); null on a first run. */
+  stage3Since: string | null;
+  /** Whether this run was allowed to merge (DEDUPE_AUTO_MERGE / --auto-merge). */
+  autoMerge: boolean;
   merged: number;
   skipped: number;
+  /** Auto-mergeable pairs left for the next run because the merge cap was reached. */
+  deferred: number;
+};
+
+/** Default per-run merge cap (D1, Audit 03b). */
+export const DEFAULT_MERGE_CAP = 200;
+
+export type Stage12Pair = {
+  survivorId: string;
+  loserId: string;
+  /** The stages that found it. */
+  stages: (1 | 2)[];
+  /** Unambiguous under D1: auto-merged when merging is enabled. */
+  auto: boolean;
+  /** The stage recorded on the merge or the queue row. */
+  stage: 1 | 2;
+  reason: string;
 };
 
 /**
- * One dedupe pass. `dryRun` reports what it would do and changes nothing.
+ * Stages 1 and 2, classified by the D1 rules (Audit 03b):
  *
- * Automatically merges Stages 1 & 2 (except held pairs), then detects and
- * queues Stage 3 fuzzy duplicates for human review. Stage 3 runs LAST: each
- * merge commits on its own, so a stage-3 failure or timeout can no longer
- * prevent the auto-merges, and a re-run resumes where the last one stopped.
+ *   auto-merge  stage 1: same ISBN-13 AND same normalised title AND a shared author
+ *               stage 2: same normalised title AND a shared author AND matching
+ *                        subtitles (both absent, or both present and equal)
+ *   review      everything else either stage finds
+ *
+ * A pair a reviewer has dismissed is dropped: the pass must not re-queue it or
+ * merge it. A pair whose merge was undone is never auto-merged again; it goes
+ * to review, because an undo is a human saying the rule got it wrong.
+ */
+export async function detectStage12(db: Db): Promise<{ stage1: number; stage2: number; pairs: Stage12Pair[] }> {
+  const stage1 = await db.execute<{
+    survivor_id: string; loser_id: string; isbn_13: string; same_title: boolean; shared_author: boolean;
+  }>(sql.raw(STAGE1_SQL));
+  const stage2 = await db.execute<{
+    survivor_id: string; loser_id: string; norm: string; survivor_sub: string; loser_sub: string;
+  }>(sql.raw(STAGE2_SQL));
+
+  const key = (a: string, b: string) => (a < b ? `${a}:${b}` : `${b}:${a}`);
+  const dismissed = new Set((await db.execute<{ survivor_id: string; loser_id: string }>(sql`
+    SELECT survivor_id, loser_id FROM dedupe_queue WHERE status = 'dismissed'`))
+    .map((r) => key(r.survivor_id, r.loser_id)));
+  const undone = new Set((await db.execute<{ survivor_id: string; loser_id: string }>(sql`
+    SELECT survivor_id, loser_id FROM work_merges WHERE undone_at IS NOT NULL`))
+    .map((r) => key(r.survivor_id, r.loser_id)));
+
+  type Finding = { stage: 1 | 2; auto: boolean; reason: string };
+  const found = new Map<string, { survivorId: string; loserId: string; findings: Finding[] }>();
+  const add = (survivorId: string, loserId: string, f: Finding) => {
+    const k = key(survivorId, loserId);
+    if (dismissed.has(k)) return;
+    const entry = found.get(k) ?? { survivorId, loserId, findings: [] };
+    entry.findings.push(f);
+    found.set(k, entry);
+  };
+
+  for (const r of stage1) {
+    const sameTitle = r.same_title === true || String(r.same_title) === 'true';
+    const sharedAuthor = r.shared_author === true || String(r.shared_author) === 'true';
+    const missing = [!sameTitle && 'the normalised titles differ', !sharedAuthor && 'no author is shared']
+      .filter(Boolean).join(' and ');
+    add(r.survivor_id, r.loser_id, {
+      stage: 1,
+      auto: sameTitle && sharedAuthor,
+      reason: missing
+        ? `shared ISBN-13 ${r.isbn_13}, but ${missing}`
+        : `shared ISBN-13 ${r.isbn_13}, same normalised title and a shared author`,
+    });
+  }
+  for (const r of stage2) {
+    const [s, l] = [r.survivor_sub, r.loser_sub];
+    const auto = s === l;
+    const why = auto ? (s ? `, same subtitle "${s}"` : '')
+      : s && l ? `, but the subtitles differ ("${s}" / "${l}")`
+      : `, but only one has a subtitle ("${s || l}")`;
+    add(r.survivor_id, r.loser_id, {
+      stage: 2,
+      auto,
+      reason: `normalised title "${r.norm}" and a shared author${why}`,
+    });
+  }
+
+  const pairs: Stage12Pair[] = [];
+  for (const [k, e] of found) {
+    const autoFinding = e.findings.find((f) => f.auto);
+    const wasUndone = undone.has(k);
+    // Stage and reason come from the same finding: the unambiguous one if any.
+    const chosen = autoFinding ?? e.findings.slice().sort((a, b) => a.stage - b.stage)[0]!;
+    pairs.push({
+      survivorId: e.survivorId,
+      loserId: e.loserId,
+      stages: [...new Set(e.findings.map((f) => f.stage))].sort(),
+      auto: !!autoFinding && !wasUndone,
+      stage: chosen.stage,
+      reason: wasUndone && autoFinding
+        ? `${chosen.reason} (an earlier merge of this pair was undone)`
+        : chosen.reason,
+    });
+  }
+  // Deterministic order, so a capped run merges the same pairs a re-run would.
+  pairs.sort((a, b) => (a.survivorId + a.loserId < b.survivorId + b.loserId ? -1 : 1));
+  return { stage1: stage1.length, stage2: stage2.length, pairs };
+}
+
+/**
+ * One dedupe pass.
+ *
+ *   dryRun      detect and report; writes nothing.
+ *   autoMerge   OFF by default. Off: detect, and queue what needs review — the
+ *               scheduled job must never merge unattended unless someone
+ *               turned it on (DEDUPE_AUTO_MERGE=true). On: also merge the
+ *               unambiguous pairs, at most `mergeCap` per run.
+ *
+ * Order: merges, then the stage 1-2 review queue, then stage 3. Each merge
+ * commits on its own, so a queueing or stage-3 failure can't undo or block
+ * the merges, and a re-run resumes. Queueing after the merges also means no
+ * queued pair names a work this run has just merged away.
  */
 export async function runDedupe(
   db: Db,
-  opts: { limit?: number; dryRun?: boolean; onMerge?: (c: MergeCandidate) => void } = {},
+  opts: {
+    dryRun?: boolean;
+    autoMerge?: boolean;
+    mergeCap?: number;
+    onMerge?: (c: MergeCandidate) => void;
+    onDetected?: (pairs: Stage12Pair[]) => void;
+    onStage3?: (t: Stage3Timings) => void;
+  } = {},
 ): Promise<DedupeReport> {
-  const limit = opts.limit ?? 1000;
+  const autoMerge = opts.autoMerge === true;
+  const mergeCap = opts.mergeCap ?? DEFAULT_MERGE_CAP;
+  if (!Number.isInteger(mergeCap) || mergeCap < 0) throw new Error(`invalid merge cap: ${mergeCap}`);
 
-  const stage1 = await db.execute<{ survivor_id: string; loser_id: string; isbn_13: string; held: boolean }>(
-    sql.raw(STAGE1_SQL.replace('$1', String(limit))));
-  const stage2 = await db.execute<{ survivor_id: string; loser_id: string; norm: string; held: boolean }>(
-    sql.raw(STAGE2_SQL.replace('$1', String(limit))));
+  // The previous FINISHED pass: stage 3 probes every work created since it
+  // started. As text, so the microseconds survive the round trip.
+  const [previous] = await db.execute<{ since: string | null }>(sql`
+    SELECT max(started_at)::text AS since FROM dedupe_runs WHERE finished_at IS NOT NULL`);
+  const since = previous?.since ?? null;
+  // Recorded before detection, so works created while this pass runs are
+  // "since" for the next one. A dry run writes nothing, not even this.
+  const [run] = opts.dryRun ? [] : await db.execute<{ id: string }>(sql`
+    INSERT INTO dedupe_runs (auto_merge) VALUES (${autoMerge}::boolean) RETURNING id`);
 
-  const candidates: MergeCandidate[] = [
-    ...stage1.filter((r) => !r.held).map((r) => ({
-      survivorId: r.survivor_id, loserId: r.loser_id, stage: 1 as const,
-      reason: `shared ISBN-13 ${r.isbn_13}`,
-    })),
-    ...stage2.filter((r) => !r.held).map((r) => ({
-      survivorId: r.survivor_id, loserId: r.loser_id, stage: 2 as const,
-      reason: `normalised title "${r.norm}" and a shared author`,
-    })),
-  ];
+  const { stage1, stage2, pairs } = await detectStage12(db);
+  opts.onDetected?.(pairs);
+  const auto = pairs.filter((p) => p.auto);
+  const review = pairs.filter((p) => !p.auto);
 
   const report: DedupeReport = {
-    stage1: stage1.length,
-    stage2: stage2.length,
-    held: stage1.filter((r) => r.held).length + stage2.filter((r) => r.held).length,
+    stage1,
+    stage2,
+    autoMergeable: auto.length,
+    toReview: review.length,
+    queued: 0,
+    stage3: 0,
     stage3Queued: 0,
+    stage3Since: since,
+    autoMerge,
     merged: 0,
     skipped: 0,
+    deferred: 0,
   };
-  if (opts.dryRun) return report;
 
-  for (const c of candidates) {
-    // Both ends must still be live. An earlier merge in this same batch, or an
-    // admin merging from the console meanwhile, may have consumed either one;
-    // mergeWorks checks that under its row locks and says so with a 409.
-    try {
-      await mergeWorks(db, c);
-    } catch (err) {
-      if (err instanceof ApiError && err.code === 'work_merged') { report.skipped++; continue; }
-      throw err;
-    }
-    opts.onMerge?.(c);
-    report.merged++;
+  if (opts.dryRun) {
+    report.stage3 = (await findStage3Candidates(db, undefined, opts.onStage3, since)).length;
+    return report;
   }
 
-  report.stage3Queued = await queueStage3Candidates(db, limit);
+  if (autoMerge) {
+    for (const [i, p] of auto.entries()) {
+      if (report.merged >= mergeCap) { report.deferred = auto.length - i; break; }
+      const c: MergeCandidate = { survivorId: p.survivorId, loserId: p.loserId, stage: p.stage, reason: p.reason };
+      // Both ends must still be live. An earlier merge in this same batch, or an
+      // admin merging from the console meanwhile, may have consumed either one;
+      // mergeWorks checks that under its row locks and says so with a 409.
+      try {
+        await mergeWorks(db, c);
+      } catch (err) {
+        if (err instanceof ApiError && err.code === 'work_merged') { report.skipped++; continue; }
+        throw err;
+      }
+      opts.onMerge?.(c);
+      report.merged++;
+    }
+  }
 
+  const queued = await queuePairs(db, review.map((p) => ({
+    survivorId: p.survivorId, loserId: p.loserId, stage: p.stage, reason: p.reason,
+    metadata: { stages: p.stages },
+  })), { automated: true });
+  report.queued = queued.filter((q) => q.inserted).length;
+
+  const stage3 = await findStage3Candidates(db, undefined, opts.onStage3, since);
+  report.stage3 = stage3.length;
+  report.stage3Queued = await queueStage3(db, stage3);
+
+  // Only a pass that got this far counts as "previous" for the next one; a
+  // pass that died leaves finished_at NULL and its window is covered again.
+  await db.execute(sql`
+    UPDATE dedupe_runs SET finished_at = now(), report = ${JSON.stringify(report)}::jsonb
+    WHERE id = ${run!.id}`);
   return report;
 }

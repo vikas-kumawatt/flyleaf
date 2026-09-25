@@ -96,8 +96,9 @@ export type ReconcileFollowsResult = { reconciled: true; workedAt: string };
 export type ReconcileReadsResult = { reconciled: true; corrected: number; workedAt: string };
 
 export type DedupeJobRequest = {
-  limit?: number;
   dryRun?: boolean;
+  /** Per-run merge cap; DEFAULT_MERGE_CAP when absent. Only matters with DEDUPE_AUTO_MERGE=true. */
+  mergeCap?: number;
 };
 
 export type DedupeJobResult = DedupeReport;
@@ -147,15 +148,22 @@ export async function pingHandler(jobs: Job<PingRequest>[]): Promise<PingResult>
 
 /**
  * Dedupe background job handler (FN-52).
+ *
+ * Never merges unless the worker's environment says so: DEDUPE_AUTO_MERGE=true
+ * (Audit 03b). Off, the monthly pass detects and queues only. The switch is
+ * deliberately not in the job payload, so nothing that can enqueue a job can
+ * turn merging on.
  */
 export async function dedupeJobHandler(
   jobs: Job<DedupeJobRequest>[],
   db: Db,
+  env: Record<string, string | undefined> = process.env,
 ): Promise<DedupeJobResult> {
   const data = jobs.at(-1)?.data ?? {};
   return runDedupe(db, {
-    limit: data.limit,
     dryRun: data.dryRun,
+    mergeCap: data.mergeCap,
+    autoMerge: env.DEDUPE_AUTO_MERGE === 'true',
   });
 }
 
@@ -328,10 +336,16 @@ export async function registerQueues(boss: PgBoss, log: JobLog, db?: Db): Promis
           ids: jobs.map((j) => j.id),
           stage1: result.stage1,
           stage2: result.stage2,
-          held: result.held,
+          autoMergeable: result.autoMergeable,
+          toReview: result.toReview,
+          queued: result.queued,
+          stage3: result.stage3,
           stage3Queued: result.stage3Queued,
+          stage3Since: result.stage3Since,
+          autoMerge: result.autoMerge,
           merged: result.merged,
           skipped: result.skipped,
+          deferred: result.deferred,
         },
         'job handled',
       );

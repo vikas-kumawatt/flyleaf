@@ -53,7 +53,7 @@ async function main() {
   if (process.argv.includes('--dedupe')) {
     await boss.start();
     await boss.createQueue(QUEUES.catalogDedupe);
-    const id = await boss.send(QUEUES.catalogDedupe, { limit: 1000 });
+    const id = await boss.send(QUEUES.catalogDedupe, {});
     log.info({ id, queue: QUEUES.catalogDedupe }, 'enqueued; a running worker should handle it');
     await boss.stop({ graceful: false });
     await closeDb(db);
@@ -70,8 +70,10 @@ async function main() {
   await boss.start();
   await registerQueues(boss, log, db);
 
-  // Monthly dedupe pass: 1st of every month at midnight (FN-52, Architecture §9)
-  await boss.schedule(QUEUES.catalogDedupe, '0 0 1 * *', { limit: 1000 });
+  // Monthly dedupe pass: 1st of every month at midnight (FN-52, Architecture §9).
+  // It detects and queues; it merges only if this worker runs with
+  // DEDUPE_AUTO_MERGE=true (Audit 03b).
+  await boss.schedule(QUEUES.catalogDedupe, '0 0 1 * *', {});
 
   // Nightly counter reconciliation (Architecture §3.9: "every counter has a
   // reconciliation job"). Staggered so they never contend for the same rows.

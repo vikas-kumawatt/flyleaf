@@ -47,6 +47,13 @@ const reportBody = z.object({
   reason: z.string().min(3),
 });
 
+const STAGE_LABELS: Record<number, string> = {
+  1: 'Shared ISBN, ambiguous',
+  2: 'Title + author, ambiguous',
+  3: 'Probable Fuzzy',
+  4: 'User Reported',
+};
+
 const mergesQuery = z.object({
   limit: z.coerce.number().optional(),
   offset: z.coerce.number().optional(),
@@ -64,7 +71,7 @@ export function adminDedupeRoutes(db: Db) {
         schema: {
           tags: ['Admin Dedupe'],
           summary: 'List dedupe review queue',
-          description: 'Lists pending or resolved Stage 3 & 4 duplicate candidates.',
+          description: 'Lists pending or resolved duplicate candidates, highest impact first: stage 1-2 pairs too ambiguous to auto-merge, and stages 3 and 4.',
           querystring: dedupeQueueQuerySchema,
           response: {
             200: dedupeQueueListResponseSchema,
@@ -441,8 +448,9 @@ export function adminDedupeRoutes(db: Db) {
         <div style="display: flex; justify-content: space-between; align-items: center;">
           <div>
             <span class="badge ${item.stage === 3 ? 'badge-stage3' : 'badge-stage4'}">
-              Stage ${item.stage} (${item.stage === 3 ? 'Probable Fuzzy' : 'User Reported'})
+              Stage ${item.stage} (${STAGE_LABELS[item.stage] ?? 'Unknown'})
             </span>
+            <span class="meta" style="margin-left: 8px;">Impact: ${item.impact}</span>
             ${item.confidence != null ? `<span class="meta" style="margin-left: 8px;">Confidence: ${(item.confidence * 100).toFixed(0)}%</span>` : ''}
           </div>
           <span class="meta">${item.createdAt.slice(0, 10)}</span>

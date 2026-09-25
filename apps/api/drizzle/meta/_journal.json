@@ -148,6 +148,20 @@
       "when": 1789030000000,
       "tag": "0020_has_works_bulk_bypass",
       "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "7",
+      "when": 1789040000000,
+      "tag": "0021_dedupe_review_queue",
+      "breakpoints": true
+    },
+    {
+      "idx": 22,
+      "version": "7",
+      "when": 1789050000000,
+      "tag": "0022_dedupe_runs",
+      "breakpoints": true
     }
   ]
 }

@@ -4860,10 +4860,22 @@ A defined pipeline, run monthly after ingest:
 
 | Stage | Rule | Action |
 |---|---|---|
-| 1 — Exact | Two works whose editions share an ISBN-13 | **Auto-merge.** An ISBN identifies one edition; two works claiming it are one work |
-| 2 — Strong | Normalised title identical (case, punctuation, leading articles and subtitle stripped) **and** a shared author ID | **Auto-merge** |
+| 1 — Exact | Two works whose editions share an ISBN-13 | **Auto-merge only if** the normalised titles are identical **and** at least one author ID is shared. Every other shared-ISBN pair → **review queue** |
+| 2 — Strong | Normalised title identical (case, punctuation, leading articles and subtitle stripped) **and** a shared author ID | **Auto-merge only if** the subtitles also match (both absent, or both present and identical after normalisation). A subtitle on one side only, or two different subtitles → **review queue** |
 | 3 — Probable | Trigram similarity on normalised title above 0.85 **and** author name similarity above 0.9 **and** first-publication years within 2 | **Queue for review — never auto-merged.** This band contains genuinely distinct books: reissues, different translations, and series entries with near-identical titles |
 | 4 — Reported | "These are the same book" from the correction flow (§6.46) | Queue, weighted by reporter reputation |
+
+**Why stages 1–2 are narrower than first written (amended 2026-09-25, Audit 03/03b, `docs/audit/findings/03-dedupe.md`).** The full catalog contradicted both original rules:
+- *"An ISBN identifies one edition."* Publishers re-use ISBNs. Of 30,240 shared-ISBN pairs, 9,309 had different normalised titles, and about 6 in 25 sampled were unrelated books (*Bidirectional Control of DC Motor* and *Behaviour of Concrete* share 9788193323519; *The Charlie Brown Dictionary Volume 2* / *Volume 5*).
+- *"Subtitle stripped."* Of 322,702 title+author pairs, 10,572 had two different subtitles, and all 25 sampled were different books (*Harry Potter: Diagon Alley* / *Harry Potter: Magical Creatures*, *Loki: Agent of Asgard Volume 1* / *Volume 2*). This is the "series entries with near-identical titles" case that stage 3 already forbids auto-merging. A subtitle on one side only (28,682 pairs) is sometimes the same book (*Dune* / *Dune: A Novel*) and sometimes not (*Chicken Soup for the Soul* / *…: Like Mother, Like Daughter*).
+
+So only the unambiguous pairs auto-merge, and everything else stages 1–2 find goes to the review queue, **ordered by impact**: pairs where either work has user data (reads, reviews, shelf items, favourites) first. A pair a reviewer dismissed is never re-queued or merged by the pipeline, and a pair whose merge was undone is never auto-merged again.
+
+**Auto-merge is off by default.** The monthly job detects and queues only, unless the worker runs with `DEDUPE_AUTO_MERGE=true`. With it on, each run merges at most **200** pairs; the rest wait for the next run.
+
+**Title normalisation is locale-independent.** It is implemented twice (TypeScript for imports, SQL for the catalog scan): NFC, Unicode simple lowercase, and one explicit shared class of separators (Unicode punctuation and symbols, plus bidi and zero-width marks). The two agree on every title in the catalog and every code point of planes 0–3.
+
+**Stage 3 compares titles only within an author's works**, never all pairs. The same author under two author records is matched by name through the author-name trigram index, starting from popular works (100+ logs), works with user data, and works ingested or gap-filled since the previous pass. **Decided scope limit:** the long tail beyond those, meaning duplicate author records where neither work is popular, used, or new, is left to user reports (stage 4). Probing every credited author costs 37+ hours per pass.
 
 **Merge semantics.** The survivor is the work with more editions, then more Flyleaf logs. The loser gets `merged_into_id` set and is **never deleted** — every `reads`, `reviews` and `shelf_items` row repoints, and the old ID redirects permanently so existing links and already-shared cards keep working (§34.1).
 

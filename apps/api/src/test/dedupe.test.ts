@@ -25,8 +25,13 @@ import {
   resolveQueueItem,
   getRecentMerges,
   normaliseTitle,
+  normaliseSubtitle,
   runDedupe,
+  DEFAULT_MERGE_CAP,
+  STAGE3_PROBE_MIN_LOGS,
+  SUBTITLE_EXPR,
 } from '../catalog/dedupe.js';
+import { QUEUES, dedupeJobHandler } from '../jobs/index.js';
 import { buildApp } from '../app.js';
 import { freshDrizzle } from './pg.js';
 import { createAdminUser, loginAdmin } from '../admin/auth.js';
@@ -44,7 +49,7 @@ afterAll(async () => { await client?.close(); });
 beforeEach(async () => {
   await client.exec(`TRUNCATE works, authors, editions, reads, users, profiles, refresh_tokens,
     work_authors, work_subjects, series_entries, work_stats, work_merges, dedupe_queue, external_ids,
-    field_provenance, progress_events, subjects, series RESTART IDENTITY CASCADE`);
+    field_provenance, progress_events, subjects, series, dedupe_runs RESTART IDENTITY CASCADE`);
 });
 
 const author = async (db: Db, name: string) =>
@@ -117,6 +122,23 @@ describe('title normalisation', () => {
       'Le Petit Prince', 'Der Prozess', 'Die Verwandlung', 'The 39 Steps', 'Catch-22',
       'L’Étranger', 'Don Quixote — Part One', '«Война и мир»', '¿Quién?', 'ÉMILE',
       'Salt & Pepper', 'O’Brien’s “Tale”', 'ΟΔΥΣΣΕΙΑ', 'Books 📚 Forever', 'x_y',
+      // Audit 03b: real catalog titles the two disagreed on under the real
+      // server's locale (musl, en_US.utf8) — decomposed accents, bidi and
+      // zero-width marks, dotted capital I, combining marks with no
+      // precomposed form, Vietnamese stacked diacritics — plus a no-break
+      // space, a vulgar fraction and a final sigma.
+      'Omisio\u0301n impropia',
+      'Das Recht der Ausgabenbewilligung der zu\u0308rcherischen Gemeinden',
+      'Mala\u0304 disaleli\u0304 na\u0304t\u0323ake',
+      'Enne ver\u0332ute vitarut',
+      'Blema ko o\u0333',
+      '\u0130ngilizce-T\u00fcrk\u00e7e botanik k\u0131lavuzu',
+      '\u200f\u0627\u0644\u0648\u062c\u064a\u0632 \u0641\u064a \u062a\u0633\u0648\u064a\u0629 \u0627\u0644\u0645\u0646\u0627\u0632\u0639\u0627\u062a \u0627\u0644\u062f\u0648\u0644\u064a\u0629 :\u200f',
+      "La demeure de l'araign\u00e9e \u200e",
+      '\u067e\u0627\u064a\u0627\u0646 \u0641\u0627\u0631\u0633\u0649 \u062f\u0631 \u0634\u0628\u0647 \u0642\u0627\u0631\u0647\u200c\u0649 \u0647\u0646\u062f',
+      'Ng\u01b0\u01a1\u0300i Tha\u0301i \u01a1\u0309 ta\u0302y ba\u0301\u0306c Vie\u0323\u0302t Nam',
+      'Shina\u0304 qa\u0304\u02bbidah',
+      'Le\u00a0Petit\u2003Prince', '\u00bd Price', '\u039f\u0394\u03a5\u03a3\u03a3\u0395\u03a5\u03a3: \u0399\u0398\u0391\u039a\u0397\u03a3',
     ];
     // One query, not one per title: a round trip each was 40 seconds.
     const values = titles.map((t) => `('${t.replace(/'/g, "''")}')`).join(',');
@@ -170,7 +192,7 @@ describe('survivor selection', () => {
     await edition(db, manyEditions);
     await edition(db, manyEditions);
 
-    await runDedupe(db);
+    await runDedupe(db, { autoMerge: true });
     const [loser] = await db.execute<{ merged_into_id: string | null }>(
       sql`SELECT merged_into_id FROM works WHERE id = ${fewEditionsManyLogs}`);
     expect(loser!.merged_into_id).toBe(manyEditions);
@@ -181,7 +203,7 @@ describe('survivor selection', () => {
     const popular = await work(db, 'Piranesi', 561, a);
     const obscure = await work(db, 'Piranesi', 3, a);
 
-    await runDedupe(db);
+    await runDedupe(db, { autoMerge: true });
     const [row] = await db.execute<{ merged_into_id: string | null }>(
       sql`SELECT merged_into_id FROM works WHERE id = ${obscure}`);
     expect(row!.merged_into_id).toBe(popular);
@@ -307,10 +329,10 @@ describe('a full pass', () => {
     await work(db, 'Piranesi', 3, a);
     await work(db, 'Piranesi', 1, a);
 
-    const first = await runDedupe(db);
+    const first = await runDedupe(db, { autoMerge: true });
     expect(first.merged).toBeGreaterThanOrEqual(1);
 
-    const second = await runDedupe(db);
+    const second = await runDedupe(db, { autoMerge: true });
     expect(second.merged).toBe(0);
   });
 
@@ -1047,47 +1069,60 @@ describe('detection rules on real catalog shapes (Audit 03)', () => {
   // A-03-004: the full catalog has 10,572 stage-2 pairs whose subtitles are
   // BOTH present and differ, and every one of 25 sampled was two different
   // books ("Harry Potter: Diagon Alley" / "Harry Potter: Magical Creatures").
-  it('stage 2 holds back two different subtitles instead of auto-merging them', async () => {
+  // Audit 03b (D1) superseded the interim "hold": two different subtitles now
+  // go to the review queue instead of being counted and dropped.
+  it('stage 2 queues two different subtitles instead of auto-merging them', async () => {
     const a = await author(db, 'J. K. Rowling');
     const one = await work(db, 'Harry Potter: Diagon Alley', 50, a);
     const two = await work(db, 'Harry Potter: Magical Creatures', 40, a);
 
-    const report = await runDedupe(db);
-    expect(report).toMatchObject({ stage2: 1, held: 1, merged: 0 });
+    const report = await runDedupe(db, { autoMerge: true });
+    expect(report).toMatchObject({ stage2: 1, autoMergeable: 0, toReview: 1, queued: 1, merged: 0 });
     const rows = await db.execute<{ merged_into_id: string | null }>(
       sql`SELECT merged_into_id FROM works WHERE id IN (${one}, ${two})`);
     expect(rows.every((r) => r.merged_into_id === null)).toBe(true);
   });
 
-  it('stage 2 still merges a bare title with its subtitled copy (the case the rule exists for)', async () => {
+  // D1: a subtitle on one side only is sometimes the same book ("Dune: A
+  // Novel") and sometimes not ("Chicken Soup for the Soul: Like Mother, Like
+  // Daughter"), so it is reviewed, not auto-merged. (Before D1 this merged.)
+  it('stage 2 queues a bare title and its subtitled copy for review', async () => {
     const a = await author(db, 'Frank Herbert');
     await work(db, 'Dune', 44000, a);
     const gone = await work(db, 'Dune: A Novel', 4, a);
 
-    expect(await runDedupe(db)).toMatchObject({ stage2: 1, held: 0, merged: 1 });
+    expect(await runDedupe(db, { autoMerge: true })).toMatchObject({ stage2: 1, autoMergeable: 0, queued: 1, merged: 0 });
     const [row] = await db.execute<{ merged_into_id: string | null }>(
       sql`SELECT merged_into_id FROM works WHERE id = ${gone}`);
-    expect(row!.merged_into_id).not.toBeNull();
+    expect(row!.merged_into_id).toBeNull();
+    const [q] = await getDedupeQueue(db);
+    expect(q).toMatchObject({ stage: 2, loser: { id: gone } });
+    expect(q!.reason).toContain('only one has a subtitle');
   });
 
   // A-03-005: 30,240 stage-1 pairs on the full catalog; among different-title
   // pairs, publishers re-using an ISBN for unrelated books are common.
-  it('stage 1 holds back a shared ISBN between works whose titles differ', async () => {
-    const x = await work(db, 'Bidirectional Control of DC Motor', 3);
-    const y = await work(db, 'Behaviour of Concrete with Groundnut Shell Ash', 2);
+  it('stage 1 queues a shared ISBN between works whose titles differ', async () => {
+    const a = await author(db, 'Anand Rao');
+    const x = await work(db, 'Bidirectional Control of DC Motor', 3, a);
+    const y = await work(db, 'Behaviour of Concrete with Groundnut Shell Ash', 2, a);
     await edition(db, x, '9788193323519');
     await edition(db, y, '9788193323519');
 
-    expect(await runDedupe(db)).toMatchObject({ stage1: 1, held: 1, merged: 0 });
+    expect(await runDedupe(db, { autoMerge: true })).toMatchObject({ stage1: 1, autoMergeable: 0, queued: 1, merged: 0 });
+    const [q] = await getDedupeQueue(db);
+    expect(q).toMatchObject({ stage: 1 });
+    expect(q!.reason).toContain('the normalised titles differ');
   });
 
-  it('stage 1 merges a shared ISBN between works with the same normalised title', async () => {
-    const x = await work(db, 'The Greek Fathers', 3);
-    const y = await work(db, 'Greek Fathers', 2);
+  it('stage 1 merges a shared ISBN between works with the same normalised title and a shared author', async () => {
+    const a = await author(db, 'Stephen Tomkins');
+    const x = await work(db, 'The Greek Fathers', 3, a);
+    const y = await work(db, 'Greek Fathers', 2, a);
     await edition(db, x, '9781586170134');
     await edition(db, y, '9781586170134');
 
-    expect(await runDedupe(db)).toMatchObject({ stage1: 1, held: 0, merged: 1 });
+    expect(await runDedupe(db, { autoMerge: true })).toMatchObject({ stage1: 1, autoMergeable: 1, queued: 0, merged: 1 });
   });
 
   // PRD §40.3: stage 3 is similarity on the NORMALISED title. On the raw
@@ -1113,7 +1148,7 @@ describe('detection rules on real catalog shapes (Audit 03)', () => {
     await work(db, 'Jonathan Strange & Mr Norrell', 500, a);
     await work(db, 'Jonathan Strange and Mr Norrell', 10, a);
     try {
-      await expect(runDedupe(db)).rejects.toThrow();
+      await expect(runDedupe(db, { autoMerge: true })).rejects.toThrow();
     } finally {
       await client.exec(`DROP TRIGGER fail_queue ON dedupe_queue; DROP FUNCTION fail_queue();`);
     }
@@ -1252,5 +1287,333 @@ describe('undo races (Audit 03)', () => {
     expect(results.filter((r) => r.status === 'fulfilled')).toHaveLength(1);
     const rejected = results.find((r): r is PromiseRejectedResult => r.status === 'rejected');
     expect(rejected!.reason).toMatchObject({ status: 409, code: 'merge_already_undone' });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Audit 03b: the decisions on Part 03 (D1 auto-merge rules, D2 stage 3,
+// D4 moderators) and the scheduled job's safety switch.
+// ---------------------------------------------------------------------------
+
+const liveCount = async () =>
+  Number((await db.execute<{ n: number }>(sql`SELECT count(*)::int AS n FROM works WHERE merged_into_id IS NULL`))[0]!.n);
+const queueCount = async () =>
+  Number((await db.execute<{ n: number }>(sql`SELECT count(*)::int AS n FROM dedupe_queue`))[0]!.n);
+
+describe('auto-merge is off unless explicitly enabled (Audit 03b)', () => {
+  it('a default pass detects and queues but merges nothing', async () => {
+    const a = await author(db, 'Susanna Clarke');
+    await work(db, 'Piranesi', 561, a);
+    await work(db, 'Piranesi', 3, a);                     // unambiguous
+    await work(db, 'Jonathan Strange', 50, a);
+    await work(db, 'Jonathan Strange: A Novel', 5, a);    // ambiguous
+
+    const report = await runDedupe(db);
+    expect(report).toMatchObject({ autoMerge: false, autoMergeable: 1, toReview: 1, queued: 1, merged: 0 });
+    expect(await liveCount()).toBe(4);
+    expect(await queueCount()).toBe(1);
+  });
+
+  it('the scheduled job merges only when the worker has DEDUPE_AUTO_MERGE=true', async () => {
+    const a = await author(db, 'Susanna Clarke');
+    await work(db, 'Piranesi', 561, a);
+    await work(db, 'Piranesi', 3, a);
+    // A payload cannot switch merging on: only the worker's environment can.
+    const job = [{ id: '1', name: QUEUES.catalogDedupe, data: { autoMerge: true } }] as never;
+
+    for (const env of [{}, { DEDUPE_AUTO_MERGE: 'false' }, { DEDUPE_AUTO_MERGE: '1' }, { DEDUPE_AUTO_MERGE: 'TRUE' }]) {
+      expect(await dedupeJobHandler(job, db, env)).toMatchObject({ autoMerge: false, merged: 0 });
+      expect(await liveCount()).toBe(2);
+    }
+
+    expect(await dedupeJobHandler(job, db, { DEDUPE_AUTO_MERGE: 'true' }))
+      .toMatchObject({ autoMerge: true, merged: 1 });
+    expect(await liveCount()).toBe(1);
+  });
+
+  it('a dry run writes nothing, even with auto-merge on', async () => {
+    const a = await author(db, 'Susanna Clarke');
+    await work(db, 'Piranesi', 561, a);
+    await work(db, 'Piranesi', 3, a);
+    await work(db, 'Jonathan Strange', 50, a);
+    await work(db, 'Jonathan Strange: A Novel', 5, a);
+
+    expect(await runDedupe(db, { dryRun: true, autoMerge: true }))
+      .toMatchObject({ autoMergeable: 1, toReview: 1, queued: 0, merged: 0 });
+    expect(await liveCount()).toBe(4);
+    expect(await queueCount()).toBe(0);
+  });
+});
+
+describe('D1: only unambiguous pairs auto-merge (Audit 03b)', () => {
+  it('stage 1 without a shared author goes to review, even with the same title', async () => {
+    const x = await work(db, 'Poems', 3, await author(db, 'Emily Dickinson'));
+    const y = await work(db, 'Poems', 2, await author(db, 'Rainer Maria Rilke'));
+    await edition(db, x, '9780000000011');
+    await edition(db, y, '9780000000011');
+
+    expect(await runDedupe(db, { autoMerge: true })).toMatchObject({ stage1: 1, autoMergeable: 0, queued: 1, merged: 0 });
+    const [q] = await getDedupeQueue(db);
+    expect(q!.reason).toContain('no author is shared');
+  });
+
+  it('stage 2 merges identical subtitles, and identical bare titles', async () => {
+    const a = await author(db, 'J. K. Rowling');
+    await work(db, 'Harry Potter: Diagon Alley', 50, a);
+    await work(db, 'Harry Potter - Diagon Alley', 5, a);   // different main title: not a stage-2 pair
+    await work(db, 'harry potter: DIAGON ALLEY!', 4, a);
+    await work(db, 'Quidditch Through the Ages', 30, a);
+    await work(db, 'Quidditch Through the Ages', 3, a);
+
+    const report = await runDedupe(db, { autoMerge: true });
+    expect(report).toMatchObject({ stage2: 2, autoMergeable: 2, toReview: 0, merged: 2 });
+  });
+
+  it('a pair found by both stages is counted, queued or merged once', async () => {
+    const a = await author(db, 'Frank Herbert');
+    const x = await work(db, 'Dune', 44000, a);
+    const y = await work(db, 'Dune: A Novel', 4, a);     // stage 2: one-sided subtitle -> review
+    await edition(db, x, '9780441013593');
+    await edition(db, y, '9780441013593');               // stage 1: same main title + author -> auto
+
+    const report = await runDedupe(db, { autoMerge: true });
+    expect(report).toMatchObject({ stage1: 1, stage2: 1, autoMergeable: 1, toReview: 0, merged: 1 });
+    const [m] = await db.execute<{ stage: number }>(sql`SELECT stage FROM work_merges`);
+    expect(Number(m!.stage)).toBe(1);
+  });
+
+  it('stops at the merge cap and finishes on the next run', async () => {
+    const a = await author(db, 'Susanna Clarke');
+    for (const t of ['Piranesi', 'Jonathan Strange', 'The Ladies of Grace Adieu']) {
+      await work(db, t, 100, a);
+      await work(db, t, 1, a);
+    }
+
+    expect(await runDedupe(db, { autoMerge: true, mergeCap: 2 })).toMatchObject({ autoMergeable: 3, merged: 2, deferred: 1 });
+    expect(await runDedupe(db, { autoMerge: true, mergeCap: 2 })).toMatchObject({ autoMergeable: 1, merged: 1, deferred: 0 });
+    expect(await liveCount()).toBe(3);
+  });
+
+  it('the default merge cap is 200, and a bad cap is refused', async () => {
+    expect(DEFAULT_MERGE_CAP).toBe(200);
+    await expect(runDedupe(db, { autoMerge: true, mergeCap: -1 })).rejects.toThrow(/merge cap/);
+  });
+
+  it('a dismissed pair is neither re-queued nor merged', async () => {
+    const a = await author(db, 'Susanna Clarke');
+    const x = await work(db, 'Piranesi', 561, a);
+    const y = await work(db, 'Piranesi', 3, a);
+    const s = await work(db, 'Jonathan Strange', 50, a);
+    const l = await work(db, 'Jonathan Strange: A Novel', 5, a);
+    // A reviewer said "different books" about both pairs.
+    for (const [survivorId, loserId] of [[x, y], [s, l]] as const) {
+      const { id } = await queueReportedDuplicate(db, { survivorId, loserId, reason: 'r' });
+      await resolveQueueItem(db, id, 'dismiss', { reason: 'different books' });
+    }
+
+    expect(await runDedupe(db, { autoMerge: true })).toMatchObject({ autoMergeable: 0, toReview: 0, queued: 0, merged: 0 });
+    expect(await liveCount()).toBe(4);
+  });
+
+  it('a pair whose merge was undone is reviewed, never auto-merged again', async () => {
+    const a = await author(db, 'Susanna Clarke');
+    const x = await work(db, 'Piranesi', 561, a);
+    const y = await work(db, 'Piranesi', 3, a);
+    expect((await runDedupe(db, { autoMerge: true })).merged).toBe(1);
+    const [m] = await db.execute<{ id: string }>(sql`SELECT id FROM work_merges`);
+    await undoMerge(db, m!.id);
+
+    expect(await runDedupe(db, { autoMerge: true })).toMatchObject({ autoMergeable: 0, toReview: 1, queued: 1, merged: 0 });
+    const [q] = await getDedupeQueue(db);
+    expect([q!.survivor.id, q!.loser.id]).toEqual([x, y]);
+    expect(q!.reason).toContain('undone');
+  });
+
+  it('a later pass does not queue a pending pair again', async () => {
+    const a = await author(db, 'Susanna Clarke');
+    await work(db, 'Jonathan Strange', 50, a);
+    await work(db, 'Jonathan Strange: A Novel', 5, a);
+
+    expect((await runDedupe(db)).queued).toBe(1);
+    expect((await runDedupe(db)).queued).toBe(0);
+    expect(await queueCount()).toBe(1);
+  });
+});
+
+describe('the review queue is ordered by impact (Audit 03b)', () => {
+  it('pairs where either work has user data come first, most data first', async () => {
+    const a = await author(db, 'Susanna Clarke');
+    await work(db, 'Alpha', 10, a);
+    const none = await work(db, 'Alpha: A Novel', 1, a);
+    await work(db, 'Beta', 10, a);
+    const some = await work(db, 'Beta: A Novel', 1, a);
+    const most1 = await work(db, 'Gamma', 10, a);
+    const most2 = await work(db, 'Gamma: A Novel', 1, a);
+    const u = await user(db, 'reader@example.com');
+    await read(db, u, some, 1);                                   // 1 read
+    const r = await read(db, u, most1, 1);                        // 1 read
+    await db.execute(sql`INSERT INTO reviews (read_id, user_id, work_id, body) VALUES (${r}, ${u}, ${most1}, 'x')`);
+    const [shelf] = await db.execute<{ id: string }>(sql`INSERT INTO shelves (user_id, name, slug) VALUES (${u}, 'S', 's') RETURNING id`);
+    await db.execute(sql`INSERT INTO shelf_items (shelf_id, work_id, position) VALUES (${shelf!.id}, ${most2}, 0)`);
+    await db.execute(sql`UPDATE profiles SET favourite_work_ids = ARRAY[${most2}]::uuid[] WHERE user_id = ${u}`);
+
+    await runDedupe(db);
+    const queue = await getDedupeQueue(db);
+    // Gamma: read + review + shelf item + favourite = 4.
+    expect(queue.map((q) => [q.loser.id, q.impact])).toEqual([[most2, 4], [some, 1], [none, 0]]);
+  });
+
+  it('a user report of a pair with user data carries its impact', async () => {
+    const a = await author(db, 'Ted Chiang');
+    const w1 = await work(db, 'Exhalation', 200, a);
+    const w2 = await work(db, 'Exhalation (UK)', 50, a);
+    await read(db, await user(db, 'r@example.com'), w2, 1);
+    const { id } = await queueReportedDuplicate(db, { survivorId: w1, loserId: w2, reason: 'same book' });
+
+    const [q] = await getDedupeQueue(db);
+    expect(q).toMatchObject({ id, stage: 4, impact: 1 });
+  });
+
+  it('the queue endpoint serves stage 1-2 items with their impact', async () => {
+    const app = await buildApp({ db });
+    await app.ready();
+    const { secret } = await createAdminUser(db, { email: 'q@flyleaf.app', password: 'StrongAdminPass123', role: 'moderator' });
+    const { token } = await loginAdmin(db, { email: 'q@flyleaf.app', password: 'StrongAdminPass123', totpCode: generateTotp(secret) });
+    const a = await author(db, 'Frank Herbert');
+    await work(db, 'Dune', 44000, a);
+    await work(db, 'Dune: A Novel', 4, a);
+    await runDedupe(db);
+
+    const res = await app.inject({ method: 'GET', url: '/v1/admin/dedupe/queue?stage=2', headers: { Authorization: `Bearer ${token}` } });
+    expect(res.statusCode).toBe(200);
+    expect(JSON.parse(res.payload).data).toMatchObject([{ stage: 2, impact: 0 }]);
+    await app.close();
+  });
+});
+
+describe('title normalisation is locale-independent (Audit 03b, A-03-014)', () => {
+  it('composed and decomposed accents are the same title, and accents are kept', async () => {
+    const composed = 'Omisi\u00f3n impropia';
+    const decomposed = 'Omisio\u0301n impropia';
+    expect(normaliseTitle(decomposed)).toBe(normaliseTitle(composed));
+    expect(normaliseTitle(decomposed)).toBe('omisi\u00f3n impropia');
+
+    const a = await author(db, 'Enrique Bacigalupo');
+    await work(db, composed, 5, a);
+    await work(db, decomposed, 1, a);
+    expect(await runDedupe(db, { dryRun: true })).toMatchObject({ stage2: 1, autoMergeable: 1 });
+  });
+
+  it('subtitles follow the same rules in both implementations', async () => {
+    const titles = ['Dune', 'Dune: A Novel', 'X:  The\u00a0Y\u200f', 'A: \u00bd: b', 'T: \u0130STANBUL'];
+    const values = titles.map((t) => `('${t.replace(/'/g, "''")}')`).join(',');
+    const rows = await db.execute<{ title: string; sub: string }>(sql.raw(`
+      SELECT title, ${SUBTITLE_EXPR} AS sub FROM (VALUES ${values}) AS v(title)`));
+    expect(rows.map((r) => [r.title, r.sub])).toEqual(titles.map((t) => [t, normaliseSubtitle(t)]));
+    expect(titles.map(normaliseSubtitle)).toEqual(['', 'a novel', 'the y', '\u00bd b', 'istanbul']);
+  });
+  // PGlite's libc lowercases every test title the way pg_c_utf8 does, so no
+  // behavioural test here can see the collation go missing; on the real server
+  // (musl) it changes results. The full-catalog check for that is
+  // src/bench/dedupe-parity.ts. This pins the locale-independent pieces.
+  it('the SQL expressions do not depend on the server locale', () => {
+    for (const expr of [NORMALISED_TITLE_EXPR, SUBTITLE_EXPR]) {
+      expect(expr).toContain('COLLATE pg_c_utf8');
+      expect(expr).toContain('normalize(');
+      expect(expr).not.toMatch(/\[\[:|\\s|\\w/);
+    }
+  });
+});
+
+describe('D2: stage 3 compares titles within an author\'s works (Audit 03b)', () => {
+  it('never pairs similar titles by unrelated authors', async () => {
+    await work(db, 'The Collected Stories', 500, await author(db, 'Isaac Babel'));
+    await work(db, 'The Collected Stories.', 400, await author(db, 'Grace Paley'));
+
+    expect(await findStage3Candidates(db)).toEqual([]);
+  });
+
+  it('matches a duplicate author record only from a probe work: popular, or with user data', async () => {
+    const t1 = await author(db, 'J.R.R. Tolkien');
+    const t2 = await author(db, 'J. R. R. Tolkien');
+    const keep = await work(db, 'The Hobbit: or There and Back Again', STAGE3_PROBE_MIN_LOGS - 1, t1);
+    const dupe = await work(db, 'Hobbit', 3, t2);
+
+    // Below the line and nobody has read either: not probed (the documented gap).
+    expect(await findStage3Candidates(db)).toEqual([]);
+
+    await read(db, await user(db, 'r@example.com'), dupe, 1);
+    expect((await findStage3Candidates(db)).map((c) => [c.survivorId, c.loserId])).toEqual([[keep, dupe]]);
+  });
+
+  it('leaves identical normalised titles by the same author to stage 2', async () => {
+    const a = await author(db, 'Susanna Clarke');
+    await work(db, 'Piranesi', 561, a);
+    await work(db, 'Piranesi!', 3, a);
+
+    expect(await findStage3Candidates(db)).toEqual([]);
+  });
+
+  it('does not re-queue a stage-3 pair a reviewer dismissed', async () => {
+    const a = await author(db, 'Susanna Clarke');
+    await work(db, 'Jonathan Strange & Mr Norrell', 500, a);
+    await work(db, 'Jonathan Strange and Mr Norrell', 10, a);
+    expect(await queueStage3Candidates(db)).toBe(1);
+    const [q] = await getDedupeQueue(db);
+    await resolveQueueItem(db, q!.id, 'dismiss', { reason: 'different editions' });
+
+    expect(await queueStage3Candidates(db)).toBe(0);
+    expect(await getDedupeQueue(db)).toEqual([]);
+  });
+
+  it('keeps the 0.9 trigram threshold inside its own transaction', async () => {
+    await findStage3Candidates(db);
+    const [row] = await db.execute<{ t: string }>(sql`SELECT current_setting('pg_trgm.similarity_threshold') AS t`);
+    expect(Number(row!.t)).not.toBe(0.9);
+  });
+});
+
+describe('stage 3 covers new works once (Audit 03b, decided scope limit)', () => {
+  // Below the popularity line and unread, a duplicate under a second author
+  // record is only looked for once: in the first pass after the work arrived.
+  it('probes, once, works created since the previous finished pass', async () => {
+    const t1 = await author(db, 'J.R.R. Tolkien');
+    const t2 = await author(db, 'J. R. R. Tolkien');
+    const keep = await work(db, 'The Hobbit: or There and Back Again', 2, t1);
+
+    expect(await runDedupe(db)).toMatchObject({ stage3: 0, stage3Since: null });
+
+    const dupe = await work(db, 'Hobbit', 1, t2);   // gap-filled after that pass
+    const second = await runDedupe(db);
+    expect(second).toMatchObject({ stage3: 1, stage3Queued: 1 });
+    expect(second.stage3Since).not.toBeNull();
+    const [q] = await getDedupeQueue(db);
+    expect(q).toMatchObject({ stage: 3, survivor: { id: keep }, loser: { id: dupe } });
+
+    // The next pass no longer probes it (it is not new any more).
+    expect(await runDedupe(db)).toMatchObject({ stage3: 0 });
+  });
+
+  it('a dry run records no pass, and a pass that fails does not move the window', async () => {
+    const a = await author(db, 'Susanna Clarke');
+    await work(db, 'Jonathan Strange', 50, a);
+    await work(db, 'Jonathan Strange: A Novel', 5, a);   // queued, so the failing trigger fires
+    await runDedupe(db, { dryRun: true });
+    expect(await queueCount()).toBe(0);
+    const runs = async () => (await db.execute<{ total: number; finished: number }>(sql`
+      SELECT count(*)::int AS total, count(finished_at)::int AS finished FROM dedupe_runs`))[0]!;
+    expect(await runs()).toEqual({ total: 0, finished: 0 });
+
+    await client.exec(`
+      CREATE FUNCTION fail_queue() RETURNS trigger LANGUAGE plpgsql AS $$
+      BEGIN RAISE EXCEPTION 'queue down'; END $$;
+      CREATE TRIGGER fail_queue BEFORE INSERT ON dedupe_queue FOR EACH ROW EXECUTE FUNCTION fail_queue();`);
+    try {
+      await expect(runDedupe(db)).rejects.toThrow();
+    } finally {
+      await client.exec(`DROP TRIGGER fail_queue ON dedupe_queue; DROP FUNCTION fail_queue();`);
+    }
+    expect(await runs()).toEqual({ total: 1, finished: 0 });
+    expect((await runDedupe(db)).stage3Since).toBeNull();
   });
 });

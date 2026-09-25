@@ -539,9 +539,11 @@ export const workMerges = pgTable('work_merges', {
 /**
  * Dedupe review queue (FN-51, PRD §40.3).
  *
- * Stores Stage 3 (probable fuzzy duplicates) and Stage 4 (user-reported
- * duplicates) awaiting review by an admin. Merging or dismissing records
- * review state and audit info.
+ * Stores pairs awaiting review by an admin: stage 1-2 pairs that are not
+ * unambiguous enough to auto-merge (Audit 03b, D1), Stage 3 (probable fuzzy
+ * duplicates) and Stage 4 (user-reported duplicates). `impact` counts the
+ * user data on either work; the queue is reviewed highest-impact first.
+ * Merging or dismissing records review state and audit info.
  */
 export const dedupeQueue = pgTable('dedupe_queue', {
   id: uuid('id').primaryKey().defaultRandom(),
@@ -556,12 +558,28 @@ export const dedupeQueue = pgTable('dedupe_queue', {
   reviewedAt: timestamp('reviewed_at', { withTimezone: true }),
   reviewedByUserId: uuid('reviewed_by_user_id').references(() => users.id, { onDelete: 'set null' }),
   dismissReason: text('dismiss_reason'),
+  impact: integer('impact').notNull().default(0),
 }, (t) => [
-  check('dedupe_queue_stage_ck', sql`${t.stage} IN (3, 4)`),
+  check('dedupe_queue_stage_ck', sql`${t.stage} BETWEEN 1 AND 4`),
   check('dedupe_queue_status_ck', sql`${t.status} IN ('pending', 'merged', 'dismissed')`),
   uniqueIndex('dedupe_queue_pending_pair_idx').on(t.survivorId, t.loserId).where(sql`${t.status} = 'pending'`),
   index('dedupe_queue_status_stage_idx').on(t.status, t.stage),
   index('dedupe_queue_created_at_idx').on(t.createdAt),
+  index('dedupe_queue_impact_idx').on(t.status, t.impact.desc(), t.createdAt.desc()),
+]);
+
+/**
+ * One row per dedupe pass that writes (never a dry run), Audit 03b. Stage 3
+ * also probes works created since the start of the last finished run.
+ */
+export const dedupeRuns = pgTable('dedupe_runs', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  startedAt: timestamp('started_at', { withTimezone: true }).notNull().defaultNow(),
+  finishedAt: timestamp('finished_at', { withTimezone: true }),
+  autoMerge: boolean('auto_merge').notNull(),
+  report: jsonb('report'),
+}, (t) => [
+  index('dedupe_runs_finished_idx').on(t.startedAt.desc()).where(sql`${t.finishedAt} IS NOT NULL`),
 ]);
 
 // ---------------------------------------------------------------------------

@@ -748,9 +748,10 @@ export const dedupeQueueItemSchema = {
   type: 'object',
   properties: {
     id: { type: 'string', format: 'uuid' },
-    stage: { type: 'integer', enum: [3, 4] },
+    stage: { type: 'integer', enum: [1, 2, 3, 4] },
     status: { type: 'string', enum: ['pending', 'merged', 'dismissed'] },
     confidence: { type: ['number', 'null'] },
+    impact: { type: 'integer', description: 'User-data rows (reads, reviews, shelf items, favourites) on either work. The queue is ordered by this, highest first.' },
     reason: { type: 'string' },
     dismiss_reason: { type: ['string', 'null'] },
     created_at: { type: 'string', format: 'date-time' },
@@ -774,7 +775,7 @@ export const dedupeQueueQuerySchema = {
   type: 'object',
   properties: {
     status: { type: 'string', enum: ['pending', 'merged', 'dismissed'], default: 'pending' },
-    stage: { type: 'integer', enum: [3, 4] },
+    stage: { type: 'integer', enum: [1, 2, 3, 4] },
     limit: { type: 'integer', minimum: 1, maximum: 100, default: 50 },
     offset: { type: 'integer', minimum: 0, default: 0 },
   },

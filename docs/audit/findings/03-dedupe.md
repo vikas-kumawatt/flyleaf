@@ -243,3 +243,253 @@ Full catalog (`flyleaf`). **Indicative only (8 GB dev machine).** No API route i
 | mobile typecheck | ✓ |
 | mobile offline tests | ✓ **100 passed** |
 | migrations on the real Postgres | ✓ `migrations applied` (this part adds no migration) |
+---
+
+# Part 03b — the decisions on Part 03 (D1, D2, D4, D3 routed)
+
+2026-09-25 · CI **green, run in two parts**: `node scripts/ci.mjs` passed api-client build, api typecheck, spec check (OpenAPI drift 0), api tests (894/894) and api build, then stopped at `api · audit` on `getaddrinfo ENOTFOUND registry.npmjs.org` (the network was down, not the code). The four remaining steps were then run exactly as `ci.mjs` defines them, once DNS was back: audit exit 0 (7 moderate, below the `high` threshold), mobile typecheck ✓, mobile offline tests 100/100, migrations on the real Postgres ✓ · tests **870 API + 100 mobile → 894 API + 100 mobile** (`dedupe.test.ts` 67 → 91; 23 deliberate code breaks, all caught by these tests; four inherited Part 03 tests rewritten for D1, listed under "Tests changed"; none deleted or weakened)
+
+Databases: normalisation parity, plans, timings and the dry run are from the **full catalog `flyleaf`** (PostgreSQL 18.6, Alpine/**musl**, `en_US.utf8`). Migrations `0021` and `0022` were applied to `flyleaf` and `flyleaf_dev`. PGlite (PG 18.3, `C.UTF-8`) for correctness tests. Machine: 8 GB, so **timings are indicative only**. Nothing was merged or queued on either real database (`work_merges` 0, `dedupe_queue` 0 before and after).
+
+`secure-design` was not triggered: this run was autonomous by instruction. The one security-relevant change (who can switch merging on) is A-03-021.
+
+## Verdict per task (after 03b)
+
+| Task | Verified | Findings |
+|---|---|---|
+| FN-50 | ✅ D1 implemented; auto-merge off by default; TS/SQL normalisation agree on the real server | A-03-004, A-03-005, A-03-014, A-03-021, A-03-022 |
+| FN-51 | ⚠️ stage 3 runs on the full catalog (D2), cross-record author matching starts from popular, used and newly created works (decided scope limit); queue ordered by impact; D4 confirmed | A-03-006, A-03-023, A-03-024 |
+| FN-52 | ✅ the scheduled job detects and queues only, unless the worker has `DEDUPE_AUTO_MERGE=true` | A-03-021 |
+
+## Findings
+
+### A-03-021 · P0 · FIXED · The monthly job would auto-merge unattended on 2026-10-01
+- **Where:** `jobs/index.ts` `dedupeJobHandler`, `worker.ts` schedule, `dedupe.ts` CLI.
+- **Evidence:** HEAD's `runDedupe` merged by default, and the job passed no switch. Part 03 recommended not letting the 2026-10-01 run merge.
+- **Fix:** `runDedupe` takes `autoMerge` (default **false**). The job sets it only from the **worker's environment**: `DEDUPE_AUTO_MERGE === 'true'`, exactly. A job payload cannot turn it on, so nothing that can enqueue a job can make it merge. With it off, the pass detects stages 1–3 and queues what needs review. The CLI needs `--auto-merge` to merge. The schedule payload is now `{}` (the old `{ limit: 1000 }` meant nothing any more).
+- **Tests:** *a default pass detects and queues but merges nothing*; *the scheduled job merges only when the worker has DEDUPE_AUTO_MERGE=true* (env unset, `'false'`, `'1'`, `'TRUE'`, plus a payload `{autoMerge: true}` → no merge; `'true'` → merges); *a dry run writes nothing, even with auto-merge on*. Seen failing: yes, by mutation (default-on, any-non-empty env, payload honoured, dry run queueing: all four caught).
+
+### A-03-004 / A-03-005 · RESOLVED by D1 · Stage 1–2 auto-merge only unambiguous pairs
+- **Rule (D1):**
+  - Stage 1 auto-merges only with the same ISBN-13 **and** the same normalised title **and** at least one shared author.
+  - Stage 2 auto-merges only with the same normalised title and a shared author **and** matching subtitles (both absent, or both present and equal after normalisation).
+  - Everything else either stage finds goes to the **review queue**.
+  - A pair found by both stages is one pair: it auto-merges if either stage's rule says so.
+- **Queue:** migration `0021_dedupe_review_queue.sql` widens `dedupe_queue_stage_ck` to 1–4 and adds `impact` (the reads, reviews, shelf items and favourites on either work), with the index `(status, impact DESC, created_at DESC)`. `getDedupeQueue` lists highest impact first. Every queue insert (stages 1–4) is set-based in batches of 2,000 and computes impact in the same statement. A pending pair keeps its row and its impact is refreshed.
+- **Cap:** at most **200** merges per run (`DEFAULT_MERGE_CAP`, `--cap`, job `mergeCap`). The rest are reported as `deferred` and merged by the next run, in a deterministic order.
+- **Found while implementing (see A-03-022):** a dismissed pair was re-queued by the next pass, and an undone merge would be redone by it.
+- PRD §40.3 amended with the evidence from Part 03.
+- **Tests:**
+  - Rewritten from Part 03: *stage 2 queues two different subtitles*, *stage 2 queues a bare title and its subtitled copy*, *stage 1 queues a shared ISBN between works whose titles differ*, *stage 1 merges … with the same normalised title and a shared author*.
+  - New: *stage 1 without a shared author goes to review*, *stage 2 merges identical subtitles, and identical bare titles*, *a pair found by both stages is counted, queued or merged once*, *stops at the merge cap and finishes on the next run*, *the default merge cap is 200*, *pairs where either work has user data come first*, *a user report … carries its impact*, *the queue endpoint serves stage 1-2 items with their impact*.
+  - Seen failing by mutation: stage-1 auto without an author, stage-2 auto on a one-sided subtitle, cap ignored, ordering by `created_at`, impact without favourites. All caught.
+
+### A-03-022 · P1 · FIXED · The automated stages ignored reviewers' decisions
+- **Evidence (HEAD):** stage 3's insert skipped only *pending* pairs, so a pair an admin had dismissed was queued again the next month. Nothing stopped stage 1–2 from auto-merging a pair a reviewer had dismissed (for example, one reported through stage 4), or re-merging a pair whose merge an admin had just **undone**.
+- **Fix:** automated stages (1–3) drop dismissed pairs, in either orientation. A pair with an undone merge is never auto-merged again: it goes to review, with "an earlier merge of this pair was undone" in the reason. A new **user report** (stage 4) of a dismissed pair is still queued, because it is new evidence. Pairs already pending in the other orientation are not queued twice, and a queued pair never names a work merged away earlier in the same run.
+- **Tests:** *a dismissed pair is neither re-queued nor merged*, *a pair whose merge was undone is reviewed, never auto-merged again*, *does not re-queue a stage-3 pair a reviewer dismissed*, *a later pass does not queue a pending pair again*. Seen failing: yes, by mutation (removing each exclusion is caught).
+
+### A-03-014 · FIXED · TS and SQL title normalisation now agree on the real server
+- **Before (measured, full catalog):** `src/bench/dedupe-parity.ts` ran both implementations over every title. **50,622 of 3,203,575** titles disagreed, plus 296 subtitles. The server is **musl** (Alpine), not glibc as Part 03 assumed. On it, `[[:punct:]]` treats combining marks as punctuation, so the SQL did not accent-fold, it **split words**: "Omisión" (decomposed) → "omisio n", "Người Thái" → "ngươ i tha i". It also dropped bidi marks and zero-width non-joiners, stripped `½`, and lowercased `İ` and final sigma differently from JS.
+- **Fix:** both implementations are built from the same explicit pieces, and neither reads the server locale:
+  - **NFC** first, so composed and decomposed accents are one title (`normalize(title, NFC)` / `String.prototype.normalize`);
+  - **Unicode simple lowercase**: `lower(… COLLATE pg_c_utf8)` (Postgres's built-in provider) and, in TS, per code point with U+0130 → `i`;
+  - **one generated separator class**: the code points of `\p{P}\p{S}` plus bidi and zero-width marks (U+061C, U+200B, U+200E/F, U+202A–202E, U+2066–2069), enumerated once at module load (planes 0–3, ~40 ms) and emitted both as a JS regex and as a Postgres bracket expression of `\uXXXX` ranges (351 ranges);
+  - whitespace is exactly JS's `\s`, emitted the same way.
+
+  Combining marks are not separators, so accents stay (the documented "never accent-fold" rule now actually holds). `normaliseSubtitle` is new: the TS twin of `SUBTITLE_EXPR`, which stage 2's auto-merge rule now depends on.
+- **After (measured, full catalog):** **0** title and **0** subtitle disagreements over 3,203,575 titles, and **0 over all 260,095 code points** of planes 0–3, each tested inside a word, alone, and after a colon. The SQL pass costs more: 53 s vs 24 s for all titles.
+- **Tests:**
+  - The parity test gains 14 real catalog titles that disagreed, plus NBSP, `½` and a final sigma. Run against HEAD's implementation on PGlite, **13 of the 14 fail** (seen failing: yes).
+  - New: *composed and decomposed accents are the same title, and accents are kept*; *subtitles follow the same rules in both implementations*; *the SQL expressions do not depend on the server locale*.
+  - Mutation: dropping `normalize` or TS's per-code-point lowercase is caught by the parity test. Dropping `COLLATE pg_c_utf8` is **not observable on PGlite**, whose libc lowercases every test title identically, so the last test pins it structurally. The behavioural check for that case is `dedupe-parity.ts` against the real server: re-run it after any Postgres image or locale change.
+- **Behaviour change:** the import matcher (`imports/matcher.ts`) uses `normaliseTitle`, so imports now also treat composed and decomposed accents as equal, and bidi marks as spaces.
+
+### A-03-006 · FIXED (D2) · Stage 3 runs on the full catalog and never compares all pairs
+- **Design (D2):** titles are compared only within an author's works.
+  - **A. Same author id:** each author's works, pairwise. That is 54.2M comparisons on the full catalog; the largest author has 1,930 works. Identical normalised titles are left to stage 2.
+  - **B. The same author under two records:** probe authors are those credited on a *probe work*, meaning `log_count ≥ 100` (`STAGE3_PROBE_MIN_LOGS`) or any Flyleaf user data (read, shelved, favourited): **12,627 authors** on the full catalog. For each, `authors_name_trgm_idx` (`name % name` at 0.9, set locally) gives the credited authors whose name is > 0.9 similar, and their works are compared with the probe author's.
+  - Title similarity > 0.85 on the normalised title, years ±2, survivor chosen as in stages 1–2.
+- **`authors_name_trgm_idx` is now used and must not be dropped.** It is stage 3's only author index. This answers A-02-027 for this index. `authors_search_trgm_idx` is still not used by dedupe.
+- **Why one lookup per name:** written as one query, the planner flattened the lookup into a hash join over all 1.56M credited authors with `%` as a join filter (EXPLAIN cost 1.3e12, index unused). As a LATERAL over a batch of names it seq-scanned authors, or with `enable_seqscan=off` bitmap-scanned the partial `authors_credited_trgm_idx` as a has_works filter (10 s for 2 names). With the name as a constant, and `plan_cache_mode = force_custom_plan` set locally, each lookup is a bitmap scan of `authors_name_trgm_idx` (EXPLAIN verified). Timing: 100 lookups in 29.7 s and 31.7 s, ~300 ms each, cold cache included.
+- **Measured full run:** see Performance.
+- **Tests:** existing *stage 3 compares normalised titles, and matches authors by name across author records* and *detects Stage 3 fuzzy pairs* still pass. New: *never pairs similar titles by unrelated authors*, *matches a duplicate author record only from a probe work*, *leaves identical normalised titles by the same author to stage 2*, *keeps the 0.9 trigram threshold inside its own transaction*. Seen failing by mutation: removing the probe line; leaking the 0.9 threshold to the session.
+
+### A-03-023 · DECIDED SCOPE LIMIT · Duplicate author records are only looked for from probe works
+- **Evidence:** one author lookup costs ~80 ms warm and 1–1.7 s cold (3,200 buffers against a 952 MB index over 15.4M names). Probing all 1.66M credited authors would take **37+ hours** on this machine.
+- **Decision (user, 2026-09-25):** accepted as a scope limit. Stage 3 starts from popular works (≥ 100 logs) and works with user data. The long tail is covered by two things:
+  - **user reports** (stage 4);
+  - **new works, once**: stage 3 also probes every work created (ingested or gap-filled) since the start of the previous **finished** pass. Implemented, because it was small:
+    - migration `0022_dedupe_runs.sql` adds a `dedupe_runs` table, one row per pass that writes (never for a dry run);
+    - `runDedupe` records the start before detection and `finished_at` plus the report at the end;
+    - the probe query adds `OR w.created_at > since`;
+    - a pass that dies leaves `finished_at` NULL, so the next pass covers its window again;
+    - a first pass has no predecessor and probes nothing extra.
+
+  `works.created_at` is used, not `updated_at`: every monthly ingest upsert rewrites `updated_at` on all 3.2M rows (`MERGE_WORKS`), while both insert paths (ingest, `gapfill.ts`) set `created_at` only on insert.
+- **Remaining consequence:** a duplicate under two author records, where neither work is popular, used or new since the last pass, is found only if a user reports it. The moment someone reads, shelves or favourites either work, the next pass looks.
+- **Cost risk:** the new-works probe scales with each month's ingest delta, at ~300 ms per new author on this machine. A large re-ingest (tens of thousands of new authors) would add hours to that one pass, still within the 4 h job expiry only up to ~40k new authors. Not measured: `flyleaf` has no `dedupe_runs` history yet, so the first real pass probes nothing extra.
+- **If coverage matters later:** a partial trigram index on `authors(name) WHERE has_works` has about 9× fewer rows than `authors_name_trgm_idx` (1.66M vs 15.4M) and would make probes proportionally cheaper.
+- **Tests:** *probes, once, works created since the previous finished pass* (first pass: nothing; a work gap-filled afterwards is found and queued by the next pass; the pass after that no longer probes it); *a dry run records no pass, and a pass that fails does not move the window*.
+
+### A-03-024 · CONFIRMED (D4) · Moderators cannot dismiss
+- `POST /v1/admin/dedupe/queue/:id/resolve` calls `requireAdmin` for both actions. The existing test *a moderator can review but not merge, dismiss or undo* asserts 403 for `dismiss` and that the item stays pending. **Mutation-checked:** letting moderators dismiss (`requireModerator`, with `requireAdmin` only for merge) makes it fail. The HTML console shows moderators disabled buttons. No code change.
+
+### A-03-019 · partly FIXED · Smaller items from Part 03
+- `--dry-run` now evaluates stage 3 and reports its count.
+- `held` counted only inside the LIMIT window: fixed, because detection is unbounded and there is no LIMIT.
+- `--limit abc` → `LIMIT NaN`: `--limit` is gone. `--cap` and `--sample` are validated ("needs a whole number").
+- `limit` applied per stage: replaced by one merge cap per run.
+- Still open: pending queue items that name a since-merged work stay listed until resolved (then 409). The automated stages no longer create such items within a run, but an admin merge can still strand one. Undo still resets every queue row for the pair to pending. The audit-log write still happens after the resolve transaction. `mutes`, `profiles.favourite_work_ids` and `reads.work_id` still have no index for the merge's and the impact computation's lookups (see Performance). `previewMerge` still doesn't forecast shelf, mute or favourite collisions.
+
+### Routed to Part 08
+- **D3:** reads of a merged work id return the survivor (200 with `merged_into`); writes to a merged id (reads, shelving, progress, favourites, mutes) are applied to the survivor server-side, never 404, so offline replays survive merges. Recorded in `08-catalog-screens-and-reading-core.md`, "Routed from Part 03".
+- **A-03-016** (the merge scans `reads` twice per moved read through the ratings trigger) is routed there with L-01, because it is the same scan.
+
+## Full-catalog dry run (auto-merge off)
+
+`npm run dedupe -- --dry-run --sample 25` on `flyleaf`, 2026-09-25 12:24–13:55 UTC, code at the D1/D2 state described above. Per-stage figures come from a second, read-only `detectStage12` pass over the same data; its totals match the CLI's exactly.
+
+**The database was unchanged.** `sum(n_tup_ins + n_tup_upd + n_tup_del)` over `pg_stat_user_tables` was **3,058,122 before and after**. `dedupe_queue` 0 → 0, `work_merges` 0 → 0, merged works 0 → 0, `admin_audit_log` 0 → 0. No other session was connected at the start. `authors_name_trgm_idx.idx_scan` went 203 → 12,829 (+12,626), one per stage-3 author lookup. Migration `0022` was applied only after this check.
+
+| | Pairs | Auto-mergeable (D1) | To review |
+|---|---|---|---|
+| Stage 1 (shared ISBN-13) | 30,083 | 15,045 | 15,038: 6,321 title differs; 5,813 no shared author; 2,904 both |
+| Stage 2 (title + author) | 323,370 | 268,863 | 39,462: 28,355 one-sided subtitle; 11,107 subtitles differ |
+| **Distinct pairs** (15,045 found by both stages) | **338,408** | **283,908** | **54,500** |
+| Stage 3 (fuzzy, review only) | 82,192 | never | 82,192 |
+
+How to read the counts:
+- **Pairs are not merges.** The 283,908 auto-mergeable pairs name **185,557 distinct losers**, because a group of *n* copies yields up to *n*(*n*−1)/2 pairs. That is the number of works an unlimited run would tombstone.
+- **Every stage-1 auto pair is also a stage-2 pair**: 15,045 of 15,045. The stage-1 rule (same ISBN, same title, shared author) is a subset of stage 2's key. It adds no pairs; it only makes some pairs auto-mergeable that stage 2 alone would queue, namely those whose subtitles don't match but whose works share an ISBN. That subset was not counted separately.
+- **Counts differ slightly from Part 03.** Stage 1 is now one row per pair; Part 03's 30,240 counted pair × ISBN rows. Stage 2 is +668 pairs over Part 03's 322,702, from the normalisation fix (NFC makes composed and decomposed titles meet).
+- **The review queue would receive 136,692 items on the first pass:** 54,500 from stages 1–2 and 82,192 from stage 3. It would not be empty, as the old stage-3 LIMIT of 1,000 per run implied.
+
+### Samples (random, from the same run)
+
+**25 random auto-mergeable pairs**
+
+| # | Stage | Why | Keep (survivor) | Merge (loser) |
+|---|---|---|---|---|
+| 1 | 2 | normalised title "regency valentine" and a shared author | "A Regency Valentine" (?) by Mary Balogh, Emma Lange, Joan Wolf, Patricia Rice, Katherine Kingsley `040ec38a-8312-4d9e-8009-447da61f60dc` | "A Regency valentine" (?) by Mary Balogh `88d64dc3-102c-4e01-83c1-b7ed321e4e1d` |
+| 2 | 2 | normalised title "body snatchers" and a shared author | "The Body Snatchers" (1955) by Jack Finney `2f053889-a313-44d8-8357-eee1cba8414c` | "Body Snatchers" (?) by George Finney, Jack Finney `d045e473-20e0-4f3d-8d45-a47a52daa3ff` |
+| 3 | 1+2 | shared ISBN-13 9780849378577, same normalised title and a shared author | "Essential Oil Bearing Grasses" (?) by Anand Akhila `7c7bd4da-3fe2-4be8-8f18-ce1c9aa9502f` | "Essential oil-bearing grasses" (?) by Anand Akhila `3fa71e13-7b9f-43ac-9a73-986c92b2974c` |
+| 4 | 2 | normalised title "happiness sold separately" and a shared author | "Happiness Sold Separately" (?) by Lolly Winston `3343a4d2-45b8-47a4-9c17-6540ae76ba6f` | "Happiness sold separately" (?) by Lolly Winston `ad3728b0-73f7-4672-aa3f-af712af882ca` |
+| 5 | 2 | normalised title "battle angel alita" and a shared author | "Battle Angel Alita" (?) by Yukito Kishiro `1c7d5848-b1ee-4fd0-9311-72398efa861c` | "Battle Angel Alita" (?) by Yukito Kishiro `cb6368e9-fa2e-4e41-88d1-5e61f179e6d4` |
+| 6 | 2 | normalised title "mujeres de ojos grandes" and a shared author | "Mujeres De Ojos Grandes" (?) by Ángeles Mastretta `3e9d62ae-47ae-4399-8af5-83cff2d27d09` | "Mujeres de ojos grandes" (?) by Ángeles Mastretta `9183f531-a3e3-4c20-bc50-ca517e17485c` |
+| 7 | 2 | normalised title "die drei kids" and a shared author | "Die drei ??? Kids" (?) by Ulf Blanck `011ca8e1-d40e-4966-aacc-7834797eb271` | "Die drei ??? Kids" (?) by Ulf Blanck `3b5d7776-84cb-43de-b882-7733dd5c678c` |
+| 8 | 2 | normalised title "race class and gender in the united states" and a shared author | "Race, class, and gender in the United States" (?) by Paula S. Rothenberg `a660be7f-74d2-493a-b9e6-92981d96ec94` | "Race, class, and gender in the United States" (?) by Paula S. Rothenberg `e2a82990-674b-49a9-abad-e78a4df8037b` |
+| 9 | 2 | normalised title "evensong" and a shared author | "Evensong" (?) by Gail Godwin `8d65fb89-fa40-4f04-9df0-8bbf84e3d714` | "Evensong" (1999) by Gail Godwin `bb3159f6-69fc-4954-8ea1-55fcd289739f` |
+| 10 | 2 | normalised title "computer system architecture" and a shared author | "Computer system architecture" (1976) by M. Morris Mano `cb881db0-2a32-4bb7-9388-3fc3667c1fac` | "Computer system architecture" (1993) by M. Morris Mano `07ef44e4-3d41-4a8d-87d8-cfec29dea36c` |
+| 11 | 2 | normalised title "married by morning" and a shared author | "Married by Morning" (?) by Lisa Kleypas `17efa1b9-f4da-4ac2-860d-73ed8b0eea5f` | "Married by Morning" (?) by Lisa Kleypas `943168d0-dccf-47d2-a2fe-4fba718e62fc` |
+| 12 | 2 | normalised title "biology" and a shared author | "Biology" (1981) by Cecie Starr, Christine Evers, Lisa Starr `0d18ece3-0c92-4eca-af49-fbfde6ab5320` | "Biology" (?) by Cecie Starr, Ralph Taggart, Christine Evers, Lisa Starr `1c720dac-c1f8-4558-bf5f-5a3e5ccd6590` |
+| 13 | 2 | normalised title "atomic audit" and a shared author | "Atomic Audit" (?) by Stephen I. Schwartz `2de84246-8585-4324-9650-5f4e486cc2bb` | "Atomic audit" (?) by Stephen I. Schwartz `63bd7655-c4a4-4957-b720-400e8aa5c076` |
+| 14 | 2 | normalised title "kendermore" and a shared author | "Kendermore" (?) by Mary L. Kirchoff `cd5f5fd5-f8e0-412c-abfc-ba7af9f16688` | "Kendermore" (?) by Mary L. Kirchoff `02964fd0-5813-41dc-83e3-295884b774b7` |
+| 15 | 2 | normalised title "financial accounting" and a shared author | "Financial Accounting" (?) by Paul D. Kimmel, Donald E. Kieso `0ff66f88-c63b-40d6-a96e-1944f4d1a140` | "Financial accounting" (?) by Paul D. Kimmel `3ada73c4-b769-4faf-93f9-2eef4e1fc32d` |
+| 16 | 2 | normalised title "take" and a shared author | "Take" (?) by Martina Cole `599f7fb4-ceba-41dd-ac26-250759fedc7f` | "The take" (?) by Martina Cole `2f9442f5-a68e-473e-9292-f14002ec6134` |
+| 17 | 2 | normalised title "psychological theory" and a shared author | "Psychological theory" (?) by Melvin Herman Marx `ac8bf43b-c6ce-4e94-a7d7-6108550fd240` | "Psychological Theory" (?) by Melvin Herman Marx `0bc65051-1f25-47d0-b28f-761d7b6c84c8` |
+| 18 | 2 | normalised title "bleach" and a shared author | "Bleach" (?) by Tite Kubo `5c27c1e9-db88-472e-bb91-e9c827802528` | "Bleach" (?) by Tite Kubo `2a4c6396-5918-4e40-b51f-15ff59984e30` |
+| 19 | 2 | normalised title "burger" and a shared author | "Burger" (?) by Panda `cde9d077-9510-49e4-b336-958d4e9f4f4e` | "Burger" (?) by Panda `e9edee6f-d8c1-4b3d-a555-767ff3a1e3b2` |
+| 20 | 2 | normalised title "stormbringer" and a shared author | "Stormbringer" (?) by Michael Moorcock `cbea8893-c209-4a44-b644-f4e448aa9271` | "Stormbringer" (1992) by Michael Moorcock `68860ea2-d638-49ad-8807-1901fe7498bc` |
+| 21 | 2 | normalised title "uncrowned king" and a shared author | "The uncrowned king" (?) by Kenneth Whyte `6f5b57f4-ba1b-4add-9c36-03a749af8097` | "The uncrowned king" (2009) by Kenneth Whyte `42c696fb-23be-4d9a-849d-ec4291ab3605` |
+| 22 | 2 | normalised title "dr mukti and other tales of woe" and a shared author | "Dr Mukti and Other Tales of Woe" (?) by Will Self `d1792a6a-78f1-4c45-95ae-67bce24030f5` | "DR MUKTI AND OTHER TALES OF WOE" (?) by Will Self `114d94f9-3b17-4d94-9ceb-39cb6fdb6156` |
+| 23 | 2 | normalised title "seventh scroll" and a shared author | "The Seventh Scroll" (?) by Wilbur Smith `04f32ef5-9d81-4612-bfb2-2c979fa3c3c5` | "Seventh Scroll" (?) by Wilbur Smith `a88d8f30-19f8-4fd9-8d8f-129e68cede4d` |
+| 24 | 2 | normalised title "freud for beginners" and a shared author | "Freud for beginners" (1979) by Richard Appignanesi, Richard Appignanesi, Oscar Zarate `d64588ac-eca9-49c3-a633-38508d144ea7` | "Freud for beginners" (1979) by Richard Appignanesi `aab743e4-7d62-4c5b-9e33-aad6023266d1` |
+| 25 | 2 | normalised title "till we meet again" and a shared author | "Till we meet again" (?) by Eileen Bailey, Elizabeth Merrit `5ce0e65c-fdc3-4093-958d-c53c325c592d` | "Till We Meet Again" (?) by Elizabeth Merrit `950dda8a-b5e4-465a-8f53-62112486dcc2` |
+
+**25 random review-queue pairs**
+
+| # | Stage | Why | Keep (survivor) | Merge (loser) |
+|---|---|---|---|---|
+| 1 | 2 | normalised title "curious george" and a shared author, but only one has a subtitle ("he was a good little monkey and always very curious") | "Curious George" (?) by Landoll `2c853804-24dd-489d-9e1a-bf56253e1ed9` | "Curious George: He Was a Good Little Monkey and Always Very Curious" (?) by Landoll `4108d71d-f615-431a-99f5-273814283f41` |
+| 2 | 2 | normalised title "best books for high school readers" and a shared author, but only one has a subtitle ("grades 9 12") | "Best books for high school readers : grades 9-12" (?) by Catherine Barr `1eb30488-730f-4945-80df-d289e8609315` | "Best books for high school readers" (?) by Catherine Barr `aadbdbf6-83b9-4780-9a28-97e6c5d4942e` |
+| 3 | 2 | normalised title "chicken soup for the soul" and a shared author, but only one has a subtitle ("recovering from traumatic brain injuries") | "Chicken soup for the soul" (?) by Jack Canfield, Mark Victor Hansen, Amy Newmark `04961082-70b1-4eaa-933a-91a0a3108ee9` | "Chicken Soup for the Soul : Recovering from Traumatic Brain Injuries" (?) by Amy Newmark, Carolyn Roy-Bornstein, Lee Woodruff `5496ae38-d7be-490c-a116-07bdbb1d1a23` |
+| 4 | 2 | normalised title "principles of investments" and a shared author, but only one has a subtitle ("text cases") | "Principles of investments" (?) by Leonard T. Wright `82a1c0b5-00ad-42ad-9429-5e802dbab5ba` | "Principles of investments: text & cases" (?) by Leonard T. Wright `8a7dbc57-72b0-4a24-b34f-db090d8f3da0` |
+| 5 | 2 | normalised title "spiderwick chronicles" and a shared author, but only one has a subtitle ("the complete series") | "The Spiderwick Chronicles: The Complete Series" (?) by Tony DiTerlizzi, Holly Black `bf5b8fd6-4fcf-4c22-9309-abf689a5bc8f` | "THE SPIDERWICK CHRONICLES" (?) by Holly Black, Tony DiTerlizzi `92f2a1ab-732c-4867-a330-82a5f37a9ec5` |
+| 6 | 2 | normalised title "chicken soup for the soul" and a shared author, but only one has a subtitle ("attitude of gratitude") | "Chicken Soup for the Soul" (?) by Amy Newmark `28e01af3-e987-442e-9b65-7eaa9531fd7c` | "Chicken Soup for the Soul : Attitude of Gratitude" (?) by Amy Newmark `6f898b51-d07c-43dc-8c90-d0359e3fc81e` |
+| 7 | 2 | normalised title "chicken soup for the soul" and a shared author, but only one has a subtitle ("teens talk relationships") | "Chicken soup for the soul" (?) by Amy Newmark, Miranda Lambert `1d92717f-9a3a-4b51-8f8d-2bf8364096da` | "Chicken Soup for the Soul : Teens Talk Relationships" (?) by Jack Canfield, Mark Victor Hansen, Amy Newmark `7b925632-5871-49f0-a4e4-3478b9caad39` |
+| 8 | 2 | normalised title "twisted threesome" and a shared author, but the subtitles differ ("kiki desires" / "unwilling secrets") | "Twisted Threesome : Kiki Desires" (?) by Anisa Jenkins `2edf518e-276a-414e-93e6-f05a6968c351` | "Twisted Threesome : Unwilling Secrets" (?) by Anisa Jenkins `8442cce6-88e5-4b2d-8740-94043ce96f76` |
+| 9 | 2 | normalised title "beast quest" and a shared author, but only one has a subtitle ("space wars strike of the droid dog") | "Beast Quest" (?) by Adam Blade `fd905ce7-a830-42b0-8813-17d21bd3804b` | "Beast Quest : Space Wars : Strike of the Droid Dog" (?) by Adam Blade `3cd73b74-97d1-4bb0-8585-32914b73f1ec` |
+| 10 | 2 | normalised title "bundle" and a shared author, but the subtitles differ ("milady standard esthetics" / "workbook for milady standard esthetics") | "Bundle : Milady Standard Esthetics" (?) by Milady `957353e0-0170-4920-be0b-dfcfb9328d99` | "Bundle : Workbook for Milady Standard Esthetics" (?) by Milady `1d7e586e-ad5b-46f1-b113-c0de7c451183` |
+| 11 | 2 | normalised title "my life as a foreign country" and a shared author, but only one has a subtitle ("a memoir") | "My Life as a Foreign Country" (?) by Brian Turner `b28ff00a-94f3-46ad-a629-a6bb254bd694` | "My Life as a Foreign Country: A Memoir" (?) by Brian Turner `cd7993c5-2ecd-4f87-9ff6-198f8704ff05` |
+| 12 | 2 | normalised title "becoming satisfied" and a shared author, but only one has a subtitle ("a man s guide to sexual fulfillment") | "Becoming satisfied" (1980) by Joseph Nowinski `53b136a1-d6d2-46f2-8ed4-a9985ecf8e7a` | "Becoming satisfied : a man's guide to sexual fulfillment" (?) by Joseph Nowinski `73c03a1b-e2b9-4653-a037-05e320b8fbbf` |
+| 13 | 2 | normalised title "rapunzel and the lost lagoon" and a shared author, but only one has a subtitle ("a tangled novel a tangled novel") | "Rapunzel and the lost lagoon" (?) by Leila Howland `d7ea5ca7-574d-41a9-b8a1-17b16211a168` | "Rapunzel and the Lost Lagoon: A Tangled Novel: A Tangled Novel" (?) by Leila Howland `92830cc4-e804-45dd-9b9b-e418931955a5` |
+| 14 | 2 | normalised title "magic tree house" and a shared author, but the subtitles differ ("books 33 34" / "books 31 32") | "Magic Tree House: Books 33 & 34" (?) by Mary Pope Osborne `15c21465-82fc-4a4d-a4c4-5b6f132cd05d` | "Magic Tree House: Books 31 & 32" (?) by Mary Pope Osborne `11cbe14a-b4fa-4d9e-b4d9-1fd4c7b7a200` |
+| 15 | 2 | normalised title "bungo stray dogs" and a shared author, but only one has a subtitle ("another story vol 1") | "Bungo stray dogs" (?) by 朝霧カフカ `78931561-c05b-4da2-b37c-5437aa2a6a2a` | "Bungo Stray Dogs : Another Story, Vol. 1" (?) by Oyoyoyo, 春河３５, 朝霧カフカ `0c6ae5c2-ab8f-456d-8432-e12d527ce073` |
+| 16 | 2 | normalised title "this fabulous century" and a shared author, but only one has a subtitle ("1910 1920") | "This fabulous century:1910-1920" (?) by Time-Life Books `673ce6ef-45ab-4274-a3ef-34ecef8d4269` | "This fabulous century" (?) by Time-Life Books `c3ab81cd-de4a-4234-8813-3e06c291af0f` |
+| 17 | 1 | shared ISBN-13 9789004161184, but the normalised titles differ | "Girolamo Zanchi" (?) by Luca Baschera, Girolamo Zanchi `2ebf9f4e-f04b-45ab-a288-c5451626c9aa` | "De religione Christiana fides =" (?) by Girolamo Zanchi `b52adb21-0a32-404c-8c6a-65db12e6e210` |
+| 18 | 1 | shared ISBN-13 9780801661969, but the normalised titles differ | "Mosby's 1990 Nursing Drug Reference (Mosby's Nursing Drug Reference)" (?) by Linda Skidmore-Roth `a0690a50-3d7c-445a-8342-a0513c296130` | "Mosby's 1990 nursing drug reference" (?) by Linda Skidmore-Roth `4d7eaf15-a680-4199-a18b-7296efd1dd38` |
+| 19 | 1 | shared ISBN-13 9781589978782, but the normalised titles differ | "Light in the Lions' Den" (?) by Marianne Hering `5f5893e9-344b-48a9-a6a4-569da19bde84` | "Light In The Lion's Den" (?) by Marianne Hering `a0407f3a-37ae-4f54-b64f-733625420745` |
+| 20 | 2 | normalised title "star wars" and a shared author, but the subtitles differ ("the last of the jedi a tangled web" / "the last of the jedi return of the dark side") | "Star Wars : the Last of the Jedi a Tangled Web" (?) by Jude Watson, Sue Fliess, Jerrod Maruyama `25230349-b487-4aee-99d1-092364fb0ef8` | "Star Wars : the Last of the Jedi Return of the Dark Side" (?) by Jude Watson, Sue Fliess, Jerrod Maruyama `90fc56bd-65b0-4fd5-b738-1fa215cee8e1` |
+| 21 | 2 | normalised title "leading for change in early care and education" and a shared author, but only one has a subtitle ("cultivating leadership from within") | "Leading for Change in Early Care and Education" (?) by Anne L. Douglass `b71ed81e-d943-4240-8e29-4b76daa70563` | "Leading for Change in Early Care and Education : Cultivating Leadership from Within" (?) by Anne L. Douglass, Lea J. E. Austin, Sharon Ryan `ef8670ed-09a8-4437-824f-d1bedf0b716c` |
+| 22 | 2 | normalised title "everything soapmaking book" and a shared author, but only one has a subtitle ("recipes and techniques for creating colorful and fragrant soaps") | "The Everything Soapmaking Book" (?) by Alicia Grosso `742fedd9-792b-469a-b116-aa847760f4d6` | "Everything Soapmaking Book : Recipes and Techniques for Creating Colorful and Fragrant Soaps" (?) by Alicia Grosso `df8d1040-5585-4ec7-858d-a3a45045cd37` |
+| 23 | 2 | normalised title "wiersbe bible study series" and a shared author, but the subtitles differ ("minor prophets vol 2" / "2 samuel and 1 chronicles") | "Wiersbe Bible Study Series : Minor Prophets Vol. 2" (?) by Warren W. Wiersbe `1d854654-1037-415a-8000-f2a3d16f9e14` | "Wiersbe Bible Study Series : 2 Samuel and 1 Chronicles" (?) by Warren W. Wiersbe `31f5c377-8f0e-49f2-a9ac-a2b1d3f65dbd` |
+| 24 | 2 | normalised title "cars origins" and a shared author, but only one has a subtitle ("storm chasing disney pixar cars a stepping stone book tm") | "Cars Origins" (?) by Dave Keane `6a61fc02-5da9-4355-af57-1b5e4821f5b8` | "Cars Origins: Storm Chasing (Disney/Pixar Cars) (A Stepping Stone Book(TM))" (?) by Dave Keane `5d1e0507-4067-4442-b98a-596528205041` |
+| 25 | 2 | normalised title "naturals" and a shared author, but only one has a subtitle ("all in") | "The Naturals" (?) by Jennifer Lynn Barnes `262e0213-fddc-469d-b184-3a2a207656db` | "Naturals : All In" (?) by Jennifer Lynn Barnes `4909fb88-e1a2-441b-8b03-6c29efbbd705` |
+
+**My read of the samples** (from titles, authors and years only; the catalog wasn't opened):
+- **Auto-mergeable: 22 of 25 look like the same book or editions of it. 3 look like different volumes** (#5 *Battle Angel Alita*, #7 *Die drei ??? Kids*, #18 *Bleach*). That's the risk D1 does not cover: **a series whose volumes all carry the series title** with no volume number. Merging them would pool different books' ratings. #10 (*Computer system architecture*, 1976 vs 1993) and #12 (*Biology*) are editions of one textbook, which PRD §7.5 puts on one work.
+- **Review queue: 13 of 25 are clearly different books; 10 are probably the same book; 2 are unclear.**
+  - Different: #3, #6, #7 *Chicken Soup for the Soul*; #8, #9, #10, #14, #15; #16 *This fabulous century: 1910-1920* (a series volume); #20, #23, #24, #25.
+  - Probably the same (one-sided subtitle or punctuation): #2, #4, #11, #12, #13, #17, #18, #19, #21, #22.
+  - Unclear: #1, #5.
+
+  So the rule is right to hold them: roughly half would have been wrong merges.
+
+## Performance (Part 03b)
+
+Full catalog `flyleaf`. **Indicative only (8 GB dev machine).**
+
+| Step | Time | Notes |
+|---|---|---|
+| Stage 1 + 2 detection, **unbounded** | **394 s** (a second, cold-cache pass: > 600 s) | Part 03: 7m31s with LIMIT 1000 per stage. Same plans; normalisation is dearer (NFC + a 351-range class) |
+| Normalisation, TS vs SQL, every title | SQL pass 53 s (was 24 s) | the cost of NFC and the explicit class |
+| Stage 3 probe set | 75 s | 12,627 authors (`log_count ≥ 100` or user data) |
+| Stage 3 author lookups | **4,041 s** (67 min) | 12,627 bitmap scans of `authors_name_trgm_idx`, ~320 ms each, 9,210 similar author records |
+| Stage 3 title pairs (A + B) | 954 s | A: hash/merge join of each author's works (54.2M comparisons); B: works of the 9,210 author pairs; 82,192 pairs |
+| **Whole dry run** | **5,464 s (91 min)** | inside the 4 h `catalog.dedupe` expiry (A-03-011) |
+| Stage 3, old design | not runnable | 3.65M × 3.65M nested loop, cost 1.09e12 |
+
+Two measurements from ruling out plans (full catalog):
+- `name % name` written as a join: EXPLAIN cost 1.3e12, with the trigram index unused.
+- As a LATERAL over a batch of names: seq scan of 1.56M authors; with `enable_seqscan=off`, a bitmap scan of the whole partial `authors_credited_trgm_idx` (7.5–10.4 s for 2 names).
+
+A non-dry pass adds the queue inserts (136,692 rows, batches of 2,000, each with the impact join) and up to 200 merges. Neither was run on the real database.
+
+## Behaviour changes (Part 03b)
+
+1. **Nothing is merged unless merging is switched on**: `DEDUPE_AUTO_MERGE=true` in the worker's environment, or `--auto-merge` on the CLI. Off, the monthly job and `npm run dedupe` detect and queue.
+2. Stage 1 auto-merges only with the same normalised title and a shared author. Stage 2 auto-merges only with matching subtitles. Everything else stages 1–2 find is queued as stage 1 or 2.
+3. At most 200 merges per run (`--cap`, job `mergeCap`).
+4. Dismissed pairs are never re-queued or merged by the pipeline. An undone merge is never redone automatically.
+5. `dedupe_queue` accepts stages 1–4 and has `impact`. `GET /v1/admin/dedupe/queue` returns `impact`, accepts `stage=1|2`, and is ordered by impact, then newest (OpenAPI and api-client updated).
+6. Title normalisation (dedupe **and the import matcher**) applies NFC and Unicode simple lowercase, treats bidi and zero-width marks as spaces, and no longer splits combining marks off their letters in SQL.
+7. Stage 3 finds duplicates within an author's works, and across two author records only from probe works: popular, used, or created since the previous finished pass. It runs in full on every pass, including dry runs. Passes that write are recorded in `dedupe_runs` (migration `0022`). The report gains `stage3Since`.
+8. `DedupeReport` fields changed: `held` removed; `autoMergeable`, `toReview`, `queued`, `stage3`, `autoMerge` and `deferred` added. The CLI `--limit` is replaced by `--cap`; `--sample N` prints random pairs of each kind.
+
+## Tests changed (inherited from Part 03, superseded by D1)
+
+- *stage 2 holds back two different subtitles…* → *stage 2 queues two different subtitles…* (queued instead of held).
+- *stage 2 still merges a bare title with its subtitled copy* → *stage 2 queues a bare title and its subtitled copy for review*. D1 reverses this: a one-sided subtitle is reviewed.
+- *stage 1 holds back a shared ISBN…* → *stage 1 queues…*; the works gained an author so that only the title rule applies.
+- *stage 1 merges a shared ISBN … same normalised title* → gained the shared author D1 requires.
+- Five tests that expect merges (*prefers more editions*, *falls back to log count*, *is idempotent* ×2, *a failing stage-3 pass…*) now pass `autoMerge: true`.
+
+## Decisions needed
+
+- **D5: identical titles that are series volumes.** In the auto-mergeable sample, 3 of 25 look like different volumes of one series with the series name as the title (*Bleach*, *Battle Angel Alita*, *Die drei ??? Kids*). n = 25, so the true rate is somewhere around 3–30%, and it wasn't measured over the 283,908 pairs. D1 auto-merges them. Options:
+  - (a) enable as is and rely on the 30-day undo;
+  - (b) auto-merge only when the (author, normalised title) group has exactly two works, and queue larger groups (series volumes come in groups);
+  - (c) also require a matching first-publication year when both are known.
+
+  **Recommendation:** measure (b)'s effect on the auto-mergeable count, sample again, then enable. **Keep `DEDUPE_AUTO_MERGE` off until then.**
+- **D6: throughput at a 200 cap.** 185,557 works would be merged away, so a 200-per-month cap takes **77 years**. Options: a larger cap once the samples are trusted; manual CLI batches (`--auto-merge --cap 5000`) reviewed through `/admin/merges`; or a weekly schedule. Recommendation: decide after D5.
+- **D7: the first queue fill.** The first non-dry pass would queue **136,692 pairs** (54,500 from stages 1–2, 82,192 from stage 3). It's ordered by impact, so the pairs with user data come first. Confirm that a queue that size is wanted, or cap stage 3's share.
+
+## Deferred
+
+| Item | Owner | Reason |
+|---|---|---|
+| D3 merged-id reads and writes | Part 08 | routed ("Routed from Part 03") |
+| A-03-016 per-read trigger cost during merge | Part 08 (with L-01) | same scan as L-01 |
+| `reads.work_id` has no general index (impact computation, merge, stage-3 probe set scan `reads`) | Part 08 | the L-01 rewrite owns `reads` indexing |
