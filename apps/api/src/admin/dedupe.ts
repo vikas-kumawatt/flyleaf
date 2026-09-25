@@ -6,7 +6,7 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import type { Db } from '../platform/index.js';
-import { requireAdmin, requireModerator } from '../http.js';
+import { requireAdmin, requireModerator, requireViewer } from '../http.js';
 import { logAdminAction } from './auth.js';
 import {
   getDedupeQueue,
@@ -171,14 +171,16 @@ export function adminDedupeRoutes(db: Db) {
           response: {
             200: dedupeReportResponseSchema,
             400: errorResponseSchema,
+            401: errorResponseSchema,
             404: errorResponseSchema,
             500: errorResponseSchema,
           },
         },
       },
       async (req) => {
+        // Staff or a signed-in user (the §6.46 correction flow); never a guest.
+        const reporterId = req.admin?.id ?? requireViewer(req);
         const body = reportBody.parse(req.body);
-        const reporterId = req.admin?.id ?? req.viewer ?? undefined;
         const result = await queueReportedDuplicate(db, {
           survivorId: body.survivor_id,
           loserId: body.loser_id,

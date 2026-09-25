@@ -306,6 +306,12 @@ export type JobLog = { info(obj: object, msg: string): void };
 export async function registerQueues(boss: PgBoss, log: JobLog, db?: Db): Promise<void> {
   for (const name of Object.values(QUEUES)) await boss.createQueue(name);
 
+  // The monthly dedupe pass reads the whole catalog: stage 1–2 detection alone
+  // took 7.5 minutes on 3.2M works (Audit 03). At the 15-minute default it is
+  // expired and retried while the first run is still merging. update, not
+  // create, so queues that already exist with the default are fixed too.
+  await boss.updateQueue(QUEUES.catalogDedupe, { expireInSeconds: 4 * 60 * 60 });
+
   await boss.work<PingRequest, PingResult>(QUEUES.smokePing, async (jobs) => {
     const result = await pingHandler(jobs);
     log.info({ queue: QUEUES.smokePing, ids: jobs.map((j) => j.id), note: result.note },
@@ -322,6 +328,7 @@ export async function registerQueues(boss: PgBoss, log: JobLog, db?: Db): Promis
           ids: jobs.map((j) => j.id),
           stage1: result.stage1,
           stage2: result.stage2,
+          held: result.held,
           stage3Queued: result.stage3Queued,
           merged: result.merged,
           skipped: result.skipped,

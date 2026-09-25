@@ -14,10 +14,9 @@
 //   3 — Probable  trigram title >0.85, author >0.9, years ±2  QUEUE, never auto
 //   4 — Reported  from the correction flow                     queue
 //
-// Stage 1 is written and INERT: ISBNs live on editions and the catalog holds
-// 102 of them until the 9.2 GB editions pass runs. It is here rather than
-// deferred because the merge machinery is identical and writing it later
-// would mean re-deriving all of the collision handling below.
+// Stage 1 is live since the editions pass (4.9M ISBN-13s). Stages 1 and 2
+// HOLD back the pair shapes the full catalog showed to be distinct books (see
+// STAGE1_SQL and SUBTITLE_EXPR) until the product decision in Audit 03.
 //
 // Stages 3 and 4 are FN-51. They are deliberately not auto-merged: that band
 // contains reissues, different translations and series entries with nearly
@@ -98,6 +97,28 @@ export const NORMALISED_TITLE_EXPR = `
       '[[:punct:]]', ' ', 'g'),
     '\\s+', ' ', 'g'))`;
 
+/**
+ * Everything after the first colon, with the same case, punctuation and space
+ * rules as the title. Empty when there is no subtitle.
+ *
+ * Stage 2 strips subtitles so "Dune" meets "Dune: A Novel". But two DIFFERENT
+ * subtitles on the same main title are usually two books — on the full
+ * catalog, 10,572 stage-2 pairs had both subtitles present and different, and
+ * all 25 sampled were distinct ("Harry Potter: Diagon Alley" / "Harry Potter:
+ * Magical Creatures", "Forbidden Worlds: Volume 15" / "Volume 8"). PRD §40.3
+ * itself says series entries with near-identical titles must never be
+ * auto-merged. Those pairs are HELD: detected, counted, not merged
+ * (A-03-004, decision pending).
+ */
+export const SUBTITLE_EXPR = `
+  btrim(regexp_replace(
+    regexp_replace(
+      lower(CASE WHEN strpos(title, ':') > 0 THEN substr(title, strpos(title, ':') + 1) ELSE '' END),
+      '[[:punct:]]', ' ', 'g'),
+    '\\s+', ' ', 'g'))`;
+
+const onColumn = (expr: string, column: string) => expr.replace(/\btitle\b/g, column);
+
 export const STAGE2_SQL = `
   WITH author_works AS (
     SELECT wa.author_id, w.id, w.log_count,
@@ -133,16 +154,28 @@ export const STAGE2_SQL = `
       WHERE wa.work_id = a.id AND wb.work_id = b.id
     )
   )
-  SELECT a_id AS survivor_id, b_id AS loser_id, norm FROM pairs
-  ORDER BY norm
+  SELECT p.a_id AS survivor_id, p.b_id AS loser_id, p.norm,
+         (${onColumn(SUBTITLE_EXPR, 'wa.title')} <> ''
+          AND ${onColumn(SUBTITLE_EXPR, 'wb.title')} <> ''
+          AND ${onColumn(SUBTITLE_EXPR, 'wa.title')} <> ${onColumn(SUBTITLE_EXPR, 'wb.title')}) AS held
+  FROM pairs p
+  JOIN works wa ON wa.id = p.a_id
+  JOIN works wb ON wb.id = p.b_id
+  -- Mergeable pairs first, so held pairs can never fill the LIMIT month after
+  -- month and starve the pass.
+  ORDER BY held, p.norm
   LIMIT $1`;
 
 /**
  * Stage 1 pairs: two live works whose editions claim the same ISBN-13.
  *
- * INERT until the editions pass runs — with 102 editions this returns nothing.
- * An ISBN identifies one physical edition, so two works claiming it are one
- * work; this is the only stage that needs no title comparison at all.
+ * No longer inert: the editions pass has run (4.9M ISBN-13s on the full
+ * catalog) and this finds 30,240 pairs. PRD §40.3 says an ISBN identifies one
+ * edition, so two works claiming it are one work — but in the dump publishers
+ * re-use ISBNs for unrelated books ("Bidirectional Control of DC Motor…" and
+ * "Behaviour of Concrete…" share 9788193323519). A pair whose normalised
+ * titles differ is HELD: detected, counted, not merged (A-03-005, decision
+ * pending).
  */
 export const STAGE1_SQL = `
   WITH shared AS (
@@ -155,44 +188,69 @@ export const STAGE1_SQL = `
     SELECT s.*,
            (SELECT count(*) FROM editions e WHERE e.work_id = s.a_id) AS a_editions,
            (SELECT count(*) FROM editions e WHERE e.work_id = s.b_id) AS b_editions,
-           wa.log_count AS a_logs, wb.log_count AS b_logs
+           wa.log_count AS a_logs, wb.log_count AS b_logs,
+           ${onColumn(NORMALISED_TITLE_EXPR, 'wa.title')} <> ${onColumn(NORMALISED_TITLE_EXPR, 'wb.title')} AS held
     FROM shared s
     JOIN works wa ON wa.id = s.a_id AND wa.merged_into_id IS NULL AND NOT wa.is_provisional
     JOIN works wb ON wb.id = s.b_id AND wb.merged_into_id IS NULL AND NOT wb.is_provisional
   )
-  SELECT DISTINCT a_id AS survivor_id, b_id AS loser_id, isbn_13
+  SELECT DISTINCT a_id AS survivor_id, b_id AS loser_id, isbn_13, held
   FROM live
   WHERE (a_editions, a_logs, b_id) > (b_editions, b_logs, a_id)
+  ORDER BY held
   LIMIT $1`;
 
 /**
  * Move everything that points at the loser, then tombstone it.
  *
- * SEVEN tables reference `works.id`, and four of them can collide on a naive
- * repoint. The collisions are the whole difficulty of a merge; getting one
- * wrong throws a constraint violation at best and silently drops a user's
- * reading history at worst.
+ * Every table that references a work, as the database has them today (Audit
+ * 03 read the list from `pg_constraint` plus the references no foreign key
+ * can express). When a table is added that holds a work id, it belongs here
+ * AND in `undoMerge`, and the snapshot test in dedupe.test.ts should gain it.
  *
  *   reads           UNIQUE (user_id, work_id, attempt_no) — a user who logged
  *                   BOTH duplicates collides. Attempts are renumbered to
  *                   continue after that user's existing attempts, which is
  *                   also the semantically right answer: they did read it twice.
- *   work_authors    PK (work_id, author_id, role)         — ON CONFLICT DO NOTHING
- *   work_subjects   PK (work_id, subject_id)              — ON CONFLICT DO NOTHING
- *   work_stats      PK (work_id)                          — the loser's row is
- *                   dropped, not merged: `stats.workstats` recomputes from
- *                   `reads`, which have just moved.
- *   series_entries  PK (series_id, work_id)               — ON CONFLICT DO NOTHING
- *   editions        no collision                          — plain repoint
- *   external_ids /
- *   field_provenance  PK includes entity_id               — ON CONFLICT DO NOTHING
+ *                   read_likes / read_comments hang off the read id and move
+ *                   with it untouched.
+ *   reviews         work_id is denormalised from the read — follows it.
+ *   shelf_items     PK (shelf_id, work_id) — a shelf holding BOTH copies keeps
+ *                   the survivor's item; the loser's is dropped and recorded.
+ *                   The shelf_items trigger refreshes item_count and the
+ *                   cover_work_ids mosaic.
+ *   activity        plain repoint, so feed cards never point at a tombstone.
+ *   mutes           no FK (target_id is polymorphic); PK (user, type, target).
+ *                   Muted either copy → the survivor is muted.
+ *   profiles        favourite_work_ids uuid[] — loser swapped for the survivor
+ *                   in place; if both were favourites, the first slot wins.
+ *   import_rows     plain repoint.
+ *   works.log_count the survivor gains the loser's count (dump logs + Flyleaf
+ *                   logs are both counted on the work row, never recomputed).
+ *   work_authors / work_subjects / series_entries — PK collisions, insert what
+ *                   the survivor lacks; what was ADDED is recorded so undo can
+ *                   take exactly that back off the survivor.
+ *   work_stats      the loser's row is dropped; the reads trigger has already
+ *                   recomputed the survivor from the reads that just moved.
+ *   editions        plain repoint.
+ *   external_ids    PK (provider, external_id, entity_type) cannot collide on
+ *                   a repoint, so the loser's keys simply move.
+ *   field_provenance NOT moved: it describes the loser's own field values, and
+ *                   a merge never copies values onto the survivor. Moving it
+ *                   would claim (and possibly lock) a provenance the survivor's
+ *                   fields do not have.
+ *
+ * Not repointed on purpose: `events` and `admin_audit_log` (history of what
+ * happened, to the id it happened to) and `dedupe_queue` (a pending pair that
+ * names the loser is refused cleanly when resolved, below).
  *
  * And merge CHAINS: anything already merged into the loser must be repointed
  * at the survivor, or following `merged_into_id` from an old link lands on a
  * tombstone that itself points elsewhere.
  *
- * All of it in ONE transaction. A half-applied merge leaves reads pointing at
- * a work that is about to be tombstoned.
+ * All of it in ONE transaction, with both works locked. The admin console and
+ * the monthly job can reach the same work at once; without the lock the second
+ * merge would move reads onto a work that is being tombstoned.
  */
 export async function mergeWorks(
   db: Db,
@@ -201,6 +259,17 @@ export async function mergeWorks(
   if (survivorId === loserId) throw new Error('cannot merge a work into itself');
 
   return db.transaction(async (tx) => {
+    // Lock in id order so two merges that share a work cannot deadlock.
+    const locked = await tx.execute<{ id: string; merged_into_id: string | null; log_count: number }>(sql`
+      SELECT id, merged_into_id, log_count FROM works
+      WHERE id IN (${survivorId}, ${loserId}) ORDER BY id FOR UPDATE`);
+    const survivor = locked.find((w) => w.id === survivorId);
+    const loser = locked.find((w) => w.id === loserId);
+    if (!survivor || !loser) throw ApiError.notFound('Work not found.');
+    if (survivor.merged_into_id || loser.merged_into_id) {
+      throw ApiError.conflict('work_merged', 'One of these works has already been merged into another.');
+    }
+
     // Recorded BEFORE the update, because afterwards nothing remembers what
     // the attempt numbers were. This is what makes the 30-day undo possible.
     const priorReads = await tx.execute<{ id: string; attempt_no: number }>(sql`
@@ -241,43 +310,96 @@ export async function mergeWorks(
       WHERE r.id = m.id
       RETURNING r.id`);
 
+    const reviews = await tx.execute<{ id: string }>(sql`
+      UPDATE reviews SET work_id = ${survivorId} WHERE work_id = ${loserId} RETURNING id`);
+
     const editions = await tx.execute(sql`
       UPDATE editions SET work_id = ${survivorId} WHERE work_id = ${loserId} RETURNING id`);
 
-    // The ON CONFLICT tables. Insert what the survivor lacks, then drop the
-    // loser's rows — an UPDATE would fail on the duplicates.
+    // Shelves: drop the loser's item where the shelf already holds the
+    // survivor, then repoint the rest. Order matters — repointing first would
+    // hit the primary key.
+    const shelfItemsDropped = await tx.execute<{
+      shelf_id: string; position: number; note: string | null; added_at: string; added_by: string | null;
+    }>(sql`
+      DELETE FROM shelf_items l
+      WHERE l.work_id = ${loserId}
+        AND EXISTS (SELECT 1 FROM shelf_items s WHERE s.shelf_id = l.shelf_id AND s.work_id = ${survivorId})
+      RETURNING l.shelf_id, l.position, l.note, l.added_at::text AS added_at, l.added_by`);
+    const shelfItemsMoved = await tx.execute<{ shelf_id: string }>(sql`
+      UPDATE shelf_items SET work_id = ${survivorId} WHERE work_id = ${loserId} RETURNING shelf_id`);
+
+    const activity = await tx.execute<{ id: string }>(sql`
+      UPDATE activity SET work_id = ${survivorId} WHERE work_id = ${loserId} RETURNING id`);
+
+    // Mutes, the same shape as shelves.
+    const mutesDropped = await tx.execute<{ user_id: string; created_at: string }>(sql`
+      DELETE FROM mutes l
+      WHERE l.target_type = 'work' AND l.target_id = ${loserId}
+        AND EXISTS (
+          SELECT 1 FROM mutes s
+          WHERE s.user_id = l.user_id AND s.target_type = 'work' AND s.target_id = ${survivorId})
+      RETURNING l.user_id, l.created_at::text AS created_at`);
+    const mutesMoved = await tx.execute<{ user_id: string }>(sql`
+      UPDATE mutes SET target_id = ${survivorId}
+      WHERE target_type = 'work' AND target_id = ${loserId} RETURNING user_id`);
+
+    // Favourites: swap in place, then drop a repeated id keeping its first slot.
+    const favourites = await tx.execute<{ user_id: string; before: string[]; after: string[] }>(sql`
+      WITH prior AS (
+        SELECT user_id, favourite_work_ids AS before FROM profiles
+        WHERE ${loserId}::uuid = ANY (favourite_work_ids)
+        FOR UPDATE
+      )
+      UPDATE profiles p
+      SET favourite_work_ids = (
+        SELECT COALESCE(array_agg(id ORDER BY slot), '{}'::uuid[])
+        FROM (
+          SELECT id, min(slot) AS slot
+          FROM unnest(array_replace(prior.before, ${loserId}::uuid, ${survivorId}::uuid))
+               WITH ORDINALITY AS f(id, slot)
+          GROUP BY id
+        ) d
+      )
+      FROM prior
+      WHERE p.user_id = prior.user_id
+      RETURNING p.user_id, prior.before, p.favourite_work_ids AS after`);
+
+    const importRows = await tx.execute<{ import_id: string; row_no: number }>(sql`
+      UPDATE import_rows SET work_id = ${survivorId} WHERE work_id = ${loserId}
+      RETURNING import_id, row_no`);
+
     await tx.execute(sql`
+      UPDATE works SET log_count = log_count + ${Number(loser.log_count)} WHERE id = ${survivorId}`);
+
+    // The ON CONFLICT tables. Insert what the survivor lacks, then drop the
+    // loser's rows — an UPDATE would fail on the duplicates. RETURNING gives
+    // exactly the rows the survivor GAINED, which is what undo must remove.
+    const authorsAdded = await tx.execute<{ author_id: string; role: string }>(sql`
       INSERT INTO work_authors (work_id, author_id, role, position)
       SELECT ${survivorId}, author_id, role, position FROM work_authors WHERE work_id = ${loserId}
-      ON CONFLICT (work_id, author_id, role) DO NOTHING`);
+      ON CONFLICT (work_id, author_id, role) DO NOTHING
+      RETURNING author_id, role`);
     await tx.execute(sql`DELETE FROM work_authors WHERE work_id = ${loserId}`);
 
-    await tx.execute(sql`
+    const subjectsAdded = await tx.execute<{ subject_id: string }>(sql`
       INSERT INTO work_subjects (work_id, subject_id, weight)
       SELECT ${survivorId}, subject_id, weight FROM work_subjects WHERE work_id = ${loserId}
-      ON CONFLICT (work_id, subject_id) DO NOTHING`);
+      ON CONFLICT (work_id, subject_id) DO NOTHING
+      RETURNING subject_id`);
     await tx.execute(sql`DELETE FROM work_subjects WHERE work_id = ${loserId}`);
 
-    await tx.execute(sql`
+    const seriesAdded = await tx.execute<{ series_id: string }>(sql`
       INSERT INTO series_entries (series_id, work_id, position)
       SELECT series_id, ${survivorId}, position FROM series_entries WHERE work_id = ${loserId}
-      ON CONFLICT (series_id, work_id) DO NOTHING`);
+      ON CONFLICT (series_id, work_id) DO NOTHING
+      RETURNING series_id`);
     await tx.execute(sql`DELETE FROM series_entries WHERE work_id = ${loserId}`);
 
-    for (const table of ['external_ids', 'field_provenance'] as const) {
-      await tx.execute(sql.raw(`
-        UPDATE ${table} SET entity_id = '${survivorId}'
-        WHERE entity_type = 'work' AND entity_id = '${loserId}'
-          AND NOT EXISTS (
-            SELECT 1 FROM ${table} t2
-            WHERE t2.entity_type = 'work' AND t2.entity_id = '${survivorId}'
-              ${table === 'external_ids'
-                ? `AND t2.provider = ${table}.provider AND t2.external_id = ${table}.external_id`
-                : `AND t2.field_name = ${table}.field_name`}
-          )`));
-      await tx.execute(sql.raw(
-        `DELETE FROM ${table} WHERE entity_type = 'work' AND entity_id = '${loserId}'`));
-    }
+    const externalIds = await tx.execute<{ provider: string; external_id: string }>(sql`
+      UPDATE external_ids SET entity_id = ${survivorId}
+      WHERE entity_type = 'work' AND entity_id = ${loserId}
+      RETURNING provider, external_id`);
 
     // Recomputed from reads, which have just moved. Merging the numbers by
     // hand would double-count anyone who logged both copies.
@@ -304,14 +426,37 @@ export async function mergeWorks(
         role: a.role,
         position: Number(a.position),
       })),
+      authors_added: authorsAdded.map((a) => ({ author_id: a.author_id, role: a.role })),
       subjects: priorSubjects.map((s) => ({
         subject_id: s.subject_id,
         weight: s.weight != null ? Number(s.weight) : null,
       })),
+      subjects_added: subjectsAdded.map((s) => s.subject_id),
       series_entries: priorSeriesEntries.map((se) => ({
         series_id: se.series_id,
         position: se.position != null ? Number(se.position) : null,
       })),
+      series_added: seriesAdded.map((s) => s.series_id),
+      review_ids: reviews.map((r) => r.id),
+      activity_ids: activity.map((a) => a.id),
+      shelf_items_moved: shelfItemsMoved.map((s) => s.shelf_id),
+      shelf_items_dropped: shelfItemsDropped.map((s) => ({
+        shelf_id: s.shelf_id,
+        position: Number(s.position),
+        note: s.note,
+        // As text: a JS Date would drop the microseconds and undo would not be exact.
+        added_at: s.added_at,
+        added_by: s.added_by,
+      })),
+      mutes_moved: mutesMoved.map((m) => m.user_id),
+      mutes_dropped: mutesDropped.map((m) => ({
+        user_id: m.user_id,
+        created_at: m.created_at,
+      })),
+      favourites: favourites.map((f) => ({ user_id: f.user_id, before: f.before, after: f.after })),
+      import_rows: importRows.map((r) => ({ import_id: r.import_id, row_no: Number(r.row_no) })),
+      external_ids: externalIds.map((e) => ({ provider: e.provider, external_id: e.external_id })),
+      log_count_added: Number(loser.log_count),
       rechained: rechained.length,
       rechained_ids: priorRechained.map((r) => r.id),
     };
@@ -325,12 +470,46 @@ export async function mergeWorks(
   });
 }
 
+type MovedRecord = {
+  reads?: { id: string; attempt_no: number }[];
+  edition_ids?: string[];
+  authors?: { author_id: string; role: string; position: number }[];
+  authors_added?: { author_id: string; role: string }[];
+  subjects?: { subject_id: string; weight: number | null }[];
+  subjects_added?: string[];
+  series_entries?: { series_id: string; position: number | null }[];
+  series_added?: string[];
+  review_ids?: string[];
+  activity_ids?: string[];
+  shelf_items_moved?: string[];
+  shelf_items_dropped?: {
+    shelf_id: string; position: number; note: string | null; added_at: string; added_by: string | null;
+  }[];
+  mutes_moved?: string[];
+  mutes_dropped?: { user_id: string; created_at: string }[];
+  favourites?: { user_id: string; before: string[]; after: string[] }[];
+  import_rows?: { import_id: string; row_no: number }[];
+  external_ids?: { provider: string; external_id: string }[];
+  log_count_added?: number;
+  rechained_ids?: string[];
+};
+
 /**
  * 30-day undo for merged works (FN-51, PRD §40.3).
  *
- * Restores the loser work, repoints its reads back with their original attempt numbers,
- * restores its editions, authors, and subjects, resets chains, and sets `undone_at = now()`.
- * Rejects with an error if the merge was already undone or occurred more than 30 days ago.
+ * Reverses exactly what `mergeWorks` recorded in `moved`, in one transaction,
+ * and sets `undone_at`. Refused when:
+ *   - the merge was already undone, or is more than 30 days old;
+ *   - the survivor has since been merged into something else. The loser's
+ *     reads now sit on THAT work, and the later merge's record names the loser
+ *     as re-chained, so undoing out of order corrupts both. Undo the later
+ *     merge first;
+ *   - the loser has gained reads since the merge (a stale id logged onto the
+ *     tombstone). Restoring the recorded attempt numbers would collide.
+ *
+ * Rows a user changed after the merge are left as the user left them: a
+ * favourites list edited since is not overwritten, and a shelf item the user
+ * removed from the survivor is not resurrected on the loser.
  */
 export async function undoMerge(
   db: Db,
@@ -350,147 +529,188 @@ export async function undoMerge(
     subjects: number;
   };
 }> {
-  const [merge] = await db.execute<{
-    id: string;
-    survivor_id: string;
-    loser_id: string;
-    stage: number;
-    reason: string;
-    moved: any;
-    merged_at: string;
-    undone_at: string | null;
-  }>(sql`
-    SELECT id, survivor_id, loser_id, stage, reason, moved, merged_at, undone_at
-    FROM work_merges WHERE id = ${mergeId}
-  `);
-
-  if (!merge) throw ApiError.notFound(`Merge record ${mergeId} not found.`);
-  if (merge.undone_at) throw ApiError.conflict('merge_already_undone', 'This merge has already been undone.');
-
-  const ageMs = Date.now() - new Date(merge.merged_at).getTime();
-  const THIRTY_DAYS_MS = 30 * 24 * 60 * 60 * 1000;
-  if (ageMs > THIRTY_DAYS_MS) {
-    throw ApiError.badRequest('undo_window_expired', 'Merges can only be undone within 30 days.');
-  }
-
   return db.transaction(async (tx) => {
-    const moved = (merge.moved || {}) as {
-      reads?: { id: string; attempt_no: number }[];
-      edition_ids?: string[];
-      authors?: { author_id: string; role: string; position: number }[];
-      subjects?: { subject_id: string; weight: number | null }[];
-      series_entries?: { series_id: string; position: number | null }[];
-      rechained_ids?: string[];
-    };
-
-    // 1. Untombstone loser
-    await tx.execute(sql`
-      UPDATE works
-      SET merged_into_id = NULL, updated_at = now()
-      WHERE id = ${merge.loser_id}
+    // Locked, and checked inside the transaction: two admins pressing undo at
+    // once must not both pass the `undone_at` check.
+    const [merge] = await tx.execute<{
+      id: string;
+      survivor_id: string;
+      loser_id: string;
+      moved: MovedRecord | null;
+      undone_at: string | null;
+      expired: boolean;
+    }>(sql`
+      SELECT id, survivor_id, loser_id, moved, undone_at,
+             merged_at < now() - interval '30 days' AS expired
+      FROM work_merges WHERE id = ${mergeId}
+      FOR UPDATE
     `);
 
-    // 2. Restore reads to their original work and original attempt number
-    let readsRestored = 0;
-    if (moved.reads && moved.reads.length > 0) {
-      for (const r of moved.reads) {
-        await tx.execute(sql`
-          UPDATE reads
-          SET work_id = ${merge.loser_id}, attempt_no = ${r.attempt_no}, updated_at = now()
-          WHERE id = ${r.id}
-        `);
-      }
-      readsRestored = moved.reads.length;
+    if (!merge) throw ApiError.notFound(`Merge record ${mergeId} not found.`);
+    if (merge.undone_at) throw ApiError.conflict('merge_already_undone', 'This merge has already been undone.');
+    if (merge.expired) {
+      throw ApiError.badRequest('undo_window_expired', 'Merges can only be undone within 30 days.');
     }
 
-    // 3. Restore editions
-    let editionsRestored = 0;
-    if (moved.edition_ids && moved.edition_ids.length > 0) {
-      for (const eid of moved.edition_ids) {
-        await tx.execute(sql`
-          UPDATE editions
-          SET work_id = ${merge.loser_id}
-          WHERE id = ${eid}
-        `);
-      }
-      editionsRestored = moved.edition_ids.length;
+    const survivorId = merge.survivor_id;
+    const loserId = merge.loser_id;
+
+    // Same lock order as mergeWorks.
+    const locked = await tx.execute<{ id: string; merged_into_id: string | null }>(sql`
+      SELECT id, merged_into_id FROM works WHERE id IN (${survivorId}, ${loserId})
+      ORDER BY id FOR UPDATE`);
+    if (locked.find((w) => w.id === survivorId)?.merged_into_id) {
+      throw ApiError.conflict(
+        'survivor_merged',
+        'The surviving work has since been merged into another. Undo that merge first.',
+      );
     }
 
-    // 4. Restore authors
-    let authorsRestored = 0;
-    if (moved.authors && moved.authors.length > 0) {
-      for (const a of moved.authors) {
-        await tx.execute(sql`
-          INSERT INTO work_authors (work_id, author_id, role, position)
-          VALUES (${merge.loser_id}, ${a.author_id}, ${a.role}, ${a.position})
-          ON CONFLICT (work_id, author_id, role) DO NOTHING
-        `);
-      }
-      authorsRestored = moved.authors.length;
+    const [newReads] = await tx.execute<{ n: number }>(sql`
+      SELECT count(*)::int AS n FROM reads WHERE work_id = ${loserId}`);
+    if (Number(newReads!.n) > 0) {
+      throw ApiError.conflict(
+        'loser_modified',
+        'Reads have been logged against the merged-away work since the merge, so it cannot be restored exactly.',
+      );
     }
 
-    // 5. Restore subjects
-    let subjectsRestored = 0;
-    if (moved.subjects && moved.subjects.length > 0) {
-      for (const s of moved.subjects) {
-        await tx.execute(sql`
-          INSERT INTO work_subjects (work_id, subject_id, weight)
-          VALUES (${merge.loser_id}, ${s.subject_id}, ${s.weight})
-          ON CONFLICT (work_id, subject_id) DO NOTHING
-        `);
-      }
-      subjectsRestored = moved.subjects.length;
-    }
+    const moved: MovedRecord = merge.moved ?? {};
+    const json = (v: unknown) => sql`${JSON.stringify(v ?? [])}::jsonb`;
+    const uuids = (v: string[] | undefined) => sql`ARRAY(SELECT jsonb_array_elements_text(${json(v)})::uuid)`;
 
-    // 6. Restore series entries
-    if (moved.series_entries && moved.series_entries.length > 0) {
-      for (const se of moved.series_entries) {
-        await tx.execute(sql`
-          INSERT INTO series_entries (series_id, work_id, position)
-          VALUES (${se.series_id}, ${merge.loser_id}, ${se.position})
-          ON CONFLICT (series_id, work_id) DO NOTHING
-        `);
-      }
-    }
-
-    // 7. Restore rechained works
-    if (moved.rechained_ids && moved.rechained_ids.length > 0) {
-      for (const wid of moved.rechained_ids) {
-        await tx.execute(sql`
-          UPDATE works
-          SET merged_into_id = ${merge.loser_id}, updated_at = now()
-          WHERE id = ${wid}
-        `);
-      }
-    }
-
-    // 8. Mark merge undone
+    // 1. Untombstone the loser.
     await tx.execute(sql`
-      UPDATE work_merges
-      SET undone_at = now()
-      WHERE id = ${merge.id}
-    `);
+      UPDATE works SET merged_into_id = NULL, updated_at = now() WHERE id = ${loserId}`);
 
-    // 9. If a dedupe_queue entry exists for this pair, reset its status to pending
+    // 2. Reads, back to their original work AND original attempt number. The
+    // loser holds no reads (checked above), so the restored numbers are free.
+    const reads = moved.reads ?? [];
+    if (reads.length > 0) {
+      await tx.execute(sql`
+        UPDATE reads r
+        SET work_id = ${loserId}, attempt_no = m.attempt_no, updated_at = now()
+        FROM jsonb_to_recordset(${json(reads)}) AS m(id uuid, attempt_no int)
+        WHERE r.id = m.id`);
+    }
+
+    // 3. Everything that moved by primary key.
+    await tx.execute(sql`UPDATE editions SET work_id = ${loserId} WHERE id = ANY (${uuids(moved.edition_ids)})`);
+    await tx.execute(sql`UPDATE reviews SET work_id = ${loserId} WHERE id = ANY (${uuids(moved.review_ids)})`);
+    await tx.execute(sql`UPDATE activity SET work_id = ${loserId} WHERE id = ANY (${uuids(moved.activity_ids)})`);
+    await tx.execute(sql`
+      UPDATE import_rows ir SET work_id = ${loserId}
+      FROM jsonb_to_recordset(${json(moved.import_rows)}) AS m(import_id uuid, row_no int)
+      WHERE ir.import_id = m.import_id AND ir.row_no = m.row_no`);
+    await tx.execute(sql`
+      UPDATE external_ids e SET entity_id = ${loserId}
+      FROM jsonb_to_recordset(${json(moved.external_ids)}) AS m(provider text, external_id text)
+      WHERE e.entity_type = 'work' AND e.entity_id = ${survivorId}
+        AND e.provider = m.provider AND e.external_id = m.external_id`);
+
+    // 4. Shelves: repointed items go back; dropped items are re-created where
+    // the shelf still exists.
+    await tx.execute(sql`
+      UPDATE shelf_items SET work_id = ${loserId}
+      WHERE work_id = ${survivorId} AND shelf_id = ANY (${uuids(moved.shelf_items_moved)})`);
+    await tx.execute(sql`
+      INSERT INTO shelf_items (shelf_id, work_id, position, note, added_at, added_by)
+      SELECT d.shelf_id, ${loserId}, d.position, d.note, d.added_at,
+             (SELECT u.id FROM users u WHERE u.id = d.added_by)
+      FROM jsonb_to_recordset(${json(moved.shelf_items_dropped)})
+           AS d(shelf_id uuid, position int, note text, added_at timestamptz, added_by uuid)
+      WHERE EXISTS (SELECT 1 FROM shelves s WHERE s.id = d.shelf_id)
+      ON CONFLICT (shelf_id, work_id) DO NOTHING`);
+
+    // 5. Mutes, the same shape.
+    await tx.execute(sql`
+      UPDATE mutes SET target_id = ${loserId}
+      WHERE target_type = 'work' AND target_id = ${survivorId}
+        AND user_id = ANY (${uuids(moved.mutes_moved)})`);
+    await tx.execute(sql`
+      INSERT INTO mutes (user_id, target_type, target_id, created_at)
+      SELECT d.user_id, 'work', ${loserId}, d.created_at
+      FROM jsonb_to_recordset(${json(moved.mutes_dropped)}) AS d(user_id uuid, created_at timestamptz)
+      WHERE EXISTS (SELECT 1 FROM users u WHERE u.id = d.user_id)
+      ON CONFLICT DO NOTHING`);
+
+    // 6. Favourites, only where the list is still exactly what the merge wrote.
+    await tx.execute(sql`
+      UPDATE profiles p
+      SET favourite_work_ids = ARRAY(SELECT jsonb_array_elements_text(f.before)::uuid)
+      FROM jsonb_to_recordset(${json(moved.favourites)}) AS f(user_id uuid, before jsonb, after jsonb)
+      WHERE p.user_id = f.user_id
+        AND p.favourite_work_ids = ARRAY(SELECT jsonb_array_elements_text(f.after)::uuid)`);
+
+    // 7. Authorship, subjects, series: give the loser its rows back and take
+    // off the survivor exactly the rows the merge added.
+    const authors = moved.authors ?? [];
+    await tx.execute(sql`
+      INSERT INTO work_authors (work_id, author_id, role, position)
+      SELECT ${loserId}, a.author_id, a.role, a.position
+      FROM jsonb_to_recordset(${json(authors)}) AS a(author_id uuid, role text, position int)
+      ON CONFLICT (work_id, author_id, role) DO NOTHING`);
+    await tx.execute(sql`
+      DELETE FROM work_authors wa
+      USING jsonb_to_recordset(${json(moved.authors_added)}) AS a(author_id uuid, role text)
+      WHERE wa.work_id = ${survivorId} AND wa.author_id = a.author_id AND wa.role = a.role`);
+
+    const subjects = moved.subjects ?? [];
+    await tx.execute(sql`
+      INSERT INTO work_subjects (work_id, subject_id, weight)
+      SELECT ${loserId}, s.subject_id, s.weight
+      FROM jsonb_to_recordset(${json(subjects)}) AS s(subject_id uuid, weight real)
+      ON CONFLICT (work_id, subject_id) DO NOTHING`);
+    await tx.execute(sql`
+      DELETE FROM work_subjects
+      WHERE work_id = ${survivorId} AND subject_id = ANY (${uuids(moved.subjects_added)})`);
+
+    await tx.execute(sql`
+      INSERT INTO series_entries (series_id, work_id, position)
+      SELECT se.series_id, ${loserId}, se.position
+      FROM jsonb_to_recordset(${json(moved.series_entries)}) AS se(series_id uuid, position numeric)
+      ON CONFLICT (series_id, work_id) DO NOTHING`);
+    await tx.execute(sql`
+      DELETE FROM series_entries
+      WHERE work_id = ${survivorId} AND series_id = ANY (${uuids(moved.series_added)})`);
+
+    // 8. Chains the merge flattened point back at the loser.
+    await tx.execute(sql`
+      UPDATE works SET merged_into_id = ${loserId}, updated_at = now()
+      WHERE id = ANY (${uuids(moved.rechained_ids)})`);
+
+    // 9. Counters. log_count gave the loser's count to the survivor; work_stats
+    // is derived, so recompute both rather than trying to reverse it.
+    if (moved.log_count_added) {
+      await tx.execute(sql`
+        UPDATE works SET log_count = GREATEST(log_count - ${moved.log_count_added}, 0)
+        WHERE id = ${survivorId}`);
+    }
+    await tx.execute(sql`SELECT recompute_work_stats_for_work(${survivorId}::uuid)`);
+    await tx.execute(sql`SELECT recompute_work_stats_for_work(${loserId}::uuid)`);
+
+    await tx.execute(sql`UPDATE work_merges SET undone_at = now() WHERE id = ${merge.id}`);
+
+    // If a dedupe_queue entry exists for this pair, reset its status to pending.
     await tx.execute(sql`
       UPDATE dedupe_queue
       SET status = 'pending', reviewed_at = NULL, reviewed_by_user_id = NULL
-      WHERE survivor_id = ${merge.survivor_id} AND loser_id = ${merge.loser_id}
+      WHERE survivor_id = ${survivorId} AND loser_id = ${loserId}
     `);
 
     return {
       undone: true as const,
       merge_id: merge.id,
       mergeId: merge.id,
-      survivor_id: merge.survivor_id,
-      survivorId: merge.survivor_id,
-      loser_id: merge.loser_id,
-      loserId: merge.loser_id,
+      survivor_id: survivorId,
+      survivorId,
+      loser_id: loserId,
+      loserId,
       restored: {
-        reads: readsRestored,
-        editions: editionsRestored,
-        authors: authorsRestored,
-        subjects: subjectsRestored,
+        reads: reads.length,
+        editions: (moved.edition_ids ?? []).length,
+        authors: authors.length,
+        subjects: subjects.length,
       },
     };
   });
@@ -618,6 +838,14 @@ export async function previewMerge(
  * QUEUED, never auto-merged (PRD §40.3). This band contains subtle differences
  * like reissues, different translations, or series volumes with nearly identical
  * titles.
+ *
+ * DOES NOT SCALE (A-03-006): a self-join of every live work against every
+ * other, with `similarity()` in the join filter. No index can serve it — not
+ * works_title_trgm_idx, and not authors_name_trgm_idx / authors_search_trgm_idx
+ * either, because the author names are computed columns of a CTE. On the full
+ * catalog the plan is a nested loop over 3.65M × 3.65M rows (cost 1.09e12).
+ * It is correct at test scale only; runDedupe runs it last so it cannot block
+ * the stage 1–2 merges.
  */
 export const STAGE3_SQL = `
   WITH live_works AS (
@@ -639,7 +867,7 @@ export const STAGE3_SQL = `
       b.id AS b_id,
       a.title AS a_title,
       b.title AS b_title,
-      similarity(a.title, b.title) AS title_sim,
+      similarity(a.norm, b.norm) AS title_sim,
       COALESCE(similarity(a.author_name, b.author_name), 0) AS author_sim,
       a.first_publish_year AS a_year,
       b.first_publish_year AS b_year
@@ -658,8 +886,8 @@ export const STAGE3_SQL = `
        a.first_publish_year IS NULL OR b.first_publish_year IS NULL
        OR abs(a.first_publish_year - b.first_publish_year) <= 2
      )
-     -- Trigram title similarity > 0.85
-     AND similarity(a.title, b.title) > 0.85
+     -- Trigram similarity on the NORMALISED title > 0.85 (PRD §40.3)
+     AND similarity(a.norm, b.norm) > 0.85
      -- Exclude Stage 2 exact matches: normalized title identical AND shared author ID
      AND NOT (a.norm <> '' AND a.norm = b.norm AND a.author_id IS NOT NULL AND a.author_id = b.author_id)
   )
@@ -755,14 +983,9 @@ export async function queueReportedDuplicate(
   if (!loser) throw ApiError.notFound('Loser work not found.');
   if (loser.merged_into_id) throw ApiError.badRequest('work_merged', 'Reported duplicate work is already merged.');
 
-  const [existing] = await db.execute<{ id: string }>(sql`
-    SELECT id FROM dedupe_queue
-    WHERE survivor_id = ${data.survivorId} AND loser_id = ${data.loserId} AND status = 'pending'
-  `);
-  if (existing) {
-    return { id: existing.id, queued: true };
-  }
-
+  // Insert-or-find rather than find-then-insert: two reports of the same pair
+  // at once would otherwise both miss the SELECT and one would hit the
+  // pending-pair unique index as a 500.
   const [inserted] = await db.execute<{ id: string }>(sql`
     INSERT INTO dedupe_queue (survivor_id, loser_id, stage, status, reason, metadata)
     VALUES (
@@ -773,10 +996,16 @@ export async function queueReportedDuplicate(
       ${data.reason},
       ${JSON.stringify({ reportedByUserId: data.reporterUserId ?? null })}::jsonb
     )
+    ON CONFLICT (survivor_id, loser_id) WHERE status = 'pending' DO NOTHING
     RETURNING id
   `);
+  if (inserted) return { id: inserted.id, queued: true };
 
-  return { id: inserted!.id, queued: true };
+  const [existing] = await db.execute<{ id: string }>(sql`
+    SELECT id FROM dedupe_queue
+    WHERE survivor_id = ${data.survivorId} AND loser_id = ${data.loserId} AND status = 'pending'
+  `);
+  return { id: existing!.id, queued: true };
 }
 
 /**
@@ -890,47 +1119,52 @@ export async function resolveQueueItem(
   action: 'merge' | 'dismiss',
   opts: { reviewerUserId?: string; reason?: string } = {},
 ): Promise<{ success: true; action: 'merge' | 'dismiss'; mergeId?: string; merge_id?: string }> {
-  const [item] = await db.execute<{
-    id: string;
-    survivor_id: string;
-    loser_id: string;
-    stage: number;
-    status: string;
-    reason: string;
-  }>(sql`
-    SELECT id, survivor_id, loser_id, stage, status, reason
-    FROM dedupe_queue WHERE id = ${queueId}
-  `);
-
-  if (!item) throw ApiError.notFound('Queue item not found.');
-  if (item.status !== 'pending') {
-    throw ApiError.badRequest('already_resolved', `Queue item is already ${item.status}.`);
-  }
-
-  if (action === 'merge') {
-    const mergeResult = await mergeWorks(db, {
-      survivorId: item.survivor_id,
-      loserId: item.loser_id,
-      stage: item.stage as 1 | 2 | 3 | 4,
-      reason: opts.reason ?? item.reason,
-    });
-
-    await db.execute(sql`
-      UPDATE dedupe_queue
-      SET status = 'merged',
-          reviewed_at = now(),
-          reviewed_by_user_id = ${opts.reviewerUserId ?? null}
-      WHERE id = ${queueId}
+  // One transaction with the item locked: a double click, or two reviewers on
+  // the same item, must resolve it once. The merge runs as a savepoint inside.
+  return db.transaction(async (tx) => {
+    const [item] = await tx.execute<{
+      id: string;
+      survivor_id: string;
+      loser_id: string;
+      stage: number;
+      status: string;
+      reason: string;
+    }>(sql`
+      SELECT id, survivor_id, loser_id, stage, status, reason
+      FROM dedupe_queue WHERE id = ${queueId}
+      FOR UPDATE
     `);
 
-    return {
-      success: true,
-      action: 'merge',
-      merge_id: mergeResult.mergeId,
-      mergeId: mergeResult.mergeId,
-    };
-  } else {
-    await db.execute(sql`
+    if (!item) throw ApiError.notFound('Queue item not found.');
+    if (item.status !== 'pending') {
+      throw ApiError.badRequest('already_resolved', `Queue item is already ${item.status}.`);
+    }
+
+    if (action === 'merge') {
+      const mergeResult = await mergeWorks(tx as unknown as Db, {
+        survivorId: item.survivor_id,
+        loserId: item.loser_id,
+        stage: item.stage as 1 | 2 | 3 | 4,
+        reason: opts.reason ?? item.reason,
+      });
+
+      await tx.execute(sql`
+        UPDATE dedupe_queue
+        SET status = 'merged',
+            reviewed_at = now(),
+            reviewed_by_user_id = ${opts.reviewerUserId ?? null}
+        WHERE id = ${queueId}
+      `);
+
+      return {
+        success: true as const,
+        action: 'merge' as const,
+        merge_id: mergeResult.mergeId,
+        mergeId: mergeResult.mergeId,
+      };
+    }
+
+    await tx.execute(sql`
       UPDATE dedupe_queue
       SET status = 'dismissed',
           dismiss_reason = ${opts.reason ?? 'Dismissed by reviewer.'},
@@ -939,8 +1173,8 @@ export async function resolveQueueItem(
       WHERE id = ${queueId}
     `);
 
-    return { success: true, action: 'dismiss' };
-  }
+    return { success: true as const, action: 'dismiss' as const };
+  });
 }
 
 /**
@@ -1020,6 +1254,8 @@ export async function getRecentMerges(
 export type DedupeReport = {
   stage1: number;
   stage2: number;
+  /** Stage 1–2 pairs detected but not auto-merged (A-03-004, A-03-005). */
+  held: number;
   stage3Queued: number;
   merged: number;
   skipped: number;
@@ -1028,8 +1264,10 @@ export type DedupeReport = {
 /**
  * One dedupe pass. `dryRun` reports what it would do and changes nothing.
  *
- * Automatically merges Stages 1 & 2, and detects & queues Stage 3 fuzzy duplicates
- * for human review.
+ * Automatically merges Stages 1 & 2 (except held pairs), then detects and
+ * queues Stage 3 fuzzy duplicates for human review. Stage 3 runs LAST: each
+ * merge commits on its own, so a stage-3 failure or timeout can no longer
+ * prevent the auto-merges, and a re-run resumes where the last one stopped.
  */
 export async function runDedupe(
   db: Db,
@@ -1037,49 +1275,47 @@ export async function runDedupe(
 ): Promise<DedupeReport> {
   const limit = opts.limit ?? 1000;
 
-  const stage1 = await db.execute<{ survivor_id: string; loser_id: string; isbn_13: string }>(
+  const stage1 = await db.execute<{ survivor_id: string; loser_id: string; isbn_13: string; held: boolean }>(
     sql.raw(STAGE1_SQL.replace('$1', String(limit))));
-  const stage2 = await db.execute<{ survivor_id: string; loser_id: string; norm: string }>(
+  const stage2 = await db.execute<{ survivor_id: string; loser_id: string; norm: string; held: boolean }>(
     sql.raw(STAGE2_SQL.replace('$1', String(limit))));
 
   const candidates: MergeCandidate[] = [
-    ...stage1.map((r) => ({
+    ...stage1.filter((r) => !r.held).map((r) => ({
       survivorId: r.survivor_id, loserId: r.loser_id, stage: 1 as const,
       reason: `shared ISBN-13 ${r.isbn_13}`,
     })),
-    ...stage2.map((r) => ({
+    ...stage2.filter((r) => !r.held).map((r) => ({
       survivorId: r.survivor_id, loserId: r.loser_id, stage: 2 as const,
       reason: `normalised title "${r.norm}" and a shared author`,
     })),
   ];
 
-  let stage3Queued = 0;
-  if (!opts.dryRun) {
-    stage3Queued = await queueStage3Candidates(db, limit);
-  }
-
   const report: DedupeReport = {
     stage1: stage1.length,
     stage2: stage2.length,
-    stage3Queued,
+    held: stage1.filter((r) => r.held).length + stage2.filter((r) => r.held).length,
+    stage3Queued: 0,
     merged: 0,
     skipped: 0,
   };
   if (opts.dryRun) return report;
 
   for (const c of candidates) {
-    // Both ends must still be live. An earlier merge in this same batch may
-    // have consumed either one.
-    const [ok] = await db.execute<{ live: boolean }>(sql`
-      SELECT (s.merged_into_id IS NULL AND l.merged_into_id IS NULL) AS live
-      FROM works s, works l WHERE s.id = ${c.survivorId} AND l.id = ${c.loserId}`);
-    if (!ok?.live) { report.skipped++; continue; }
-
-    await mergeWorks(db, c);
+    // Both ends must still be live. An earlier merge in this same batch, or an
+    // admin merging from the console meanwhile, may have consumed either one;
+    // mergeWorks checks that under its row locks and says so with a 409.
+    try {
+      await mergeWorks(db, c);
+    } catch (err) {
+      if (err instanceof ApiError && err.code === 'work_merged') { report.skipped++; continue; }
+      throw err;
+    }
     opts.onMerge?.(c);
     report.merged++;
   }
 
+  report.stage3Queued = await queueStage3Candidates(db, limit);
+
   return report;
 }
-

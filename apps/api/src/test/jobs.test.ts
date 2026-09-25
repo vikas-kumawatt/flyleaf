@@ -154,6 +154,17 @@ describe('a job goes all the way round', () => {
     );
   }, 60_000);
 
+  // Audit 03: stage 1–2 detection alone takes 7.5 min on the full catalog.
+  // At pg-boss's 15-minute default the pass is expired and retried while the
+  // first run is still merging, and the two runs race for the same works.
+  it('gives catalog.dedupe an expiry long enough for a full-catalog pass', async () => {
+    const { db, client } = await freshDrizzle();
+    const boss = await bossOn(client, { work: true, db });
+
+    const queue = await boss.getQueue(QUEUES.catalogDedupe);
+    expect(queue!.expireInSeconds).toBeGreaterThanOrEqual(4 * 60 * 60);
+  }, 60_000);
+
   it('enqueues and processes shelves.reconcile job when worker has db', async () => {
     const { db, client } = await freshDrizzle();
     const log = recordingLog();

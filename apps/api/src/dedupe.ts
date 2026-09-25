@@ -46,6 +46,7 @@ async function main() {
       `\n${dryRun ? 'dry run' : 'done'}\n` +
       `  stage 1 (shared ISBN-13)      ${commas(report.stage1)}\n` +
       `  stage 2 (title + author)      ${commas(report.stage2)}\n` +
+      `  held back (not auto-merged)   ${commas(report.held)}\n` +
       `  stage 3 queued (fuzzy)        ${commas(report.stage3Queued)}\n` +
       (dryRun
         ? `\nNothing was changed. Re-run without --dry-run to apply.`

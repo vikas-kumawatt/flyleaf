@@ -333,6 +333,7 @@ Databases: plans from the full catalog `flyleaf` unless marked; relevance on PGl
 
 ### A-02-027 · P3 · Unused author trigram indexes
 - `authors_search_trgm_idx` (938 MB, all 15.4M authors) lost its only user (`by_author`) in this part. `authors_name_trgm_idx` (936 MB) already appears unused: the admin and import queries match `a.name` per work through `work_authors`, never through an author trigram index (grep of `apps/api/src`). Both cost something on every author write. Dropping them is a schema change with no measured benefit for this part's backfill. Recommendation: drop both after confirming `pg_stat_user_indexes.idx_scan` on a production-like run. Owner: Part 15.
+- **Part 03 answer (2026-09-25):** dedupe stage 3 uses **neither** index. Its author test is `similarity()` over a CTE-computed column, and its full-catalog plan is a 3.65M × 3.65M nested loop with no author index in it (A-03-006). `authors_name_trgm_idx` idx_scan is still 0. Caveat: the stage-3 redesign option that matches authors across records (`name % name`) would make `authors_name_trgm_idx` its first user, so decide A-03-006 / D2 before dropping it.
 
 ## Decision 3 (A-02-014)
 PRD §14.3 now states the code's formula (0.30 prefix · 0.20 exact · 0.20 author · 0.10 trigram · 0.35 capped popularity) and marks the old formula as never built. Architecture §5.4 now points to it, and tasks.md FN-41 records it as decided.
