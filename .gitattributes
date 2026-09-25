@@ -1,0 +1,32 @@
+# Line endings, decided once for every tool and OS.
+#
+# The repository stores LF everywhere. Without this file, Windows Git
+# (core.autocrlf=true) checks files out as CRLF, and any tool that doesn't
+# share that setting (editors, WSL, other git binaries) then sees every file
+# as modified. That was the "line-ending churn" in the audit diffs.
+* text=auto eol=lf
+
+# Windows-only scripts keep CRLF in the working tree. Windows PowerShell 5.1
+# and cmd are the only consumers. The .ps1 files also carry a UTF-8 BOM,
+# which PowerShell 5.1 needs to read non-ASCII characters correctly; git
+# leaves the BOM alone.
+*.ps1 text eol=crlf
+*.cmd text eol=crlf
+*.bat text eol=crlf
+
+# Never touch these.
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.webp binary
+*.ico binary
+*.ttf binary
+*.otf binary
+*.woff binary
+*.woff2 binary
+*.gz binary
+*.zip binary
+*.apk binary
+*.aab binary
+*.jar binary
