@@ -213,29 +213,35 @@
 ### Authorization — `FN-7x` · 3d
 - [x] **FN-70** ⚠️ Repository layer: **viewer ID a required argument everywhere** — 1d
   - Enforced `viewer: string | null` (or `viewer: string` for authenticated operations) as the required first argument across `ReadingService` (`get`, `list`, `upsert`, `addProgress`), `CatalogService` (`getWork`), and `IdentityService` (`getProfile`). No method reading user-scoped data can be queried without a viewer argument.
+  - **Audit (2026-09-25):** ⚠️ — the viewer argument is present, but five services ran their own profile/block/follow lookups and several ignored parts of them (blocks in review detail and saved shelves, follows in lists, `deleted_at` everywhere); now one `loadRelationship` query shared by all; see A-05-001, A-05-005, A-05-008, A-05-009, A-05-020.
   - Added `visibility` column to `reads` table with migration `0006_reads_visibility.sql` (`CHECK IN ('public', 'followers', 'private')`, default `'public'`).
   - Added `GET /v1/reads/:id` and `GET /v1/users/:id/reads` endpoints supporting guest (`req.viewer === null`) and authenticated callers.
 - [x] **FN-71** ⚠️ Single `canView()`: public/followers/private/blocked/guest — 0.5d
   - Implemented centralized `canView()` and `assertCanView()` in `src/authorization/index.ts` covering complete bidirectional block invisibility, owner access, private item visibility, private account visibility, followers-only items, and guest access.
+  - **Audit (2026-09-25):** ❌ — `canView()` itself was correct, but the SQL list filters beside it disagreed (work reviews, reads list, stats, saved shelves); added `canViewSql`, `visibleLevels` and `mostRestrictive`, proven equivalent to `canView()` over 63 cells in `authorization-equivalence.test.ts`; see A-05-002, A-05-005, A-05-008.
 - [x] **FN-72** ⚠️ **Cross-user access test suite — 404 not 403, every private type** — 1.5d
   - Implemented comprehensive unit matrix and HTTP injection test suite in `src/test/authorization.test.ts` (43 tests).
   - Asserts that guest callers, non-followers, and blocked callers attempting to view another user's private reads, followers-only reads, private accounts, or add progress to another user's read receive **404 Not Found** with error code `'not_found'` — **never 403 Forbidden**.
+  - **Audit (2026-09-25):** ❌ — covered reads only; review PATCH/DELETE answered 403, review detail and list leaked blocked and private accounts' reviews (P0), three routes' 404 body differed from a random id's; now `authorization-matrix.test.ts` (9 viewer states incl. unverified × public/private/deleted accounts × 3 visibilities, 17 single resources, 7 lists, 20 write routes); see A-05-001 … A-05-006.
 
 
 ### API contract — `FN-8x` · 2d
 - [x] **FN-80** Fastify route schemas for the Phase 0–1 surface; `openapi.yaml` generated from them — 1d
   - Defined Fastify route schemas (`schema: { params, querystring, body, response }`) and reusable JSON schemas in `apps/api/src/contract/schemas.ts` for all Phase 0–1 endpoints across `Auth`, `Catalog`, `Reading`, and `System`.
   - Integrated `@fastify/swagger` and `yaml` with OpenAPI 3.1.0 specifications and BearerAuth security scheme.
-  - Implemented `npm run spec:generate` and `npm run spec:check` in `src/contract/generate.ts`, generating `openapi.yaml` at repo root with zero schema drift.
-- [x] **FN-81** Typed client generated into `packages/api-client`, CI-enforced — 0.5d
+  - Implemented `npm run spec:generate` and `npm run spec:check` in `src/contract/generate.ts`, generating `openapi.yaml` at repo root ~~with zero schema drift~~ — the generator kept its own plugin list and omitted the four export routes; it now reads the spec off `buildApp()` (Audit 05, A-05-014).
+  - **Audit (2026-09-25):** ⚠️ — exports missing from the spec; `profileSchema` stripped `followStatus`/`followedBy`/`isRestricted` that mobile reads; a contract test now fails if any served route is missing from the spec; see A-05-007, A-05-014.
+- [x] **FN-81** Typed client ~~generated~~ **hand-written** (Audit 05) into `packages/api-client`, CI-enforced — 0.5d
   - Created `packages/api-client` containing TypeScript interfaces and typed `FlyleafClient` with full endpoint coverage and standard error parsing (`FlyleafApiError`).
   - Connected `apps/mobile/src/lib/api.ts` to `@flyleaf/api-client`, replacing hand-written endpoint types and contracts with Fastify route schema bindings.
-  - Added `api-client · build` and `api · spec check` to `scripts/ci.mjs`, ensuring CI breaks if schemas, `openapi.yaml`, or `@flyleaf/api-client` drift. 282 tests passing across 10 test suites in CI.
+  - Added `api-client · build` and `api · spec check` to `scripts/ci.mjs`, ensuring CI breaks if schemas, `openapi.yaml`, ~~or `@flyleaf/api-client` drift~~ drift (CI compiles the client but cannot detect client/spec drift: Audit 05, A-05-021). 282 tests passing across 10 test suites in CI.
+  - **Audit (2026-09-25):** ❌ — `types.ts` is hand-written and said "generated, do not edit"; spot check of three routes found the profile fields stripped server-side and two required/optional mismatches; recommend `openapi-typescript` in CI; see A-05-021.
 - [x] **FN-82** Hook chain incl. the auth hook that never rejects (guests) — 0.5d
   - Centralized Fastify hook chain and app factory in `apps/api/src/app.ts` (`registerCoreHooks` & `buildApp`).
   - **Auth hook that never rejects (PRD §4.2, Architecture §3.3 & §7)**: Statelessly extracts Bearer token, populates `req.viewer` when valid, and falls back to `req.viewer = null` for guests. Never throws 401/500 on expired, forged, malformed, or missing tokens; protected endpoints enforce authentication explicitly via `requireViewer(req)`.
-  - **Correlation & defensive headers**: Injected `X-Request-Id` (propagating `req.id`), `X-Content-Type-Options: nosniff`, and `X-Frame-Options: DENY` on every response via `onSend` hook.
+  - **Correlation & defensive headers**: Injected `X-Request-Id` (propagating `req.id`, ~~taken verbatim from the client~~ now validated, A-05-015), `X-Content-Type-Options: nosniff`, and `X-Frame-Options: DENY` on every response via `onSend` hook.
   - **Error envelope & not found**: Centralized `setErrorHandler` mapping `ApiError` status/envelope, Fastify schema validation to 422 `invalid_field`, malformed JSON to 400 `invalid_json`, and unhandled errors to 500 `internal`. Uniform 404 handler.
+  - **Audit (2026-09-25):** ⚠️ — auth hook verified against real forged, `alg:none`, expired, malformed and 6 KB tokens; `X-Request-Id` was unvalidated, DB constraint errors were 500s, no CSP on HTML, export download tokens reached logs; all fixed; the feed was also registered twice; see A-05-013, A-05-015 … A-05-019.
   - Refactored `server.ts` and test harnesses (`identity.test.ts`, `contract.test.ts`, `isbn.test.ts`, `authorization.test.ts`) to use shared core hooks.
   - Dedicated 17-test suite in `apps/api/src/test/hooks.test.ts`; 330 tests passing across 12 test suites in full CI. All tasks in **API contract `FN-8x`** are now complete.
 
@@ -771,7 +777,7 @@
 - [x] **SO-02** Follow/unfollow; private accounts; pending requests — 1.5d
   - Built `SocialService` and Fastify `socialPlugin` in `apps/api/src/social/index.ts` with follow/unfollow and pending request endpoints (`POST /v1/users/:id/follow`, `DELETE /v1/users/:id/follow`, `GET /v1/me/follow-requests`, `POST /v1/me/follow-requests/:requesterId/accept`, `POST /v1/me/follow-requests/:requesterId/reject`).
   - Private accounts create `state = 'pending'` follows; public accounts create `state = 'accepted'`. Automatic profile follower and following counts maintained via Postgres DB triggers.
-  - Enforced 3-tier privacy authorization in `IdentityService.getProfile` returning 404 Not Found for non-followers viewing private profiles (PRD §25.3, FN-72, SH-09). Switching profile from private to public automatically accepts pending follow requests.
+  - Enforced 3-tier privacy authorization in `IdentityService.getProfile` ~~returning 404 Not Found for non-followers viewing private profiles~~ — signed-in non-followers now get the header only (`isRestricted`), guests 404 (AC-13, §16.3; Audit 05, A-05-006, D-05-2) (PRD §25.3, FN-72, SH-09). Switching profile from private to public automatically accepts pending follow requests.
   - OpenAPI 3.1.0 specification synchronized with 0 contract drift and typed methods in `@flyleaf/api-client`.
   - Mobile UI integration: interactive follow toggle with haptics and "Follows you" mutual indicator on `UserProfileScreen` (`apps/mobile/app/user/[id].tsx`), and incoming requests manager screen `FollowRequestsScreen` (`apps/mobile/app/profile/requests.tsx`).
   - 8 integration tests in `apps/api/src/test/social-follow.test.ts` and mobile unit tests in `apps/mobile/src/lib/__tests__/social-follow.test.ts` passing. 100% green CI pipeline.

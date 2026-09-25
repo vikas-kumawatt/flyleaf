@@ -7,14 +7,14 @@
 //   2. progress_events is APPEND-ONLY and idempotent on client_event_id, so an
 //      offline client can replay its queue safely (PRD §8.3).
 
-import { sql, eq, desc, and, or } from 'drizzle-orm';
+import { sql, eq, desc } from 'drizzle-orm';
 import { z } from 'zod';
 import type { FastifyInstance } from 'fastify';
 
 import type { Db } from '../platform/index.js';
-import { reads, works, progressEvents, profiles, editions, blocks, follows } from '../db/schema.js';
+import { reads, works, progressEvents, profiles, editions } from '../db/schema.js';
 import { ApiError, requireViewer } from '../http.js';
-import { canView, type Visibility, VISIBILITIES } from '../authorization/index.js';
+import { type Visibility, VISIBILITIES, canViewWith, loadRelationship, visibleLevels } from '../authorization/index.js';
 import {
   readSchema,
   readListResponseSchema,
@@ -354,41 +354,6 @@ export class ReadingService {
     return this.#get(this.db, viewer, id);
   }
 
-  async #checkRelationship(viewer: string | null, targetUserId: string): Promise<{ isBlocked: boolean; isFollower: boolean }> {
-    if (viewer === null || viewer === targetUserId) {
-      return { isBlocked: false, isFollower: viewer === targetUserId };
-    }
-
-    const [blockRow] = await this.db
-      .select({ blockerId: blocks.blockerId })
-      .from(blocks)
-      .where(
-        or(
-          and(eq(blocks.blockerId, viewer), eq(blocks.blockedId, targetUserId)),
-          and(eq(blocks.blockerId, targetUserId), eq(blocks.blockedId, viewer)),
-        ),
-      )
-      .limit(1);
-
-    if (blockRow) {
-      return { isBlocked: true, isFollower: false };
-    }
-
-    const [followRow] = await this.db
-      .select({ followerId: follows.followerId })
-      .from(follows)
-      .where(
-        and(
-          eq(follows.followerId, viewer),
-          eq(follows.followeeId, targetUserId),
-          eq(follows.state, 'accepted'),
-        ),
-      )
-      .limit(1);
-
-    return { isBlocked: false, isFollower: Boolean(followRow) };
-  }
-
   async #get(db: Db, viewer: string | null, id: string): Promise<Read | null> {
     const [row] = await db
       .select({
@@ -417,18 +382,8 @@ export class ReadingService {
 
     if (!row) return null;
 
-    const { isBlocked, isFollower } = await this.#checkRelationship(viewer, row.userId);
-
-    const allowed = canView({
-      viewer,
-      ownerId: row.userId,
-      visibility: row.visibility as Visibility,
-      isOwnerPrivate: row.isPrivate,
-      isBlocked,
-      isFollower,
-    });
-
-    if (!allowed) return null;
+    const rel = await loadRelationship(db, viewer, row.userId);
+    if (!canViewWith(viewer, row.userId, rel, row.visibility)) return null;
 
     return {
       id: row.id,
@@ -456,24 +411,12 @@ export class ReadingService {
    * Returns only reads the viewer is authorized to see via canView.
    */
   async list(viewer: string | null, userId: string, status?: string): Promise<Read[]> {
-    const [profile] = await this.db
-      .select({ isPrivate: profiles.isPrivate })
-      .from(profiles)
-      .where(eq(profiles.userId, userId))
-      .limit(1);
-
-    const { isBlocked, isFollower } = await this.#checkRelationship(viewer, userId);
-
-    const canViewAccount = canView({
-      viewer,
-      ownerId: userId,
-      isOwnerPrivate: profile?.isPrivate ?? false,
-      isBlocked,
-      isFollower,
-    });
-    if (!canViewAccount) return [];
-
-    const isOwner = viewer !== null && viewer === userId;
+    // Which visibilities this viewer may see, derived from canView() itself,
+    // so an accepted follower gets followers-only reads (Audit 05).
+    const rel = await loadRelationship(this.db, viewer, userId);
+    const levels = visibleLevels(viewer, userId, rel);
+    if (levels.length === 0) return [];
+    const levelList = sql.join(levels.map((l) => sql`${l}`), sql`, `);
 
     const rows = await this.db.execute<{
       id: string; user_id: string; work_id: string; edition_id: string | null;
@@ -514,7 +457,7 @@ export class ReadingService {
         WHERE read_id = r.id ORDER BY at DESC LIMIT 1
       ) pe ON true
       WHERE r.user_id = ${userId}
-        AND (${isOwner} OR r.visibility = 'public')
+        AND r.visibility IN (${levelList})
         AND (${status ?? null}::text IS NULL OR r.status = ${status ?? null})
       ORDER BY r.updated_at DESC
     `);
@@ -595,24 +538,8 @@ export class ReadingService {
     userId: string,
     yearParam?: string,
   ): Promise<any> {
-    const [profile] = await this.db
-        .select({ isPrivate: profiles.isPrivate })
-        .from(profiles)
-        .where(eq(profiles.userId, userId))
-        .limit(1);
-
-      if (!profile) throw ApiError.notFound('User not found.');
-
-      const { isBlocked, isFollower } = await this.#checkRelationship(viewer, userId);
-
-      const allowed = canView({
-        viewer,
-        ownerId: userId,
-        isOwnerPrivate: profile.isPrivate,
-        isBlocked,
-        isFollower,
-      });
-      if (!allowed) throw ApiError.notFound('User not found.');
+    const rel = await loadRelationship(this.db, viewer, userId);
+      if (!canViewWith(viewer, userId, rel)) throw ApiError.notFound('User not found.');
 
       const currentYear = new Date().getFullYear();
       const yearStr = yearParam && (yearParam === 'all' || /^\d{4}$/.test(yearParam)) ? yearParam : String(currentYear);
@@ -655,12 +582,8 @@ export class ReadingService {
         .where(eq(reads.userId, userId));
 
       const visibleReads = userReads.filter((r) =>
-        canView({
-          viewer,
-          ownerId: userId,
-          visibility: r.visibility as Visibility,
-          isOwnerPrivate: profile.isPrivate,
-        })
+        // With the relationship: a follower's stats include followers-only reads.
+        canViewWith(viewer, userId, rel, r.visibility),
       );
 
       const finishedInYear = visibleReads.filter((r) => {

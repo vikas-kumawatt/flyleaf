@@ -6,108 +6,33 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import Fastify from 'fastify';
 import YAML from 'yaml';
 
-import { registerSwagger } from './index.js';
-import { identityRoutes } from '../identity/index.js';
-import { catalogRoutes } from '../catalog/index.js';
-import { readingRoutes } from '../reading/index.js';
-import { adminDedupeRoutes } from '../admin/dedupe.js';
-import { adminAuthRoutes } from '../admin/routes.js';
-import { adminCatalogRoutes } from '../admin/catalog-routes.js';
-import { reviewsPlugin } from '../reviews/index.js';
-import { telemetryRoutes } from '../telemetry/index.js';
-import { shelvesPlugin } from '../shelves/index.js';
-import { importsPlugin } from '../imports/index.js';
-import { socialPlugin } from '../social/index.js';
-import { interactionsPlugin } from '../interactions/index.js';
-import { activityPlugin } from '../activity/index.js';
+import { buildApp } from '../app.js';
+import type { Db } from '../platform/index.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const ROOT = path.resolve(__dirname, '../../../..');
 const OPENAPI_PATH = path.join(ROOT, 'openapi.yaml');
 
+/**
+ * The spec is read off the real app: buildApp() with every optional service
+ * present (stubs, never called while describing routes). It used to register
+ * its own plugin list, which drifted twice (the feed until SO-21, exports
+ * until Audit 05). Now a route cannot be served without being in the spec,
+ * unless its schema says `hide: true`.
+ */
 export async function buildOpenApiSpec(): Promise<object> {
-  const app = Fastify();
-
-  await registerSwagger(app);
-
-  // Mock services solely for schema inspection during spec generation
-  const mockIdentity = {} as any;
-  const mockCatalog = {} as any;
-  const mockReading = {} as any;
-  const mockDb = {} as any;
-
-  await app.register(identityRoutes(mockIdentity), { prefix: '/v1' });
-  await app.register(catalogRoutes(mockCatalog), { prefix: '/v1' });
-  await app.register(readingRoutes(mockReading), { prefix: '/v1' });
-  await app.register(reviewsPlugin, { db: mockDb });
-  await app.register(adminDedupeRoutes(mockDb));
-  await app.register(adminAuthRoutes(mockDb));
-  await app.register(adminCatalogRoutes(mockDb));
-  await app.register(telemetryRoutes(mockDb));
-  await app.register(shelvesPlugin, { prefix: '/v1', db: mockDb });
-  await app.register(importsPlugin, { prefix: '/v1', db: mockDb });
-  await app.register(socialPlugin, { prefix: '/v1', db: mockDb });
-  await app.register(interactionsPlugin, { prefix: '/v1', db: mockDb });
-  // The feed was served since SO-11 but never registered here, so its
-  // contract was invisible to spec:check. Registered with SO-21, which
-  // changed the feed card shape.
-  await app.register(activityPlugin, { prefix: '/v1', db: mockDb });
-
-  // System endpoints
-  app.get(
-    '/healthz',
-    {
-      schema: {
-        tags: ['System'],
-        summary: 'Liveness probe',
-        response: {
-          200: {
-            type: 'object',
-            properties: { status: { type: 'string', enum: ['ok'] } },
-            required: ['status'],
-          },
-        },
-      },
-    },
-    async () => ({ status: 'ok' }),
-  );
-
-  app.get(
-    '/readyz',
-    {
-      schema: {
-        tags: ['System'],
-        summary: 'Readiness probe',
-        response: {
-          200: {
-            type: 'object',
-            properties: { status: { type: 'string', enum: ['ready'] } },
-            required: ['status'],
-          },
-          503: {
-            type: 'object',
-            properties: {
-              error: {
-                type: 'object',
-                properties: {
-                  code: { type: 'string' },
-                  message: { type: 'string' },
-                },
-                required: ['code', 'message'],
-              },
-            },
-            required: ['error'],
-          },
-        },
-      },
-    },
-    async () => ({ status: 'ready' }),
-  );
-
+  const stub = {} as never;
+  const app = await buildApp({
+    spec: true,
+    db: {} as Db,
+    identity: stub,
+    catalog: stub,
+    reading: stub,
+    limiter: { allow: async () => true },
+  });
   await app.ready();
 
   const spec = app.swagger();

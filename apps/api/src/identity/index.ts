@@ -15,7 +15,7 @@ import { config, type Db, type RateLimiter, type EmailSender, ConsoleEmailSender
 import { users, profiles, works, follows, blocks, refreshTokens, emailVerificationTokens, passwordResetTokens } from '../db/schema.js';
 import { ApiError, requireViewer } from '../http.js';
 import { isCommonPassword } from './common-passwords.js';
-import { canView } from '../authorization/index.js';
+import { canViewWith, loadRelationship } from '../authorization/index.js';
 
 export type ProfileFavourite = {
   id: string;
@@ -214,7 +214,7 @@ export function uniqueViolationField(err: unknown): 'email' | 'username' | 'othe
 
 // ---------------------------------------------------------------- service
 
-export type User = { id: string; email: string; username: string };
+export type User = { id: string; email: string; username: string; emailVerified?: boolean };
 
 import { ActivityService } from '../activity/index.js';
 
@@ -273,6 +273,11 @@ export class IdentityService {
     } catch (err) {
       const field = uniqueViolationField(err);
       if (field === 'email') {
+        // PRD §6.3: an existing but unverified email gets its verification
+        // email again rather than a dead end. The response is the same 409 as
+        // for a verified account, so it says nothing about verification, and
+        // no tokens are ever issued for the existing account (D-04-1, D-05-1).
+        await this.#resendForExistingUnverified(email);
         throw new ApiError(409, 'email_taken', 'That email already has an account.', 'email');
       }
       if (field === 'username') {
@@ -440,12 +445,17 @@ export class IdentityService {
 
   async get(id: string): Promise<User | null> {
     const [row] = await this.db
-      .select({ id: users.id, email: users.email, username: profiles.username })
+      .select({
+        id: users.id,
+        email: users.email,
+        username: profiles.username,
+        emailVerified: sql<boolean>`${users.emailVerifiedAt} IS NOT NULL`,
+      })
       .from(users)
       .innerJoin(profiles, eq(users.id, profiles.userId))
       .where(eq(users.id, id))
       .limit(1);
-    return (row as User | undefined) ?? null;
+    return row ? { ...row, emailVerified: Boolean(row.emailVerified) } : null;
   }
 
   /**
@@ -480,60 +490,36 @@ export class IdentityService {
 
     if (!row) return null;
 
-    // Check relationship (blocks and follows)
-    let isBlocked = false;
-    let followStatus: 'none' | 'pending' | 'accepted' | 'self' = 'none';
-    let followedBy = false;
+    // One relationship query (Audit 05). Missing, deleted and blocked (either
+    // way) are the same 404 as a random id (PRD §11.4).
+    const rel = await loadRelationship(this.db, viewer, row.id);
+    if (!rel.ownerExists || rel.isBlocked) return null;
+    const followStatus = rel.followStatus;
+    const followedBy = rel.followedBy;
 
-    if (viewer) {
-      if (viewer === row.id) {
-        followStatus = 'self';
-      } else {
-        const [blockRow] = await this.db
-          .select({ blockerId: blocks.blockerId })
-          .from(blocks)
-          .where(
-            or(
-              and(eq(blocks.blockerId, viewer), eq(blocks.blockedId, row.id)),
-              and(eq(blocks.blockerId, row.id), eq(blocks.blockedId, viewer)),
-            ),
-          )
-          .limit(1);
-
-        if (blockRow) isBlocked = true;
-
-        const [followRow] = await this.db
-          .select({ state: follows.state })
-          .from(follows)
-          .where(and(eq(follows.followerId, viewer), eq(follows.followeeId, row.id)))
-          .limit(1);
-
-        if (followRow) {
-          followStatus = followRow.state === 'accepted' ? 'accepted' : 'pending';
-        }
-
-        const [reverseRow] = await this.db
-          .select({ state: follows.state })
-          .from(follows)
-          .where(and(eq(follows.followerId, row.id), eq(follows.followeeId, viewer), eq(follows.state, 'accepted')))
-          .limit(1);
-
-        followedBy = Boolean(reverseRow);
-      }
+    if (!canViewWith(viewer, row.id, rel)) {
+      // Private account, viewer not an accepted follower. PRD §16.3 / AC-13:
+      // header, bio, avatar and follower counts stay visible, so a signed-in
+      // reader can request to follow; favourites are followers-only. Guests
+      // get 404: §4.2 makes private accounts invisible to them (D-05-2).
+      if (viewer === null) return null;
+      return {
+        id: row.id,
+        username: row.username,
+        displayName: row.displayName,
+        bio: row.bio,
+        avatarKey: row.avatarKey,
+        isPrivate: row.isPrivate,
+        isRestricted: true,
+        followerCount: row.followerCount,
+        followingCount: row.followingCount,
+        favourite_work_ids: [],
+        favourites: [],
+        createdAt: row.createdAt,
+        followStatus,
+        followedBy,
+      };
     }
-
-    if (isBlocked) return null;
-
-    const isFollower = followStatus === 'accepted';
-    const allowed = canView({
-      viewer,
-      ownerId: row.id,
-      isOwnerPrivate: row.isPrivate,
-      isBlocked: false,
-      isFollower,
-    });
-
-    if (!allowed) return null;
 
     let favourites: ProfileFavourite[] = [];
     const favIds = (row.favouriteWorkIds ?? []) as string[];
@@ -703,6 +689,28 @@ export class IdentityService {
     });
 
     return { status: 'ok', message: 'Email verified successfully.' };
+  }
+
+  /** Silent: throttled (shared with resend-verification) and never throws. */
+  async #resendForExistingUnverified(email: string): Promise<void> {
+    try {
+      const [user] = await this.db
+        .select({ id: users.id, email: users.email })
+        .from(users)
+        .where(
+          and(
+            eq(users.email, email.trim().toLowerCase()),
+            isNull(users.emailVerifiedAt),
+            isNull(users.deletedAt),
+          ),
+        )
+        .limit(1);
+      if (!user) return;
+      if (!(await this.limiter.allow(`resend_verification:${user.id}`, 1, 60))) return;
+      await this.sendVerificationEmail(user.id, user.email);
+    } catch {
+      // A failed resend must not turn a 409 into a 500 (or reveal anything).
+    }
   }
 
   async resendVerification(userId: string): Promise<{ status: 'ok'; message: string }> {

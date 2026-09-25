@@ -66,3 +66,7 @@ This part runs **after PV-0x** (see `PENDING.md`). If `@fastify/multipart` is st
 - Exports: the worker `put()`s the file; the client gets a short-lived `createDownloadUrl` only after the ownership check; the link expires; the formula-injection guard still applies.
 - The cleanup job removes expired or unconsumed uploads **and** their objects; exports have a retention path.
 - Run every import/export test against the `disk` adapter's signed URLs, not only `memory`.
+
+## Decided in Part 05: D-05-3, imported reviews from unverified accounts
+
+Imports let an unverified throwaway account bulk-publish reviews, bypassing D-04-1's gate. Fix it in the visibility layer, not in the importer: a review whose author's email is **unverified** is visible **only to its author**. Put that in `canView` and its SQL twin, so imports, the API and any future path are all covered, and verifying the email makes the reviews appear with no data rewrite. The existing canView/SQL agreement test must still pass over all combinations; add "author unverified" as a dimension. Check that the work's review list, rating aggregates and feed don't leak or count these reviews until verification.

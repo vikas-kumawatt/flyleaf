@@ -483,14 +483,22 @@ describe('Cross-user HTTP access tests — 404 not 403 (FN-70, FN-72)', () => {
       expect(res.json().error.code).toBe('not_found');
     });
 
-    it('404 (NOT 403) for User A viewing User B private profile', async () => {
+    // Was "404 for a signed-in non-follower". PRD §16.3 and AC-13 say the
+    // header stays visible so they can request to follow (Audit 05). What must
+    // not leak is everything else, and a guest still gets 404 (D-05-2).
+    it('User A viewing User B private profile: header only (AC-13), never favourites', async () => {
       const res = await app.inject({
         method: 'GET',
         url: `/v1/users/${USER_B}`,
         headers: { authorization: `Bearer ${tokenA}` },
       });
-      expect(res.statusCode).toBe(404);
-      expect(res.json().error.code).toBe('not_found');
+      expect(res.statusCode).toBe(200);
+      expect(res.json().isRestricted).toBe(true);
+      expect(res.json().favourites ?? []).toEqual([]);
+      expect(res.json().favourite_work_ids ?? []).toEqual([]);
+      const guest = await app.inject({ method: 'GET', url: `/v1/users/${USER_B}` });
+      expect(guest.statusCode).toBe(404);
+      expect(guest.json().error.code).toBe('not_found');
     });
 
     it('returns empty list on /users/:id/reads for private account to non-follower', async () => {

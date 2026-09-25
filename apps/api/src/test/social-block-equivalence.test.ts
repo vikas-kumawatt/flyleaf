@@ -14,6 +14,7 @@ import { ShelvesService } from '../shelves/index.js';
 import { ReviewService } from '../reviews/index.js';
 import { PgRateLimiter } from '../platform/index.js';
 import { works, reads } from '../db/schema.js';
+import { verifyAllUsers } from './interaction-fixtures.js';
 
 const NON_EXISTENT_UUID = '00000000-0000-0000-0000-000000000000';
 
@@ -61,6 +62,8 @@ describe('SO-06: Block Invisibility Equivalence (Blocked View ≡ Non-Existent A
       '1996-06-16',
     );
     blocked = { id: resB.user.id, token: resB.accessToken, username: resB.user.username };
+    // Reviews, comments and follows need a verified email (D-04-1); the gate has its own tests.
+    await verifyAllUsers(db);
 
     // Create a sample work
     const [w] = await db

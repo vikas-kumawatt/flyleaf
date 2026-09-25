@@ -321,6 +321,8 @@ export class ActivityService {
         ) AS author_name
       FROM activity a
       JOIN profiles p ON p.user_id = a.actor_id
+      -- Deleted accounts are hidden platform-wide (PRD §25.4, Audit 05).
+      JOIN users au ON au.id = a.actor_id AND au.deleted_at IS NULL
       LEFT JOIN works w ON w.id = a.work_id
       JOIN follows f ON f.followee_id = a.actor_id AND f.follower_id = ${viewer}::uuid AND f.state = 'accepted'
       WHERE (${cursorIso}::timestamptz IS NULL OR a.created_at < ${cursorIso}::timestamptz)
@@ -508,6 +510,8 @@ export class ActivityService {
         ) AS author_name
       FROM activity a
       JOIN profiles p ON p.user_id = a.actor_id
+      -- Deleted accounts are hidden platform-wide (PRD §25.4, Audit 05).
+      JOIN users au ON au.id = a.actor_id AND au.deleted_at IS NULL
       LEFT JOIN works w ON w.id = a.work_id
       WHERE a.visibility = 'public'
         AND (${cursorIso}::timestamptz IS NULL OR a.created_at < ${cursorIso}::timestamptz)

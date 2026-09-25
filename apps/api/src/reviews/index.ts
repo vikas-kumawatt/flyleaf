@@ -20,6 +20,14 @@ import {
 } from '../db/schema.js';
 import { ApiError, requireViewer } from '../http.js';
 import {
+  canViewSql,
+  canViewWith,
+  loadRelationship,
+  mostRestrictive,
+  mostRestrictiveSql,
+  requireVerified,
+} from '../authorization/index.js';
+import {
   createReviewBodySchema,
   updateReviewBodySchema,
   reviewSchema,
@@ -404,6 +412,16 @@ export class ReviewService {
       throw ApiError.notFound('Read not found');
     }
 
+    // Check if review already exists for this read
+    const [existing] = await this.db
+      .select({ id: reviews.id, deletedAt: reviews.deletedAt })
+      .from(reviews)
+      .where(eq(reviews.readId, readId));
+
+    // Publishing a review (new, or reviving a deleted one) needs a verified
+    // email (D-04-1); editing a live review does not. Checked before any write.
+    if (!existing || existing.deletedAt) await requireVerified(this.db, userId);
+
     // Update read rating or heart if provided
     const readUpdates: Record<string, any> = {};
     if (input.rating !== undefined) {
@@ -418,12 +436,6 @@ export class ReviewService {
       // Recompute work_stats
       await this.recomputeWorkStats(read.workId);
     }
-
-    // Check if review already exists for this read
-    const [existing] = await this.db
-      .select({ id: reviews.id })
-      .from(reviews)
-      .where(eq(reviews.readId, readId));
 
     let reviewId: string;
     if (existing) {
@@ -503,6 +515,7 @@ export class ReviewService {
         publishedAt: reviews.publishedAt,
         editedAt: reviews.editedAt,
         deletedAt: reviews.deletedAt,
+        readVisibility: reads.visibility,
         readRating: reads.rating,
         readHearted: reads.hearted,
         readFormat: reads.formatOverride,
@@ -513,6 +526,9 @@ export class ReviewService {
         username: profiles.username,
         displayName: profiles.displayName,
         avatarKey: profiles.avatarKey,
+        viewerHasLiked: viewerId
+          ? sql<boolean>`EXISTS (SELECT 1 FROM read_likes l WHERE l.read_id = ${reviews.readId} AND l.user_id = ${viewerId}::uuid)`
+          : sql<boolean>`false`,
       })
       .from(reviews)
       .innerJoin(reads, eq(reads.id, reviews.readId))
@@ -525,34 +541,14 @@ export class ReviewService {
       throw ApiError.notFound('Review not found');
     }
 
-    // Check visibility
-    if (r.visibility === 'private' && viewerId !== r.userId) {
+    // Blocks, private accounts, deleted owners and both visibilities (Audit 05):
+    // every denial is the same 404 as a missing review.
+    const viewer = viewerId ?? null;
+    const rel = await loadRelationship(this.db, viewer, r.userId);
+    if (!canViewWith(viewer, r.userId, rel, mostRestrictive(r.visibility, r.readVisibility))) {
       throw ApiError.notFound('Review not found');
     }
-    if (r.visibility === 'followers' && viewerId !== r.userId) {
-      if (!viewerId) throw ApiError.notFound('Review not found');
-      const [follow] = await this.db
-        .select({ state: follows.state })
-        .from(follows)
-        .where(
-          and(
-            eq(follows.followerId, viewerId),
-            eq(follows.followeeId, r.userId),
-            eq(follows.state, 'accepted'),
-          ),
-        );
-      if (!follow) throw ApiError.notFound('Review not found');
-    }
-
-    // Check if viewer has liked this read
-    let viewerHasLiked = false;
-    if (viewerId) {
-      const [like] = await this.db
-        .select({ readId: readLikes.readId })
-        .from(readLikes)
-        .where(and(eq(readLikes.readId, r.readId), eq(readLikes.userId, viewerId)));
-      viewerHasLiked = !!like;
-    }
+    const viewerHasLiked = Boolean(r.viewerHasLiked);
 
     return {
       id: r.id,
@@ -602,8 +598,8 @@ export class ReviewService {
       .from(reviews)
       .where(and(eq(reviews.id, reviewId), isNull(reviews.deletedAt)));
 
-    if (!rev) throw ApiError.notFound('Review not found');
-    if (rev.userId !== userId) throw ApiError.forbidden('forbidden', 'You can only edit your own reviews');
+    // Someone else's review is the same 404 as a missing one (PRD §25.3).
+    if (!rev || rev.userId !== userId) throw ApiError.notFound('Review not found');
 
     const updateFields: Record<string, any> = { editedAt: new Date() };
     if (input.body !== undefined) {
@@ -644,8 +640,7 @@ export class ReviewService {
       .from(reviews)
       .where(and(eq(reviews.id, reviewId), isNull(reviews.deletedAt)));
 
-    if (!rev) throw ApiError.notFound('Review not found');
-    if (rev.userId !== userId) throw ApiError.forbidden('forbidden', 'You can only delete your own reviews');
+    if (!rev || rev.userId !== userId) throw ApiError.notFound('Review not found');
 
     await this.db
       .update(reviews)
@@ -739,21 +734,16 @@ export class ReviewService {
       whereConditions.push(eq(reads.rating, String(query.rating)));
     }
 
-    // Visibility & block filter
-    if (!viewerId) {
-      whereConditions.push(eq(reviews.visibility, 'public'));
-    } else {
-      whereConditions.push(
-        sql`(${reviews.visibility} = 'public' OR ${reviews.userId} = ${viewerId} OR (${reviews.visibility} = 'followers' AND ${reviews.userId} IN (SELECT followee_id FROM follows WHERE follower_id = ${viewerId} AND state = 'accepted')))`
-      );
-      whereConditions.push(
-        sql`${reviews.userId} NOT IN (
-          SELECT blocked_id FROM blocks WHERE blocker_id = ${viewerId}
-          UNION
-          SELECT blocker_id FROM blocks WHERE blocked_id = ${viewerId}
-        )`
-      );
-    }
+    // Visibility: canView() as SQL over the stricter of the review's and the
+    // read's visibility, so blocks, private accounts and deleted owners are
+    // filtered exactly as GET /v1/reviews/:id filters them (Audit 05).
+    whereConditions.push(
+      canViewSql(viewerId ?? null, {
+        ownerId: reviews.userId,
+        visibility: mostRestrictiveSql(reviews.visibility, reads.visibility),
+        ownerIsPrivate: sql`COALESCE(${profiles.isPrivate}, true)`,
+      }),
+    );
 
     const rows = await this.db
       .select({

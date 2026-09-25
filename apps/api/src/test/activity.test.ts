@@ -11,6 +11,7 @@ import { SocialService } from '../social/index.js';
 import { ActivityService } from '../activity/index.js';
 import { PgRateLimiter } from '../platform/index.js';
 import { activity, works } from '../db/schema.js';
+import { verifyAllUsers } from './interaction-fixtures.js';
 
 describe('SO-10: Activity Table + Write-on-Action + Visibility Enforcement', () => {
   let db: any;
@@ -59,6 +60,8 @@ describe('SO-10: Activity Table + Write-on-Action + Visibility Enforcement', () 
     // Seed a work
     const [w] = await db.insert(works).values({ title: 'Test Activity Book' }).returning({ id: works.id });
     testWorkId = w.id;
+    // Reviews, comments and follows need a verified email (D-04-1); the gate has its own tests.
+    await verifyAllUsers(db);
   });
 
   it('records started activity when user starts reading a book', async () => {

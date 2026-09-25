@@ -10,6 +10,7 @@ import { ShelvesService } from '../shelves/index.js';
 import { SocialService } from '../social/index.js';
 import { MemoryCache, PgRateLimiter } from '../platform/index.js';
 import { works } from '../db/schema.js';
+import { verifyAllUsers } from './interaction-fixtures.js';
 
 describe('SO-11: Feed Query (Cursor-Paginated, Blocks/Mutes Excluded)', () => {
   let db: any;
@@ -66,6 +67,8 @@ describe('SO-11: Feed Query (Cursor-Paginated, Blocks/Mutes Excluded)', () => {
       '1995-05-15',
     );
     userC = { id: resC.user.id, token: resC.accessToken, username: resC.user.username };
+    // Reviews, comments and follows need a verified email (D-04-1); the gate has its own tests.
+    await verifyAllUsers(db);
 
     // Seed works
     const [w1] = await db.insert(works).values({ title: 'Dune Messiah' }).returning();

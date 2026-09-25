@@ -13,7 +13,7 @@ import { and, desc, eq, inArray, or, sql } from 'drizzle-orm';
 import type { Db } from '../platform/index.js';
 import { users, profiles, follows, blocks, mutes, works } from '../db/schema.js';
 import { ApiError, requireViewer } from '../http.js';
-import { assertCanView } from '../authorization/index.js';
+import { canViewWith, loadRelationship, requireVerified } from '../authorization/index.js';
 import {
   followResponseSchema,
   pendingFollowRequestsResponseSchema,
@@ -124,90 +124,36 @@ export class SocialService {
     followedBy: boolean;
     isBlocked: boolean;
   }> {
-    if (!viewer) {
-      return { followStatus: 'none', followedBy: false, isBlocked: false };
-    }
-
-    if (viewer === targetUserId) {
-      return { followStatus: 'self', followedBy: false, isBlocked: false };
-    }
-
-    // Check block status (bidirectional)
-    const [blockRow] = await this.db
-      .select({ blockerId: blocks.blockerId })
-      .from(blocks)
-      .where(
-        or(
-          and(eq(blocks.blockerId, viewer), eq(blocks.blockedId, targetUserId)),
-          and(eq(blocks.blockerId, targetUserId), eq(blocks.blockedId, viewer)),
-        ),
-      )
-      .limit(1);
-
-    if (blockRow) {
-      return { followStatus: 'none', followedBy: false, isBlocked: true };
-    }
-
-    // Check follow status (viewer -> target)
-    const [followRow] = await this.db
-      .select({ state: follows.state })
-      .from(follows)
-      .where(
-        and(eq(follows.followerId, viewer), eq(follows.followeeId, targetUserId)),
-      )
-      .limit(1);
-
-    const followStatus: FollowStatus = followRow
-      ? followRow.state === 'accepted'
-        ? 'accepted'
-        : 'pending'
-      : 'none';
-
-    // Check reverse follow status (target -> viewer)
-    const [reverseRow] = await this.db
-      .select({ state: follows.state })
-      .from(follows)
-      .where(
-        and(
-          eq(follows.followerId, targetUserId),
-          eq(follows.followeeId, viewer),
-          eq(follows.state, 'accepted'),
-        ),
-      )
-      .limit(1);
-
-    const followedBy = Boolean(reverseRow);
-
-    return { followStatus, followedBy, isBlocked: false };
+    const rel = await loadRelationship(this.db, viewer, targetUserId);
+    if (rel.isBlocked) return { followStatus: 'none', followedBy: false, isBlocked: true };
+    return { followStatus: rel.followStatus, followedBy: rel.followedBy, isBlocked: false };
   }
 
   /**
    * Follow a user (or request to follow if target account is private).
    */
   async followUser(viewer: string, targetUserId: string): Promise<FollowResult> {
+    // D-04-1: first, so the refusal says nothing about the target.
+    await requireVerified(this.db, viewer);
+
     if (viewer === targetUserId) {
       throw ApiError.badRequest('cannot_follow_self', 'You cannot follow yourself.');
     }
 
-    // Check block status
-    const rel = await this.getFollowStatus(viewer, targetUserId);
-    if (rel.isBlocked) {
-      // Indistinguishable from non-existent account per PRD §11.4
+    // Missing, deleted and blocked (either way) are indistinguishable (PRD §11.4).
+    const rel = await loadRelationship(this.db, viewer, targetUserId);
+    if (!rel.ownerExists || rel.isBlocked) {
       throw ApiError.notFound('User not found.');
     }
 
-    // Verify target profile exists
-    const [targetProfile] = await this.db
-      .select({ userId: profiles.userId, isPrivate: profiles.isPrivate })
-      .from(profiles)
-      .where(eq(profiles.userId, targetUserId))
-      .limit(1);
-
-    if (!targetProfile) {
-      throw ApiError.notFound('User not found.');
+    // Idempotent: a replayed or double-submitted follow never demotes an
+    // accepted follow to a request (the account may have gone private since),
+    // and records no second 'followed' activity (Audit 05).
+    if (rel.followStatus === 'accepted') {
+      return { status: 'accepted', follower_id: viewer, followee_id: targetUserId };
     }
 
-    const state: FollowState = targetProfile.isPrivate ? 'pending' : 'accepted';
+    const state: FollowState = rel.isOwnerPrivate ? 'pending' : 'accepted';
 
     await this.db
       .insert(follows)
@@ -218,7 +164,8 @@ export class SocialService {
       })
       .onConflictDoUpdate({
         target: [follows.followerId, follows.followeeId],
-        set: { state },
+        // Never downgrade a follow accepted by a concurrent request.
+        set: { state: sql`CASE WHEN ${follows.state} = 'accepted' THEN 'accepted' ELSE excluded.state END` },
       });
 
     if (state === 'accepted') {
@@ -640,69 +587,10 @@ export class SocialService {
     const limit = Math.min(Math.max(opts?.limit ?? 50, 1), 100);
     const offset = Math.max(opts?.offset ?? 0, 0);
 
-    // 1. Fetch target profile & verify user existence
-    const [targetProfile] = await this.db
-      .select({
-        userId: profiles.userId,
-        isPrivate: profiles.isPrivate,
-      })
-      .from(profiles)
-      .where(eq(profiles.userId, targetUserId))
-      .limit(1);
-
-    if (!targetProfile) {
-      throw ApiError.notFound('User not found.');
-    }
-
-    // 2. Check blocks and follow relationship between viewer and targetUserId
-    let isBlocked = false;
-    let isFollower = false;
-
-    if (viewer !== null) {
-      if (viewer === targetUserId) {
-        isBlocked = false;
-        isFollower = true;
-      } else {
-        const [blockRow] = await this.db
-          .select({ id: blocks.blockerId })
-          .from(blocks)
-          .where(
-            or(
-              and(eq(blocks.blockerId, viewer), eq(blocks.blockedId, targetUserId)),
-              and(eq(blocks.blockerId, targetUserId), eq(blocks.blockedId, viewer)),
-            ),
-          )
-          .limit(1);
-        isBlocked = Boolean(blockRow);
-
-        if (!isBlocked) {
-          const [followRow] = await this.db
-            .select({ followerId: follows.followerId })
-            .from(follows)
-            .where(
-              and(
-                eq(follows.followerId, viewer),
-                eq(follows.followeeId, targetUserId),
-                eq(follows.state, 'accepted'),
-              ),
-            )
-            .limit(1);
-          isFollower = Boolean(followRow);
-        }
-      }
-    }
-
-    // 3. Enforce visibility (404 Not Found on failure, never 403 Forbidden)
-    assertCanView(
-      {
-        viewer,
-        ownerId: targetUserId,
-        isOwnerPrivate: targetProfile.isPrivate,
-        isBlocked,
-        isFollower,
-      },
-      'User not found.',
-    );
+    // 1–3. One relationship query; missing, deleted, blocked and private
+    // (non-follower) are the same 404, never 403 (Audit 05).
+    const rel = await loadRelationship(this.db, viewer, targetUserId);
+    if (!canViewWith(viewer, targetUserId, rel)) throw ApiError.notFound('User not found.');
 
     // 4. Fetch list of accepted followers
     const allRows = await this.db
@@ -806,69 +694,10 @@ export class SocialService {
     const limit = Math.min(Math.max(opts?.limit ?? 50, 1), 100);
     const offset = Math.max(opts?.offset ?? 0, 0);
 
-    // 1. Fetch target profile & verify user existence
-    const [targetProfile] = await this.db
-      .select({
-        userId: profiles.userId,
-        isPrivate: profiles.isPrivate,
-      })
-      .from(profiles)
-      .where(eq(profiles.userId, targetUserId))
-      .limit(1);
-
-    if (!targetProfile) {
-      throw ApiError.notFound('User not found.');
-    }
-
-    // 2. Check blocks and follow relationship between viewer and targetUserId
-    let isBlocked = false;
-    let isFollower = false;
-
-    if (viewer !== null) {
-      if (viewer === targetUserId) {
-        isBlocked = false;
-        isFollower = true;
-      } else {
-        const [blockRow] = await this.db
-          .select({ blockerId: blocks.blockerId })
-          .from(blocks)
-          .where(
-            or(
-              and(eq(blocks.blockerId, viewer), eq(blocks.blockedId, targetUserId)),
-              and(eq(blocks.blockerId, targetUserId), eq(blocks.blockedId, viewer)),
-            ),
-          )
-          .limit(1);
-        isBlocked = Boolean(blockRow);
-
-        if (!isBlocked) {
-          const [followRow] = await this.db
-            .select({ followerId: follows.followerId })
-            .from(follows)
-            .where(
-              and(
-                eq(follows.followerId, viewer),
-                eq(follows.followeeId, targetUserId),
-                eq(follows.state, 'accepted'),
-              ),
-            )
-            .limit(1);
-          isFollower = Boolean(followRow);
-        }
-      }
-    }
-
-    // 3. Enforce visibility (404 Not Found on failure, never 403 Forbidden)
-    assertCanView(
-      {
-        viewer,
-        ownerId: targetUserId,
-        isOwnerPrivate: targetProfile.isPrivate,
-        isBlocked,
-        isFollower,
-      },
-      'User not found.',
-    );
+    // 1–3. One relationship query; missing, deleted, blocked and private
+    // (non-follower) are the same 404, never 403 (Audit 05).
+    const rel = await loadRelationship(this.db, viewer, targetUserId);
+    if (!canViewWith(viewer, targetUserId, rel)) throw ApiError.notFound('User not found.');
 
     // 4. Fetch list of users targetUserId is following (state = 'accepted')
     const allRows = await this.db

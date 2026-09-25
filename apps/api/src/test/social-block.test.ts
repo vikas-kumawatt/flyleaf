@@ -14,6 +14,7 @@ import { buildApp } from '../app.js';
 import { IdentityService } from '../identity/index.js';
 import { SocialService } from '../social/index.js';
 import { PgRateLimiter } from '../platform/index.js';
+import { verifyAllUsers } from './interaction-fixtures.js';
 
 describe('SO-03: Blocking Semantics (Bidirectional, Complete, Silent, Severs Follows)', () => {
   let db: any;
@@ -49,6 +50,8 @@ describe('SO-03: Blocking Semantics (Bidirectional, Complete, Silent, Severs Fol
       '1996-06-16',
     );
     userB = { id: resB.user.id, token: resB.accessToken, username: resB.user.username };
+    // Reviews, comments and follows need a verified email (D-04-1); the gate has its own tests.
+    await verifyAllUsers(db);
   });
 
   it('rejects self-blocking with HTTP 400 Bad Request', async () => {

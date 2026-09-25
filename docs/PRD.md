@@ -2634,12 +2634,14 @@ It is the product's identity artefact, its primary organic growth surface, and l
 
 | Setting | Public profile | Private profile |
 |---|---|---|
-| Header, bio, avatar | Visible | Visible |
-| Follower counts | Visible | Visible |
+| Header, bio, avatar | Visible | Visible to signed-in users; guests get 404 (§4.2 [LOCKED]) |
+| Follower counts | Visible | Visible to signed-in users; guests get 404 |
 | Favourites | Visible | Followers only |
 | Stats | Visible | Followers only |
 | Activity, reviews, shelves | Per-item visibility | Followers only |
 | To a blocked user | Indistinguishable from a non-existent account | Same |
+
+A private account's header is shown to signed-in non-followers so they can request to follow (AC-13); to guests, and to logged-out visitors of the §16.5 web page, it does not exist. Amended 25 Sep 2026, audit D-05-2.
 
 Switching an account to private must **retroactively** restrict existing public activity, and this must be stated clearly at the moment of switching.
 

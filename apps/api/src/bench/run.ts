@@ -156,6 +156,9 @@ function buildScenarios(cursors: Record<string, string | null>): Scenario[] {
     { name: 'work-reviews:friends:heavy', group: 'api', method: 'GET', persona: 'heavy', path: () => `/v1/works/${ids.hot_work_id}/reviews?sort=friends` },
     { name: 'work-reviews:friends:guest', group: 'api', method: 'GET', persona: null, path: () => `/v1/works/${ids.hot_work_id}/reviews?sort=friends` },
     { name: 'review:get', group: 'api', method: 'GET', persona: 'typical', path: () => `/v1/reviews/${ids.hot_review_id}` },
+    // Part 05: single-resource authorization paths (profile, read, review).
+    { name: 'read:get', group: 'api', method: 'GET', persona: 'typical', path: () => `/v1/reads/${ids.thread_read_id}` },
+    { name: 'user:get', group: 'api', method: 'GET', persona: 'typical', path: () => `/v1/users/${P.heavy!.user_id}` },
     { name: 'reads:mine:reading', group: 'api', method: 'GET', persona: 'heavy', path: () => '/v1/reads?status=reading' },
     { name: 'reads:user', group: 'api', method: 'GET', persona: 'heavy', path: () => `/v1/users/${P.typical!.user_id}/reads` },
     {

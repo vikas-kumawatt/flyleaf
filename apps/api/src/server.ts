@@ -2,7 +2,7 @@
 // Deliberately crude — see phases.md, Phase -1.
 
 import { config, makeDb, waitForDb, closeDb } from './platform/index.js';
-import { buildApp } from './app.js';
+import { buildApp, redactUrl } from './app.js';
 import { makeProducerBoss, QUEUES } from './jobs/index.js';
 import { serverDependencies } from './server-wiring.js';
 
@@ -36,7 +36,8 @@ async function main() {
         remove: true,
       },
       serializers: {
-        req: (req) => ({ method: req.method, url: req.url, id: req.id }),
+        // The query string can carry an export download token: redacted.
+        req: (req) => ({ method: req.method, url: redactUrl(req.url), id: req.id }),
       },
     },
   });

@@ -12,7 +12,7 @@ import { FastifyInstance, FastifyPluginAsync } from 'fastify';
 import { and, eq, sql, inArray, or } from 'drizzle-orm';
 import { Db } from '../platform/index.js';
 import { ApiError, requireViewer } from '../http.js';
-import { canView, assertCanView } from '../authorization/index.js';
+import { canViewSql, canViewWith, loadRelationship } from '../authorization/index.js';
 import {
   shelves,
   shelfItems,
@@ -236,44 +236,6 @@ export class ShelvesService {
     return this.formatShelf(inserted, owner, false, []);
   }
 
-  async checkRelationship(
-    viewer: string | null,
-    targetUserId: string,
-  ): Promise<{ isBlocked: boolean; isFollower: boolean }> {
-    if (viewer === null || viewer === targetUserId) {
-      return { isBlocked: false, isFollower: viewer === targetUserId };
-    }
-
-    const [blockRow] = await this.db
-      .select({ blockerId: blocks.blockerId })
-      .from(blocks)
-      .where(
-        or(
-          and(eq(blocks.blockerId, viewer), eq(blocks.blockedId, targetUserId)),
-          and(eq(blocks.blockerId, targetUserId), eq(blocks.blockedId, viewer)),
-        ),
-      )
-      .limit(1);
-
-    if (blockRow) {
-      return { isBlocked: true, isFollower: false };
-    }
-
-    const [followRow] = await this.db
-      .select({ followerId: follows.followerId })
-      .from(follows)
-      .where(
-        and(
-          eq(follows.followerId, viewer),
-          eq(follows.followeeId, targetUserId),
-          eq(follows.state, 'accepted'),
-        ),
-      )
-      .limit(1);
-
-    return { isBlocked: false, isFollower: Boolean(followRow) };
-  }
-
   async getById(
     viewer: string | null,
     shelfId: string,
@@ -293,22 +255,10 @@ export class ShelvesService {
       throw ApiError.notFound('Shelf not found.');
     }
 
-    const owner = await this.getOwnerProfile(shelf.userId);
-
     // Enforce authorization
-    const { isBlocked, isFollower } = await this.checkRelationship(viewer, shelf.userId);
-
-    assertCanView(
-      {
-        viewer,
-        ownerId: shelf.userId,
-        visibility: shelf.privacy,
-        isOwnerPrivate: owner.isPrivate,
-        isBlocked,
-        isFollower,
-      },
-      'Shelf not found.',
-    );
+    const rel = await loadRelationship(this.db, viewer, shelf.userId);
+    if (!canViewWith(viewer, shelf.userId, rel, shelf.privacy)) throw ApiError.notFound('Shelf not found.');
+    const owner = await this.getOwnerProfile(shelf.userId);
 
     let coverIds: (number | null)[] = [];
     if (shelf.coverWorkIds && shelf.coverWorkIds.length > 0) {
@@ -427,21 +377,8 @@ export class ShelvesService {
       throw ApiError.notFound('Shelf not found.');
     }
 
-    const owner = await this.getOwnerProfile(shelf.userId);
-
-    const { isBlocked, isFollower } = await this.checkRelationship(viewer, shelf.userId);
-
-    assertCanView(
-      {
-        viewer,
-        ownerId: shelf.userId,
-        visibility: shelf.privacy,
-        isOwnerPrivate: owner.isPrivate,
-        isBlocked,
-        isFollower,
-      },
-      'Shelf not found.',
-    );
+    const rel = await loadRelationship(this.db, viewer, shelf.userId);
+    if (!canViewWith(viewer, shelf.userId, rel, shelf.privacy)) throw ApiError.notFound('Shelf not found.');
 
     const [countRow] = await this.db.execute<{ count: string }>(sql`
       SELECT count(*)::text as count
@@ -865,7 +802,18 @@ export class ShelvesService {
       })
       .from(shelfSaves)
       .innerJoin(shelves, eq(shelfSaves.shelfId, shelves.id))
-      .where(and(eq(shelfSaves.userId, viewer), sql`${shelves.deletedAt} IS NULL`))
+      .where(
+        and(
+          eq(shelfSaves.userId, viewer),
+          sql`${shelves.deletedAt} IS NULL`,
+          // Blocks, deleted owners, private accounts: canView() in SQL (Audit 05).
+          canViewSql(viewer, {
+            ownerId: shelves.userId,
+            visibility: shelves.privacy,
+            ownerIsPrivate: sql`COALESCE((SELECT sp.is_private FROM profiles sp WHERE sp.user_id = ${shelves.userId}), true)`,
+          }),
+        ),
+      )
       .orderBy(sql`${shelfSaves.createdAt} DESC`);
 
     if (rows.length === 0) {
@@ -910,18 +858,6 @@ export class ShelvesService {
       }
     }
 
-    const followRows = await this.db
-      .select({ followeeId: follows.followeeId })
-      .from(follows)
-      .where(
-        and(
-          eq(follows.followerId, viewer),
-          eq(follows.state, 'accepted'),
-          inArray(follows.followeeId, Array.from(ownerIds)),
-        ),
-      );
-    const followedOwners = new Set(followRows.map((f) => f.followeeId));
-
     const result: ShelfDetail[] = [];
     for (const r of rows) {
       const shelf = r.shelf;
@@ -932,20 +868,6 @@ export class ShelvesService {
         avatarKey: null,
         isPrivate: false,
       };
-      const isFollower = followedOwners.has(shelf.userId);
-
-      const allowed = canView({
-        viewer,
-        ownerId: shelf.userId,
-        visibility: shelf.privacy,
-        isOwnerPrivate: owner.isPrivate,
-        isFollower,
-      });
-
-      if (!allowed) {
-        continue;
-      }
-
       const coverIds = (shelf.coverWorkIds || []).map((wid) => coversMap.get(wid) ?? null);
       result.push(this.formatShelf(shelf, owner, true, coverIds));
     }
@@ -967,6 +889,8 @@ export class ShelvesService {
       eq(shelves.privacy, 'public'),
       sql`${shelves.deletedAt} IS NULL`,
       eq(profiles.isPrivate, false),
+      // Deleted accounts are hidden platform-wide (PRD §25.4).
+      sql`EXISTS (SELECT 1 FROM users bu WHERE bu.id = ${shelves.userId} AND bu.deleted_at IS NULL)`,
     ];
 
     if (query && query.length > 0) {
@@ -1195,29 +1119,11 @@ export class ShelvesService {
     viewer: string | null,
     targetUserId: string,
   ): Promise<{ shelves: ShelfDetail[] }> {
-    const [targetUser] = await this.db
-      .select({ id: users.id })
-      .from(users)
-      .where(eq(users.id, targetUserId))
-      .limit(1);
-
-    if (!targetUser) {
-      throw ApiError.notFound('User not found.');
-    }
+    // Missing, deleted, blocked and not-allowed-to-see are one 404 (never 403).
+    const rel = await loadRelationship(this.db, viewer, targetUserId);
+    if (!canViewWith(viewer, targetUserId, rel)) throw ApiError.notFound('User not found.');
 
     const owner = await this.getOwnerProfile(targetUserId);
-
-    const { isBlocked, isFollower } = await this.checkRelationship(viewer, targetUserId);
-
-    // Enforce private account hierarchy: unauthorized viewers receive 404 (never 403)
-    assertCanView({
-      viewer,
-      ownerId: targetUserId,
-      visibility: 'public',
-      isOwnerPrivate: owner.isPrivate,
-      isBlocked,
-      isFollower,
-    });
 
     const rows = await this.db
       .select()
@@ -1225,15 +1131,7 @@ export class ShelvesService {
       .where(and(eq(shelves.userId, targetUserId), sql`${shelves.deletedAt} IS NULL`))
       .orderBy(sql`${shelves.createdAt} DESC`);
 
-    const visibleShelves = rows.filter((shelf) =>
-      canView({
-        viewer,
-        ownerId: targetUserId,
-        visibility: shelf.privacy,
-        isOwnerPrivate: owner.isPrivate,
-        isFollower,
-      }),
-    );
+    const visibleShelves = rows.filter((shelf) => canViewWith(viewer, targetUserId, rel, shelf.privacy));
 
     if (visibleShelves.length === 0) {
       return { shelves: [] };
@@ -1318,18 +1216,10 @@ export class ShelvesService {
       throw ApiError.notFound('Shelf not found.');
     }
 
-    // 3. Follow and block status
-    const { isBlocked, isFollower } = await this.checkRelationship(viewer, profile.userId);
-
-    // 4. Authorization (404 on access denial)
-    assertCanView({
-      viewer,
-      ownerId: profile.userId,
-      visibility: shelf.privacy,
-      isOwnerPrivate: profile.isPrivate,
-      isBlocked,
-      isFollower,
-    });
+    // 3–4. Authorization: the same 404 as a missing shelf (the old default
+    // message, "Not found.", told a blocked or unapproved viewer it exists).
+    const rel = await loadRelationship(this.db, viewer, profile.userId);
+    if (!canViewWith(viewer, profile.userId, rel, shelf.privacy)) throw ApiError.notFound('Shelf not found.');
 
     // 5. Covers
     let coverIds: (number | null)[] = [];
@@ -1962,30 +1852,37 @@ export function renderShelfHtml(shelf: ShelfDetail, baseUrl = 'https://flyleaf.a
 /**
  * Public Web / Open Graph landing routes for shared shelf URLs.
  */
+/** Share pages run no script at all: nothing to allow but their own inline style and cover images. */
+const SHARE_PAGE_CSP =
+  "default-src 'none'; style-src 'unsafe-inline'; img-src https: data:; base-uri 'none'; form-action 'none'; frame-ancestors 'none'";
+
 export const shelvesWebPlugin: FastifyPluginAsync<{ db: Db }> = async (fastify, opts) => {
   const service = new ShelvesService(opts.db);
 
   fastify.get<{ Params: { username: string; slug: string } }>(
     '/u/:username/shelves/:slug',
+    // Server-rendered share page, not API: kept out of openapi.yaml.
+    { schema: { hide: true } },
     async (request, reply) => {
       const { username, slug } = request.params;
       const shelf = await service.getBySlug(request.viewer, username, slug);
       if (request.headers.accept?.includes('application/json')) {
         return reply.send({ shelf });
       }
-      return reply.type('text/html').send(renderShelfHtml(shelf));
+      return reply.type('text/html').header('content-security-policy', SHARE_PAGE_CSP).send(renderShelfHtml(shelf));
     },
   );
 
   fastify.get<{ Params: { id: string } }>(
     '/shelf/:id',
+    { schema: { hide: true } },
     async (request, reply) => {
       const { id } = request.params;
       const shelf = await service.getById(request.viewer, id);
       if (request.headers.accept?.includes('application/json')) {
         return reply.send({ shelf });
       }
-      return reply.type('text/html').send(renderShelfHtml(shelf));
+      return reply.type('text/html').header('content-security-policy', SHARE_PAGE_CSP).send(renderShelfHtml(shelf));
     },
   );
 };

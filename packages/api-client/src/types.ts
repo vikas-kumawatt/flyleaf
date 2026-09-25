@@ -1,5 +1,7 @@
-// Generated API contract types from openapi.yaml (FN-81, Architecture §6).
-// DO NOT EDIT MANUALLY.
+// API contract types, kept in step with openapi.yaml (FN-81, Architecture §6).
+// HAND-WRITTEN, not generated (Audit 05, A-05 FN-81): when a route schema
+// changes, update the matching type here. Recommended: generate these with
+// openapi-typescript and check the output in CI, as spec:check does for the spec.
 
 export interface ApiErrorDetails {
   code: string;
@@ -17,6 +19,8 @@ export interface User {
   id: string;
   email: string;
   username: string;
+  /** Present on GET /me. False: reviews, comments and follows get 403 email_unverified. */
+  emailVerified?: boolean;
 }
 
 export interface ProfileFavourite {

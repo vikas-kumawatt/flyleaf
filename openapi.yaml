@@ -12,6 +12,63 @@ components:
       description: 15-minute access JWT (FN-63)
   schemas: {}
 paths:
+  /healthz:
+    get:
+      summary: Liveness probe
+      tags:
+        - System
+      responses:
+        "200":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    enum:
+                      - ok
+                required:
+                  - status
+  /readyz:
+    get:
+      summary: Readiness probe
+      tags:
+        - System
+      responses:
+        "200":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    enum:
+                      - ready
+                required:
+                  - status
+        "503":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      code:
+                        type: string
+                      message:
+                        type: string
+                    required:
+                      - code
+                      - message
+                required:
+                  - error
   /auth/register:
     post:
       summary: Register account
@@ -68,6 +125,10 @@ paths:
                         format: email
                       username:
                         type: string
+                      emailVerified:
+                        type: boolean
+                        description: "On GET /me. False: reviews, comments and follows answer 403
+                          email_unverified (D-04-1)."
                     required:
                       - id
                       - email
@@ -170,6 +231,10 @@ paths:
                         format: email
                       username:
                         type: string
+                      emailVerified:
+                        type: boolean
+                        description: "On GET /me. False: reviews, comments and follows answer 403
+                          email_unverified (D-04-1)."
                     required:
                       - id
                       - email
@@ -875,6 +940,10 @@ paths:
                     format: email
                   username:
                     type: string
+                  emailVerified:
+                    type: boolean
+                    description: "On GET /me. False: reviews, comments and follows answer 403
+                      email_unverified (D-04-1)."
                 required:
                   - id
                   - email
@@ -997,6 +1066,19 @@ paths:
                   createdAt:
                     type: string
                     format: date-time
+                  isRestricted:
+                    type: boolean
+                    description: "Private account, viewer not an accepted follower: header only
+                      (AC-13)."
+                  followStatus:
+                    type: string
+                    enum:
+                      - none
+                      - pending
+                      - accepted
+                      - self
+                  followedBy:
+                    type: boolean
                 required:
                   - id
                   - username
@@ -1146,6 +1228,19 @@ paths:
                   createdAt:
                     type: string
                     format: date-time
+                  isRestricted:
+                    type: boolean
+                    description: "Private account, viewer not an accepted follower: header only
+                      (AC-13)."
+                  followStatus:
+                    type: string
+                    enum:
+                      - none
+                      - pending
+                      - accepted
+                      - self
+                  followedBy:
+                    type: boolean
                 required:
                   - id
                   - username
@@ -1277,6 +1372,19 @@ paths:
                   createdAt:
                     type: string
                     format: date-time
+                  isRestricted:
+                    type: boolean
+                    description: "Private account, viewer not an accepted follower: header only
+                      (AC-13)."
+                  followStatus:
+                    type: string
+                    enum:
+                      - none
+                      - pending
+                      - accepted
+                      - self
+                  followedBy:
+                    type: boolean
                 required:
                   - id
                   - username
@@ -4234,6 +4342,1035 @@ paths:
                 required:
                   - data
                   - total
+  /reads/{id}/like:
+    post:
+      summary: Like a read (idempotent). Likes target the read, so a finish with no
+        review is likeable.
+      tags:
+        - interactions
+      parameters:
+        - schema:
+            type: string
+            format: uuid
+          in: path
+          name: id
+          required: true
+      responses:
+        "200":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  liked:
+                    type: boolean
+                  like_count:
+                    type: integer
+                required:
+                  - liked
+                  - like_count
+        "404":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      code:
+                        type: string
+                        description: Machine-readable error code
+                      message:
+                        type: string
+                        description: Human-readable error description
+                      field:
+                        type: string
+                        description: Invalid field name if applicable
+                    required:
+                      - code
+                      - message
+                required:
+                  - error
+        "409":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      code:
+                        type: string
+                        description: Machine-readable error code
+                      message:
+                        type: string
+                        description: Human-readable error description
+                      field:
+                        type: string
+                        description: Invalid field name if applicable
+                    required:
+                      - code
+                      - message
+                required:
+                  - error
+    delete:
+      summary: Remove your like from a read (idempotent)
+      tags:
+        - interactions
+      parameters:
+        - schema:
+            type: string
+            format: uuid
+          in: path
+          name: id
+          required: true
+      responses:
+        "200":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  liked:
+                    type: boolean
+                  like_count:
+                    type: integer
+                required:
+                  - liked
+                  - like_count
+        "404":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      code:
+                        type: string
+                        description: Machine-readable error code
+                      message:
+                        type: string
+                        description: Human-readable error description
+                      field:
+                        type: string
+                        description: Invalid field name if applicable
+                    required:
+                      - code
+                      - message
+                required:
+                  - error
+  /reads/{id}/likes:
+    get:
+      summary: Readers who liked this read
+      tags:
+        - interactions
+      parameters:
+        - schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 50
+          in: query
+          name: limit
+          required: false
+        - schema:
+            type: integer
+            minimum: 0
+            default: 0
+          in: query
+          name: offset
+          required: false
+        - schema:
+            type: string
+            format: uuid
+          in: path
+          name: id
+          required: true
+      responses:
+        "200":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  read_id:
+                    type: string
+                    format: uuid
+                  like_count:
+                    type: integer
+                  users:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: string
+                          format: uuid
+                        username:
+                          type: string
+                        display_name:
+                          type:
+                            - "null"
+                            - string
+                        avatar_url:
+                          type:
+                            - "null"
+                            - string
+                        liked_at:
+                          type: string
+                          format: date-time
+                      required:
+                        - id
+                        - username
+                        - display_name
+                        - avatar_url
+                        - liked_at
+                required:
+                  - read_id
+                  - like_count
+                  - users
+        "404":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      code:
+                        type: string
+                        description: Machine-readable error code
+                      message:
+                        type: string
+                        description: Human-readable error description
+                      field:
+                        type: string
+                        description: Invalid field name if applicable
+                    required:
+                      - code
+                      - message
+                required:
+                  - error
+  /reads/{id}/comments:
+    get:
+      summary: Comment thread on a read, oldest first, cursor-paginated
+      tags:
+        - interactions
+      parameters:
+        - schema:
+            type: string
+            maxLength: 200
+          in: query
+          name: cursor
+          required: false
+        - schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 50
+          in: query
+          name: limit
+          required: false
+        - schema:
+            type: string
+            format: uuid
+          in: path
+          name: id
+          required: true
+      responses:
+        "200":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  read_id:
+                    type: string
+                    format: uuid
+                  comment_count:
+                    type: integer
+                  locked:
+                    type: boolean
+                  comments:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: string
+                          format: uuid
+                        read_id:
+                          type: string
+                          format: uuid
+                        body:
+                          type: string
+                        created_at:
+                          type: string
+                          format: date-time
+                        author:
+                          type: object
+                          properties:
+                            id:
+                              type: string
+                              format: uuid
+                            username:
+                              type: string
+                            display_name:
+                              type:
+                                - "null"
+                                - string
+                            avatar_url:
+                              type:
+                                - "null"
+                                - string
+                          required:
+                            - id
+                            - username
+                            - display_name
+                            - avatar_url
+                        viewer_can_delete:
+                          type: boolean
+                      required:
+                        - id
+                        - read_id
+                        - body
+                        - created_at
+                        - author
+                        - viewer_can_delete
+                  next_cursor:
+                    type:
+                      - "null"
+                      - string
+                required:
+                  - read_id
+                  - comment_count
+                  - locked
+                  - comments
+                  - next_cursor
+        "400":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      code:
+                        type: string
+                        description: Machine-readable error code
+                      message:
+                        type: string
+                        description: Human-readable error description
+                      field:
+                        type: string
+                        description: Invalid field name if applicable
+                    required:
+                      - code
+                      - message
+                required:
+                  - error
+        "404":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      code:
+                        type: string
+                        description: Machine-readable error code
+                      message:
+                        type: string
+                        description: Human-readable error description
+                      field:
+                        type: string
+                        description: Invalid field name if applicable
+                    required:
+                      - code
+                      - message
+                required:
+                  - error
+    post:
+      summary: Comment on a read. Single-level; 5 per minute.
+      tags:
+        - interactions
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                body:
+                  type: string
+                  minLength: 1
+                  maxLength: 2000
+              required:
+                - body
+      parameters:
+        - schema:
+            type: string
+            format: uuid
+          in: path
+          name: id
+          required: true
+      responses:
+        "201":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id:
+                    type: string
+                    format: uuid
+                  read_id:
+                    type: string
+                    format: uuid
+                  body:
+                    type: string
+                  created_at:
+                    type: string
+                    format: date-time
+                  author:
+                    type: object
+                    properties:
+                      id:
+                        type: string
+                        format: uuid
+                      username:
+                        type: string
+                      display_name:
+                        type:
+                          - "null"
+                          - string
+                      avatar_url:
+                        type:
+                          - "null"
+                          - string
+                    required:
+                      - id
+                      - username
+                      - display_name
+                      - avatar_url
+                  viewer_can_delete:
+                    type: boolean
+                required:
+                  - id
+                  - read_id
+                  - body
+                  - created_at
+                  - author
+                  - viewer_can_delete
+        "400":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      code:
+                        type: string
+                        description: Machine-readable error code
+                      message:
+                        type: string
+                        description: Human-readable error description
+                      field:
+                        type: string
+                        description: Invalid field name if applicable
+                    required:
+                      - code
+                      - message
+                required:
+                  - error
+        "404":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      code:
+                        type: string
+                        description: Machine-readable error code
+                      message:
+                        type: string
+                        description: Human-readable error description
+                      field:
+                        type: string
+                        description: Invalid field name if applicable
+                    required:
+                      - code
+                      - message
+                required:
+                  - error
+        "409":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      code:
+                        type: string
+                        description: Machine-readable error code
+                      message:
+                        type: string
+                        description: Human-readable error description
+                      field:
+                        type: string
+                        description: Invalid field name if applicable
+                    required:
+                      - code
+                      - message
+                required:
+                  - error
+        "429":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      code:
+                        type: string
+                        description: Machine-readable error code
+                      message:
+                        type: string
+                        description: Human-readable error description
+                      field:
+                        type: string
+                        description: Invalid field name if applicable
+                    required:
+                      - code
+                      - message
+                required:
+                  - error
+  /comments/{id}:
+    delete:
+      summary: Delete your own comment
+      tags:
+        - interactions
+      parameters:
+        - schema:
+            type: string
+            format: uuid
+          in: path
+          name: id
+          required: true
+      responses:
+        "204":
+          description: Default Response
+        "404":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      code:
+                        type: string
+                        description: Machine-readable error code
+                      message:
+                        type: string
+                        description: Human-readable error description
+                      field:
+                        type: string
+                        description: Invalid field name if applicable
+                    required:
+                      - code
+                      - message
+                required:
+                  - error
+  /admin/auth/login:
+    post:
+      summary: Admin login with password and mandatory 2FA
+      tags:
+        - Admin Auth
+      description: Authenticates administrator or moderator credentials with TOTP 2FA,
+        issuing a scoped Admin JWT.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                email:
+                  type: string
+                  format: email
+                password:
+                  type: string
+                  minLength: 1
+                totp_code:
+                  type: string
+                  minLength: 6
+                  maxLength: 10
+                  description: 6-digit TOTP code or backup code
+              required:
+                - email
+                - password
+                - totp_code
+      responses:
+        "200":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  token:
+                    type: string
+                    description: Admin JWT scoped to flyleaf-admin
+                  admin:
+                    type: object
+                    properties:
+                      id:
+                        type: string
+                        format: uuid
+                      email:
+                        type: string
+                        format: email
+                      role:
+                        type: string
+                        enum:
+                          - admin
+                          - moderator
+                    required:
+                      - id
+                      - email
+                      - role
+                required:
+                  - token
+                  - admin
+        "401":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      code:
+                        type: string
+                        description: Machine-readable error code
+                      message:
+                        type: string
+                        description: Human-readable error description
+                      field:
+                        type: string
+                        description: Invalid field name if applicable
+                    required:
+                      - code
+                      - message
+                required:
+                  - error
+        "403":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      code:
+                        type: string
+                        description: Machine-readable error code
+                      message:
+                        type: string
+                        description: Human-readable error description
+                      field:
+                        type: string
+                        description: Invalid field name if applicable
+                    required:
+                      - code
+                      - message
+                required:
+                  - error
+        "500":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      code:
+                        type: string
+                        description: Machine-readable error code
+                      message:
+                        type: string
+                        description: Human-readable error description
+                      field:
+                        type: string
+                        description: Invalid field name if applicable
+                    required:
+                      - code
+                      - message
+                required:
+                  - error
+  /admin/auth/me:
+    get:
+      summary: Get current admin session
+      tags:
+        - Admin Auth
+      description: Returns the authenticated administrator or moderator viewer context.
+      responses:
+        "200":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  admin:
+                    type: object
+                    properties:
+                      id:
+                        type: string
+                        format: uuid
+                      email:
+                        type: string
+                        format: email
+                      role:
+                        type: string
+                        enum:
+                          - admin
+                          - moderator
+                    required:
+                      - id
+                      - email
+                      - role
+                required:
+                  - admin
+        "401":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      code:
+                        type: string
+                        description: Machine-readable error code
+                      message:
+                        type: string
+                        description: Human-readable error description
+                      field:
+                        type: string
+                        description: Invalid field name if applicable
+                    required:
+                      - code
+                      - message
+                required:
+                  - error
+        "500":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      code:
+                        type: string
+                        description: Machine-readable error code
+                      message:
+                        type: string
+                        description: Human-readable error description
+                      field:
+                        type: string
+                        description: Invalid field name if applicable
+                    required:
+                      - code
+                      - message
+                required:
+                  - error
+  /admin/auth/2fa/setup:
+    post:
+      summary: Initialize 2FA setup for admin account
+      tags:
+        - Admin Auth
+      description: Generates a new TOTP secret, otpauth URI, and one-time backup codes.
+      responses:
+        "200":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  secret:
+                    type: string
+                  otpauth_uri:
+                    type: string
+                  backup_codes:
+                    type: array
+                    items:
+                      type: string
+                required:
+                  - secret
+                  - otpauth_uri
+                  - backup_codes
+        "401":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      code:
+                        type: string
+                        description: Machine-readable error code
+                      message:
+                        type: string
+                        description: Human-readable error description
+                      field:
+                        type: string
+                        description: Invalid field name if applicable
+                    required:
+                      - code
+                      - message
+                required:
+                  - error
+        "403":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      code:
+                        type: string
+                        description: Machine-readable error code
+                      message:
+                        type: string
+                        description: Human-readable error description
+                      field:
+                        type: string
+                        description: Invalid field name if applicable
+                    required:
+                      - code
+                      - message
+                required:
+                  - error
+        "500":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      code:
+                        type: string
+                        description: Machine-readable error code
+                      message:
+                        type: string
+                        description: Human-readable error description
+                      field:
+                        type: string
+                        description: Invalid field name if applicable
+                    required:
+                      - code
+                      - message
+                required:
+                  - error
+  /admin/auth/2fa/verify:
+    post:
+      summary: Verify and activate 2FA setup
+      tags:
+        - Admin Auth
+      description: Verifies the first 6-digit TOTP code to confirm two-factor setup.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                code:
+                  type: string
+                  minLength: 6
+                  maxLength: 6
+              required:
+                - code
+      responses:
+        "200":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                required:
+                  - success
+        "400":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      code:
+                        type: string
+                        description: Machine-readable error code
+                      message:
+                        type: string
+                        description: Human-readable error description
+                      field:
+                        type: string
+                        description: Invalid field name if applicable
+                    required:
+                      - code
+                      - message
+                required:
+                  - error
+        "401":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      code:
+                        type: string
+                        description: Machine-readable error code
+                      message:
+                        type: string
+                        description: Human-readable error description
+                      field:
+                        type: string
+                        description: Invalid field name if applicable
+                    required:
+                      - code
+                      - message
+                required:
+                  - error
+        "403":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      code:
+                        type: string
+                        description: Machine-readable error code
+                      message:
+                        type: string
+                        description: Human-readable error description
+                      field:
+                        type: string
+                        description: Invalid field name if applicable
+                    required:
+                      - code
+                      - message
+                required:
+                  - error
+        "500":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      code:
+                        type: string
+                        description: Machine-readable error code
+                      message:
+                        type: string
+                        description: Human-readable error description
+                      field:
+                        type: string
+                        description: Invalid field name if applicable
+                    required:
+                      - code
+                      - message
+                required:
+                  - error
+  /admin/audit-log:
+    get:
+      responses:
+        "200":
+          description: Default Response
+  /admin/login:
+    get:
+      responses:
+        "200":
+          description: Default Response
+  /admin/logout:
+    post:
+      responses:
+        "200":
+          description: Default Response
   /admin/dedupe/queue:
     get:
       summary: List dedupe review queue
@@ -5131,461 +6268,6 @@ paths:
                       - message
                 required:
                   - error
-  /admin/auth/login:
-    post:
-      summary: Admin login with password and mandatory 2FA
-      tags:
-        - Admin Auth
-      description: Authenticates administrator or moderator credentials with TOTP 2FA,
-        issuing a scoped Admin JWT.
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                email:
-                  type: string
-                  format: email
-                password:
-                  type: string
-                  minLength: 1
-                totp_code:
-                  type: string
-                  minLength: 6
-                  maxLength: 10
-                  description: 6-digit TOTP code or backup code
-              required:
-                - email
-                - password
-                - totp_code
-      responses:
-        "200":
-          description: Default Response
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  token:
-                    type: string
-                    description: Admin JWT scoped to flyleaf-admin
-                  admin:
-                    type: object
-                    properties:
-                      id:
-                        type: string
-                        format: uuid
-                      email:
-                        type: string
-                        format: email
-                      role:
-                        type: string
-                        enum:
-                          - admin
-                          - moderator
-                    required:
-                      - id
-                      - email
-                      - role
-                required:
-                  - token
-                  - admin
-        "401":
-          description: Default Response
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  error:
-                    type: object
-                    properties:
-                      code:
-                        type: string
-                        description: Machine-readable error code
-                      message:
-                        type: string
-                        description: Human-readable error description
-                      field:
-                        type: string
-                        description: Invalid field name if applicable
-                    required:
-                      - code
-                      - message
-                required:
-                  - error
-        "403":
-          description: Default Response
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  error:
-                    type: object
-                    properties:
-                      code:
-                        type: string
-                        description: Machine-readable error code
-                      message:
-                        type: string
-                        description: Human-readable error description
-                      field:
-                        type: string
-                        description: Invalid field name if applicable
-                    required:
-                      - code
-                      - message
-                required:
-                  - error
-        "500":
-          description: Default Response
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  error:
-                    type: object
-                    properties:
-                      code:
-                        type: string
-                        description: Machine-readable error code
-                      message:
-                        type: string
-                        description: Human-readable error description
-                      field:
-                        type: string
-                        description: Invalid field name if applicable
-                    required:
-                      - code
-                      - message
-                required:
-                  - error
-  /admin/auth/me:
-    get:
-      summary: Get current admin session
-      tags:
-        - Admin Auth
-      description: Returns the authenticated administrator or moderator viewer context.
-      responses:
-        "200":
-          description: Default Response
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  admin:
-                    type: object
-                    properties:
-                      id:
-                        type: string
-                        format: uuid
-                      email:
-                        type: string
-                        format: email
-                      role:
-                        type: string
-                        enum:
-                          - admin
-                          - moderator
-                    required:
-                      - id
-                      - email
-                      - role
-                required:
-                  - admin
-        "401":
-          description: Default Response
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  error:
-                    type: object
-                    properties:
-                      code:
-                        type: string
-                        description: Machine-readable error code
-                      message:
-                        type: string
-                        description: Human-readable error description
-                      field:
-                        type: string
-                        description: Invalid field name if applicable
-                    required:
-                      - code
-                      - message
-                required:
-                  - error
-        "500":
-          description: Default Response
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  error:
-                    type: object
-                    properties:
-                      code:
-                        type: string
-                        description: Machine-readable error code
-                      message:
-                        type: string
-                        description: Human-readable error description
-                      field:
-                        type: string
-                        description: Invalid field name if applicable
-                    required:
-                      - code
-                      - message
-                required:
-                  - error
-  /admin/auth/2fa/setup:
-    post:
-      summary: Initialize 2FA setup for admin account
-      tags:
-        - Admin Auth
-      description: Generates a new TOTP secret, otpauth URI, and one-time backup codes.
-      responses:
-        "200":
-          description: Default Response
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  secret:
-                    type: string
-                  otpauth_uri:
-                    type: string
-                  backup_codes:
-                    type: array
-                    items:
-                      type: string
-                required:
-                  - secret
-                  - otpauth_uri
-                  - backup_codes
-        "401":
-          description: Default Response
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  error:
-                    type: object
-                    properties:
-                      code:
-                        type: string
-                        description: Machine-readable error code
-                      message:
-                        type: string
-                        description: Human-readable error description
-                      field:
-                        type: string
-                        description: Invalid field name if applicable
-                    required:
-                      - code
-                      - message
-                required:
-                  - error
-        "403":
-          description: Default Response
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  error:
-                    type: object
-                    properties:
-                      code:
-                        type: string
-                        description: Machine-readable error code
-                      message:
-                        type: string
-                        description: Human-readable error description
-                      field:
-                        type: string
-                        description: Invalid field name if applicable
-                    required:
-                      - code
-                      - message
-                required:
-                  - error
-        "500":
-          description: Default Response
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  error:
-                    type: object
-                    properties:
-                      code:
-                        type: string
-                        description: Machine-readable error code
-                      message:
-                        type: string
-                        description: Human-readable error description
-                      field:
-                        type: string
-                        description: Invalid field name if applicable
-                    required:
-                      - code
-                      - message
-                required:
-                  - error
-  /admin/auth/2fa/verify:
-    post:
-      summary: Verify and activate 2FA setup
-      tags:
-        - Admin Auth
-      description: Verifies the first 6-digit TOTP code to confirm two-factor setup.
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                code:
-                  type: string
-                  minLength: 6
-                  maxLength: 6
-              required:
-                - code
-      responses:
-        "200":
-          description: Default Response
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  success:
-                    type: boolean
-                required:
-                  - success
-        "400":
-          description: Default Response
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  error:
-                    type: object
-                    properties:
-                      code:
-                        type: string
-                        description: Machine-readable error code
-                      message:
-                        type: string
-                        description: Human-readable error description
-                      field:
-                        type: string
-                        description: Invalid field name if applicable
-                    required:
-                      - code
-                      - message
-                required:
-                  - error
-        "401":
-          description: Default Response
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  error:
-                    type: object
-                    properties:
-                      code:
-                        type: string
-                        description: Machine-readable error code
-                      message:
-                        type: string
-                        description: Human-readable error description
-                      field:
-                        type: string
-                        description: Invalid field name if applicable
-                    required:
-                      - code
-                      - message
-                required:
-                  - error
-        "403":
-          description: Default Response
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  error:
-                    type: object
-                    properties:
-                      code:
-                        type: string
-                        description: Machine-readable error code
-                      message:
-                        type: string
-                        description: Human-readable error description
-                      field:
-                        type: string
-                        description: Invalid field name if applicable
-                    required:
-                      - code
-                      - message
-                required:
-                  - error
-        "500":
-          description: Default Response
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  error:
-                    type: object
-                    properties:
-                      code:
-                        type: string
-                        description: Machine-readable error code
-                      message:
-                        type: string
-                        description: Human-readable error description
-                      field:
-                        type: string
-                        description: Invalid field name if applicable
-                    required:
-                      - code
-                      - message
-                required:
-                  - error
-  /admin/audit-log:
-    get:
-      responses:
-        "200":
-          description: Default Response
-  /admin/login:
-    get:
-      responses:
-        "200":
-          description: Default Response
-  /admin/logout:
-    post:
-      responses:
-        "200":
-          description: Default Response
   /admin/catalog/works:
     get:
       summary: List catalog works for maturity review
@@ -9862,6 +10544,415 @@ paths:
                       - message
                 required:
                   - error
+  /exports:
+    post:
+      summary: Request full reading library export
+      tags:
+        - Exports
+      description: Requests an asynchronous data export (CSV or JSON). Generates file
+        and emails secure download link (PRD §1290, §3424, IM-10).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                format:
+                  type: string
+                  enum:
+                    - csv
+                    - json
+                  default: csv
+                  description: "Export format: csv for reading spreadsheets and re-importing, json
+                    for full data archive."
+      responses:
+        "201":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id:
+                    type: string
+                    format: uuid
+                  user_id:
+                    type: string
+                    format: uuid
+                  format:
+                    type: string
+                    enum:
+                      - csv
+                      - json
+                  state:
+                    type: string
+                    enum:
+                      - queued
+                      - processing
+                      - completed
+                      - failed
+                  file_size_bytes:
+                    type:
+                      - "null"
+                      - integer
+                  download_url:
+                    type:
+                      - "null"
+                      - string
+                  expires_at:
+                    type:
+                      - "null"
+                      - string
+                    format: date-time
+                  error:
+                    type:
+                      - "null"
+                      - string
+                  created_at:
+                    type: string
+                    format: date-time
+                  finished_at:
+                    type:
+                      - "null"
+                      - string
+                    format: date-time
+                required:
+                  - id
+                  - user_id
+                  - format
+                  - state
+                  - created_at
+        "400":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      code:
+                        type: string
+                        description: Machine-readable error code
+                      message:
+                        type: string
+                        description: Human-readable error description
+                      field:
+                        type: string
+                        description: Invalid field name if applicable
+                    required:
+                      - code
+                      - message
+                required:
+                  - error
+        "401":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      code:
+                        type: string
+                        description: Machine-readable error code
+                      message:
+                        type: string
+                        description: Human-readable error description
+                      field:
+                        type: string
+                        description: Invalid field name if applicable
+                    required:
+                      - code
+                      - message
+                required:
+                  - error
+    get:
+      summary: List user library exports
+      tags:
+        - Exports
+      description: Lists previous and active data exports for the authenticated viewer.
+      responses:
+        "200":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  exports:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: string
+                          format: uuid
+                        user_id:
+                          type: string
+                          format: uuid
+                        format:
+                          type: string
+                          enum:
+                            - csv
+                            - json
+                        state:
+                          type: string
+                          enum:
+                            - queued
+                            - processing
+                            - completed
+                            - failed
+                        file_size_bytes:
+                          type:
+                            - "null"
+                            - integer
+                        download_url:
+                          type:
+                            - "null"
+                            - string
+                        expires_at:
+                          type:
+                            - "null"
+                            - string
+                          format: date-time
+                        error:
+                          type:
+                            - "null"
+                            - string
+                        created_at:
+                          type: string
+                          format: date-time
+                        finished_at:
+                          type:
+                            - "null"
+                            - string
+                          format: date-time
+                      required:
+                        - id
+                        - user_id
+                        - format
+                        - state
+                        - created_at
+                required:
+                  - exports
+        "401":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      code:
+                        type: string
+                        description: Machine-readable error code
+                      message:
+                        type: string
+                        description: Human-readable error description
+                      field:
+                        type: string
+                        description: Invalid field name if applicable
+                    required:
+                      - code
+                      - message
+                required:
+                  - error
+  /exports/{id}:
+    get:
+      summary: Get export job status
+      tags:
+        - Exports
+      description: Retrieves the status, file size, and download link for an export job.
+      parameters:
+        - schema:
+            type: string
+            format: uuid
+          in: path
+          name: id
+          required: true
+          description: Resource UUID
+      responses:
+        "200":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id:
+                    type: string
+                    format: uuid
+                  user_id:
+                    type: string
+                    format: uuid
+                  format:
+                    type: string
+                    enum:
+                      - csv
+                      - json
+                  state:
+                    type: string
+                    enum:
+                      - queued
+                      - processing
+                      - completed
+                      - failed
+                  file_size_bytes:
+                    type:
+                      - "null"
+                      - integer
+                  download_url:
+                    type:
+                      - "null"
+                      - string
+                  expires_at:
+                    type:
+                      - "null"
+                      - string
+                    format: date-time
+                  error:
+                    type:
+                      - "null"
+                      - string
+                  created_at:
+                    type: string
+                    format: date-time
+                  finished_at:
+                    type:
+                      - "null"
+                      - string
+                    format: date-time
+                required:
+                  - id
+                  - user_id
+                  - format
+                  - state
+                  - created_at
+        "401":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      code:
+                        type: string
+                        description: Machine-readable error code
+                      message:
+                        type: string
+                        description: Human-readable error description
+                      field:
+                        type: string
+                        description: Invalid field name if applicable
+                    required:
+                      - code
+                      - message
+                required:
+                  - error
+        "404":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      code:
+                        type: string
+                        description: Machine-readable error code
+                      message:
+                        type: string
+                        description: Human-readable error description
+                      field:
+                        type: string
+                        description: Invalid field name if applicable
+                    required:
+                      - code
+                      - message
+                required:
+                  - error
+  /exports/{id}/download:
+    get:
+      summary: Download exported library file
+      tags:
+        - Exports
+      description: Downloads the generated export file (CSV/JSON) using a secure
+        emailed token or Bearer authentication.
+      parameters:
+        - schema:
+            type: string
+          in: query
+          name: token
+          required: false
+          description: Single-use or time-limited download token sent via email
+        - schema:
+            type: string
+            format: uuid
+          in: path
+          name: id
+          required: true
+          description: Resource UUID
+      responses:
+        "400":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      code:
+                        type: string
+                        description: Machine-readable error code
+                      message:
+                        type: string
+                        description: Human-readable error description
+                      field:
+                        type: string
+                        description: Invalid field name if applicable
+                    required:
+                      - code
+                      - message
+                required:
+                  - error
+        "404":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      code:
+                        type: string
+                        description: Machine-readable error code
+                      message:
+                        type: string
+                        description: Human-readable error description
+                      field:
+                        type: string
+                        description: Invalid field name if applicable
+                    required:
+                      - code
+                      - message
+                required:
+                  - error
   /users/{id}/follow:
     post:
       summary: Follow or request to follow a user
@@ -11226,580 +12317,6 @@ paths:
                 required:
                   - users
                   - total
-  /reads/{id}/like:
-    post:
-      summary: Like a read (idempotent). Likes target the read, so a finish with no
-        review is likeable.
-      tags:
-        - interactions
-      parameters:
-        - schema:
-            type: string
-            format: uuid
-          in: path
-          name: id
-          required: true
-      responses:
-        "200":
-          description: Default Response
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  liked:
-                    type: boolean
-                  like_count:
-                    type: integer
-                required:
-                  - liked
-                  - like_count
-        "404":
-          description: Default Response
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  error:
-                    type: object
-                    properties:
-                      code:
-                        type: string
-                        description: Machine-readable error code
-                      message:
-                        type: string
-                        description: Human-readable error description
-                      field:
-                        type: string
-                        description: Invalid field name if applicable
-                    required:
-                      - code
-                      - message
-                required:
-                  - error
-        "409":
-          description: Default Response
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  error:
-                    type: object
-                    properties:
-                      code:
-                        type: string
-                        description: Machine-readable error code
-                      message:
-                        type: string
-                        description: Human-readable error description
-                      field:
-                        type: string
-                        description: Invalid field name if applicable
-                    required:
-                      - code
-                      - message
-                required:
-                  - error
-    delete:
-      summary: Remove your like from a read (idempotent)
-      tags:
-        - interactions
-      parameters:
-        - schema:
-            type: string
-            format: uuid
-          in: path
-          name: id
-          required: true
-      responses:
-        "200":
-          description: Default Response
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  liked:
-                    type: boolean
-                  like_count:
-                    type: integer
-                required:
-                  - liked
-                  - like_count
-        "404":
-          description: Default Response
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  error:
-                    type: object
-                    properties:
-                      code:
-                        type: string
-                        description: Machine-readable error code
-                      message:
-                        type: string
-                        description: Human-readable error description
-                      field:
-                        type: string
-                        description: Invalid field name if applicable
-                    required:
-                      - code
-                      - message
-                required:
-                  - error
-  /reads/{id}/likes:
-    get:
-      summary: Readers who liked this read
-      tags:
-        - interactions
-      parameters:
-        - schema:
-            type: integer
-            minimum: 1
-            maximum: 100
-            default: 50
-          in: query
-          name: limit
-          required: false
-        - schema:
-            type: integer
-            minimum: 0
-            default: 0
-          in: query
-          name: offset
-          required: false
-        - schema:
-            type: string
-            format: uuid
-          in: path
-          name: id
-          required: true
-      responses:
-        "200":
-          description: Default Response
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  read_id:
-                    type: string
-                    format: uuid
-                  like_count:
-                    type: integer
-                  users:
-                    type: array
-                    items:
-                      type: object
-                      properties:
-                        id:
-                          type: string
-                          format: uuid
-                        username:
-                          type: string
-                        display_name:
-                          type:
-                            - "null"
-                            - string
-                        avatar_url:
-                          type:
-                            - "null"
-                            - string
-                        liked_at:
-                          type: string
-                          format: date-time
-                      required:
-                        - id
-                        - username
-                        - display_name
-                        - avatar_url
-                        - liked_at
-                required:
-                  - read_id
-                  - like_count
-                  - users
-        "404":
-          description: Default Response
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  error:
-                    type: object
-                    properties:
-                      code:
-                        type: string
-                        description: Machine-readable error code
-                      message:
-                        type: string
-                        description: Human-readable error description
-                      field:
-                        type: string
-                        description: Invalid field name if applicable
-                    required:
-                      - code
-                      - message
-                required:
-                  - error
-  /reads/{id}/comments:
-    get:
-      summary: Comment thread on a read, oldest first, cursor-paginated
-      tags:
-        - interactions
-      parameters:
-        - schema:
-            type: string
-            maxLength: 200
-          in: query
-          name: cursor
-          required: false
-        - schema:
-            type: integer
-            minimum: 1
-            maximum: 100
-            default: 50
-          in: query
-          name: limit
-          required: false
-        - schema:
-            type: string
-            format: uuid
-          in: path
-          name: id
-          required: true
-      responses:
-        "200":
-          description: Default Response
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  read_id:
-                    type: string
-                    format: uuid
-                  comment_count:
-                    type: integer
-                  locked:
-                    type: boolean
-                  comments:
-                    type: array
-                    items:
-                      type: object
-                      properties:
-                        id:
-                          type: string
-                          format: uuid
-                        read_id:
-                          type: string
-                          format: uuid
-                        body:
-                          type: string
-                        created_at:
-                          type: string
-                          format: date-time
-                        author:
-                          type: object
-                          properties:
-                            id:
-                              type: string
-                              format: uuid
-                            username:
-                              type: string
-                            display_name:
-                              type:
-                                - "null"
-                                - string
-                            avatar_url:
-                              type:
-                                - "null"
-                                - string
-                          required:
-                            - id
-                            - username
-                            - display_name
-                            - avatar_url
-                        viewer_can_delete:
-                          type: boolean
-                      required:
-                        - id
-                        - read_id
-                        - body
-                        - created_at
-                        - author
-                        - viewer_can_delete
-                  next_cursor:
-                    type:
-                      - "null"
-                      - string
-                required:
-                  - read_id
-                  - comment_count
-                  - locked
-                  - comments
-                  - next_cursor
-        "400":
-          description: Default Response
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  error:
-                    type: object
-                    properties:
-                      code:
-                        type: string
-                        description: Machine-readable error code
-                      message:
-                        type: string
-                        description: Human-readable error description
-                      field:
-                        type: string
-                        description: Invalid field name if applicable
-                    required:
-                      - code
-                      - message
-                required:
-                  - error
-        "404":
-          description: Default Response
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  error:
-                    type: object
-                    properties:
-                      code:
-                        type: string
-                        description: Machine-readable error code
-                      message:
-                        type: string
-                        description: Human-readable error description
-                      field:
-                        type: string
-                        description: Invalid field name if applicable
-                    required:
-                      - code
-                      - message
-                required:
-                  - error
-    post:
-      summary: Comment on a read. Single-level; 5 per minute.
-      tags:
-        - interactions
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                body:
-                  type: string
-                  minLength: 1
-                  maxLength: 2000
-              required:
-                - body
-      parameters:
-        - schema:
-            type: string
-            format: uuid
-          in: path
-          name: id
-          required: true
-      responses:
-        "201":
-          description: Default Response
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  id:
-                    type: string
-                    format: uuid
-                  read_id:
-                    type: string
-                    format: uuid
-                  body:
-                    type: string
-                  created_at:
-                    type: string
-                    format: date-time
-                  author:
-                    type: object
-                    properties:
-                      id:
-                        type: string
-                        format: uuid
-                      username:
-                        type: string
-                      display_name:
-                        type:
-                          - "null"
-                          - string
-                      avatar_url:
-                        type:
-                          - "null"
-                          - string
-                    required:
-                      - id
-                      - username
-                      - display_name
-                      - avatar_url
-                  viewer_can_delete:
-                    type: boolean
-                required:
-                  - id
-                  - read_id
-                  - body
-                  - created_at
-                  - author
-                  - viewer_can_delete
-        "400":
-          description: Default Response
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  error:
-                    type: object
-                    properties:
-                      code:
-                        type: string
-                        description: Machine-readable error code
-                      message:
-                        type: string
-                        description: Human-readable error description
-                      field:
-                        type: string
-                        description: Invalid field name if applicable
-                    required:
-                      - code
-                      - message
-                required:
-                  - error
-        "404":
-          description: Default Response
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  error:
-                    type: object
-                    properties:
-                      code:
-                        type: string
-                        description: Machine-readable error code
-                      message:
-                        type: string
-                        description: Human-readable error description
-                      field:
-                        type: string
-                        description: Invalid field name if applicable
-                    required:
-                      - code
-                      - message
-                required:
-                  - error
-        "409":
-          description: Default Response
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  error:
-                    type: object
-                    properties:
-                      code:
-                        type: string
-                        description: Machine-readable error code
-                      message:
-                        type: string
-                        description: Human-readable error description
-                      field:
-                        type: string
-                        description: Invalid field name if applicable
-                    required:
-                      - code
-                      - message
-                required:
-                  - error
-        "429":
-          description: Default Response
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  error:
-                    type: object
-                    properties:
-                      code:
-                        type: string
-                        description: Machine-readable error code
-                      message:
-                        type: string
-                        description: Human-readable error description
-                      field:
-                        type: string
-                        description: Invalid field name if applicable
-                    required:
-                      - code
-                      - message
-                required:
-                  - error
-  /comments/{id}:
-    delete:
-      summary: Delete your own comment
-      tags:
-        - interactions
-      parameters:
-        - schema:
-            type: string
-            format: uuid
-          in: path
-          name: id
-          required: true
-      responses:
-        "204":
-          description: Default Response
-        "404":
-          description: Default Response
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  error:
-                    type: object
-                    properties:
-                      code:
-                        type: string
-                        description: Machine-readable error code
-                      message:
-                        type: string
-                        description: Human-readable error description
-                      field:
-                        type: string
-                        description: Invalid field name if applicable
-                    required:
-                      - code
-                      - message
-                required:
-                  - error
   /feed:
     get:
       parameters:
@@ -11986,63 +12503,6 @@ paths:
                       field:
                         type: string
                         description: Invalid field name if applicable
-                    required:
-                      - code
-                      - message
-                required:
-                  - error
-  /healthz:
-    get:
-      summary: Liveness probe
-      tags:
-        - System
-      responses:
-        "200":
-          description: Default Response
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  status:
-                    type: string
-                    enum:
-                      - ok
-                required:
-                  - status
-  /readyz:
-    get:
-      summary: Readiness probe
-      tags:
-        - System
-      responses:
-        "200":
-          description: Default Response
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  status:
-                    type: string
-                    enum:
-                      - ready
-                required:
-                  - status
-        "503":
-          description: Default Response
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  error:
-                    type: object
-                    properties:
-                      code:
-                        type: string
-                      message:
-                        type: string
                     required:
                       - code
                       - message

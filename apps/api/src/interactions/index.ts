@@ -16,12 +16,12 @@
 
 import { randomUUID } from 'node:crypto';
 import type { FastifyPluginAsync } from 'fastify';
-import { and, eq, or, sql } from 'drizzle-orm';
+import { and, eq, sql } from 'drizzle-orm';
 import type { Db, RateLimiter } from '../platform/index.js';
 import { PgRateLimiter } from '../platform/index.js';
-import { reads, readLikes, readComments, profiles, blocks, follows } from '../db/schema.js';
+import { reads, readLikes, readComments, profiles } from '../db/schema.js';
 import { ApiError, requireViewer } from '../http.js';
-import { canView, type Visibility } from '../authorization/index.js';
+import { canViewWith, loadRelationship, requireVerified } from '../authorization/index.js';
 import {
   readIdParamsSchema,
   likeResponseSchema,
@@ -156,45 +156,8 @@ export class InteractionService {
 
     if (!row) throw ApiError.notFound('Read not found.');
 
-    let isBlocked = false;
-    let isFollower = false;
-    if (viewer && viewer !== row.userId) {
-      const [block] = await this.db
-        .select({ b: blocks.blockerId })
-        .from(blocks)
-        .where(
-          or(
-            and(eq(blocks.blockerId, viewer), eq(blocks.blockedId, row.userId)),
-            and(eq(blocks.blockerId, row.userId), eq(blocks.blockedId, viewer)),
-          ),
-        )
-        .limit(1);
-      isBlocked = Boolean(block);
-      if (!isBlocked) {
-        const [f] = await this.db
-          .select({ f: follows.followerId })
-          .from(follows)
-          .where(
-            and(
-              eq(follows.followerId, viewer),
-              eq(follows.followeeId, row.userId),
-              eq(follows.state, 'accepted'),
-            ),
-          )
-          .limit(1);
-        isFollower = Boolean(f);
-      }
-    }
-
-    const allowed = canView({
-      viewer,
-      ownerId: row.userId,
-      visibility: row.visibility as Visibility,
-      isOwnerPrivate: row.isPrivate ?? false,
-      isBlocked,
-      isFollower,
-    });
-    if (!allowed) throw ApiError.notFound('Read not found.');
+    const rel = await loadRelationship(this.db, viewer, row.userId);
+    if (!canViewWith(viewer, row.userId, rel, row.visibility)) throw ApiError.notFound('Read not found.');
 
     return {
       id: row.id,
@@ -398,6 +361,9 @@ export class InteractionService {
    * expressed (PRD §6.28, §27 "structural prevention").
    */
   async addComment(viewer: string, readId: string, body: string): Promise<ReadComment> {
+    // First: the refusal is about the caller's own account, so it reveals
+    // nothing about the read (D-04-1).
+    await requireVerified(this.db, viewer);
     const read = await this.#accessibleRead(viewer, readId);
     if (!isInteractiveStatus(read.status)) {
       throw ApiError.conflict(

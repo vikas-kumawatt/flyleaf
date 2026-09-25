@@ -5,6 +5,7 @@
 //   2. All Phase 0–1 endpoints are covered in the spec.
 //   3. Typed FlyleafClient works with the API surface.
 
+import diagnostics from 'node:diagnostics_channel';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -21,7 +22,7 @@ import { freshDrizzle } from './pg.js';
 import { MemoryCache, PgRateLimiter, type Db } from '../platform/index.js';
 import { works } from '../db/schema.js';
 import { ApiError } from '../http.js';
-import { registerCoreHooks } from '../app.js';
+import { buildApp, registerCoreHooks } from '../app.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -39,6 +40,51 @@ describe('API Contract — openapi.yaml (FN-80)', () => {
     const generatedContent = YAML.stringify(spec, { indent: 2 }).replace(/\r\n/g, '\n').trim();
 
     expect(diskContent).toBe(generatedContent);
+  });
+
+  it('every route buildApp serves is in openapi.yaml, unless its schema hides it (Audit 05)', async () => {
+    // The app production runs, with every optional service present. A plugin
+    // missing from the spec (as the feed and exports once were) shows up here
+    // as a served route with no spec entry. Routes are captured the way
+    // bench/routes.ts captures them: an onRoute hook attached through the
+    // fastify.initialization channel, before any plugin registers.
+    const served = new Set<string>();
+    const hidden = new Set<string>();
+    const onInit = (msg: unknown) => {
+      (msg as { fastify: FastifyInstance }).fastify.addHook('onRoute', (r) => {
+        const methods = Array.isArray(r.method) ? r.method : [r.method];
+        for (const m of methods) {
+          if (m === 'HEAD' || m === 'OPTIONS') continue;
+          const key = `${m.toLowerCase()} ${r.url.replace(/^\/v1(?=\/)/, '').replace(/:([A-Za-z]+)/g, '{$1}')}`;
+          if ((r.schema as { hide?: boolean } | undefined)?.hide) hidden.add(key);
+          else served.add(key);
+        }
+      });
+    };
+    diagnostics.channel('fastify.initialization').subscribe(onInit);
+    try {
+      const app = await buildApp({
+        db: {} as Db,
+        identity: {} as never,
+        catalog: {} as never,
+        reading: {} as never,
+        limiter: { allow: async () => true },
+      });
+      await app.close();
+    } finally {
+      diagnostics.channel('fastify.initialization').unsubscribe(onInit);
+    }
+
+    const doc = YAML.parse(fs.readFileSync(OPENAPI_PATH, 'utf8'));
+    const inSpec = new Set(
+      Object.entries(doc.paths as Record<string, Record<string, unknown>>).flatMap(([p, ops]) =>
+        Object.keys(ops).map((m) => `${m} ${p}`),
+      ),
+    );
+    expect(served.size).toBeGreaterThan(100);
+    expect([...served].filter((k) => !inSpec.has(k))).toEqual([]);
+    // Hidden: exactly the two server-rendered share pages.
+    expect([...hidden].sort()).toEqual(['get /shelf/{id}', 'get /u/{username}/shelves/{slug}']);
   });
 
   it('declares OpenAPI 3.1.0 with BearerAuth security scheme', async () => {

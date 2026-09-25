@@ -81,12 +81,21 @@ export function sanitizeContext(context: ErrorContext): ErrorContext {
 
   if (sanitized.body && typeof sanitized.body === 'object') {
     const safeBody = { ...sanitized.body };
-    for (const k of ['password', 'token', 'refreshToken', 'secret', 'totp', 'backupCode']) {
+    for (const k of ['password', 'newPassword', 'token', 'refreshToken', 'secret', 'totp', 'backupCode']) {
       if (k in safeBody) {
         safeBody[k] = '[REDACTED]';
       }
     }
     sanitized.body = safeBody;
+  }
+
+  // The export download link carries its token in the query (Audit 05).
+  if (sanitized.query && typeof sanitized.query === 'object') {
+    const safeQuery = { ...sanitized.query };
+    for (const k of Object.keys(safeQuery)) {
+      if (/token|secret|password/i.test(k)) safeQuery[k] = '[REDACTED]';
+    }
+    sanitized.query = safeQuery;
   }
 
   return sanitized;

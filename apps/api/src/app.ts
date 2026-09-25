@@ -35,6 +35,43 @@ import { activityPlugin } from './activity/index.js';
 import { interactionsPlugin } from './interactions/index.js';
 import type { EmailSender, RateLimiter } from './platform/index.js';
 import { queryCountingEnabled, registerQueryCounter } from './bench/query-counter.js';
+import { registerSwagger } from './contract/index.js';
+
+/**
+ * The URL as logged: secrets in the query string (the export download link's
+ * `token`) are replaced. PRD §42.1: never log tokens (Audit 05).
+ */
+export function redactUrl(url: string): string {
+  return url.replace(/([?&](?:token|access_token|refresh_token)=)[^&#]*/gi, '$1[redacted]');
+}
+
+export const HTML_BASELINE_CSP =
+  "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; " +
+  "img-src 'self' https: data:; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'";
+
+/** SQLSTATEs that mean "bad input", and what the client sees for each. */
+const PG_ERRORS: Record<string, { status: number; code: string; message: string }> = {
+  '23505': { status: 409, code: 'conflict', message: 'That already exists.' },
+  '23503': { status: 422, code: 'invalid_reference', message: 'Something this refers to does not exist.' },
+  '23514': { status: 422, code: 'invalid_field', message: 'A value is out of range.' },
+  '23502': { status: 422, code: 'invalid_field', message: 'A required value is missing.' },
+  '22003': { status: 422, code: 'invalid_field', message: 'A number is out of range.' },
+  '22P02': { status: 422, code: 'invalid_field', message: 'A value has the wrong format.' },
+  '22007': { status: 422, code: 'invalid_field', message: 'A date has the wrong format.' },
+  '22008': { status: 422, code: 'invalid_field', message: 'A date is out of range.' },
+  '22001': { status: 422, code: 'invalid_field', message: 'A value is too long.' },
+};
+
+/** The SQLSTATE of a Postgres error, through Drizzle's wrapping (`cause`). */
+export function postgresErrorCode(err: unknown): string | null {
+  let node: unknown = err;
+  for (let depth = 0; depth < 5 && node; depth++) {
+    const code = (node as { code?: unknown }).code;
+    if (typeof code === 'string' && /^[0-9A-Z]{5}$/.test(code)) return code;
+    node = (node as { cause?: unknown }).cause;
+  }
+  return null;
+}
 
 export interface CoreHookOptions {
   identityLookup?: (token: string) => Promise<string | null>;
@@ -101,6 +138,13 @@ export function registerCoreHooks(app: FastifyInstance, options?: CoreHookOption
     }
     reply.header('x-content-type-options', 'nosniff');
     reply.header('x-frame-options', 'DENY');
+    // HTML (admin console, shelf share pages) gets a CSP (PRD §42 #9). A route
+    // that sets a stricter one keeps it. The baseline allows inline script
+    // and style because the admin pages use both; Part 06 moves them to nonces.
+    const type = reply.getHeader('content-type');
+    if (typeof type === 'string' && type.startsWith('text/html') && !reply.hasHeader('content-security-policy')) {
+      reply.header('content-security-policy', HTML_BASELINE_CSP);
+    }
   });
 
   // 3. Centralized error handler
@@ -131,6 +175,13 @@ export function registerCoreHooks(app: FastifyInstance, options?: CoreHookOption
       });
     }
 
+    // A JSON body over bodyLimit is not an upload: say so (Audit 05).
+    if (e?.code === 'FST_ERR_CTP_BODY_TOO_LARGE') {
+      return reply.status(413).send({
+        error: { code: 'body_too_large', message: 'Request body is too large.' },
+      });
+    }
+
     // File size limit exceeded (PRD §6.8: >10MB)
     if (
       e?.code === 'FST_ERR_FILE_TOO_LARGE' ||
@@ -143,6 +194,15 @@ export function registerCoreHooks(app: FastifyInstance, options?: CoreHookOption
           message: 'File exceeds the 10MB limit. Please split your export into smaller files.',
         },
       });
+    }
+
+    // A constraint the database enforced is the caller's mistake, not ours:
+    // 4xx, with no constraint or column names in the body (Audit 05).
+    const pgCode = postgresErrorCode(err);
+    const mapped = pgCode ? PG_ERRORS[pgCode] : undefined;
+    if (mapped) {
+      req.log.warn({ pgCode, route: req.routeOptions?.url }, 'constraint violation mapped to 4xx');
+      return reply.status(mapped.status).send({ error: { code: mapped.code, message: mapped.message } });
     }
 
     req.log.error({ err }, 'unhandled');
@@ -167,6 +227,44 @@ export function registerCoreHooks(app: FastifyInstance, options?: CoreHookOption
   );
 }
 
+const HEALTHZ_SCHEMA = {
+  tags: ['System'],
+  summary: 'Liveness probe',
+  response: {
+    200: {
+      type: 'object',
+      properties: { status: { type: 'string', enum: ['ok'] } },
+      required: ['status'],
+    },
+  },
+} as const;
+
+const READYZ_SCHEMA = {
+  tags: ['System'],
+  summary: 'Readiness probe',
+  response: {
+    200: {
+      type: 'object',
+      properties: { status: { type: 'string', enum: ['ready'] } },
+      required: ['status'],
+    },
+    503: {
+      type: 'object',
+      properties: {
+        error: {
+          type: 'object',
+          properties: {
+            code: { type: 'string' },
+            message: { type: 'string' },
+          },
+          required: ['code', 'message'],
+        },
+      },
+      required: ['error'],
+    },
+  },
+} as const;
+
 export interface BuildAppOptions {
   db?: Db;
   identity?: IdentityService;
@@ -182,6 +280,22 @@ export interface BuildAppOptions {
   /** Off by default: see `parseTrustProxy` in platform. */
   trustProxy?: FastifyServerOptions['trustProxy'];
   bodyLimit?: number;
+  /**
+   * Register @fastify/swagger before any route, so app.swagger() describes
+   * exactly what this app serves. Used by contract/generate.ts (Audit 05).
+   */
+  spec?: boolean;
+}
+
+/**
+ * A client-sent X-Request-Id is kept only if it is short and plain: it is
+ * echoed in a response header and written to every log line for the request,
+ * so a newline or a 10 KB value must never get through (Audit 05).
+ */
+export const REQUEST_ID_PATTERN = /^[A-Za-z0-9._-]{1,64}$/;
+
+export function requestIdFrom(header: unknown): string {
+  return typeof header === 'string' && REQUEST_ID_PATTERN.test(header) ? header : randomUUID();
 }
 
 /**
@@ -191,10 +305,13 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
   const app = Fastify({
     logger: options.logger ?? false,
     trustProxy: options.trustProxy ?? false,
-    genReqId: () => randomUUID(),
-    requestIdHeader: 'x-request-id',
+    genReqId: (req) => requestIdFrom(req.headers['x-request-id']),
+    // Read in genReqId instead, which validates it.
+    requestIdHeader: false,
     bodyLimit: options.bodyLimit ?? 1_048_576,
   });
+
+  if (options.spec) await registerSwagger(app);
 
   await app.register(cors, { origin: true });
   await app.register(fastifyMultipart, {
@@ -213,11 +330,11 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
   });
 
   // Liveness and readiness endpoints
-  app.get('/healthz', async () => ({ status: 'ok' }));
+  app.get('/healthz', { schema: HEALTHZ_SCHEMA }, async () => ({ status: 'ok' }));
 
   if (options.db) {
     const db = options.db;
-    app.get('/readyz', async () => {
+    app.get('/readyz', { schema: READYZ_SCHEMA }, async () => {
       await waitForDb(db, 1);
       const [row] = await db.execute<{ ready: boolean }>(sql`
         SELECT to_regclass('public.works') IS NOT NULL
@@ -229,7 +346,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
       return { status: 'ready' };
     });
   } else {
-    app.get('/readyz', async () => ({ status: 'ready' }));
+    app.get('/readyz', { schema: READYZ_SCHEMA }, async () => ({ status: 'ready' }));
   }
 
   // Domain routes
@@ -274,9 +391,6 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
     });
     await app.register(activityPlugin, {
       prefix: '/v1',
-      db: options.db,
-    });
-    await app.register(activityPlugin, {
       db: options.db,
     });
   }

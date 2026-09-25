@@ -64,6 +64,7 @@ describe('Ratings & Reviews (SL-6x)', () => {
         email,
         passwordHash: 'dummy-hash',
         dateOfBirth: '1995-01-01',
+        emailVerifiedAt: new Date(), // reviews need a verified email (D-04-1)
       });
       await db.insert(profiles).values({
         userId: id,
@@ -308,7 +309,11 @@ describe('Ratings & Reviews (SL-6x)', () => {
         headers: { authorization: `Bearer ${tokenB}` },
         payload: { body: 'Malicious overwrite' },
       });
-      expect(res.statusCode).toBe(403);
+      // 404 like a missing review, never 403 (PRD §25.3; was 403 until Audit 05).
+      expect(res.statusCode).toBe(404);
+      expect(res.json().error.code).toBe('not_found');
+      const detail = await app.inject({ method: 'GET', url: `/v1/reviews/${reviewId}`, headers: { authorization: `Bearer ${tokenA}` } });
+      expect(detail.json().body).not.toBe('Malicious overwrite');
     });
 
     it('soft deletes review via DELETE /v1/reviews/:id', async () => {

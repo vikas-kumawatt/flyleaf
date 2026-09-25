@@ -15,6 +15,7 @@ import { SocialService } from '../social/index.js';
 import { PgRateLimiter } from '../platform/index.js';
 import { profiles } from '../db/schema.js';
 import { eq } from 'drizzle-orm';
+import { verifyAllUsers } from './interaction-fixtures.js';
 
 describe('SO-05: Followers and Following Lists', () => {
   let db: any;
@@ -73,6 +74,8 @@ describe('SO-05: Followers and Following Lists', () => {
 
     // Set userPrivate to private
     await db.update(profiles).set({ isPrivate: true }).where(eq(profiles.userId, userPrivate.id));
+    // Reviews, comments and follows need a verified email (D-04-1); the gate has its own tests.
+    await verifyAllUsers(db);
   });
 
   it('1. returns followers and following lists for a public profile', async () => {

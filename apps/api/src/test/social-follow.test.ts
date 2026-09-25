@@ -7,6 +7,7 @@ import { IdentityService } from '../identity/index.js';
 import { SocialService } from '../social/index.js';
 import { MemoryCache, PgRateLimiter } from '../platform/index.js';
 import { blocks } from '../db/schema.js';
+import { verifyAllUsers } from './interaction-fixtures.js';
 
 describe('SO-02: Follow / Unfollow & Private Accounts', () => {
   let db: any;
@@ -55,6 +56,8 @@ describe('SO-02: Follow / Unfollow & Private Accounts', () => {
 
     // Set userPrivate profile to private
     await identity.updateProfile(userPrivate.id, { isPrivate: true });
+    // Reviews, comments and follows need a verified email (D-04-1); the gate has its own tests.
+    await verifyAllUsers(db);
   });
 
   it('allows following a public account directly (status: accepted)', async () => {
@@ -107,8 +110,11 @@ describe('SO-02: Follow / Unfollow & Private Accounts', () => {
     expect(body.status).toBe('pending');
 
     // Private profile returns null (404 Not Found) to non-followers per FN-72 & SH-09
+    // Header only for a pending follower (AC-13, Audit 05), with the request shown.
     const profilePrivate = await identity.getProfile(userA.id, userPrivate.id);
-    expect(profilePrivate).toBeNull();
+    expect(profilePrivate?.isRestricted).toBe(true);
+    expect(profilePrivate?.followStatus).toBe('pending');
+    expect(profilePrivate?.favourites).toEqual([]);
 
     // Guest views profile -> returns null (404 Not Found)
     const guestView = await identity.getProfile(null, userPrivate.id);

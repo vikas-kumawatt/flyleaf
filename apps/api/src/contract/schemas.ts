@@ -35,6 +35,10 @@ export const userSchema = {
     id: { type: 'string', format: 'uuid' },
     email: { type: 'string', format: 'email' },
     username: { type: 'string' },
+    emailVerified: {
+      type: 'boolean',
+      description: 'On GET /me. False: reviews, comments and follows answer 403 email_unverified (D-04-1).',
+    },
   },
   required: ['id', 'email', 'username'],
 } as const;
@@ -72,6 +76,10 @@ export const profileSchema = {
       maxItems: 4,
     },
     createdAt: { type: 'string', format: 'date-time' },
+    // The service always set these; the schema stripped them (Audit 05).
+    isRestricted: { type: 'boolean', description: 'Private account, viewer not an accepted follower: header only (AC-13).' },
+    followStatus: { type: 'string', enum: ['none', 'pending', 'accepted', 'self'] },
+    followedBy: { type: 'boolean' },
   },
   required: ['id', 'username', 'isPrivate', 'followerCount', 'followingCount', 'createdAt'],
 } as const;
