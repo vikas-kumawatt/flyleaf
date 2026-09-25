@@ -51,22 +51,66 @@ export type Session = {
 // ---------------------------------------------------------------- validation
 
 // No composition rules: they reduce real entropy. Length and dictionary check matter.
+// The cap is hygiene, not DoS protection: argon2 pre-hashes its input, so a
+// 1 MB password costs the same ~20 ms as a short one (audit A-04-009).
 export const passwordSchema = z
   .string()
   .min(10, 'Use at least 10 characters.')
+  .max(1024, 'Use at most 1,024 characters.')
   .refine((p) => !isCommonPassword(p), 'That password is too common to be safe.');
+
+/**
+ * The same password typed on two keyboards can arrive as NFC or NFD; hash and
+ * verify one form so both log in (A-04-009).
+ */
+function normalisePassword(password: string): string {
+  return password.normalize('NFC');
+}
+
+/** Hashed on first use; login verifies against it when the email has no account. */
+let dummyPasswordHash: Promise<string> | undefined;
+
+/** Session label from User-Agent: control characters removed, at most 200 characters (A-04-012). */
+function deviceLabel(userAgent: string | undefined): string | undefined {
+  const label = userAgent?.replace(/\p{Cc}+/gu, ' ').trim().slice(0, 200);
+  return label || undefined;
+}
+
+/** PRD §6.7. Must match RESERVED_USERNAMES in apps/mobile/src/lib/auth-validation.ts (SL-22). */
+export const RESERVED_USERNAMES: ReadonlySet<string> = new Set([
+  'admin', 'administrator', 'flyleaf', 'support', 'help', 'root', 'api', 'staff',
+  'moderator', 'mod', 'official', 'system', 'about', 'legal', 'terms', 'privacy',
+  'security', 'billing', 'press', 'contact', 'null', 'undefined', 'guest',
+  'anonymous', 'me', 'you', 'everyone',
+]);
 
 export const usernameSchema = z
   .string()
-  .regex(/^[a-z0-9_]{3,20}$/, '3–20 characters: lowercase letters, numbers and underscores.');
+  .regex(/^[a-z0-9_]{3,20}$/, '3–20 characters: lowercase letters, numbers and underscores.')
+  .refine((u) => !RESERVED_USERNAMES.has(u), 'That username is reserved.');
 
-/** Age gate at registration: users under 13 cannot register (PRD §26.6). */
+/** A real calendar date `YYYY-MM-DD` from 1900 on, or null. */
+function parseDob(dobStr: string): { y: number; m: number; d: number } | null {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(dobStr);
+  if (!match) return null;
+  const [y, m, d] = [Number(match[1]), Number(match[2]), Number(match[3])];
+  if (y < 1900) return null;
+  const date = new Date(Date.UTC(y, m - 1, d));
+  if (date.getUTCFullYear() !== y || date.getUTCMonth() !== m - 1 || date.getUTCDate() !== d) return null;
+  return { y, m, d };
+}
+
+/**
+ * Age gate at registration: users under 13 cannot register (PRD §26.6).
+ * Compared as calendar dates in UTC, so the result does not depend on the
+ * server's time zone; a 29 February birthday turns 13 on 1 March.
+ */
 export function isAtLeast13(dobStr: string, now: Date = new Date()): boolean {
-  const dob = new Date(dobStr);
-  if (isNaN(dob.getTime())) return false;
-  let age = now.getFullYear() - dob.getFullYear();
-  const m = now.getMonth() - dob.getMonth();
-  if (m < 0 || (m === 0 && now.getDate() < dob.getDate())) {
+  const dob = parseDob(dobStr);
+  if (!dob) return false;
+  let age = now.getUTCFullYear() - dob.y;
+  const m = now.getUTCMonth() + 1 - dob.m;
+  if (m < 0 || (m === 0 && now.getUTCDate() < dob.d)) {
     age--;
   }
   return age >= 13;
@@ -75,7 +119,8 @@ export function isAtLeast13(dobStr: string, now: Date = new Date()): boolean {
 export const dobSchema = z
   .string()
   .regex(/^\d{4}-\d{2}-\d{2}$/, 'Use YYYY-MM-DD for date of birth.')
-  .refine(isAtLeast13, 'You must be at least 13 years old to use Flyleaf.');
+  .refine((s) => parseDob(s) !== null, 'Enter a real date of birth.')
+  .refine((s) => isAtLeast13(s), 'You must be at least 13 years old to use Flyleaf.');
 
 const registerBody = z.object({
   email: z.string().email('That does not look like an email address.'),
@@ -110,10 +155,17 @@ const resetPasswordBody = z.object({
 
 const jwtKey = new TextEncoder().encode(config.jwtSecret);
 
+// Admin tokens share the key (admin/auth.ts) with audience 'flyleaf-admin'.
+// The app audience is what stops one from authenticating app routes (A-04-003).
+const APP_AUDIENCE = 'flyleaf-app';
+const ISSUER = 'flyleaf';
+
 /** Issue a 15-minute access JWT (FN-63). */
 export async function signAccessToken(userId: string, secret = jwtKey): Promise<string> {
   return new jose.SignJWT({ sub: userId })
     .setProtectedHeader({ alg: 'HS256' })
+    .setAudience(APP_AUDIENCE)
+    .setIssuer(ISSUER)
     .setIssuedAt()
     .setExpirationTime('15m')
     .sign(secret);
@@ -125,7 +177,12 @@ export async function verifyAccessToken(
   secret = jwtKey,
 ): Promise<{ sub: string } | null> {
   try {
-    const { payload } = await jose.jwtVerify(token, secret);
+    const { payload } = await jose.jwtVerify(token, secret, {
+      algorithms: ['HS256'],
+      audience: APP_AUDIENCE,
+      issuer: ISSUER,
+      requiredClaims: ['exp', 'iat', 'sub'],
+    });
     return typeof payload.sub === 'string' ? { sub: payload.sub } : null;
   } catch {
     return null;
@@ -173,7 +230,7 @@ export class IdentityService {
   }
 
   async register(email: string, username: string, password: string, dateOfBirth: string, device?: string) {
-    const passwordHash = await argonHash(password);
+    const passwordHash = await argonHash(normalisePassword(password));
     const familyId = randomUUID();
     const rawRefreshToken = randomBytes(32).toString('base64url');
     const tokenHash = createHash('sha256').update(rawRefreshToken).digest('hex');
@@ -250,12 +307,17 @@ export class IdentityService {
       })
       .from(users)
       .innerJoin(profiles, eq(users.id, profiles.userId))
-      .where(eq(users.email, email.trim().toLowerCase()))
+      .where(and(eq(users.email, email.trim().toLowerCase()), isNull(users.deletedAt)))
       .limit(1);
 
     const generic = new ApiError(401, 'invalid_credentials', 'Email or password is incorrect.');
-    if (!row) throw generic;
-    if (!(await argonVerify(row.passwordHash, password))) throw generic;
+    if (!row) {
+      // Spend the same argon2 verify as a wrong password, so response time
+      // does not reveal whether the email has an account (PRD §6.4, A-04-006).
+      await argonVerify(await (dummyPasswordHash ??= argonHash('flyleaf-login-timing-equaliser')), password);
+      throw generic;
+    }
+    if (!(await argonVerify(row.passwordHash, normalisePassword(password)))) throw generic;
 
     const familyId = randomUUID();
     const rawRefreshToken = randomBytes(32).toString('base64url');
@@ -286,12 +348,48 @@ export class IdentityService {
    */
   async refresh(rawRefreshToken: string) {
     const tokenHash = createHash('sha256').update(rawRefreshToken).digest('hex');
+    const nextRawRefreshToken = randomBytes(32).toString('base64url');
+    const nextTokenHash = createHash('sha256').update(nextRawRefreshToken).digest('hex');
+    const expiresAt = new Date(Date.now() + 60 * 24 * 60 * 60 * 1000);
+
+    // Consume and reissue atomically. The conditional UPDATE is the lock: of
+    // two concurrent refreshes with one token exactly one gets the row, and the
+    // other is treated as reuse below (A-04-005). Strict by design: the mobile
+    // client single-flights refreshes (apps/mobile/src/lib/api.ts).
+    const consumed = await this.db.transaction(async (tx) => {
+      const [row] = await tx
+        .update(refreshTokens)
+        .set({ usedAt: new Date() })
+        .where(
+          and(
+            eq(refreshTokens.tokenHash, tokenHash),
+            isNull(refreshTokens.usedAt),
+            isNull(refreshTokens.revokedAt),
+            gt(refreshTokens.expiresAt, new Date()),
+            sql`EXISTS (SELECT 1 FROM users u WHERE u.id = ${refreshTokens.userId} AND u.deleted_at IS NULL)`,
+          ),
+        )
+        .returning({ userId: refreshTokens.userId, familyId: refreshTokens.familyId, device: refreshTokens.device });
+      if (!row) return null;
+
+      await tx.insert(refreshTokens).values({
+        userId: row.userId,
+        tokenHash: nextTokenHash,
+        familyId: row.familyId,
+        device: row.device,
+        expiresAt,
+      });
+      return row;
+    });
+
+    if (consumed) {
+      const accessToken = await signAccessToken(consumed.userId);
+      return { accessToken, refreshToken: nextRawRefreshToken };
+    }
+
     const [row] = await this.db
       .select({
-        id: refreshTokens.id,
-        userId: refreshTokens.userId,
         familyId: refreshTokens.familyId,
-        device: refreshTokens.device,
         expiresAt: refreshTokens.expiresAt,
         usedAt: refreshTokens.usedAt,
         revokedAt: refreshTokens.revokedAt,
@@ -300,12 +398,8 @@ export class IdentityService {
       .where(eq(refreshTokens.tokenHash, tokenHash))
       .limit(1);
 
-    if (!row || row.revokedAt !== null || row.expiresAt < new Date()) {
-      throw new ApiError(401, 'invalid_refresh_token', 'Invalid or expired refresh token.');
-    }
-
     // Reuse detection (FN-64)
-    if (row.usedAt !== null) {
+    if (row && row.usedAt !== null && row.revokedAt === null && row.expiresAt >= new Date()) {
       await this.db
         .update(refreshTokens)
         .set({ revokedAt: new Date() })
@@ -317,28 +411,8 @@ export class IdentityService {
       );
     }
 
-    // Valid: consume current token and issue the next one in the same family
-    const nextRawRefreshToken = randomBytes(32).toString('base64url');
-    const nextTokenHash = createHash('sha256').update(nextRawRefreshToken).digest('hex');
-    const expiresAt = new Date(Date.now() + 60 * 24 * 60 * 60 * 1000);
-
-    await this.db.transaction(async (tx) => {
-      await tx
-        .update(refreshTokens)
-        .set({ usedAt: new Date() })
-        .where(eq(refreshTokens.id, row.id));
-
-      await tx.insert(refreshTokens).values({
-        userId: row.userId,
-        tokenHash: nextTokenHash,
-        familyId: row.familyId,
-        device: row.device,
-        expiresAt,
-      });
-    });
-
-    const accessToken = await signAccessToken(row.userId);
-    return { accessToken, refreshToken: nextRawRefreshToken };
+    // Unknown, revoked, expired, or the account was deleted.
+    throw new ApiError(401, 'invalid_refresh_token', 'Invalid or expired refresh token.');
   }
 
   async logout(rawRefreshToken: string) {
@@ -595,7 +669,7 @@ export class IdentityService {
     await this.mailer.send({
       to: email,
       subject: 'Verify your email for Flyleaf',
-      text: `Welcome to Flyleaf! Please verify your email using this token:\n${rawToken}\n\nOr click: https://flyleaf.app/verify-email?token=${rawToken}\n\nThis token expires in 24 hours.`,
+      text: `Welcome to Flyleaf! Please verify your email using this token:\n${rawToken}\n\nOr click: ${config.appBaseUrl}/verify-email?token=${rawToken}\n\nThis token expires in 24 hours.`,
     });
   }
 
@@ -663,7 +737,7 @@ export class IdentityService {
     const [user] = await this.db
       .select({ id: users.id, email: users.email })
       .from(users)
-      .where(eq(users.email, normalized))
+      .where(and(eq(users.email, normalized), isNull(users.deletedAt)))
       .limit(1);
 
     if (user) {
@@ -687,7 +761,7 @@ export class IdentityService {
       await this.mailer.send({
         to: user.email,
         subject: 'Reset your Flyleaf password',
-        text: `You requested a password reset for your Flyleaf account.\nUse this token to reset your password:\n${rawToken}\n\nOr click: https://flyleaf.app/reset-password?token=${rawToken}\n\nThis link is single-use and expires in 60 minutes.\nIf you did not request this, you can safely ignore this email.`,
+        text: `You requested a password reset for your Flyleaf account.\nUse this token to reset your password:\n${rawToken}\n\nOr click: ${config.appBaseUrl}/reset-password?token=${rawToken}\n\nThis link is single-use and expires in 60 minutes.\nIf you did not request this, you can safely ignore this email.`,
       });
     }
 
@@ -714,13 +788,18 @@ export class IdentityService {
       throw new ApiError(400, 'invalid_or_expired_token', 'Password reset link is invalid or has expired.');
     }
 
-    const passwordHash = await argonHash(newPassword);
+    // Hash only after the cheap check above, so bogus tokens cost no argon2.
+    const passwordHash = await argonHash(normalisePassword(newPassword));
 
-    await this.db.transaction(async (tx) => {
-      await tx
+    // Burn the token conditionally: of two concurrent resets with one token,
+    // only the one that flips used_at changes the password (A-04-013).
+    const spent = await this.db.transaction(async (tx) => {
+      const burned = await tx
         .update(passwordResetTokens)
         .set({ usedAt: new Date() })
-        .where(eq(passwordResetTokens.id, row.id));
+        .where(and(eq(passwordResetTokens.id, row.id), isNull(passwordResetTokens.usedAt)))
+        .returning({ id: passwordResetTokens.id });
+      if (burned.length === 0) return false;
 
       await tx
         .update(users)
@@ -731,8 +810,12 @@ export class IdentityService {
         .update(refreshTokens)
         .set({ revokedAt: new Date() })
         .where(eq(refreshTokens.userId, row.userId));
+      return true;
     });
 
+    if (!spent) {
+      throw new ApiError(400, 'invalid_or_expired_token', 'Password reset link is invalid or has expired.');
+    }
     return { status: 'ok', message: 'Password has been reset successfully.' };
   }
 
@@ -846,7 +929,7 @@ export function identityRoutes(service: IdentityService) {
           );
         }
         const { email, username, password, dateOfBirth } = parsed.data;
-        const device = (req.headers['user-agent'] as string) || undefined;
+        const device = deviceLabel(req.headers['user-agent']);
         const result = await service.register(email, username, password, dateOfBirth, device);
         return reply.status(201).send(result);
       },
@@ -869,7 +952,7 @@ export function identityRoutes(service: IdentityService) {
       async (req) => {
         const parsed = loginBody.safeParse(req.body);
         if (!parsed.success) throw ApiError.unauthorized('Email or password is incorrect.');
-        const device = (req.headers['user-agent'] as string) || undefined;
+        const device = deviceLabel(req.headers['user-agent']);
         return service.login(parsed.data.email, parsed.data.password, device);
       },
     );

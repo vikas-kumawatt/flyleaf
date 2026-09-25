@@ -38,7 +38,8 @@ paths:
                 password:
                   type: string
                   minLength: 10
-                  description: Minimum 10 characters
+                  maxLength: 1024
+                  description: 10 to 1,024 characters
                 dateOfBirth:
                   type: string
                   pattern: ^\d{4}-\d{2}-\d{2}$
@@ -584,7 +585,8 @@ paths:
                 newPassword:
                   type: string
                   minLength: 10
-                  description: New password (minimum 10 characters)
+                  maxLength: 1024
+                  description: New password (10 to 1,024 characters)
               required:
                 - token
                 - newPassword

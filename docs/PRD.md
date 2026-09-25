@@ -3520,7 +3520,7 @@ sequenceDiagram
 |---|---|
 | Password hashing | **argon2id** with documented library defaults; never bcrypt, never SHA |
 | Password policy | Minimum 10 characters, checked against a common-password list. **No composition rules** — they reduce real entropy |
-| Access token | JWT, 15 minutes, signed HS256, carries `sub` and `iat` only |
+| Access token | JWT, 15 minutes, signed HS256, carries `sub`, `iat`, `exp`, and `aud: flyleaf-app` + `iss: flyleaf` (so an admin token, `aud: flyleaf-admin`, is never accepted as one) and nothing else. *Amended by audit 04, A-04-003* |
 | Refresh token | Opaque 256-bit random, **stored hashed**, 60-day expiry, **rotated on every use** |
 | Reuse detection | `family_id` — presenting a used token revokes the whole family and signs the user out everywhere |
 | Client storage | Refresh in `expo-secure-store` (OS keychain). **Never AsyncStorage**, which is plaintext on disk |

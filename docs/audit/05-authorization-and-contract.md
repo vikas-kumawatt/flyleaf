@@ -48,3 +48,11 @@ Code: `apps/api/src/authorization/index.ts`, every service that returns user dat
 ## Deliverables
 
 `docs/audit/findings/05-authorization-and-contract.md`, the matrix test file(s), fixes, the regenerated spec and client, and audit lines under FN-70…72 and FN-80…82.
+
+## Decided in Part 04: D-04-1, restrict unverified accounts (implement here)
+
+Answer: **yes, enforce it**. It's an authorization rule, so it belongs in this part's single policy layer, not scattered through handlers.
+- One server-side check (`requireVerified`, or a capability in the same place as `canView`) on **creating reviews, comments and follows**. Refusal: 403 with a stable code `email_unverified`, which the client turns into a "verify your email" prompt. Reading, logging reads and shelving stay open to unverified accounts.
+- Signing up again with an existing **unverified** email resends the verification email. The response must be **identical** to a fresh signup (same status, body and timing), so it doesn't reveal whether the account exists; Part 04 fixed the same leak on login.
+- Test fixtures: add a verified-user helper rather than editing every test by hand. Add a test per gated action that fails when the check is removed.
+- Add the gate to the 8-viewer matrix as a ninth viewer, "signed in, unverified".

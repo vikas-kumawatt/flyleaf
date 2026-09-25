@@ -880,7 +880,7 @@ sequenceDiagram
 |---|---|
 | Hashing | **argon2id** via `@node-rs/argon2`, library defaults. Never bcrypt, never SHA |
 | Password policy | ≥ 10 chars, checked against a common-password list. **No composition rules** |
-| Access token | JWT HS256, 15 min, carries `sub` and `iat` only |
+| Access token | JWT HS256, 15 min, carries `sub`, `iat`, `exp`, `aud: flyleaf-app`, `iss: flyleaf`; verified with `alg` pinned to HS256 (audit 04) |
 | Refresh token | 256-bit opaque, stored **hashed**, 60 days, **rotated every use** |
 | Reuse detection | `family_id`; a reused token revokes the family and signs out everywhere |
 | Client storage | `expo-secure-store` (OS keychain). **Never AsyncStorage** |

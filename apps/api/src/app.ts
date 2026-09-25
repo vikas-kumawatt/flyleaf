@@ -179,7 +179,8 @@ export interface BuildAppOptions {
   /** Shared limiter for write throttles (comments). Defaults to Postgres-backed. */
   limiter?: RateLimiter;
   logger?: FastifyServerOptions['logger'];
-  trustProxy?: boolean;
+  /** Off by default: see `parseTrustProxy` in platform. */
+  trustProxy?: FastifyServerOptions['trustProxy'];
   bodyLimit?: number;
 }
 
@@ -189,7 +190,7 @@ export interface BuildAppOptions {
 export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyInstance> {
   const app = Fastify({
     logger: options.logger ?? false,
-    trustProxy: options.trustProxy ?? true,
+    trustProxy: options.trustProxy ?? false,
     genReqId: () => randomUUID(),
     requestIdHeader: 'x-request-id',
     bodyLimit: options.bodyLimit ?? 1_048_576,

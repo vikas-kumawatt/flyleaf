@@ -57,3 +57,12 @@ Code: `apps/api/src/imports/*` (parser, detector, transformers, `configs/*`, mat
 ## Deliverables
 
 `docs/audit/findings/12-import-export.md`, the encoding and malformed-file test fixtures, fixes, the end-to-end import timing, and audit lines under IM-01…12.
+
+## Precondition: PV-0x (presigned uploads)
+
+This part runs **after PV-0x** (see `PENDING.md`). If `@fastify/multipart` is still in `apps/api/package.json`, stop and say so: don't patch the multipart upload path, which PV-02 deletes. Audit the new path instead:
+- `POST /v1/uploads` → direct upload → `complete` → import consumes `upload_id`: ownership (another user's upload id → 404), size and declared type enforced at `complete` from the object's real `head()` and magic bytes, not from the client's claim; an expired, already-consumed or never-uploaded id is refused; `consumed` is set in the same transaction as the job enqueue (a double submit makes one import).
+- The worker reads the CSV through `ObjectStorage.getStream()`: encodings, BOMs and size limits still hold when the file is streamed, not buffered.
+- Exports: the worker `put()`s the file; the client gets a short-lived `createDownloadUrl` only after the ownership check; the link expires; the formula-injection guard still applies.
+- The cleanup job removes expired or unconsumed uploads **and** their objects; exports have a retention path.
+- Run every import/export test against the `disk` adapter's signed URLs, not only `memory`.

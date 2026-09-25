@@ -22,7 +22,7 @@ async function main() {
 
   const app = await buildApp({
     ...serverDependencies(db, boss),
-    trustProxy: true,
+    trustProxy: config.trustProxy,
     logger: {
       level: config.logLevel,
       // Structured JSON in production, human-readable locally. Never both.

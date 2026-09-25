@@ -38,3 +38,9 @@ Code: `apps/api/src/admin/{auth,totp,routes,dedupe,catalog,catalog-routes}.ts`, 
 ## Deliverables
 
 `docs/audit/findings/06-admin.md`, the role × route test matrix, XSS tests, fixes, and audit lines under FN-90…93.
+
+## Decided in Part 04: D-04-2, common-password list (implement here, along with Part 04's admin hand-off)
+
+Part 04 handed over: admin account setup doesn't lowercase the email or NFC-normalise the password. Fix it so admin and app accounts share one normaliser.
+
+D-04-2 answer: **bundle a public list, no external API** (privacy, and signup must not depend on a third party). Use a permissively licensed top-passwords list (e.g. SecLists' 100k, MIT). Keep entries at least as long as the minimum password length, normalise them the same way as passwords, and ship them as a generated file loaded once into a `Set`. Record the source and licence in the file header. Both app signup/reset and admin password setting use it. Test: a listed password is refused and a near-miss is accepted. Check the startup cost and memory (it should be under 5 MB and 50 ms).

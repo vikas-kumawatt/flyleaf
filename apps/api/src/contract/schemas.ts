@@ -103,7 +103,7 @@ export const registerBodySchema = {
       pattern: '^[a-z0-9_]{3,20}$',
       description: '3–20 characters, lowercase alphanumeric and underscores',
     },
-    password: { type: 'string', minLength: 10, description: 'Minimum 10 characters' },
+    password: { type: 'string', minLength: 10, maxLength: 1024, description: '10 to 1,024 characters' },
     dateOfBirth: {
       type: 'string',
       pattern: '^\\d{4}-\\d{2}-\\d{2}$',
@@ -193,7 +193,7 @@ export const resetPasswordBodySchema = {
   type: 'object',
   properties: {
     token: { type: 'string', minLength: 1, description: 'Password reset token' },
-    newPassword: { type: 'string', minLength: 10, description: 'New password (minimum 10 characters)' },
+    newPassword: { type: 'string', minLength: 10, maxLength: 1024, description: 'New password (10 to 1,024 characters)' },
   },
   required: ['token', 'newPassword'],
 } as const;

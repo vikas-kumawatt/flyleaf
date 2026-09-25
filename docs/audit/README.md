@@ -22,8 +22,10 @@ After each part: review the diff and `findings/NN-*.md`, then commit before star
 | 04 | `04-auth.md` | FN-60…66 | JWT secret fallback, proxy trust |
 | 05 | `05-authorization-and-contract.md` | FN-70…72, FN-80…82 | review visibility leaks, spec generator |
 | 06 | `06-admin.md` | FN-90…93 | admin cookie not HttpOnly, CSRF, TOTP replay |
+| — | `PENDING.md` → PV-0x | PV-01…08 | **Run after 06, before 07.** Providers + presigned uploads; 07 and 12 audit the result |
 | 07 | `07-mobile-foundation-offline-auth-guest.md` | SL-00…05, SL-10…14, SL-20…22, SL-30…33 | 409 swallowed, queue not scoped per user |
 | 08 | `08-catalog-screens-and-reading-core.md` | SL-40…44, SL-50…57 | status matrix, attempt races, author page |
+| 03c | `03c-dedupe-followup.md` | FN-50…52 | **Run after 08** on the full DB: D5–D7 from Part 03b |
 | 09 | `09-ratings-and-reviews.md` | SL-60…64 | §9.7 missing, in-memory review list |
 | 10 | `10-profile-stats-telemetry.md` | SL-70…74, SL-80…82 | stats privacy, unauthenticated events |
 | 11 | `11-shelves.md` | SH-01…10 | slug races, browse cost, views term = 0 |
@@ -32,7 +34,7 @@ After each part: review the diff and `findings/NN-*.md`, then commit before star
 | 14 | `14-feed.md` | SO-10…15 | pagination skips items, home feed is sample data |
 | 15 | `15-cross-cutting-and-wrap-up.md` | all | rate limiting once, perf comparison, docs, SUMMARY |
 
-Parts 02–14 can be reordered if you need to, but **05 before 09, 11 and 13** (they reuse its visibility matrix), and **15 last**. Parts 07 and 14 are the largest; if a session runs out of room, tell it to finish its findings file first, then continue the fixes in a new session with "continue audit part NN from `findings/NN-*.md`".
+Parts 02–14 can be reordered if you need to, but **05 before 09, 11 and 13** (they reuse its visibility matrix), **PV-0x before 07 and 12**, **03c after 08**, and **15 last**. Everything not yet done outside the numbered parts is listed in `PENDING.md`. Parts 07 and 14 are the largest; if a session runs out of room, tell it to finish its findings file first, then continue the fixes in a new session with "continue audit part NN from `findings/NN-*.md`".
 
 ## Leads confirmed while writing these prompts
 

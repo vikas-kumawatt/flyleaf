@@ -6,6 +6,8 @@ import { sql } from 'drizzle-orm';
 import * as schema from '../db/schema.js';
 import { countQuery, queryCountingEnabled } from '../bench/query-counter.js';
 
+const DEV_JWT_SECRET = 'flyleaf-dev-secret-do-not-use-in-production-must-be-at-least-32-chars!';
+
 export const config = {
   port: Number(process.env.PORT ?? 3000),
   host: process.env.HOST ?? '0.0.0.0',
@@ -13,9 +15,41 @@ export const config = {
     process.env.DATABASE_URL ?? 'postgres://flyleaf:flyleaf@localhost:5432/flyleaf',
   env: process.env.NODE_ENV ?? 'development',
   logLevel: process.env.LOG_LEVEL ?? (process.env.NODE_ENV === 'production' ? 'info' : 'debug'),
-  jwtSecret:
-    process.env.JWT_SECRET ?? 'flyleaf-dev-secret-do-not-use-in-production-must-be-at-least-32-chars!',
+  jwtSecret: resolveJwtSecret(process.env.NODE_ENV, process.env.JWT_SECRET),
+  trustProxy: parseTrustProxy(process.env.TRUST_PROXY),
+  // Base of the links in verification and reset emails.
+  appBaseUrl: (
+    process.env.APP_BASE_URL ??
+    (process.env.NODE_ENV === 'production' ? 'https://flyleaf.app' : 'http://localhost:8081')
+  ).replace(/\/+$/, ''),
 } as const;
+
+/**
+ * The dev fallback is public in this repository, so anyone could mint tokens
+ * with it. Production must bring its own secret or the process does not start
+ * (audit A-04-001).
+ */
+export function resolveJwtSecret(env: string | undefined, secret: string | undefined): string {
+  if (env !== 'production') return secret ?? DEV_JWT_SECRET;
+  if (!secret || Buffer.byteLength(secret, 'utf8') < 32 || secret === DEV_JWT_SECRET) {
+    throw new Error(
+      'JWT_SECRET must be set to a private value of at least 32 bytes when NODE_ENV=production ' +
+        '(generate one with: openssl rand -base64 48).',
+    );
+  }
+  return secret;
+}
+
+/**
+ * Fastify `trustProxy` from TRUST_PROXY. Off unless set, so a client cannot pick
+ * its own req.ip with X-Forwarded-For. Behind Caddy set it to Caddy's address
+ * or CIDR, comma-separated (e.g. `127.0.0.1`); `true` trusts every hop (A-04-002).
+ */
+export function parseTrustProxy(value: string | undefined): boolean | string {
+  if (!value || value === 'false') return false;
+  if (value === 'true') return true;
+  return value;
+}
 
 /** pg_trgm's match threshold. Why 0.45, and how it was measured: migrate.ts. */
 export const TRIGRAM_THRESHOLD = 0.45;

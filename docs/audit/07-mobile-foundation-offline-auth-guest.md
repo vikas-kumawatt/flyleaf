@@ -46,3 +46,12 @@ Check against the PRD §35.1 matrix (what must work offline) and §35.2 (how syn
 ## Deliverables
 
 `docs/audit/findings/07-mobile-foundation.md` (including the manual device checklist), fixes, tests, and audit lines under each SL task listed above.
+
+## Precondition: PV-0x (presigned uploads)
+
+This part runs **after PV-0x** (see `PENDING.md`). Audit the client side of the new upload path. Don't patch the old multipart upload.
+- `uploadFile(purpose, file)` does intent → direct upload → complete; only the upload step is retried; progress is reported; a cancelled or failed upload leaves no `pending` intent the user can't recover from.
+- Uploads are **online-only**. They are never put in the offline queue, because a presigned URL expires. The UI says so when offline.
+- Pending uploads and any cached presigned URLs are cleared **per user** on logout, alongside the offline-queue scoping this part already checks.
+- Guests can't create upload intents (401 with the sign-in prompt).
+- The export download opens the presigned URL, never a URL built on the client.

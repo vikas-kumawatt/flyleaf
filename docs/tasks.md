@@ -179,20 +179,26 @@
 ### Auth — `FN-6x` · 5d
 - [x] **FN-60** users, refresh_tokens, profiles migrations — 0.5d
   - Migration `0005_auth.sql` applies cleanly on an empty database and live database. `users` gained `date_of_birth` (13+ age gate), `email_verified_at`, `role`, and `deleted_at`. `username` lives on `profiles`. `sessions` replaced by `refresh_tokens`.
+  - **Audit (2026-09-25):** ⚠️ — tables and indexes as claimed; `email`/`username` are `text` with app-side lowercasing rather than the `citext` architecture §3.3 names (no case duplicates in dev data), and no path honoured `deleted_at` until this audit; see A-04-007, A-04-011.
 - [x] **FN-61** argon2id (`@node-rs/argon2`); common-password list; 10-char minimum — 0.5d
   - `isCommonPassword` check rejects top dictionary passwords regardless of length. `passwordSchema` enforces 10-character minimum without entropy-reducing composition rules.
+  - **Audit (2026-09-25):** ⚠️ — argon2id at the OWASP minimum, but the "top dictionary" list is 32 entries (D-04-2), passwords were not NFC-normalised and had no maximum (both fixed; the 1 MB-password DoS premise was measured false); see A-04-009, A-04-015.
 - [x] **FN-62** Register, login, DOB age gate — 1d
-  - `isAtLeast13` rejects registration for users under 13 years old per PRD §26.6. `IdentityService.register` and `login` return full user + profile context with rate-limited login.
+  - `isAtLeast13` rejects registration for users under 13 years old per PRD §26.6. `IdentityService.register` and `login` return full user + profile context with ~~rate-limited login~~ login limited per email only (10/min; no per-IP limit, A-04-017).
+  - **Audit (2026-09-25):** ⚠️ — the gate let impossible dates through to a 500 and accepted pre-1900 and server-time-zone-dependent ages (fixed), login timing revealed whether an email had an account (fixed with a dummy verify), deleted users could log in (fixed), reserved usernames were mobile-only (fixed); see A-04-006, A-04-007, A-04-008, A-04-010.
 - [x] **FN-63** **JWT 15m (`jose`) + opaque rotating refresh, hashed, `family_id`** — 1d
   - 15-minute HS256 JWT evaluated statelessly by Fastify's `onRequest` hook. 256-bit cryptographically secure opaque refresh tokens stored as SHA-256 hashes with 60-day expiry.
+  - **Audit (2026-09-25):** ❌ — an admin JWT authenticated app routes, `alg` was not pinned and a token without `exp` was accepted (all fixed: `aud`/`iss` required, HS256 pinned); the hook also runs an admin verify on every bearer token (~119 µs, left as is); see A-04-003, A-04-004, A-04-023.
 - [x] **FN-64** ⚠️ **Reuse detection: used token → revoke whole family** — 0.5d
-  - Presenting an already-consumed refresh token immediately revokes all tokens matching its `family_id` and rejects with 403 `token_reused`. All 35 identity tests pass in 2.8s.
+  - Presenting an already-consumed refresh token immediately revokes all tokens matching its `family_id` and rejects with 403 `token_reused`. ~~All 35 identity tests pass in 2.8s.~~ (stale count)
+  - **Audit (2026-09-25):** ⚠️ — sequential reuse revoked the family as claimed, but two concurrent refreshes with one token both succeeded and forked the family; rotation is now one conditional `UPDATE … RETURNING` (strict, no grace window); see A-04-005.
 - [x] **FN-65** Email verification + password reset behind a sender interface — 1d
   - Defined swap-ready `EmailSender` interface, `ConsoleEmailSender`, and `MemoryEmailSender` in `platform/mail.ts`.
   - Added `email_verification_tokens` and `password_reset_tokens` tables (SHA-256 hashed, short-lived, single-use) with migration `0007_auth_tokens.sql` applied to live PostgreSQL.
   - Implemented `POST /v1/auth/verify-email` (burns token, marks `users.email_verified_at`), `POST /v1/auth/resend-verification` (authenticated `Bearer`, 1/60s rate limit, no-op when verified), `POST /v1/auth/forgot-password` (unauthenticated, always 200 without email enumeration), and `POST /v1/auth/reset-password` (argon2id update, burns token, **revokes all active refresh token families** for user).
   - Registration automatically dispatches a 24-hour verification token.
-  - Updated Fastify route schemas, regenerated `openapi.yaml` with 0 drift, and added typed methods to `@flyleaf/api-client`. 42 tests in `identity.test.ts`, 289 tests passing across full suite in CI.
+  - Updated Fastify route schemas, regenerated `openapi.yaml` with 0 drift, and added typed methods to `@flyleaf/api-client`. ~~42 tests in `identity.test.ts`, 289 tests passing across full suite in CI.~~ (stale counts)
+  - **Audit (2026-09-25):** ⚠️ — tokens, expiry, single use, supersession and family revocation on reset verified by test; links were hard-coded to `https://flyleaf.app` (now `APP_BASE_URL`), a reset token could be spent twice concurrently (fixed), forgot-password is limited per email only (A-04-020); unverified accounts are not restricted (D-04-1); see A-04-013, A-04-014, A-04-016, A-04-024.
 - [x] **FN-66** Session list + per-device revoke — 0.5d
   - Added `sessionSchema`, `sessionListResponseSchema`, and `revokeSessionResponseSchema` in `apps/api/src/contract/schemas.ts`.
   - Device info captured via `User-Agent` request header on register/login and preserved during refresh token rotation.
@@ -202,6 +208,7 @@
   - Added endpoints `GET /v1/auth/sessions`, `DELETE /v1/auth/sessions/:id`, and `POST /v1/auth/logout-all` with Bearer auth.
   - Updated `@flyleaf/api-client` with typed `Session` interfaces and `getSessions()`, `revokeSession()`, `logoutAll()` methods; fixed request helper so empty body DELETE/POST does not attach content-type.
   - 47 unit/HTTP tests in `identity.test.ts` and contract tests in `contract.test.ts`; 295 tests passing across full CI suite with 0 OpenAPI drift.
+  - **Audit (2026-09-25):** ✅ — 404 (not 403) for another user's family, `lastUsedAt` advances on rotation, revoking the current session ends refresh while the live access token lasts ≤ 15 min by design; the device label is now sanitised and capped at 200 characters; see A-04-012.
 
 ### Authorization — `FN-7x` · 3d
 - [x] **FN-70** ⚠️ Repository layer: **viewer ID a required argument everywhere** — 1d
