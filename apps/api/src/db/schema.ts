@@ -599,6 +599,11 @@ export const adminCredentials = pgTable('admin_credentials', {
   backupCodes: text('backup_codes').array().notNull().default(sql`'{}'::text[]`),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  // Audit 06 (0023): replay guard, session revocation, 2FA rotation.
+  lastTotpStep: bigint('last_totp_step', { mode: 'number' }),
+  sessionVersion: integer('session_version').notNull().default(0),
+  pendingTotpSecret: text('pending_totp_secret'),
+  pendingBackupCodes: text('pending_backup_codes').array(),
 });
 
 /**
@@ -609,17 +614,21 @@ export const adminCredentials = pgTable('admin_credentials', {
  */
 export const adminAuditLog = pgTable('admin_audit_log', {
   id: bigserial('id', { mode: 'number' }).primaryKey(),
-  actorId: uuid('actor_id').notNull().references(() => users.id),
+  // Null for a failed login whose email matches no staff account (0023).
+  actorId: uuid('actor_id').references(() => users.id),
   action: text('action').notNull(),
   subjectType: text('subject_type'),
   subjectId: uuid('subject_id'),
   reason: text('reason'),
   payload: jsonb('payload').notNull().default(sql`'{}'::jsonb`),
+  ip: text('ip'),
+  userAgent: text('user_agent'),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 }, (t) => [
   index('admin_audit_log_actor_idx').on(t.actorId, t.createdAt),
   index('admin_audit_log_action_idx').on(t.action, t.createdAt),
   index('admin_audit_log_subject_idx').on(t.subjectType, t.subjectId),
+  index('admin_audit_log_created_idx').on(t.createdAt.desc(), t.id.desc()),
 ]);
 
 // ---------------------------------------------------------------------------

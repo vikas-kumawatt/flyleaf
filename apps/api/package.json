@@ -18,6 +18,7 @@
     "seed": "tsx src/seed.ts",
     "ingest": "tsx src/ingest.ts",
     "dedupe": "tsx src/dedupe.ts",
+    "admin": "tsx src/admin-cli.ts",
     "devdb:build": "tsx src/devdb.ts",
     "ingest:fetch": "tsx src/fetch-dumps.ts",
     "typecheck": "tsc --noEmit",
@@ -26,7 +27,8 @@
     "spec:check": "tsx src/contract/generate.ts --check",
     "bench:seed": "tsx src/bench/seed.ts",
     "bench": "tsx src/bench/run.ts",
-    "bench:routes": "tsx src/bench/routes.ts"
+    "bench:routes": "tsx src/bench/routes.ts",
+    "passwords:generate": "node scripts/generate-common-passwords.mjs"
   },
   "dependencies": {
     "@fastify/cors": "11.3.0",

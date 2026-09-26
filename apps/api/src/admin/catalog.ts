@@ -8,7 +8,7 @@
 import { sql } from 'drizzle-orm';
 import type { Db } from '../platform/index.js';
 import { outboundBreaker } from '../platform/outbound.js';
-import { logAdminAction } from './auth.js';
+import { logAdminAction, type AuditContext } from './auth.js';
 import { ApiError } from '../http.js';
 
 export type MaturityRating = 'general' | 'mature' | 'explicit' | 'unclassified';
@@ -87,6 +87,8 @@ export interface OverrideMaturityOptions {
     email: string;
     role: string;
   };
+  /** Where the request came from, for the audit entry. */
+  context?: AuditContext;
 }
 
 export interface OverrideMaturityResult {
@@ -98,6 +100,12 @@ export interface OverrideMaturityResult {
 }
 
 export interface IngestDashboardStatus {
+  /**
+   * True when the catalog totals and maturity breakdown are planner
+   * statistics (pg_class.reltuples, pg_stats), not counts: exact counts over
+   * the full catalog took 150 s+ per request (Audit 06, A-06-013).
+   */
+  counts_are_estimates: boolean;
   last_run: {
     id: string;
     dump_type: string;
@@ -343,7 +351,7 @@ export async function getCatalogWorkDetail(db: Db, workId: string): Promise<Cata
       l.created_at
     FROM admin_audit_log l
     LEFT JOIN users u ON u.id = l.actor_id
-    WHERE l.subject_id = ${workId}
+    WHERE l.subject_type = 'work' AND l.subject_id = ${workId}
     ORDER BY l.created_at DESC
     LIMIT 20
   `);
@@ -440,6 +448,7 @@ export async function overrideWorkMaturity(
         previous_maturity: previousMaturity,
         new_maturity: opts.maturity,
       },
+      ...opts.context,
     });
   });
 
@@ -515,42 +524,7 @@ export async function getIngestDashboardStatus(db: Db): Promise<IngestDashboardS
     FROM ingest_runs
   `);
 
-  const [catalogTotals] = await db.execute<{
-    works: number;
-    editions: number;
-    authors: number;
-    links: number;
-    covered: number;
-    raw: number;
-  }>(sql`
-    SELECT
-      (SELECT count(*) FROM works)::int AS works,
-      (SELECT count(*) FROM editions)::int AS editions,
-      (SELECT count(*) FROM authors)::int AS authors,
-      (SELECT count(*) FROM work_authors)::int AS links,
-      (SELECT count(*) FROM works WHERE ol_cover_id IS NOT NULL)::int AS covered,
-      (SELECT count(*) FROM raw_payloads)::int AS raw
-  `);
-
-  const [maturityCounts] = await db.execute<{
-    general: number;
-    mature: number;
-    explicit: number;
-    unclassified: number;
-    locked: number;
-  }>(sql`
-    SELECT
-      count(*) FILTER (WHERE maturity = 'general')::int AS general,
-      count(*) FILTER (WHERE maturity = 'mature')::int AS mature,
-      count(*) FILTER (WHERE maturity = 'explicit')::int AS explicit,
-      count(*) FILTER (WHERE maturity = 'unclassified')::int AS unclassified,
-      (
-        SELECT count(*)::int
-        FROM field_provenance
-        WHERE entity_type = 'work' AND field_name = 'maturity' AND is_locked = true
-      ) AS locked
-    FROM works
-  `);
+  const { catalogTotals, maturityCounts, estimated } = await catalogFigures(db);
 
   const [pendingAuthorsRow] = await db.execute<{ count: number }>(sql`
     SELECT count(*)::int AS count FROM pending_work_authors
@@ -561,6 +535,7 @@ export async function getIngestDashboardStatus(db: Db): Promise<IngestDashboardS
   `);
 
   return {
+    counts_are_estimates: estimated,
     last_run,
     recent_runs,
     runs_summary: {
@@ -571,19 +546,19 @@ export async function getIngestDashboardStatus(db: Db): Promise<IngestDashboardS
       running: Number(runsSummaryRow?.running ?? 0),
     },
     catalog: {
-      works_count: Number(catalogTotals?.works ?? 0),
-      editions_count: Number(catalogTotals?.editions ?? 0),
-      authors_count: Number(catalogTotals?.authors ?? 0),
-      authorship_links_count: Number(catalogTotals?.links ?? 0),
-      works_with_cover_count: Number(catalogTotals?.covered ?? 0),
-      raw_payloads_count: Number(catalogTotals?.raw ?? 0),
+      works_count: catalogTotals.works,
+      editions_count: catalogTotals.editions,
+      authors_count: catalogTotals.authors,
+      authorship_links_count: catalogTotals.links,
+      works_with_cover_count: catalogTotals.covered,
+      raw_payloads_count: catalogTotals.raw,
     },
     maturity_breakdown: {
-      general: Number(maturityCounts?.general ?? 0),
-      mature: Number(maturityCounts?.mature ?? 0),
-      explicit: Number(maturityCounts?.explicit ?? 0),
-      unclassified: Number(maturityCounts?.unclassified ?? 0),
-      overridden_locked: Number(maturityCounts?.locked ?? 0),
+      general: maturityCounts.general,
+      mature: maturityCounts.mature,
+      explicit: maturityCounts.explicit,
+      unclassified: maturityCounts.unclassified,
+      overridden_locked: maturityCounts.locked,
     },
     telemetry: {
       circuit_breaker: {
@@ -598,5 +573,96 @@ export async function getIngestDashboardStatus(db: Db): Promise<IngestDashboardS
       pending_work_authors_count: Number(pendingAuthorsRow?.count ?? 0),
       dedupe_queue_pending_count: Number(dedupePendingRow?.count ?? 0),
     },
+  };
+}
+
+const COUNTED_TABLES = ['works', 'editions', 'authors', 'work_authors', 'raw_payloads'] as const;
+
+/**
+ * Catalog totals and the maturity breakdown for the ingestion dashboard.
+ *
+ * On the full catalog, COUNT(*) over works, editions, authors, work_authors
+ * and raw_payloads read ~1.7M buffers and took 152 s, and the maturity
+ * GROUP BY 2-41 s, per request (flyleaf, Audit 06). These figures are
+ * orientation, not accounting, so they come from the planner's statistics,
+ * which ANALYZE (run by autovacuum and at the end of every ingest) keeps
+ * current: O(1) whatever the catalog size.
+ *
+ * A table that has never been analysed (reltuples = -1, a fresh or tiny
+ * database) is counted exactly instead. A maturity value missing from the
+ * most-common-values list gets an equal share of the unlisted remainder.
+ */
+async function catalogFigures(db: Db) {
+  const rel = await db.execute<{ relname: string; reltuples: number }>(sql`
+    SELECT relname, reltuples::float8 AS reltuples FROM pg_class
+    WHERE oid IN (${sql.join(COUNTED_TABLES.map((t) => sql`to_regclass(${t})`), sql`, `)})
+  `);
+  const estimateOf = new Map(rel.map((r) => [r.relname, Number(r.reltuples)]));
+  let estimated = false;
+
+  const total = async (table: (typeof COUNTED_TABLES)[number]): Promise<number> => {
+    const est = estimateOf.get(table) ?? -1;
+    if (est >= 0) {
+      estimated = true;
+      return Math.round(est);
+    }
+    const [row] = await db.execute<{ n: number }>(sql`SELECT count(*)::float8 AS n FROM ${sql.identifier(table)}`);
+    return Number(row?.n ?? 0);
+  };
+
+  const [works, editions, authors, links, raw] = await Promise.all([
+    total('works'), total('editions'), total('authors'), total('work_authors'), total('raw_payloads'),
+  ]);
+
+  const stats = await db.execute<{ attname: string; null_frac: number; vals: string[] | null; freqs: number[] | null }>(sql`
+    SELECT attname, null_frac::float8 AS null_frac,
+           most_common_vals::text::text[] AS vals, most_common_freqs::float8[] AS freqs
+    FROM pg_stats
+    WHERE schemaname = current_schema() AND tablename = 'works' AND attname IN ('maturity', 'ol_cover_id')
+  `);
+  const worksEstimate = estimateOf.get('works') ?? -1;
+  const maturityStats = stats.find((r) => r.attname === 'maturity');
+  const coverStats = stats.find((r) => r.attname === 'ol_cover_id');
+
+  let covered: number;
+  if (worksEstimate >= 0 && coverStats) {
+    covered = Math.round(worksEstimate * (1 - Number(coverStats.null_frac)));
+  } else {
+    const [row] = await db.execute<{ n: number }>(sql`SELECT count(*)::float8 AS n FROM works WHERE ol_cover_id IS NOT NULL`);
+    covered = Number(row?.n ?? 0);
+  }
+
+  const byMaturity: Record<MaturityRating, number> = { general: 0, mature: 0, explicit: 0, unclassified: 0 };
+  if (worksEstimate >= 0 && maturityStats?.vals && maturityStats.freqs) {
+    const listed = new Map(maturityStats.vals.map((v, i) => [v, Number(maturityStats.freqs![i] ?? 0)]));
+    const unlisted = VALID_MATURITIES.filter((m) => !listed.has(m));
+    const listedSum = [...listed.values()].reduce((a, b) => a + b, 0);
+    const remainder = Math.max(0, 1 - Number(maturityStats.null_frac) - listedSum);
+    for (const m of VALID_MATURITIES) {
+      const freq = listed.get(m) ?? (unlisted.length ? remainder / unlisted.length : 0);
+      byMaturity[m] = Math.round(worksEstimate * freq);
+    }
+  } else {
+    const [row] = await db.execute<Record<MaturityRating, number>>(sql`
+      SELECT
+        count(*) FILTER (WHERE maturity = 'general')::float8 AS general,
+        count(*) FILTER (WHERE maturity = 'mature')::float8 AS mature,
+        count(*) FILTER (WHERE maturity = 'explicit')::float8 AS explicit,
+        count(*) FILTER (WHERE maturity = 'unclassified')::float8 AS unclassified
+      FROM works
+    `);
+    for (const m of VALID_MATURITIES) byMaturity[m] = Number(row?.[m] ?? 0);
+  }
+
+  // Human overrides: a small table, counted exactly.
+  const [lockedRow] = await db.execute<{ n: number }>(sql`
+    SELECT count(*)::float8 AS n FROM field_provenance
+    WHERE entity_type = 'work' AND field_name = 'maturity' AND is_locked = true
+  `);
+
+  return {
+    estimated,
+    catalogTotals: { works, editions, authors, links, covered, raw },
+    maturityCounts: { ...byMaturity, locked: Number(lockedRow?.n ?? 0) },
   };
 }

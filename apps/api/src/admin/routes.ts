@@ -7,14 +7,17 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import type { Db } from '../platform/index.js';
-import { requireAdmin, requireModerator } from '../http.js';
+import { ApiError, requireAdmin, requireModerator } from '../http.js';
 import {
+  auditContext,
   loginAdmin,
   setup2fa,
   verify2fa,
   getAdminAuditLog,
   logAdminAction,
+  revokeAdminSessions,
 } from './auth.js';
+import { clearAdminSession, escapeHtml, sendAdminHtml, setAdminSession } from './html.js';
 import {
   adminLoginBodySchema,
   adminLoginResponseSchema,
@@ -73,8 +76,7 @@ export function adminAuthRoutes(db: Db) {
           email: body.email,
           password: body.password,
           totpCode: body.totp_code,
-          ip: req.ip,
-          userAgent: req.headers['user-agent'],
+          ...auditContext(req),
         });
       },
     );
@@ -116,7 +118,7 @@ export function adminAuthRoutes(db: Db) {
       },
       async (req) => {
         const admin = requireAdmin(req);
-        const result = await setup2fa(db, admin.id);
+        const result = await setup2fa(db, admin.id, auditContext(req));
         return {
           secret: result.secret,
           otpauth_uri: result.otpauthUri,
@@ -145,7 +147,7 @@ export function adminAuthRoutes(db: Db) {
       async (req) => {
         const admin = requireAdmin(req);
         const body = verifyBody.parse(req.body);
-        return verify2fa(db, admin.id, body.code);
+        return verify2fa(db, admin.id, body.code, auditContext(req));
       },
     );
 
@@ -183,12 +185,228 @@ export function adminAuthRoutes(db: Db) {
     // Server-Rendered HTML Web Views
     // -----------------------------------------------------------------------
 
-    app.get('/admin/login', async (req, reply) => {
+    // The browser flow never hands the token to page script: the form posts
+    // here, the session comes back as an HttpOnly cookie (Audit 06, A-06-002).
+    app.addContentTypeParser('application/x-www-form-urlencoded', { parseAs: 'string' }, (_req, body, done) => {
+      done(null, Object.fromEntries(new URLSearchParams(body as string)));
+    });
+
+    app.get('/admin/login', { schema: { hide: true } }, async (req, reply) => {
       if (req.admin) {
         return reply.redirect('/admin/merges');
       }
+      return sendAdminHtml(reply, () => renderLoginPage());
+    });
 
-      const html = `<!DOCTYPE html>
+    app.post('/admin/login', { schema: { hide: true } }, async (req, reply) => {
+      const form = loginBody.safeParse(req.body);
+      if (!form.success) {
+        return sendAdminHtml(reply, () => renderLoginPage('Enter your email, password and authenticator code.'), 400);
+      }
+      try {
+        const { token } = await loginAdmin(db, {
+          email: form.data.email,
+          password: form.data.password,
+          totpCode: form.data.totp_code,
+          ...auditContext(req),
+        });
+        setAdminSession(reply, req, token);
+        return reply.redirect('/admin/merges', 303);
+      } catch (err) {
+        if (err instanceof ApiError && (err.status === 401 || err.status === 403)) {
+          return sendAdminHtml(reply, () => renderLoginPage(err.message), err.status);
+        }
+        throw err;
+      }
+    });
+
+    app.post('/admin/logout', { schema: { hide: true } }, async (req, reply) => {
+      // Signing out ends every session of this admin, not just this cookie:
+      // a JWT cannot be recalled one by one (Audit 06, A-06-009).
+      if (req.admin) {
+        await revokeAdminSessions(db, req.admin.id);
+        await logAdminAction(db, {
+          actorId: req.admin.id,
+          action: 'admin.logout',
+          reason: 'Explicit admin console sign out',
+          ...auditContext(req),
+        });
+      }
+      clearAdminSession(reply, req);
+      return reply.redirect('/admin/login');
+    });
+
+    app.get('/admin/audit-log', { schema: { hide: true } }, async (req, reply) => {
+      if (!req.admin) {
+        return reply.redirect('/admin/login');
+      }
+
+      const admin = req.admin;
+      const logs = await getAdminAuditLog(db, { limit: 100 });
+
+      return sendAdminHtml(reply, () => `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Flyleaf Admin — Audit Log (FN-93)</title>
+  <style>
+    :root {
+      --bg: #090a0f;
+      --card-bg: rgba(22, 27, 34, 0.7);
+      --border: rgba(255, 255, 255, 0.1);
+      --text: #f0f6fc;
+      --text-muted: #8b949e;
+      --accent: #d4a373;
+      --danger: #f85149;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      background: radial-gradient(circle at 50% 0%, #1a1e29 0%, var(--bg) 80%);
+      color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      padding: 32px 24px;
+      min-height: 100vh;
+    }
+    .container { max-width: 1200px; margin: 0 auto; }
+    header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 28px;
+      padding-bottom: 20px;
+      border-bottom: 1px solid var(--border);
+    }
+    .nav { display: flex; gap: 16px; align-items: center; }
+    .nav a {
+      color: var(--text-muted);
+      text-decoration: none;
+      font-size: 14px;
+      font-weight: 500;
+      transition: color 0.2s;
+    }
+    .nav a:hover, .nav a.active { color: var(--accent); }
+    .user-pill {
+      background: rgba(255, 255, 255, 0.05);
+      border: 1px solid var(--border);
+      padding: 6px 14px;
+      border-radius: 20px;
+      font-size: 13px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .role-badge {
+      background: var(--accent);
+      color: #090a0f;
+      font-size: 10px;
+      font-weight: 700;
+      padding: 2px 6px;
+      border-radius: 4px;
+      text-transform: uppercase;
+    }
+    .btn-logout {
+      background: transparent;
+      border: 1px solid var(--border);
+      color: var(--text-muted);
+      padding: 6px 12px;
+      border-radius: 8px;
+      cursor: pointer;
+      font-size: 13px;
+    }
+    .btn-logout:hover { color: var(--danger); border-color: var(--danger); }
+    .card {
+      background: var(--card-bg);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 24px;
+      overflow-x: auto;
+    }
+    table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    th { text-align: left; padding: 12px 14px; color: var(--text-muted); border-bottom: 1px solid var(--border); }
+    td { padding: 12px 14px; border-bottom: 1px solid rgba(255, 255, 255, 0.05); vertical-align: top; }
+    code { font-family: monospace; background: rgba(0, 0, 0, 0.3); padding: 2px 6px; border-radius: 4px; }
+    .action-tag {
+      display: inline-block;
+      padding: 3px 8px;
+      border-radius: 6px;
+      font-size: 11px;
+      font-weight: 600;
+      background: rgba(212, 163, 115, 0.15);
+      color: var(--accent);
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <header>
+      <div>
+        <h1 style="font-size: 24px; margin-bottom: 4px;">Flyleaf Admin Audit Trail</h1>
+        <p style="color: var(--text-muted); font-size: 13px;">FN-93: Non-negotiable audit log across all administrative actions.</p>
+      </div>
+      <div class="nav">
+        <a href="/admin/merges">Merge Review</a>
+        <a href="/admin/catalog/maturity">Maturity</a>
+        <a href="/admin/ingest">Ingestion</a>
+        <a href="/admin/audit-log" class="active">Audit Trail</a>
+        <div class="user-pill">
+          <span>${escapeHtml(admin.email)}</span>
+          <span class="role-badge">${escapeHtml(admin.role)}</span>
+        </div>
+        <form method="POST" action="/admin/logout">
+          <button type="submit" class="btn-logout">Sign Out</button>
+        </form>
+      </div>
+    </header>
+
+    <div class="card">
+      <table>
+        <thead>
+          <tr>
+            <th>Time</th>
+            <th>Actor</th>
+            <th>Action</th>
+            <th>Subject</th>
+            <th>Reason</th>
+            <th>Payload</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${
+            logs.length === 0
+              ? `<tr><td colspan="6" style="text-align: center; color: var(--text-muted); padding: 32px;">No audit events recorded yet.</td></tr>`
+              : logs
+                  .map(
+                    (l) => `
+            <tr>
+              <td style="white-space: nowrap; color: var(--text-muted);">${escapeHtml(new Date(l.createdAt).toLocaleString())}</td>
+              <td>
+                <div style="font-weight: 500;">${escapeHtml(l.actorEmail ?? '—')}</div>
+                <div style="font-size: 11px; color: var(--text-muted);">${escapeHtml(l.actorRole ?? 'no account')}</div>
+                <div style="font-size: 11px; color: var(--text-muted);">${escapeHtml(l.ip ?? '')}</div>
+              </td>
+              <td><span class="action-tag">${escapeHtml(l.action)}</span></td>
+              <td>${l.subjectType ? `${escapeHtml(l.subjectType)} <br><code style="font-size: 10px;">${escapeHtml(l.subjectId ?? '')}</code>` : '—'}</td>
+              <td>${escapeHtml(l.reason ?? '—')}</td>
+              <td><pre style="font-size: 11px; max-width: 320px; overflow: hidden; text-overflow: ellipsis; white-space: pre-wrap;">${escapeHtml(JSON.stringify(l.payload))}</pre></td>
+            </tr>
+          `,
+                  )
+                  .join('')
+          }
+        </tbody>
+      </table>
+    </div>
+  </div>
+</body>
+</html>`);
+    });
+  };
+}
+
+/** The console login: a plain form, no script (Audit 06). `error` is escaped. */
+function renderLoginPage(error?: string): string {
+  return `<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="utf-8" />
@@ -316,7 +534,6 @@ export function adminAuthRoutes(db: Db) {
       border-radius: 8px;
       font-size: 13px;
       margin-bottom: 18px;
-      display: none;
     }
     .footer {
       margin-top: 24px;
@@ -335,9 +552,9 @@ export function adminAuthRoutes(db: Db) {
     <h1>Sign In</h1>
     <p class="subtitle">Enter your administrator credentials and 6-digit authenticator code (PRD §27.5).</p>
 
-    <div id="error-box" class="error-msg"></div>
+    ${error ? `<div class="error-msg" role="alert">${escapeHtml(error)}</div>` : ''}
 
-    <form id="login-form" onsubmit="handleLogin(event)">
+    <form method="POST" action="/admin/login">
       <div class="form-group">
         <label for="email">Admin Email</label>
         <input type="email" id="email" name="email" required placeholder="admin@flyleaf.app" autofocus autocomplete="username" />
@@ -353,244 +570,13 @@ export function adminAuthRoutes(db: Db) {
         <input type="text" id="totp_code" name="totp_code" class="totp-input" required placeholder="123456" maxlength="10" autocomplete="one-time-code" />
       </div>
 
-      <button type="submit" class="btn-login" id="submit-btn">Verify & Sign In</button>
+      <button type="submit" class="btn-login">Verify & Sign In</button>
     </form>
 
     <div class="footer">
       Isolated authentication layer · Actions audit-logged
     </div>
   </div>
-
-  <script>
-    async function handleLogin(e) {
-      e.preventDefault();
-      const errBox = document.getElementById('error-box');
-      const btn = document.getElementById('submit-btn');
-      errBox.style.display = 'none';
-      btn.disabled = true;
-      btn.innerText = 'Verifying...';
-
-      const email = document.getElementById('email').value.trim();
-      const password = document.getElementById('password').value;
-      const totp_code = document.getElementById('totp_code').value.trim();
-
-      try {
-        const res = await fetch('/v1/admin/auth/login', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ email, password, totp_code })
-        });
-
-        const data = await res.json();
-        if (res.ok) {
-          // Set session cookie valid for /admin routes
-          document.cookie = 'flyleaf_admin_session=' + encodeURIComponent(data.token) + '; path=/admin; max-age=7200; SameSite=Lax';
-          location.href = '/admin/merges';
-        } else {
-          errBox.innerText = data.error?.message || 'Login failed.';
-          errBox.style.display = 'block';
-          btn.disabled = false;
-          btn.innerText = 'Verify & Sign In';
-        }
-      } catch (err) {
-        errBox.innerText = 'Network error: ' + err.message;
-        errBox.style.display = 'block';
-        btn.disabled = false;
-        btn.innerText = 'Verify & Sign In';
-      }
-    }
-  </script>
 </body>
 </html>`;
-
-      return reply.type('text/html').send(html);
-    });
-
-    app.post('/admin/logout', async (req, reply) => {
-      if (req.admin) {
-        await logAdminAction(db, {
-          actorId: req.admin.id,
-          action: 'admin.logout',
-          reason: 'Explicit admin console sign out',
-        }).catch(() => {});
-      }
-      reply.header('Set-Cookie', 'flyleaf_admin_session=; Path=/admin; Max-Age=0; HttpOnly; SameSite=Lax');
-      return reply.redirect('/admin/login');
-    });
-
-    app.get('/admin/audit-log', async (req, reply) => {
-      if (!req.admin) {
-        return reply.redirect('/admin/login');
-      }
-
-      const logs = await getAdminAuditLog(db, { limit: 100 });
-
-      const html = `<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Flyleaf Admin — Audit Log (FN-93)</title>
-  <style>
-    :root {
-      --bg: #090a0f;
-      --card-bg: rgba(22, 27, 34, 0.7);
-      --border: rgba(255, 255, 255, 0.1);
-      --text: #f0f6fc;
-      --text-muted: #8b949e;
-      --accent: #d4a373;
-      --danger: #f85149;
-    }
-    * { box-sizing: border-box; margin: 0; padding: 0; }
-    body {
-      background: radial-gradient(circle at 50% 0%, #1a1e29 0%, var(--bg) 80%);
-      color: var(--text);
-      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-      padding: 32px 24px;
-      min-height: 100vh;
-    }
-    .container { max-width: 1200px; margin: 0 auto; }
-    header {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      margin-bottom: 28px;
-      padding-bottom: 20px;
-      border-bottom: 1px solid var(--border);
-    }
-    .nav { display: flex; gap: 16px; align-items: center; }
-    .nav a {
-      color: var(--text-muted);
-      text-decoration: none;
-      font-size: 14px;
-      font-weight: 500;
-      transition: color 0.2s;
-    }
-    .nav a:hover, .nav a.active { color: var(--accent); }
-    .user-pill {
-      background: rgba(255, 255, 255, 0.05);
-      border: 1px solid var(--border);
-      padding: 6px 14px;
-      border-radius: 20px;
-      font-size: 13px;
-      display: flex;
-      align-items: center;
-      gap: 8px;
-    }
-    .role-badge {
-      background: var(--accent);
-      color: #090a0f;
-      font-size: 10px;
-      font-weight: 700;
-      padding: 2px 6px;
-      border-radius: 4px;
-      text-transform: uppercase;
-    }
-    .btn-logout {
-      background: transparent;
-      border: 1px solid var(--border);
-      color: var(--text-muted);
-      padding: 6px 12px;
-      border-radius: 8px;
-      cursor: pointer;
-      font-size: 13px;
-    }
-    .btn-logout:hover { color: var(--danger); border-color: var(--danger); }
-    .card {
-      background: var(--card-bg);
-      border: 1px solid var(--border);
-      border-radius: 12px;
-      padding: 24px;
-      overflow-x: auto;
-    }
-    table { width: 100%; border-collapse: collapse; font-size: 13px; }
-    th { text-align: left; padding: 12px 14px; color: var(--text-muted); border-bottom: 1px solid var(--border); }
-    td { padding: 12px 14px; border-bottom: 1px solid rgba(255, 255, 255, 0.05); vertical-align: top; }
-    code { font-family: monospace; background: rgba(0, 0, 0, 0.3); padding: 2px 6px; border-radius: 4px; }
-    .action-tag {
-      display: inline-block;
-      padding: 3px 8px;
-      border-radius: 6px;
-      font-size: 11px;
-      font-weight: 600;
-      background: rgba(212, 163, 115, 0.15);
-      color: var(--accent);
-    }
-  </style>
-</head>
-<body>
-  <div class="container">
-    <header>
-      <div>
-        <h1 style="font-size: 24px; margin-bottom: 4px;">Flyleaf Admin Audit Trail</h1>
-        <p style="color: var(--text-muted); font-size: 13px;">FN-93: Non-negotiable audit log across all administrative actions.</p>
-      </div>
-      <div class="nav">
-        <a href="/admin/merges">Merge Review</a>
-        <a href="/admin/catalog/maturity">Maturity</a>
-        <a href="/admin/ingest">Ingestion</a>
-        <a href="/admin/audit-log" class="active">Audit Trail</a>
-        <div class="user-pill">
-          <span>${escapeHtml(req.admin.email)}</span>
-          <span class="role-badge">${req.admin.role}</span>
-        </div>
-        <form method="POST" action="/admin/logout">
-          <button type="submit" class="btn-logout">Sign Out</button>
-        </form>
-      </div>
-    </header>
-
-    <div class="card">
-      <table>
-        <thead>
-          <tr>
-            <th>Time</th>
-            <th>Actor</th>
-            <th>Action</th>
-            <th>Subject</th>
-            <th>Reason</th>
-            <th>Payload</th>
-          </tr>
-        </thead>
-        <tbody>
-          ${
-            logs.length === 0
-              ? `<tr><td colspan="6" style="text-align: center; color: var(--text-muted); padding: 32px;">No audit events recorded yet.</td></tr>`
-              : logs
-                  .map(
-                    (l) => `
-            <tr>
-              <td style="white-space: nowrap; color: var(--text-muted);">${new Date(l.createdAt).toLocaleString()}</td>
-              <td>
-                <div style="font-weight: 500;">${escapeHtml(l.actorEmail)}</div>
-                <div style="font-size: 11px; color: var(--text-muted);">${l.actorRole}</div>
-              </td>
-              <td><span class="action-tag">${escapeHtml(l.action)}</span></td>
-              <td>${l.subjectType ? `${escapeHtml(l.subjectType)} <br><code style="font-size: 10px;">${l.subjectId ?? ''}</code>` : '—'}</td>
-              <td>${escapeHtml(l.reason ?? '—')}</td>
-              <td><pre style="font-size: 11px; max-width: 320px; overflow: hidden; text-overflow: ellipsis; white-space: pre-wrap;">${escapeHtml(JSON.stringify(l.payload))}</pre></td>
-            </tr>
-          `,
-                  )
-                  .join('')
-          }
-        </tbody>
-      </table>
-    </div>
-  </div>
-</body>
-</html>`;
-
-      return reply.type('text/html').send(html);
-    });
-  };
-}
-
-function escapeHtml(str: string): string {
-  return str
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#039;');
 }

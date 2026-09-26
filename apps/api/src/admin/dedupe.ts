@@ -4,10 +4,12 @@
 // and a server-rendered web interface at /admin/merges.
 
 import type { FastifyInstance } from 'fastify';
+import { sql } from 'drizzle-orm';
 import { z } from 'zod';
 import type { Db } from '../platform/index.js';
-import { requireAdmin, requireModerator, requireViewer } from '../http.js';
-import { logAdminAction } from './auth.js';
+import { ApiError, requireAdmin, requireModerator, requireViewer } from '../http.js';
+import { auditContext, logAdminAction } from './auth.js';
+import { escapeHtml, sendAdminHtml } from './html.js';
 import {
   getDedupeQueue,
   previewMerge,
@@ -58,6 +60,38 @@ const mergesQuery = z.object({
   limit: z.coerce.number().optional(),
   offset: z.coerce.number().optional(),
 });
+
+/**
+ * Every merge, dismissal and undo carries a reason into the audit row (PRD
+ * §27.5, D-06-1). A pair a rule queued (stages 1-3) defaults to that rule; a
+ * user-reported pair (stage 4, a manual merge) and every undo need a typed
+ * reason of at least MIN_TYPED_REASON characters.
+ */
+export const MIN_TYPED_REASON = 10;
+
+const RULE_REASONS: Record<number, string> = {
+  1: 'stage 1: shared ISBN',
+  2: 'stage 2: title + author',
+  3: 'stage 3: probable fuzzy match',
+};
+
+export function ruleReason(stage: number): string | undefined {
+  return RULE_REASONS[stage];
+}
+
+function typedReason(reason: string | undefined, what: string): string {
+  const trimmed = reason?.trim() ?? '';
+  if (trimmed.length < MIN_TYPED_REASON) {
+    throw ApiError.unprocessable(
+      'reason_required',
+      `Give a reason of at least ${MIN_TYPED_REASON} characters for ${what}.`,
+      'reason',
+    );
+  }
+  return trimmed;
+}
+
+const undoBody = z.object({ reason: z.string().optional() }).optional();
 
 export function adminDedupeRoutes(db: Db) {
   return async (app: FastifyInstance) => {
@@ -122,7 +156,7 @@ export function adminDedupeRoutes(db: Db) {
         schema: {
           tags: ['Admin Dedupe'],
           summary: 'Resolve dedupe candidate',
-          description: 'Approves merge or dismisses duplicate candidate with reason. Requires administrator role.',
+          description: 'Approves merge or dismisses duplicate candidate with reason. Requires administrator role. The reason is stored in the audit log: for a pair a rule queued (stages 1-3) it defaults to that rule; a user-reported pair (stage 4) needs a typed reason of at least 10 characters (422 reason_required).',
           params: {
             type: 'object',
             properties: {
@@ -137,6 +171,7 @@ export function adminDedupeRoutes(db: Db) {
             401: errorResponseSchema,
             403: errorResponseSchema,
             404: errorResponseSchema,
+            422: errorResponseSchema,
             500: errorResponseSchema,
           },
         },
@@ -144,9 +179,16 @@ export function adminDedupeRoutes(db: Db) {
       async (req) => {
         const admin = requireAdmin(req);
         const body = resolveBody.parse(req.body);
+        const [item] = await db.execute<{ stage: number }>(sql`
+          SELECT stage FROM dedupe_queue WHERE id = ${req.params.id}`);
+        if (!item) throw ApiError.notFound('Queue item not found.');
+        // D-06-1: a rule's pair defaults to the rule; anything else is typed.
+        const typed = body.reason?.trim();
+        const rule = ruleReason(item.stage);
+        const reason = typed || !rule ? typedReason(typed, `a ${body.action === 'merge' ? 'manual merge' : 'dismissal'}`) : rule;
         const result = await resolveQueueItem(db, req.params.id, body.action, {
           reviewerUserId: admin.id,
-          reason: body.reason,
+          reason,
         });
 
         // Audit log action (FN-93)
@@ -155,12 +197,13 @@ export function adminDedupeRoutes(db: Db) {
           action: body.action === 'merge' ? 'catalog.merge' : 'catalog.dismiss_duplicate',
           subjectType: 'dedupe_queue',
           subjectId: req.params.id,
-          reason: body.reason,
+          reason,
           payload: {
             queueId: req.params.id,
             action: body.action,
             mergeId: result.merge_id ?? result.mergeId,
           },
+          ...auditContext(req),
         });
 
         return result;
@@ -203,6 +246,7 @@ export function adminDedupeRoutes(db: Db) {
             subjectId: body.survivor_id,
             reason: body.reason,
             payload: { loserId: body.loser_id, queueId: result.id },
+            ...auditContext(req),
           });
         }
 
@@ -245,13 +289,20 @@ export function adminDedupeRoutes(db: Db) {
         schema: {
           tags: ['Admin Dedupe'],
           summary: 'Undo work merge',
-          description: 'Reverses a work merge within 30 days, restoring the loser and original reads. Requires administrator role.',
+          description: 'Reverses a work merge within 30 days, restoring the loser and original reads. Requires administrator role and a typed reason of at least 10 characters, stored in the audit log.',
           params: {
             type: 'object',
             properties: {
               id: { type: 'string', format: 'uuid' },
             },
             required: ['id'],
+          },
+          body: {
+            type: 'object',
+            properties: {
+              reason: { type: 'string', minLength: MIN_TYPED_REASON, maxLength: 1000, description: 'Why the merge is reversed' },
+            },
+            required: ['reason'],
           },
           response: {
             200: undoMergeResponseSchema,
@@ -260,12 +311,18 @@ export function adminDedupeRoutes(db: Db) {
             403: errorResponseSchema,
             404: errorResponseSchema,
             409: errorResponseSchema,
+            422: errorResponseSchema,
             500: errorResponseSchema,
           },
+        },
+        // Role before body validation: a moderator gets 403, not a 422 about the reason.
+        preValidation: async (req) => {
+          requireAdmin(req);
         },
       },
       async (req) => {
         const admin = requireAdmin(req);
+        const reason = typedReason(undoBody.parse(req.body)?.reason, 'an undo');
         const result = await undoMerge(db, req.params.id);
 
         // Audit log action (FN-93)
@@ -274,12 +331,13 @@ export function adminDedupeRoutes(db: Db) {
           action: 'catalog.undo_merge',
           subjectType: 'work',
           subjectId: result.survivor_id,
-          reason: 'Reversed merge within 30-day window',
+          reason,
           payload: {
             mergeId: req.params.id,
             loserId: result.loser_id,
             restored: result.restored,
           },
+          ...auditContext(req),
         });
 
         return result;
@@ -290,18 +348,19 @@ export function adminDedupeRoutes(db: Db) {
     // Server-Rendered Admin Review UI (PRD §3715–§3721)
     // -----------------------------------------------------------------------
 
-    app.get('/admin/merges', async (req, reply) => {
+    app.get('/admin/merges', { schema: { hide: true } }, async (req, reply) => {
       if (!req.admin) {
         return reply.redirect('/admin/login');
       }
 
-      const isAdmin = req.admin.role === 'admin';
+      const admin = req.admin;
+      const isAdmin = admin.role === 'admin';
       const [queueItems, recentMerges] = await Promise.all([
         getDedupeQueue(db, { status: 'pending', limit: 20 }),
         getRecentMerges(db, { limit: 15 }),
       ]);
 
-      const html = `<!DOCTYPE html>
+      return sendAdminHtml(reply, (nonce) => `<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8">
@@ -425,8 +484,8 @@ export function adminDedupeRoutes(db: Db) {
       <a href="/admin/ingest" style="color: var(--accent); text-decoration: none; font-size: 13px; font-weight: 500;">Ingestion</a>
       <a href="/admin/audit-log" style="color: var(--accent); text-decoration: none; font-size: 13px; font-weight: 500;">Audit Trail</a>
       <div style="display: flex; align-items: center; gap: 6px; background: rgba(255, 255, 255, 0.05); border: 1px solid var(--border); padding: 4px 10px; border-radius: 16px; font-size: 12px;">
-        <span>${escapeHtml(req.admin.email)}</span>
-        <span class="badge ${isAdmin ? 'badge-success' : 'badge-stage4'}" style="font-size: 10px;">${req.admin.role.toUpperCase()}</span>
+        <span>${escapeHtml(admin.email)}</span>
+        <span class="badge ${isAdmin ? 'badge-success' : 'badge-stage4'}" style="font-size: 10px;">${escapeHtml(admin.role.toUpperCase())}</span>
       </div>
       <form method="POST" action="/admin/logout" style="margin: 0;">
         <button type="submit" class="btn-dismiss" style="padding: 4px 10px; font-size: 12px;">Sign Out</button>
@@ -444,16 +503,16 @@ export function adminDedupeRoutes(db: Db) {
         : queueItems
             .map(
               (item) => `
-      <div class="card" id="item-${item.id}">
+      <div class="card" id="item-${escapeHtml(item.id)}">
         <div style="display: flex; justify-content: space-between; align-items: center;">
           <div>
             <span class="badge ${item.stage === 3 ? 'badge-stage3' : 'badge-stage4'}">
-              Stage ${item.stage} (${STAGE_LABELS[item.stage] ?? 'Unknown'})
+              Stage ${escapeHtml(item.stage)} (${escapeHtml(STAGE_LABELS[item.stage] ?? 'Unknown')})
             </span>
-            <span class="meta" style="margin-left: 8px;">Impact: ${item.impact}</span>
+            <span class="meta" style="margin-left: 8px;">Impact: ${escapeHtml(item.impact)}</span>
             ${item.confidence != null ? `<span class="meta" style="margin-left: 8px;">Confidence: ${(item.confidence * 100).toFixed(0)}%</span>` : ''}
           </div>
-          <span class="meta">${item.createdAt.slice(0, 10)}</span>
+          <span class="meta">${escapeHtml(item.createdAt.slice(0, 10))}</span>
         </div>
 
         <div class="grid-2">
@@ -461,13 +520,13 @@ export function adminDedupeRoutes(db: Db) {
             <span class="badge badge-success" style="font-size: 10px; margin-bottom: 4px;">Survivor (Canonical)</span>
             <h3>${escapeHtml(item.survivor.title)}</h3>
             <p class="meta">By: ${escapeHtml(item.survivor.authors.join(', ') || 'Unknown')}</p>
-            <p class="meta">Published: ${item.survivor.firstPublishYear ?? '—'} · Editions: ${item.survivor.editionCount} · Logs: ${item.survivor.logCount}</p>
+            <p class="meta">Published: ${escapeHtml(item.survivor.firstPublishYear ?? '—')} · Editions: ${escapeHtml(item.survivor.editionCount)} · Logs: ${escapeHtml(item.survivor.logCount)}</p>
           </div>
           <div class="col">
             <span class="badge badge-muted" style="font-size: 10px; margin-bottom: 4px;">Loser (Will be tombstoned)</span>
             <h3>${escapeHtml(item.loser.title)}</h3>
             <p class="meta">By: ${escapeHtml(item.loser.authors.join(', ') || 'Unknown')}</p>
-            <p class="meta">Published: ${item.loser.firstPublishYear ?? '—'} · Editions: ${item.loser.editionCount} · Logs: ${item.loser.logCount}</p>
+            <p class="meta">Published: ${escapeHtml(item.loser.firstPublishYear ?? '—')} · Editions: ${escapeHtml(item.loser.editionCount)} · Logs: ${escapeHtml(item.loser.logCount)}</p>
           </div>
         </div>
 
@@ -478,8 +537,8 @@ export function adminDedupeRoutes(db: Db) {
         <div class="actions">
           ${
             isAdmin
-              ? `<button class="btn-merge" onclick="resolveCandidate('${item.id}', 'merge')">Approve Merge</button>
-                 <button class="btn-dismiss" onclick="resolveCandidate('${item.id}', 'dismiss')">Dismiss</button>`
+              ? `<button class="btn-merge" data-resolve="${escapeHtml(item.id)}" data-action="merge" data-rule="${escapeHtml(ruleReason(item.stage) ?? '')}">Approve Merge</button>
+                 <button class="btn-dismiss" data-resolve="${escapeHtml(item.id)}" data-action="dismiss" data-rule="${escapeHtml(ruleReason(item.stage) ?? '')}">Dismiss</button>`
               : `<button class="btn-dismiss" disabled title="Admin required to merge">Approve Merge (Admin Only)</button>
                  <button class="btn-dismiss" disabled title="Admin required to dismiss">Dismiss (Admin Only)</button>`
           }
@@ -514,11 +573,11 @@ export function adminDedupeRoutes(db: Db) {
                   .map(
                     (m) => `
             <tr>
-              <td class="meta" style="white-space: nowrap;">${m.merged_at.slice(0, 16).replace('T', ' ')}</td>
+              <td class="meta" style="white-space: nowrap;">${escapeHtml(m.merged_at.slice(0, 16).replace('T', ' '))}</td>
               <td><strong>${escapeHtml(m.survivor.title)}</strong></td>
               <td class="meta">${escapeHtml(m.loser.title)}</td>
-              <td>Stage ${m.stage}</td>
-              <td class="meta">${m.stats.reads_moved} reads, ${m.stats.editions_moved} editions</td>
+              <td>Stage ${escapeHtml(m.stage)}</td>
+              <td class="meta">${escapeHtml(m.stats.reads_moved)} reads, ${escapeHtml(m.stats.editions_moved)} editions</td>
               <td>
                 ${
                   m.undone_at
@@ -531,7 +590,7 @@ export function adminDedupeRoutes(db: Db) {
               <td>
                 ${
                   m.can_undo && isAdmin
-                    ? `<button class="btn-undo" onclick="undoMergeAction('${m.id}')">Undo Merge</button>`
+                    ? `<button class="btn-undo" data-undo="${escapeHtml(m.id)}">Undo Merge</button>`
                     : m.can_undo
                     ? `<span class="meta">Admin Required</span>`
                     : `<span class="meta">—</span>`
@@ -547,14 +606,27 @@ export function adminDedupeRoutes(db: Db) {
     </div>
   </section>
 
-  <script>
-    async function resolveCandidate(id, action) {
-      if (!confirm('Are you sure you want to ' + action + ' this candidate?')) return;
+  <script nonce="${nonce}">
+    // Every action carries a reason into the audit log (D-06-1): a rule's
+    // pair starts from the rule, a reported pair and an undo need ${MIN_TYPED_REASON}+ typed characters.
+    function askReason(question, prefill) {
+      const reason = prompt(question, prefill || '');
+      if (reason === null) return null;
+      if (reason.trim().length < ${MIN_TYPED_REASON}) {
+        alert('Give a reason of at least ${MIN_TYPED_REASON} characters.');
+        return null;
+      }
+      return reason.trim();
+    }
+
+    async function resolveCandidate(id, action, rule) {
+      const reason = askReason('Reason to ' + action + ' this candidate (kept in the audit log):', rule);
+      if (reason === null) return;
       try {
         const res = await fetch('/v1/admin/dedupe/queue/' + id + '/resolve', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ action })
+          body: JSON.stringify({ action, reason })
         });
         if (res.ok) {
           document.getElementById('item-' + id)?.remove();
@@ -569,11 +641,13 @@ export function adminDedupeRoutes(db: Db) {
     }
 
     async function undoMergeAction(id) {
-      if (!confirm('Undo this merge? The loser work and all reads will be restored.')) return;
+      const reason = askReason('Undo this merge? The loser work and all reads will be restored. Reason (kept in the audit log):', '');
+      if (reason === null) return;
       try {
         const res = await fetch('/v1/admin/merges/' + id + '/undo', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' }
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ reason })
         });
         if (res.ok) {
           alert('Merge successfully undone.');
@@ -586,20 +660,18 @@ export function adminDedupeRoutes(db: Db) {
         alert('Network error: ' + err.message);
       }
     }
+
+    // No inline handlers: the CSP allows only this nonced block (Audit 06).
+    document.addEventListener('click', (e) => {
+      const resolve = e.target.closest('[data-resolve]');
+      if (resolve) return resolveCandidate(resolve.dataset.resolve, resolve.dataset.action, resolve.dataset.rule);
+      const undo = e.target.closest('[data-undo]');
+      if (undo) return undoMergeAction(undo.dataset.undo);
+    });
   </script>
 </body>
-</html>`;
-
-      return reply.type('text/html').send(html);
+</html>`);
     });
   };
 }
 
-function escapeHtml(str: string): string {
-  return str
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#039;');
-}

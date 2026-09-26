@@ -8,6 +8,11 @@ import { countQuery, queryCountingEnabled } from '../bench/query-counter.js';
 
 const DEV_JWT_SECRET = 'flyleaf-dev-secret-do-not-use-in-production-must-be-at-least-32-chars!';
 
+const APP_BASE_URL = (
+  process.env.APP_BASE_URL ??
+  (process.env.NODE_ENV === 'production' ? 'https://flyleaf.app' : 'http://localhost:8081')
+).replace(/\/+$/, '');
+
 export const config = {
   port: Number(process.env.PORT ?? 3000),
   host: process.env.HOST ?? '0.0.0.0',
@@ -18,11 +23,20 @@ export const config = {
   jwtSecret: resolveJwtSecret(process.env.NODE_ENV, process.env.JWT_SECRET),
   trustProxy: parseTrustProxy(process.env.TRUST_PROXY),
   // Base of the links in verification and reset emails.
-  appBaseUrl: (
-    process.env.APP_BASE_URL ??
-    (process.env.NODE_ENV === 'production' ? 'https://flyleaf.app' : 'http://localhost:8081')
-  ).replace(/\/+$/, ''),
+  appBaseUrl: APP_BASE_URL,
+  corsOrigins: parseCorsOrigins(process.env.CORS_ORIGINS, APP_BASE_URL),
 } as const;
+
+/**
+ * Browser origins allowed to call the API cross-origin, from CORS_ORIGINS
+ * (comma-separated). Defaults to APP_BASE_URL's origin only. The native app
+ * sends no Origin and is unaffected; the admin console is same-origin and
+ * needs no entry (Audit 06; A-05-022: reflecting every origin is gone).
+ */
+export function parseCorsOrigins(value: string | undefined, appBaseUrl: string): string[] {
+  const list = value ? value.split(',').map((o) => o.trim()).filter(Boolean) : [appBaseUrl];
+  return list.map((o) => new URL(o).origin);
+}
 
 /**
  * The dev fallback is public in this repository, so anyone could mint tokens

@@ -144,10 +144,16 @@ describe('security headers on HTML (PRD §42 #9)', () => {
     expect(res.headers['x-content-type-options']).toBe('nosniff');
   });
 
-  it('admin HTML gets the baseline CSP', async () => {
+  // Audit 06 replaced the admin pages' inline-script baseline with a
+  // per-response nonce policy; admin-security.test.ts checks every page.
+  it('admin HTML gets a nonce policy, other HTML a script-free baseline', async () => {
     const res = await app.inject({ method: 'GET', url: '/admin/login' });
     expect(res.headers['content-type']).toMatch(/^text\/html/);
-    expect(res.headers['content-security-policy']).toBe(HTML_BASELINE_CSP);
+    const csp = String(res.headers['content-security-policy']);
+    expect(csp).toMatch(/script-src 'nonce-[A-Za-z0-9+/=]+';/);
+    expect(csp).not.toContain("'unsafe-inline'; style-src 'self'");
+    expect(/script-src ([^;]+)/.exec(csp)![1]).not.toContain('unsafe-inline');
+    expect(HTML_BASELINE_CSP).not.toContain('script-src');
   });
 
   it('JSON responses carry no CSP (nothing to protect, fewer bytes)', async () => {

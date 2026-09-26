@@ -83,8 +83,23 @@ describe('API Contract — openapi.yaml (FN-80)', () => {
     );
     expect(served.size).toBeGreaterThan(100);
     expect([...served].filter((k) => !inSpec.has(k))).toEqual([]);
-    // Hidden: exactly the two server-rendered share pages.
-    expect([...hidden].sort()).toEqual(['get /shelf/{id}', 'get /u/{username}/shelves/{slug}']);
+    // Hidden: exactly the server-rendered HTML, never a JSON route. The two
+    // share pages (Audit 05), and the admin console's pages and form posts
+    // (Audit 06): they render HTML or redirect, and left in the spec they took
+    // the path keys of the REST /v1/admin/audit-log and /v1/admin/merges, whose
+    // schemas then went missing (A-06-019). Listed by name so a JSON route
+    // hidden by mistake still fails here.
+    expect([...hidden].sort()).toEqual([
+      'get /admin/audit-log',
+      'get /admin/catalog/maturity',
+      'get /admin/ingest',
+      'get /admin/login',
+      'get /admin/merges',
+      'get /shelf/{id}',
+      'get /u/{username}/shelves/{slug}',
+      'post /admin/login',
+      'post /admin/logout',
+    ]);
   });
 
   it('declares OpenAPI 3.1.0 with BearerAuth security scheme', async () => {

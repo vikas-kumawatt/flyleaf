@@ -689,7 +689,8 @@ describe('Admin Dedupe & Merge HTTP Endpoints', () => {
       method: 'POST',
       url: `/v1/admin/dedupe/queue/${queueId}/resolve`,
       headers: authHeader,
-      payload: { action: 'merge' },
+      // A user-reported pair needs a typed reason (D-06-1).
+      payload: { action: 'merge', reason: 'Same translation, annotated edition' },
     });
     expect(resolveRes.statusCode).toBe(200);
     const resolveData = JSON.parse(resolveRes.payload);
@@ -711,6 +712,7 @@ describe('Admin Dedupe & Merge HTTP Endpoints', () => {
       method: 'POST',
       url: `/v1/admin/merges/${resolveData.merge_id}/undo`,
       headers: authHeader,
+      payload: { reason: 'Annotated edition is a separate work' },
     });
     expect(undoRes.statusCode).toBe(200);
     const undoData = JSON.parse(undoRes.payload);

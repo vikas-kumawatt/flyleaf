@@ -28,6 +28,15 @@ const STRICT = process.argv.includes('--strict');
 const DATABASE_URL =
   process.env.DATABASE_URL ?? 'postgres://flyleaf:flyleaf@localhost:5432/flyleaf';
 
+// FLYLEAF_TEST_WORKERS=2 caps vitest's worker pool. Each worker holds its
+// own PGlite databases, so on an 8 GB machine the default (one per core) can
+// run out of memory. Unset: vitest's default.
+const TEST_WORKERS = process.env.FLYLEAF_TEST_WORKERS;
+if (TEST_WORKERS !== undefined && !/^[1-9]\d*$/.test(TEST_WORKERS)) {
+  console.error(`FLYLEAF_TEST_WORKERS must be a positive whole number, got ${JSON.stringify(TEST_WORKERS)}`);
+  process.exit(2);
+}
+
 /**
  * The checks, in the order that fails fastest.
  *
@@ -50,7 +59,11 @@ const STEPS = [
   },
   { name: 'api · typecheck', cwd: 'apps/api', args: ['run', 'typecheck'] },
   { name: 'api · spec check', cwd: 'apps/api', args: ['run', 'spec:check'] },
-  { name: 'api · tests', cwd: 'apps/api', args: ['test'] },
+  {
+    name: 'api · tests',
+    cwd: 'apps/api',
+    args: TEST_WORKERS ? ['test', '--', `--maxWorkers=${TEST_WORKERS}`] : ['test'],
+  },
   { name: 'api · build', cwd: 'apps/api', args: ['run', 'build'] },
   { name: 'api · audit', cwd: 'apps/api', args: ['audit', '--audit-level=high'] },
   { name: 'mobile · typecheck', cwd: 'apps/mobile', args: ['run', 'typecheck'] },

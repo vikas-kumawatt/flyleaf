@@ -57,6 +57,9 @@ export class ApiError extends Error {
   }
 }
 
+/** The admin console session (set by POST /admin/login, read by the auth hook). */
+export const ADMIN_SESSION_COOKIE = 'flyleaf_admin_session';
+
 export type AdminViewer = {
   id: string;
   email: string;

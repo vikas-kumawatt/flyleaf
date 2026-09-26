@@ -492,6 +492,10 @@ export interface DedupePreviewResponse {
 
 export interface DedupeResolveRequest {
   action: 'merge' | 'dismiss';
+  /**
+   * Stored in the admin audit log (D-06-1). Optional for a pair a rule queued
+   * (stages 1-3: defaults to the rule); a user-reported pair needs 10+ characters.
+   */
   reason?: string;
 }
 
@@ -586,14 +590,17 @@ export interface Admin2faVerifyResponse {
 
 export interface AdminAuditLogItem {
   id: number;
-  actor_id: string;
-  actor_email: string;
-  actor_role: string;
+  /** Null for a failed login whose email is not a staff account. */
+  actor_id: string | null;
+  actor_email: string | null;
+  actor_role: string | null;
   action: string;
   subject_type: string | null;
   subject_id: string | null;
   reason: string | null;
   payload: Record<string, unknown>;
+  ip?: string | null;
+  user_agent?: string | null;
   created_at: string;
 }
 
@@ -702,6 +709,8 @@ export interface AdminIngestRun {
 }
 
 export interface AdminIngestStatusResponse {
+  /** True when totals and the maturity breakdown are planner statistics, not exact counts. */
+  counts_are_estimates: boolean;
   last_run: AdminIngestRun | null;
   recent_runs: AdminIngestRun[];
   runs_summary: {

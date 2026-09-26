@@ -985,14 +985,16 @@ export const adminAuditLogItemSchema = {
   type: 'object',
   properties: {
     id: { type: 'integer' },
-    actor_id: { type: 'string', format: 'uuid' },
-    actor_email: { type: 'string' },
-    actor_role: { type: 'string' },
+    actor_id: { type: ['string', 'null'], format: 'uuid', description: 'Null for a failed login whose email is not a staff account' },
+    actor_email: { type: ['string', 'null'] },
+    actor_role: { type: ['string', 'null'] },
     action: { type: 'string' },
     subject_type: { type: ['string', 'null'] },
     subject_id: { type: ['string', 'null'], format: 'uuid' },
     reason: { type: ['string', 'null'] },
     payload: { type: 'object' },
+    ip: { type: ['string', 'null'] },
+    user_agent: { type: ['string', 'null'] },
     created_at: { type: 'string', format: 'date-time' },
   },
   required: ['id', 'actor_id', 'actor_email', 'actor_role', 'action', 'payload', 'created_at'],
@@ -1173,6 +1175,10 @@ export const adminIngestRunSchema = {
 export const adminIngestStatusResponseSchema = {
   type: 'object',
   properties: {
+    counts_are_estimates: {
+      type: 'boolean',
+      description: 'True when catalog totals and the maturity breakdown are planner statistics rather than exact counts',
+    },
     last_run: { anyOf: [adminIngestRunSchema, { type: 'null' }] },
     recent_runs: { type: 'array', items: adminIngestRunSchema },
     runs_summary: {
@@ -1247,7 +1253,7 @@ export const adminIngestStatusResponseSchema = {
       ],
     },
   },
-  required: ['last_run', 'recent_runs', 'runs_summary', 'catalog', 'maturity_breakdown', 'telemetry'],
+  required: ['counts_are_estimates', 'last_run', 'recent_runs', 'runs_summary', 'catalog', 'maturity_breakdown', 'telemetry'],
 } as const;
 
 // ---------------------------------------------------------------------------

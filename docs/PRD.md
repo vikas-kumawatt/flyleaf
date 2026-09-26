@@ -3738,7 +3738,7 @@ The PRD has been quietly assuming this exists. §27 needs a report queue, §34.1
 | **Every action is audit-logged** | Actor, target, action, reason, timestamp. Non-negotiable: moderation decisions get challenged, and "I don't remember why" is not an answer |
 | **Destructive actions are reversible** | Merges undo for 30 days; content is hidden rather than deleted; suspensions lift |
 | **No direct database editing** | If a fix needs raw SQL, that is a missing admin feature. Ad-hoc SQL against production is how data gets silently corrupted |
-| **Separate authentication** | Admin login is distinct from the app account, with mandatory two-factor. An admin session must never be obtainable from a stolen app token |
+| **Separate authentication** | Admin login is distinct from the app account, with mandatory two-factor. An admin session must never be obtainable from a stolen app token. A staff (admin or moderator) account is console-only: the app login refuses it with the same generic error as a wrong password, and it cannot refresh an app session. Staff use a separate personal account for the app (D-06-2, audit 06) |
 | **Read-only by default** | The moderator role sees everything and can act on content; only `admin` touches the catalog or user accounts |
 
 **Effort:** roughly one week spread across the phases above, not a project. The point of writing it down is that it stops being invisible work.

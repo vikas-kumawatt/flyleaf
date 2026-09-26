@@ -189,13 +189,15 @@ describe('Admin Authentication & Isolation (FN-90)', () => {
       '1995-05-05',
     );
 
+    // Refused with the same generic 401 as a wrong password: a distinct error
+    // would confirm the email has an app account (PRD §42 #13, Audit 06).
     await expect(
       loginAdmin(db, {
         email: 'reader@example.com',
         password: 'MyReaderPassword123',
         totpCode: '123456',
       }),
-    ).rejects.toThrow(/Admin access required/);
+    ).rejects.toMatchObject({ status: 401, code: 'invalid_credentials' });
   });
 
   it('allows 2FA setup and verification flow', async () => {
@@ -457,6 +459,9 @@ describe('Server-Rendered HTML Admin Console (PRD §27.5)', () => {
 
     expect(res.statusCode).toBe(302);
     expect(res.headers.location).toBe('/admin/login');
-    expect(res.headers['set-cookie']).toContain('Max-Age=0');
+    // One cookie per admin path since Audit 06 (/admin and /v1/admin); both cleared.
+    const cleared = ([] as string[]).concat(res.headers['set-cookie'] as string | string[]);
+    expect(cleared).toHaveLength(2);
+    for (const c of cleared) expect(c).toContain('Max-Age=0');
   });
 });

@@ -5358,19 +5358,181 @@ paths:
                   - error
   /admin/audit-log:
     get:
+      summary: List admin audit log entries
+      tags:
+        - Admin Audit
+      description: Non-negotiable audit trail of administrative actions (FN-93).
+      parameters:
+        - schema:
+            type: string
+          in: query
+          name: action
+          required: false
+        - schema:
+            type: string
+            format: uuid
+          in: query
+          name: actor_id
+          required: false
+        - schema:
+            type: string
+          in: query
+          name: subject_type
+          required: false
+        - schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 50
+          in: query
+          name: limit
+          required: false
+        - schema:
+            type: integer
+            minimum: 0
+            default: 0
+          in: query
+          name: offset
+          required: false
       responses:
         "200":
           description: Default Response
-  /admin/login:
-    get:
-      responses:
-        "200":
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: integer
+                        actor_id:
+                          type:
+                            - "null"
+                            - string
+                          format: uuid
+                          description: Null for a failed login whose email is not a staff account
+                        actor_email:
+                          type:
+                            - "null"
+                            - string
+                        actor_role:
+                          type:
+                            - "null"
+                            - string
+                        action:
+                          type: string
+                        subject_type:
+                          type:
+                            - "null"
+                            - string
+                        subject_id:
+                          type:
+                            - "null"
+                            - string
+                          format: uuid
+                        reason:
+                          type:
+                            - "null"
+                            - string
+                        payload:
+                          type: object
+                        ip:
+                          type:
+                            - "null"
+                            - string
+                        user_agent:
+                          type:
+                            - "null"
+                            - string
+                        created_at:
+                          type: string
+                          format: date-time
+                      required:
+                        - id
+                        - actor_id
+                        - actor_email
+                        - actor_role
+                        - action
+                        - payload
+                        - created_at
+                required:
+                  - data
+        "401":
           description: Default Response
-  /admin/logout:
-    post:
-      responses:
-        "200":
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      code:
+                        type: string
+                        description: Machine-readable error code
+                      message:
+                        type: string
+                        description: Human-readable error description
+                      field:
+                        type: string
+                        description: Invalid field name if applicable
+                    required:
+                      - code
+                      - message
+                required:
+                  - error
+        "403":
           description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      code:
+                        type: string
+                        description: Machine-readable error code
+                      message:
+                        type: string
+                        description: Human-readable error description
+                      field:
+                        type: string
+                        description: Invalid field name if applicable
+                    required:
+                      - code
+                      - message
+                required:
+                  - error
+        "500":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      code:
+                        type: string
+                        description: Machine-readable error code
+                      message:
+                        type: string
+                        description: Human-readable error description
+                      field:
+                        type: string
+                        description: Invalid field name if applicable
+                    required:
+                      - code
+                      - message
+                required:
+                  - error
   /admin/dedupe/queue:
     get:
       summary: List dedupe review queue
@@ -5760,8 +5922,11 @@ paths:
       summary: Resolve dedupe candidate
       tags:
         - Admin Dedupe
-      description: Approves merge or dismisses duplicate candidate with reason.
-        Requires administrator role.
+      description: "Approves merge or dismisses duplicate candidate with reason.
+        Requires administrator role. The reason is stored in the audit log: for
+        a pair a rule queued (stages 1-3) it defaults to that rule; a
+        user-reported pair (stage 4) needs a typed reason of at least 10
+        characters (422 reason_required)."
       requestBody:
         required: true
         content:
@@ -5879,6 +6044,30 @@ paths:
                 required:
                   - error
         "404":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      code:
+                        type: string
+                        description: Machine-readable error code
+                      message:
+                        type: string
+                        description: Human-readable error description
+                      field:
+                        type: string
+                        description: Invalid field name if applicable
+                    required:
+                      - code
+                      - message
+                required:
+                  - error
+        "422":
           description: Default Response
           content:
             application/json:
@@ -6066,16 +6255,172 @@ paths:
                   - error
   /admin/merges:
     get:
+      summary: List recent merges
+      tags:
+        - Admin Dedupe
+      description: Lists applied merges with 30-day undo eligibility.
+      parameters:
+        - schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 50
+          in: query
+          name: limit
+          required: false
+        - schema:
+            type: integer
+            minimum: 0
+            default: 0
+          in: query
+          name: offset
+          required: false
       responses:
         "200":
           description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: string
+                          format: uuid
+                        survivor:
+                          type: object
+                          properties:
+                            id:
+                              type: string
+                              format: uuid
+                            title:
+                              type: string
+                          required:
+                            - id
+                            - title
+                        loser:
+                          type: object
+                          properties:
+                            id:
+                              type: string
+                              format: uuid
+                            title:
+                              type: string
+                          required:
+                            - id
+                            - title
+                        stage:
+                          type: integer
+                        reason:
+                          type: string
+                        merged_at:
+                          type: string
+                          format: date-time
+                        undone_at:
+                          type:
+                            - "null"
+                            - string
+                          format: date-time
+                        can_undo:
+                          type: boolean
+                        stats:
+                          type: object
+                          properties:
+                            reads_moved:
+                              type: integer
+                            editions_moved:
+                              type: integer
+                            authors_moved:
+                              type: integer
+                          required:
+                            - reads_moved
+                            - editions_moved
+                            - authors_moved
+                      required:
+                        - id
+                        - survivor
+                        - loser
+                        - stage
+                        - reason
+                        - merged_at
+                        - can_undo
+                        - stats
+                required:
+                  - data
+        "401":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      code:
+                        type: string
+                        description: Machine-readable error code
+                      message:
+                        type: string
+                        description: Human-readable error description
+                      field:
+                        type: string
+                        description: Invalid field name if applicable
+                    required:
+                      - code
+                      - message
+                required:
+                  - error
+        "500":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      code:
+                        type: string
+                        description: Machine-readable error code
+                      message:
+                        type: string
+                        description: Human-readable error description
+                      field:
+                        type: string
+                        description: Invalid field name if applicable
+                    required:
+                      - code
+                      - message
+                required:
+                  - error
   /admin/merges/{id}/undo:
     post:
       summary: Undo work merge
       tags:
         - Admin Dedupe
       description: Reverses a work merge within 30 days, restoring the loser and
-        original reads. Requires administrator role.
+        original reads. Requires administrator role and a typed reason of at
+        least 10 characters, stored in the audit log.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                reason:
+                  type: string
+                  minLength: 10
+                  maxLength: 1000
+                  description: Why the merge is reversed
+              required:
+                - reason
       parameters:
         - schema:
             type: string
@@ -6221,6 +6566,30 @@ paths:
                 required:
                   - error
         "409":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      code:
+                        type: string
+                        description: Machine-readable error code
+                      message:
+                        type: string
+                        description: Human-readable error description
+                      field:
+                        type: string
+                        description: Invalid field name if applicable
+                    required:
+                      - code
+                      - message
+                required:
+                  - error
+        "422":
           description: Default Response
           content:
             application/json:
@@ -6841,6 +7210,10 @@ paths:
               schema:
                 type: object
                 properties:
+                  counts_are_estimates:
+                    type: boolean
+                    description: True when catalog totals and the maturity breakdown are planner
+                      statistics rather than exact counts
                   last_run:
                     anyOf:
                       - type: object
@@ -7025,6 +7398,7 @@ paths:
                       - pending_work_authors_count
                       - dedupe_queue_pending_count
                 required:
+                  - counts_are_estimates
                   - last_run
                   - recent_runs
                   - runs_summary
@@ -7079,16 +7453,6 @@ paths:
                       - message
                 required:
                   - error
-  /admin/catalog/maturity:
-    get:
-      responses:
-        "200":
-          description: Default Response
-  /admin/ingest:
-    get:
-      responses:
-        "200":
-          description: Default Response
   /events:
     post:
       summary: Ingest client telemetry events (SL-80)

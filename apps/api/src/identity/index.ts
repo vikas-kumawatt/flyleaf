@@ -61,14 +61,31 @@ export const passwordSchema = z
 
 /**
  * The same password typed on two keyboards can arrive as NFC or NFD; hash and
- * verify one form so both log in (A-04-009).
+ * verify one form so both log in (A-04-009). Admin accounts use it too (Audit 06).
  */
-function normalisePassword(password: string): string {
+export function normalisePassword(password: string): string {
   return password.normalize('NFC');
+}
+
+/**
+ * The stored and looked-up form of every email, app and admin alike: the
+ * unique constraint is on this form, not on citext (A-04-011, Audit 06).
+ */
+export function normaliseEmail(email: string): string {
+  return email.trim().toLowerCase();
 }
 
 /** Hashed on first use; login verifies against it when the email has no account. */
 let dummyPasswordHash: Promise<string> | undefined;
+
+/**
+ * Spend the same argon2 verify as a wrong password, so response time does not
+ * reveal whether the email has an account (PRD §6.4, A-04-006). App and admin
+ * login both use it.
+ */
+export async function verifyAgainstDummy(password: string): Promise<void> {
+  await argonVerify(await (dummyPasswordHash ??= argonHash('flyleaf-login-timing-equaliser')), normalisePassword(password));
+}
 
 /** Session label from User-Agent: control characters removed, at most 200 characters (A-04-012). */
 function deviceLabel(userAgent: string | undefined): string | undefined {
@@ -244,7 +261,7 @@ export class IdentityService {
         const [u] = await tx
           .insert(users)
           .values({
-            email: email.trim().toLowerCase(),
+            email: normaliseEmail(email),
             passwordHash,
             dateOfBirth,
           })
@@ -300,7 +317,7 @@ export class IdentityService {
   }
 
   async login(email: string, password: string, device?: string) {
-    const allowed = await this.limiter.allow(`login:${email.trim().toLowerCase()}`, 10, 60);
+    const allowed = await this.limiter.allow(`login:${normaliseEmail(email)}`, 10, 60);
     if (!allowed) throw ApiError.rateLimited();
 
     const [row] = await this.db
@@ -309,20 +326,23 @@ export class IdentityService {
         email: users.email,
         passwordHash: users.passwordHash,
         username: profiles.username,
+        role: users.role,
       })
       .from(users)
       .innerJoin(profiles, eq(users.id, profiles.userId))
-      .where(and(eq(users.email, email.trim().toLowerCase()), isNull(users.deletedAt)))
+      .where(and(eq(users.email, normaliseEmail(email)), isNull(users.deletedAt)))
       .limit(1);
 
     const generic = new ApiError(401, 'invalid_credentials', 'Email or password is incorrect.');
     if (!row) {
-      // Spend the same argon2 verify as a wrong password, so response time
-      // does not reveal whether the email has an account (PRD §6.4, A-04-006).
-      await argonVerify(await (dummyPasswordHash ??= argonHash('flyleaf-login-timing-equaliser')), password);
+      await verifyAgainstDummy(password);
       throw generic;
     }
-    if (!(await argonVerify(row.passwordHash, normalisePassword(password)))) throw generic;
+    // Staff accounts are for the admin console only (D-06-2, PRD §27.5): the
+    // same generic 401 after the same argon2 cost, right password or not, so
+    // this endpoint says nothing about which emails belong to staff.
+    const passwordOk = await argonVerify(row.passwordHash, normalisePassword(password));
+    if (!passwordOk || row.role !== 'user') throw generic;
 
     const familyId = randomUUID();
     const rawRefreshToken = randomBytes(32).toString('base64url');
@@ -371,7 +391,8 @@ export class IdentityService {
             isNull(refreshTokens.usedAt),
             isNull(refreshTokens.revokedAt),
             gt(refreshTokens.expiresAt, new Date()),
-            sql`EXISTS (SELECT 1 FROM users u WHERE u.id = ${refreshTokens.userId} AND u.deleted_at IS NULL)`,
+            // Deleted accounts and staff accounts (D-06-2) cannot refresh.
+            sql`EXISTS (SELECT 1 FROM users u WHERE u.id = ${refreshTokens.userId} AND u.deleted_at IS NULL AND u.role = 'user')`,
           ),
         )
         .returning({ userId: refreshTokens.userId, familyId: refreshTokens.familyId, device: refreshTokens.device });
@@ -699,7 +720,7 @@ export class IdentityService {
         .from(users)
         .where(
           and(
-            eq(users.email, email.trim().toLowerCase()),
+            eq(users.email, normaliseEmail(email)),
             isNull(users.emailVerifiedAt),
             isNull(users.deletedAt),
           ),
@@ -736,7 +757,7 @@ export class IdentityService {
   }
 
   async forgotPassword(email: string): Promise<{ status: 'ok'; message: string }> {
-    const normalized = email.trim().toLowerCase();
+    const normalized = normaliseEmail(email);
     const allowed = await this.limiter.allow(`forgot_pwd:${normalized}`, 5, 900);
     if (!allowed) {
       throw ApiError.rateLimited('Too many password reset requests. Please try again later.');

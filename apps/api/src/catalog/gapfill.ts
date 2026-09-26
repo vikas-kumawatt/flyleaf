@@ -118,9 +118,18 @@ export class GapFillService {
             INSERT INTO works (ol_work_key, title, first_publish_year, ol_cover_id, maturity)
             VALUES (${w.olWorkKey}, ${w.title}, ${w.firstPublishYear}, ${w.coverId}, 'unclassified')
             ON CONFLICT (ol_work_key) DO UPDATE SET
-              title = EXCLUDED.title,
-              first_publish_year = COALESCE(EXCLUDED.first_publish_year, works.first_publish_year),
-              ol_cover_id = COALESCE(EXCLUDED.ol_cover_id, works.ol_cover_id),
+              -- A locked field (PRD §7.9) keeps its value, as in MERGE_WORKS.
+              (title, first_publish_year, ol_cover_id) = (
+                SELECT
+                  CASE WHEN 'title' = ANY(l.f) THEN works.title ELSE EXCLUDED.title END,
+                  CASE WHEN 'first_publish_year' = ANY(l.f) THEN works.first_publish_year
+                       ELSE COALESCE(EXCLUDED.first_publish_year, works.first_publish_year) END,
+                  CASE WHEN 'ol_cover_id' = ANY(l.f) THEN works.ol_cover_id
+                       ELSE COALESCE(EXCLUDED.ol_cover_id, works.ol_cover_id) END
+                FROM (SELECT coalesce(array_agg(fp.field_name), '{}') AS f
+                      FROM field_provenance fp
+                      WHERE fp.entity_type = 'work' AND fp.entity_id = works.id AND fp.is_locked) l
+              ),
               updated_at = now()
             RETURNING id`);
           if (!work) return;

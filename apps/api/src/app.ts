@@ -8,12 +8,12 @@
 //   4. 404 handler returning standard error envelope.
 
 import { randomUUID } from 'node:crypto';
-import Fastify, { type FastifyInstance, type FastifyServerOptions } from 'fastify';
+import Fastify, { type FastifyInstance, type FastifyRequest, type FastifyServerOptions } from 'fastify';
 import cors from '@fastify/cors';
 import { sql } from 'drizzle-orm';
 
-import { ApiError, sendError } from './http.js';
-import type { Db } from './platform/index.js';
+import { ADMIN_SESSION_COOKIE, ApiError, sendError, type AdminViewer } from './http.js';
+import { config, type Db } from './platform/index.js';
 import { waitForDb } from './platform/index.js';
 import { type IdentityService, identityRoutes } from './identity/index.js';
 import { type CatalogService, catalogRoutes } from './catalog/index.js';
@@ -22,7 +22,7 @@ import { reviewsPlugin, type ReviewService } from './reviews/index.js';
 import { adminDedupeRoutes } from './admin/dedupe.js';
 import { adminAuthRoutes } from './admin/routes.js';
 import { adminCatalogRoutes } from './admin/catalog-routes.js';
-import { verifyAdminToken } from './admin/auth.js';
+import { auditContext, logAdminAction, lookupAdmin, verifyAdminToken } from './admin/auth.js';
 import { telemetryRoutes } from './telemetry/index.js';
 import { captureApiException } from './telemetry/sentry.js';
 import { shelvesPlugin, shelvesWebPlugin } from './shelves/index.js';
@@ -45,9 +45,47 @@ export function redactUrl(url: string): string {
   return url.replace(/([?&](?:token|access_token|refresh_token)=)[^&#]*/gi, '$1[redacted]');
 }
 
+/**
+ * HTML that sets no policy of its own may run no script at all. The admin
+ * console sets a per-response nonce policy (admin/html.ts); the share pages
+ * set their own (Audit 06: 'unsafe-inline' script is gone).
+ */
 export const HTML_BASELINE_CSP =
-  "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; " +
-  "img-src 'self' https: data:; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'";
+  "default-src 'none'; style-src 'unsafe-inline'; img-src 'self' https: data:; " +
+  "base-uri 'none'; frame-ancestors 'none'; form-action 'self'";
+
+/** The console (`/admin/…`) and its API (`/v1/admin/…`): the only places admin credentials count. */
+export function isAdminPath(url: string): boolean {
+  return /^\/(?:v1\/)?admin(?:[/?#]|$)/.test(url);
+}
+
+const SAFE_METHODS = new Set(['GET', 'HEAD', 'OPTIONS']);
+
+/**
+ * CSRF guard for the admin cookie, on top of SameSite=Strict: a state-changing
+ * request authenticated by the cookie must carry an Origin naming this host.
+ * Browsers send Origin on every cross-origin request and on same-origin
+ * POSTs, so an absent Origin is refused too (Audit 06).
+ */
+function sameOriginRequest(req: FastifyRequest): boolean {
+  const origin = req.headers.origin;
+  if (typeof origin !== 'string') return false;
+  try {
+    return new URL(origin).host === req.host;
+  } catch {
+    return false;
+  }
+}
+
+function adminSessionCookie(req: FastifyRequest): string | null {
+  const m = req.headers.cookie?.match(new RegExp(`(?:^|;\\s*)${ADMIN_SESSION_COOKIE}=([^;]+)`));
+  if (!m?.[1]) return null;
+  try {
+    return decodeURIComponent(m[1].trim());
+  } catch {
+    return null; // a malformed cookie is no session, never a 500
+  }
+}
 
 /** SQLSTATEs that mean "bad input", and what the client sees for each. */
 const PG_ERRORS: Record<string, { status: number; code: string; message: string }> = {
@@ -75,6 +113,12 @@ export function postgresErrorCode(err: unknown): string | null {
 
 export interface CoreHookOptions {
   identityLookup?: (token: string) => Promise<string | null>;
+  /**
+   * Resolves an admin token to the admin as the database has them now
+   * (`lookupAdmin`). buildApp passes it whenever it has a database; without
+   * one (hook-only harnesses) the token's own claims are used.
+   */
+  adminLookup?: (token: string) => Promise<AdminViewer | null>;
 }
 
 /**
@@ -87,47 +131,41 @@ export function registerCoreHooks(app: FastifyInstance, options?: CoreHookOption
   app.decorateRequest('viewer', null);
   app.decorateRequest('admin', null);
 
+  const adminLookup = options?.adminLookup ?? verifyAdminToken;
+  const resolveAdmin = async (token: string) => {
+    try {
+      return (await adminLookup(token)) ?? null;
+    } catch {
+      return null; // never reject on auth inspection failure
+    }
+  };
+
   app.addHook('onRequest', async (req) => {
-    const xAdmin = req.headers['x-admin-token'];
-    const cookie = req.headers.cookie;
-    let adminCandidate: string | null = null;
-    if (typeof xAdmin === 'string' && xAdmin.trim()) {
-      adminCandidate = xAdmin.trim();
-    } else if (cookie && typeof cookie === 'string') {
-      const m = cookie.match(/(?:^|;\s*)flyleaf_admin_session=([^;]+)/);
-      if (m && m[1]) adminCandidate = decodeURIComponent(m[1].trim());
-    }
-
     const header = req.headers.authorization;
-    if (header && typeof header === 'string') {
-      const match = header.match(/^bearer\s+(.+)$/i);
-      if (match && match[1]) {
-        const raw = match[1].trim();
-        if (!adminCandidate) {
-          try {
-            const adminVerified = await verifyAdminToken(raw);
-            if (adminVerified) req.admin = adminVerified;
-          } catch {
-            // not an admin token
-          }
-        }
-        if (options?.identityLookup) {
-          try {
-            req.viewer = (await options.identityLookup(raw)) ?? null;
-          } catch {
-            // Never reject on auth inspection failure. Fall back to guest mode.
-            req.viewer = null;
-          }
-        }
+    const bearer = typeof header === 'string' ? /^bearer\s+(.+)$/i.exec(header)?.[1]?.trim() : undefined;
+
+    if (bearer && options?.identityLookup) {
+      try {
+        req.viewer = (await options.identityLookup(bearer)) ?? null;
+      } catch {
+        // Never reject on auth inspection failure. Fall back to guest mode.
+        req.viewer = null;
       }
     }
 
-    if (adminCandidate && !req.admin) {
-      try {
-        req.admin = (await verifyAdminToken(adminCandidate)) ?? null;
-      } catch {
-        req.admin = null;
-      }
+    // Admin credentials count only on admin paths (Audit 06). Elsewhere an
+    // admin token or cookie is ignored, so no app route can act on one.
+    if (!isAdminPath(req.url)) return;
+
+    const xAdmin = req.headers['x-admin-token'];
+    const headerToken = typeof xAdmin === 'string' && xAdmin.trim() ? xAdmin.trim() : bearer;
+    if (headerToken) req.admin = await resolveAdmin(headerToken);
+
+    // The cookie is ambient: a browser attaches it to any request, including
+    // one a hostile page triggers. Unsafe methods need a same-origin Origin.
+    if (!req.admin && (SAFE_METHODS.has(req.method) || sameOriginRequest(req))) {
+      const cookieToken = adminSessionCookie(req);
+      if (cookieToken) req.admin = await resolveAdmin(cookieToken);
     }
   });
 
@@ -313,7 +351,9 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
 
   if (options.spec) await registerSwagger(app);
 
-  await app.register(cors, { origin: true });
+  // Only the configured browser origins (A-05-022). The native app sends no
+  // Origin; the admin console is same-origin.
+  await app.register(cors, { origin: [...config.corsOrigins] });
   await app.register(fastifyMultipart, {
     limits: {
       fileSize: 10 * 1024 * 1024, // 10MB per PRD §6.8
@@ -327,7 +367,24 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
 
   registerCoreHooks(app, {
     identityLookup: options.identity ? (token) => options.identity!.lookup(token) : undefined,
+    adminLookup: options.db ? (token) => lookupAdmin(options.db!, token) : undefined,
   });
+
+  if (options.db) {
+    const db = options.db;
+    // A staff member refused an action is audited (FN-93: denied attempts
+    // matter most). After the response, so it costs the request nothing; a
+    // failed audit write is logged, it cannot change a sent response.
+    app.addHook('onResponse', async (req, reply) => {
+      if (!req.admin || reply.statusCode !== 403 || !isAdminPath(req.url)) return;
+      await logAdminAction(db, {
+        actorId: req.admin.id,
+        action: 'admin.denied',
+        payload: { method: req.method, route: req.routeOptions?.url ?? null, role: req.admin.role },
+        ...auditContext(req),
+      }).catch((err) => req.log.error({ err }, 'admin.denied audit write failed'));
+    });
+  }
 
   // Liveness and readiness endpoints
   app.get('/healthz', { schema: HEALTHZ_SCHEMA }, async () => ({ status: 'ok' }));

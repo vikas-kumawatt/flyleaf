@@ -522,9 +522,11 @@ export class FlyleafClient {
     return res.data;
   }
 
-  async undoMerge(mergeId: string): Promise<UndoMergeResponse> {
+  /** `reason` (at least 10 characters) is stored in the admin audit log (D-06-1). */
+  async undoMerge(mergeId: string, reason: string): Promise<UndoMergeResponse> {
     return this.request<UndoMergeResponse>(`/admin/merges/${encodeURIComponent(mergeId)}/undo`, {
       method: 'POST',
+      body: JSON.stringify({ reason }),
     });
   }
 

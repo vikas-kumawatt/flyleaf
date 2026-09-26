@@ -123,13 +123,29 @@ export const MERGE_WORKS = `
     WHERE ol_work_key IS NOT NULL
     ORDER BY ol_work_key
     ON CONFLICT (ol_work_key) DO UPDATE SET
-      title = EXCLUDED.title,
-      subtitle = COALESCE(EXCLUDED.subtitle, works.subtitle),
-      description = COALESCE(EXCLUDED.description, works.description),
-      alternate_titles = EXCLUDED.alternate_titles,
-      first_publish_year = COALESCE(EXCLUDED.first_publish_year, works.first_publish_year),
-      ol_cover_id = COALESCE(EXCLUDED.ol_cover_id, works.ol_cover_id),
-      maturity = EXCLUDED.maturity,
+      -- PRD §7.9 [LOCKED]: a field whose field_provenance row is locked (an
+      -- admin maturity override, a user correction) keeps its value. field_name
+      -- is the column name. One index probe per updated row, on
+      -- field_provenance's (entity_type, entity_id, field_name) key (Audit 06).
+      (title, subtitle, description, alternate_titles,
+       first_publish_year, ol_cover_id, maturity) = (
+        SELECT
+          CASE WHEN 'title' = ANY(l.f) THEN works.title ELSE EXCLUDED.title END,
+          CASE WHEN 'subtitle' = ANY(l.f) THEN works.subtitle
+               ELSE COALESCE(EXCLUDED.subtitle, works.subtitle) END,
+          CASE WHEN 'description' = ANY(l.f) THEN works.description
+               ELSE COALESCE(EXCLUDED.description, works.description) END,
+          CASE WHEN 'alternate_titles' = ANY(l.f) THEN works.alternate_titles
+               ELSE EXCLUDED.alternate_titles END,
+          CASE WHEN 'first_publish_year' = ANY(l.f) THEN works.first_publish_year
+               ELSE COALESCE(EXCLUDED.first_publish_year, works.first_publish_year) END,
+          CASE WHEN 'ol_cover_id' = ANY(l.f) THEN works.ol_cover_id
+               ELSE COALESCE(EXCLUDED.ol_cover_id, works.ol_cover_id) END,
+          CASE WHEN 'maturity' = ANY(l.f) THEN works.maturity ELSE EXCLUDED.maturity END
+        FROM (SELECT coalesce(array_agg(fp.field_name), '{}') AS f
+              FROM field_provenance fp
+              WHERE fp.entity_type = 'work' AND fp.entity_id = works.id AND fp.is_locked) l
+      ),
       updated_at = now()`;
 
 export const MERGE_WORK_AUTHORS = `

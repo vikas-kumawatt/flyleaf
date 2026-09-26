@@ -91,30 +91,42 @@ export function generateTotp(secret: string, timestampMs: number = Date.now(), s
 }
 
 /**
- * Verifies a 6-digit user-provided TOTP token against a secret.
+ * The RFC 6238 time step a 6-digit token matches, or null.
  * Evaluates steps [T - window, T + window] to tolerate ±window clock drift.
+ * Login stores the step it accepted and refuses any step at or before it,
+ * which is what makes a code single-use (Audit 06, A-06-005).
  */
-export function verifyTotp(
+export function matchTotpStep(
   token: string,
   secret: string,
   opts: { window?: number; timestampMs?: number; stepSeconds?: number } = {},
-): boolean {
-  if (!/^\d{6}$/.test(token.trim())) return false;
+): number | null {
+  if (!/^\d{6}$/.test(token.trim())) return null;
   const normalizedToken = token.trim();
 
   const window = opts.window ?? 1;
   const timestampMs = opts.timestampMs ?? Date.now();
   const stepSeconds = opts.stepSeconds ?? 30;
+  const current = Math.floor(timestampMs / 1000 / stepSeconds);
 
   for (let offset = -window; offset <= window; offset++) {
     const time = timestampMs + offset * stepSeconds * 1000;
     const expected = generateTotp(secret, time, stepSeconds);
     if (timingSafeEqual(Buffer.from(normalizedToken), Buffer.from(expected))) {
-      return true;
+      return current + offset;
     }
   }
 
-  return false;
+  return null;
+}
+
+/** Whether a token is valid now; says nothing about replay (see matchTotpStep). */
+export function verifyTotp(
+  token: string,
+  secret: string,
+  opts: { window?: number; timestampMs?: number; stepSeconds?: number } = {},
+): boolean {
+  return matchTotpStep(token, secret, opts) !== null;
 }
 
 /**

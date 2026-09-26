@@ -299,6 +299,14 @@ node scripts/ci.mjs      # or: make ci
 
 Typecheck, 372 tests, build, `npm audit`, the mobile typecheck, spec check (0 OpenAPI drift), and migrations against the real Postgres — about 160 seconds. **This is the same script GitHub Actions runs**; `.github/workflows/ci.yml` builds the environment and calls it rather than restating the steps, so the two cannot drift. The migration step is skipped locally when no database is up and is mandatory in CI (`--strict`).
 
+On a machine short of memory (the 8 GB dev box), cap the API test workers; each one holds its own PGlite databases:
+
+```powershell
+$env:FLYLEAF_TEST_WORKERS = 2; node scripts/ci.mjs     # bash: FLYLEAF_TEST_WORKERS=2 node scripts/ci.mjs
+```
+
+It passes `--maxWorkers=<n>` to vitest; unset, vitest picks one worker per core. For a single run: `npx vitest run --maxWorkers=2` in `apps/api`.
+
 ### 4. Mobile app — a development build, not Expo Go
 
 > **Expo Go will not run this project, and that is not fixable.** Expo Go supports **exactly one SDK version** at a time — whatever the Play Store build on your device happens to be. If it reports "Supported SDK: 54" and the project is SDK 57, the only ways out are to downgrade the project (no) or stop using Expo Go (yes).

@@ -8,6 +8,8 @@ import type { FastifyInstance, FastifyReply } from 'fastify';
 import { z } from 'zod';
 import type { Db } from '../platform/index.js';
 import { requireAdmin, requireModerator } from '../http.js';
+import { auditContext } from './auth.js';
+import { escapeHtml, sendAdminHtml } from './html.js';
 import {
   listCatalogWorks,
   getCatalogWorkDetail,
@@ -59,19 +61,19 @@ export function adminNavbar(currentPath: string, admin: { email: string; role: s
           ${links
             .map(
               (l) => `
-            <a href="${l.path}" style="padding: 0.5rem 1rem; border-radius: 8px; text-decoration: none; font-size: 0.9rem; font-weight: 500; transition: all 0.2s; ${
+            <a href="${escapeHtml(l.path)}" style="padding: 0.5rem 1rem; border-radius: 8px; text-decoration: none; font-size: 0.9rem; font-weight: 500; transition: all 0.2s; ${
               currentPath === l.path
                 ? 'background: rgba(99, 102, 241, 0.25); color: #818cf8; border: 1px solid rgba(99, 102, 241, 0.4);'
                 : 'color: #94a3b8; border: 1px solid transparent;'
-            }">${l.label}</a>
+            }">${escapeHtml(l.label)}</a>
           `,
             )
             .join('')}
         </nav>
       </div>
       <div style="display: flex; align-items: center; gap: 1rem;">
-        <span style="font-size: 0.85rem; color: #94a3b8;">${admin.email}</span>
-        <span style="font-size: 0.75rem; padding: 0.2rem 0.6rem; border-radius: 9999px; background: rgba(255, 255, 255, 0.08); color: ${roleColor}; font-weight: 600; text-transform: uppercase; border: 1px solid ${roleColor}40;">${admin.role}</span>
+        <span style="font-size: 0.85rem; color: #94a3b8;">${escapeHtml(admin.email)}</span>
+        <span style="font-size: 0.75rem; padding: 0.2rem 0.6rem; border-radius: 9999px; background: rgba(255, 255, 255, 0.08); color: ${roleColor}; font-weight: 600; text-transform: uppercase; border: 1px solid ${roleColor}40;">${escapeHtml(admin.role)}</span>
         <form method="POST" action="/admin/logout" style="margin: 0;">
           <button type="submit" style="padding: 0.4rem 0.8rem; border-radius: 6px; border: 1px solid rgba(255, 255, 255, 0.15); background: transparent; color: #cbd5e1; font-size: 0.8rem; cursor: pointer;">Log out</button>
         </form>
@@ -177,6 +179,7 @@ export function adminCatalogRoutes(db: Db) {
           maturity: body.maturity as MaturityRating,
           reason: body.reason,
           actor: admin,
+          context: auditContext(req),
         });
       },
     );
@@ -205,11 +208,13 @@ export function adminCatalogRoutes(db: Db) {
     // Server-Rendered HTML Console Views
     // -----------------------------------------------------------------------
 
-    app.get('/admin/catalog/maturity', async (req, reply) => {
+    app.get('/admin/catalog/maturity', { schema: { hide: true } }, async (req, reply) => {
       const admin = checkAdminSessionCookie(req, reply);
       if (!admin) return;
 
-      const query = worksQuery.parse(req.query);
+      // A hand-edited query string shows the unfiltered list, never a 500.
+      const parsed = worksQuery.safeParse(req.query);
+      const query = parsed.success ? parsed.data : {};
       const activeMaturity = query.maturity ?? '';
       const searchQuery = query.q ?? '';
 
@@ -228,7 +233,7 @@ export function adminCatalogRoutes(db: Db) {
         return '<span style="background: rgba(148, 163, 184, 0.15); color: #cbd5e1; border: 1px solid rgba(148, 163, 184, 0.3); padding: 0.2rem 0.6rem; border-radius: 9999px; font-size: 0.75rem; font-weight: 600;">Unclassified</span>';
       };
 
-      const html = `<!DOCTYPE html>
+      return sendAdminHtml(reply, (nonce) => `<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8">
@@ -275,8 +280,8 @@ export function adminCatalogRoutes(db: Db) {
         <a href="/admin/catalog/maturity?maturity=general" class="filter-btn ${activeMaturity === 'general' ? 'active' : ''}">General</a>
       </div>
       <form method="GET" action="/admin/catalog/maturity" style="display: flex; gap: 0.5rem;">
-        ${activeMaturity ? `<input type="hidden" name="maturity" value="${activeMaturity}">` : ''}
-        <input type="text" name="q" placeholder="Search title or author…" value="${searchQuery}" style="padding: 0.5rem 0.85rem; border-radius: 8px; border: 1px solid rgba(255, 255, 255, 0.15); background: rgba(15, 23, 42, 0.8); color: white; font-size: 0.85rem; width: 240px;">
+        ${activeMaturity ? `<input type="hidden" name="maturity" value="${escapeHtml(activeMaturity)}">` : ''}
+        <input type="text" name="q" placeholder="Search title or author…" value="${escapeHtml(searchQuery)}" style="padding: 0.5rem 0.85rem; border-radius: 8px; border: 1px solid rgba(255, 255, 255, 0.15); background: rgba(15, 23, 42, 0.8); color: white; font-size: 0.85rem; width: 240px;">
         <button type="submit" class="action-btn">Search</button>
       </form>
     </div>
@@ -284,7 +289,7 @@ export function adminCatalogRoutes(db: Db) {
     <!-- Works List -->
     <div class="card" style="padding: 0; overflow: hidden;">
       <div style="padding: 1rem 1.5rem; border-bottom: 1px solid rgba(255, 255, 255, 0.08); display: flex; justify-content: space-between; align-items: center;">
-        <span style="font-weight: 600; font-size: 0.95rem;">Showing ${works.length} of ${total} works</span>
+        <span style="font-weight: 600; font-size: 0.95rem;">Showing ${escapeHtml(works.length)} of ${escapeHtml(total)} works</span>
       </div>
       <div style="overflow-x: auto;">
         <table>
@@ -308,12 +313,12 @@ export function adminCatalogRoutes(db: Db) {
                       (w) => `
               <tr>
                 <td>
-                  <div style="font-weight: 600; color: #f8fafc;">${w.title}</div>
-                  ${w.subtitle ? `<div style="font-size: 0.8rem; color: #94a3b8;">${w.subtitle}</div>` : ''}
+                  <div style="font-weight: 600; color: #f8fafc;">${escapeHtml(w.title)}</div>
+                  ${w.subtitle ? `<div style="font-size: 0.8rem; color: #94a3b8;">${escapeHtml(w.subtitle)}</div>` : ''}
                 </td>
-                <td style="color: #cbd5e1;">${w.author_name}</td>
-                <td style="color: #94a3b8;">${w.first_publish_year ?? '—'}</td>
-                <td style="color: #94a3b8;">${w.log_count}</td>
+                <td style="color: #cbd5e1;">${escapeHtml(w.author_name)}</td>
+                <td style="color: #94a3b8;">${escapeHtml(w.first_publish_year ?? '—')}</td>
+                <td style="color: #94a3b8;">${escapeHtml(w.log_count)}</td>
                 <td>${maturityBadge(w.maturity)}</td>
                 <td>
                   ${
@@ -323,7 +328,7 @@ export function adminCatalogRoutes(db: Db) {
                   }
                 </td>
                 <td>
-                  <button class="action-btn" ${!canOverride ? 'disabled' : ''} onclick="openOverrideModal('${w.id}', '${w.title.replace(/'/g, "\\'")}', '${w.maturity}')">Override</button>
+                  <button class="action-btn" ${!canOverride ? 'disabled' : ''} data-override="${escapeHtml(w.id)}" data-title="${escapeHtml(w.title)}" data-maturity="${escapeHtml(w.maturity)}">Override</button>
                 </td>
               </tr>
             `,
@@ -341,7 +346,7 @@ export function adminCatalogRoutes(db: Db) {
     <div style="background: #1e293b; border: 1px solid rgba(255, 255, 255, 0.15); border-radius: 12px; width: 100%; max-width: 480px; padding: 2rem; box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.5);">
       <h3 style="font-size: 1.25rem; font-weight: 700; margin-bottom: 0.5rem;">Override Maturity</h3>
       <p id="modalWorkTitle" style="font-size: 0.9rem; color: #94a3b8; margin-bottom: 1.5rem;"></p>
-      <form id="overrideForm" onsubmit="submitOverride(event)">
+      <form id="overrideForm">
         <input type="hidden" id="modalWorkId" name="work_id">
         <div style="margin-bottom: 1.25rem;">
           <label style="display: block; font-size: 0.85rem; font-weight: 600; color: #cbd5e1; margin-bottom: 0.5rem;">New Rating</label>
@@ -357,14 +362,14 @@ export function adminCatalogRoutes(db: Db) {
           <textarea id="modalReason" required minlength="3" placeholder="Explain why this maturity rating is being assigned…" style="width: 100%; height: 80px; padding: 0.6rem; border-radius: 8px; border: 1px solid rgba(255, 255, 255, 0.15); background: #0f172a; color: white; font-size: 0.85rem; resize: none;"></textarea>
         </div>
         <div style="display: flex; justify-content: flex-end; gap: 0.75rem;">
-          <button type="button" onclick="closeOverrideModal()" style="padding: 0.5rem 1rem; border-radius: 8px; border: 1px solid rgba(255, 255, 255, 0.15); background: transparent; color: #cbd5e1; font-size: 0.85rem; cursor: pointer;">Cancel</button>
+          <button type="button" id="modalCancelBtn" style="padding: 0.5rem 1rem; border-radius: 8px; border: 1px solid rgba(255, 255, 255, 0.15); background: transparent; color: #cbd5e1; font-size: 0.85rem; cursor: pointer;">Cancel</button>
           <button type="submit" id="modalSubmitBtn" class="action-btn" style="padding: 0.5rem 1.25rem;">Save & Lock</button>
         </div>
       </form>
     </div>
   </div>
 
-  <script>
+  <script nonce="${nonce}">
     function openOverrideModal(id, title, currentMaturity) {
       document.getElementById('modalWorkId').value = id;
       document.getElementById('modalWorkTitle').textContent = title;
@@ -406,15 +411,21 @@ export function adminCatalogRoutes(db: Db) {
         btn.textContent = 'Save & Lock';
       }
     }
+
+    // No inline handlers: the CSP allows only this nonced block (Audit 06).
+    // The title travels in a data attribute and lands via textContent.
+    document.addEventListener('click', (e) => {
+      const open = e.target.closest('[data-override]');
+      if (open && !open.disabled) openOverrideModal(open.dataset.override, open.dataset.title, open.dataset.maturity);
+    });
+    document.getElementById('modalCancelBtn').addEventListener('click', closeOverrideModal);
+    document.getElementById('overrideForm').addEventListener('submit', submitOverride);
   </script>
 </body>
-</html>`;
-
-      reply.header('content-type', 'text/html; charset=utf-8');
-      return reply.send(html);
+</html>`);
     });
 
-    app.get('/admin/ingest', async (req, reply) => {
+    app.get('/admin/ingest', { schema: { hide: true } }, async (req, reply) => {
       const admin = checkAdminSessionCookie(req, reply);
       if (!admin) return;
 
@@ -437,9 +448,11 @@ export function adminCatalogRoutes(db: Db) {
         return '<span style="color: #f87171; font-weight: 600; font-size: 0.8rem;">✕ FAILED</span>';
       };
 
-      const formatNum = (n: number) => Number(n).toLocaleString();
+      // Planner estimates on a large catalog (A-06-013): say so on the page.
+      const approx = status.counts_are_estimates ? '≈ ' : '';
+      const formatNum = (n: number) => escapeHtml(Number(n).toLocaleString());
 
-      const html = `<!DOCTYPE html>
+      return sendAdminHtml(reply, () => `<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8">
@@ -477,17 +490,17 @@ export function adminCatalogRoutes(db: Db) {
       </div>
       <div class="card">
         <div class="metric-title">Catalog Works</div>
-        <div class="metric-value">${formatNum(status.catalog.works_count)}</div>
+        <div class="metric-value">${approx}${formatNum(status.catalog.works_count)}</div>
         <div class="metric-sub">${formatNum(status.catalog.works_with_cover_count)} with covers · ${formatNum(status.catalog.editions_count)} editions</div>
       </div>
       <div class="card">
         <div class="metric-title">Authors & Authorship</div>
-        <div class="metric-value">${formatNum(status.catalog.authors_count)}</div>
+        <div class="metric-value">${approx}${formatNum(status.catalog.authors_count)}</div>
         <div class="metric-sub">${formatNum(status.catalog.authorship_links_count)} links · ${formatNum(status.telemetry.pending_work_authors_count)} pending resolution</div>
       </div>
       <div class="card">
         <div class="metric-title">Raw Payloads & Dedupe</div>
-        <div class="metric-value">${formatNum(status.catalog.raw_payloads_count)}</div>
+        <div class="metric-value">${approx}${formatNum(status.catalog.raw_payloads_count)}</div>
         <div class="metric-sub">${status.telemetry.dedupe_queue_pending_count} pending duplicate review items</div>
       </div>
     </div>
@@ -499,19 +512,19 @@ export function adminCatalogRoutes(db: Db) {
         <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 1rem; margin-bottom: 1.25rem;">
           <div style="background: rgba(15, 23, 42, 0.6); padding: 1rem; border-radius: 8px; border: 1px solid rgba(255, 255, 255, 0.05);">
             <div style="font-size: 0.75rem; color: #4ade80; font-weight: 600;">General</div>
-            <div style="font-size: 1.4rem; font-weight: 700; margin-top: 0.25rem;">${formatNum(status.maturity_breakdown.general)}</div>
+            <div style="font-size: 1.4rem; font-weight: 700; margin-top: 0.25rem;">${approx}${formatNum(status.maturity_breakdown.general)}</div>
           </div>
           <div style="background: rgba(15, 23, 42, 0.6); padding: 1rem; border-radius: 8px; border: 1px solid rgba(255, 255, 255, 0.05);">
             <div style="font-size: 0.75rem; color: #facc15; font-weight: 600;">Mature</div>
-            <div style="font-size: 1.4rem; font-weight: 700; margin-top: 0.25rem;">${formatNum(status.maturity_breakdown.mature)}</div>
+            <div style="font-size: 1.4rem; font-weight: 700; margin-top: 0.25rem;">${approx}${formatNum(status.maturity_breakdown.mature)}</div>
           </div>
           <div style="background: rgba(15, 23, 42, 0.6); padding: 1rem; border-radius: 8px; border: 1px solid rgba(255, 255, 255, 0.05);">
             <div style="font-size: 0.75rem; color: #f87171; font-weight: 600;">Explicit</div>
-            <div style="font-size: 1.4rem; font-weight: 700; margin-top: 0.25rem;">${formatNum(status.maturity_breakdown.explicit)}</div>
+            <div style="font-size: 1.4rem; font-weight: 700; margin-top: 0.25rem;">${approx}${formatNum(status.maturity_breakdown.explicit)}</div>
           </div>
           <div style="background: rgba(15, 23, 42, 0.6); padding: 1rem; border-radius: 8px; border: 1px solid rgba(255, 255, 255, 0.05);">
             <div style="font-size: 0.75rem; color: #94a3b8; font-weight: 600;">Unclassified</div>
-            <div style="font-size: 1.4rem; font-weight: 700; margin-top: 0.25rem;">${formatNum(status.maturity_breakdown.unclassified)}</div>
+            <div style="font-size: 1.4rem; font-weight: 700; margin-top: 0.25rem;">${approx}${formatNum(status.maturity_breakdown.unclassified)}</div>
           </div>
         </div>
         <div style="font-size: 0.85rem; color: #94a3b8;">
@@ -561,12 +574,12 @@ export function adminCatalogRoutes(db: Db) {
                       (r) => `
               <tr>
                 <td>${runStatusBadge(r.status)}</td>
-                <td style="font-weight: 600; text-transform: capitalize; color: #f8fafc;">${r.dump_type}</td>
+                <td style="font-weight: 600; text-transform: capitalize; color: #f8fafc;">${escapeHtml(r.dump_type)}</td>
                 <td style="color: #cbd5e1;">${formatNum(r.lines_read)}</td>
                 <td style="color: #4ade80;">${formatNum(r.rows_written)}</td>
                 <td style="color: #94a3b8;">${formatNum(r.rows_skipped)}</td>
-                <td style="color: #cbd5e1;">${r.duration_seconds !== null ? `${r.duration_seconds}s` : '—'}</td>
-                <td style="color: #94a3b8;">${new Date(r.started_at).toLocaleString()}</td>
+                <td style="color: #cbd5e1;">${r.duration_seconds !== null ? `${escapeHtml(r.duration_seconds)}s` : '—'}</td>
+                <td style="color: #94a3b8;">${escapeHtml(new Date(r.started_at).toLocaleString())}</td>
               </tr>
             `,
                     )
@@ -578,10 +591,7 @@ export function adminCatalogRoutes(db: Db) {
     </div>
   </div>
 </body>
-</html>`;
-
-      reply.header('content-type', 'text/html; charset=utf-8');
-      return reply.send(html);
+</html>`);
     });
   };
 }
