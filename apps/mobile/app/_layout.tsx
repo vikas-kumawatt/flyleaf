@@ -1,4 +1,4 @@
-import 'react-native-gesture-handler';
+import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { useEffect } from 'react';
 import { View } from 'react-native';
 import { Stack } from 'expo-router';
@@ -110,25 +110,29 @@ export default function RootLayout() {
     return cleanup;
   }, []);
 
+  // Every gesture in the app (feed-card swipes, the progress slider) needs this
+  // at the root, or react-native-gesture-handler ignores them.
   return (
-    <ErrorBoundary>
-      <SafeAreaProvider>
-        <ThemeProvider>
-          <ThemedStatusBar />
-          <AppQueryProvider>
-            <SessionProvider>
-              <SyncProvider>
-                <ActionGateProvider>
-                  <VerifyEmailProvider>
-                    <Nav />
-                    <ConfirmDobPrompt />
-                  </VerifyEmailProvider>
-                </ActionGateProvider>
-              </SyncProvider>
-            </SessionProvider>
-          </AppQueryProvider>
-        </ThemeProvider>
-      </SafeAreaProvider>
-    </ErrorBoundary>
+    <GestureHandlerRootView style={{ flex: 1 }}>
+      <ErrorBoundary>
+        <SafeAreaProvider>
+          <ThemeProvider>
+            <ThemedStatusBar />
+            <AppQueryProvider>
+              <SessionProvider>
+                <SyncProvider>
+                  <ActionGateProvider>
+                    <VerifyEmailProvider>
+                      <Nav />
+                      <ConfirmDobPrompt />
+                    </VerifyEmailProvider>
+                  </ActionGateProvider>
+                </SyncProvider>
+              </SessionProvider>
+            </AppQueryProvider>
+          </ThemeProvider>
+        </SafeAreaProvider>
+      </ErrorBoundary>
+    </GestureHandlerRootView>
   );
 }
