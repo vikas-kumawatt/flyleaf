@@ -35,3 +35,6 @@ data/
 
 # audit bench: signed tokens for local bench personas
 apps/api/src/bench/tokens.json
+
+# dev object storage (STORAGE_DRIVER=disk, the default): uploads and exports
+.uploads/

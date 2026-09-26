@@ -18,7 +18,9 @@ import {
   JOBS_SCHEMA, QUEUES, makeBoss, pingHandler, dedupeJobHandler, reconcileShelvesJobHandler, reconcileFollowsJobHandler, registerQueues, sendInTx, type JobLog,
 } from '../jobs/index.js';
 import { freshDb, freshDrizzle } from './pg.js';
-import type { Db } from '../platform/index.js';
+import { type Db } from '../platform/index.js';
+import { MemoryEmailSender } from '../providers/email/index.js';
+import { MemoryObjectStorage } from '../providers/storage/index.js';
 
 const bosses: PgBoss[] = [];
 const clients: PGlite[] = [];
@@ -37,7 +39,10 @@ async function bossOn(client: PGlite, opts: { work?: boolean; log?: JobLog; db?:
   // Surfacing these beats a test that times out with no explanation.
   boss.on('error', (err) => console.error('pg-boss error:', err));
   await boss.start();
-  if (opts.work) await registerQueues(boss, opts.log ?? { info: () => {} }, opts.db);
+  if (opts.work) {
+    const deps = opts.db ? { db: opts.db, storage: new MemoryObjectStorage(), mailer: new MemoryEmailSender() } : undefined;
+    await registerQueues(boss, opts.log ?? { info: () => {} }, deps);
+  }
   else for (const name of Object.values(QUEUES)) await boss.createQueue(name);
   return boss;
 }

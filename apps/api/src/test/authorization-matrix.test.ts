@@ -19,8 +19,9 @@ import { buildApp } from '../app.js';
 import { IdentityService } from '../identity/index.js';
 import { ReadingService } from '../reading/index.js';
 import { ActivityService } from '../activity/index.js';
-import { MemoryEmailSender, type Db } from '../platform/index.js';
-import { MemoryFileStorage } from '../imports/storage.js';
+import { type Db } from '../platform/index.js';
+import { MemoryEmailSender } from '../providers/email/index.js';
+import { MemoryObjectStorage } from '../providers/storage/index.js';
 import {
   users, reviews, shelves, shelfItems, shelfSaves, readComments, readLikes, follows, blocks,
   imports, importRows, exports, refreshTokens, reads,
@@ -97,7 +98,7 @@ beforeAll(async () => {
     identity: new IdentityService(db, unlimited, mailer),
     reading: new ReadingService(db),
     limiter: unlimited,
-    storage: new MemoryFileStorage(),
+    storage: new MemoryObjectStorage(),
     mailer,
   });
   await app.ready();

@@ -895,6 +895,36 @@ export const exports = pgTable('exports', {
 export type Export = typeof exports.$inferSelect;
 export type NewExport = typeof exports.$inferInsert;
 
+// ---------------------------------------------------------------------------
+// Presigned uploads (PV-02). Migration 0024_uploads.sql.
+
+export const uploads = pgTable('uploads', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  userId: uuid('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  purpose: text('purpose').notNull(),
+  key: text('key').notNull(),
+  contentType: text('content_type').notNull(),
+  size: bigint('size', { mode: 'number' }).notNull(),
+  maxBytes: bigint('max_bytes', { mode: 'number' }).notNull(),
+  filename: text('filename'),
+  sha256: text('sha256'),
+  status: text('status').notNull().default('pending'),
+  expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  completedAt: timestamp('completed_at', { withTimezone: true }),
+  consumedAt: timestamp('consumed_at', { withTimezone: true }),
+}, (t) => [
+  check('uploads_purpose_ck', sql`${t.purpose} IN ('import')`),
+  check('uploads_status_ck', sql`${t.status} IN ('pending','uploaded','consumed','expired')`),
+  check('uploads_size_ck', sql`${t.size} > 0 AND ${t.size} <= ${t.maxBytes}`),
+  check('uploads_filename_ck', sql`char_length(${t.filename}) <= 255`),
+  uniqueIndex('uploads_key_uq').on(t.key),
+  index('uploads_user_idx').on(t.userId, t.createdAt),
+  index('uploads_cleanup_idx').on(t.expiresAt).where(sql`${t.status} IN ('pending','uploaded')`),
+]);
+
+export type Upload = typeof uploads.$inferSelect;
+
 
 
 

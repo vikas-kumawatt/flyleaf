@@ -14,7 +14,8 @@ import {
   IdentityService,
   identityRoutes,
 } from '../identity/index.js';
-import { MemoryCache, MemoryEmailSender, PgRateLimiter, type Db } from '../platform/index.js';
+import { MemoryCache, PgRateLimiter, type Db } from '../platform/index.js';
+import { MemoryEmailSender } from '../providers/email/index.js';
 import { freshDrizzle } from './pg.js';
 import { ApiError } from '../http.js';
 import { registerCoreHooks } from '../app.js';

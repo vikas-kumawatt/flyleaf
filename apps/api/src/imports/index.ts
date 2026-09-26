@@ -1,12 +1,12 @@
 // Import endpoints and service (PRD §6.8, §24.2, AC-9, Architecture §3.7, IM-02).
 //
-// Handles multipart CSV/text export uploads from external services (Goodreads,
-// StoryGraph, LibraryThing, Calibre, OpenLibrary, OpenReads), validates file limits,
-// stores raw payload, computes SHA-256 content hash, and enqueues asynchronous
-// processing jobs via pg-boss, returning job ID immediately to the caller.
+// Creates an import from a completed upload (PV-02) of a CSV export from an
+// external service (Goodreads, StoryGraph, LibraryThing, Calibre, OpenLibrary,
+// OpenReads). The file never passes through this route: the client sent it to
+// object storage and /v1/uploads/:id/complete checked it and hashed it. This
+// consumes the upload and enqueues processing in one transaction, returning
+// the job ID immediately.
 
-import crypto from 'node:crypto';
-import path from 'node:path';
 import type { FastifyPluginAsync } from 'fastify';
 import { eq, ne, desc, and, sql } from 'drizzle-orm';
 import type { PgBoss } from 'pg-boss';
@@ -14,24 +14,23 @@ import type { PgBoss } from 'pg-boss';
 import type { Db } from '../platform/index.js';
 import { imports, importRows, type Import, type ImportRow } from '../db/schema.js';
 import { ApiError, requireViewer } from '../http.js';
-import { QUEUES } from '../jobs/index.js';
+import { QUEUES, sendInTx } from '../jobs/index.js';
 import {
   errorResponseSchema,
   idParamSchema,
   importResponseSchema,
   importListResponseSchema,
-  uploadImportQuerySchema,
   importRowSchema,
   importRowsResponseSchema,
   importRowsQuerySchema,
   resolveImportRowBodySchema,
   importRowParamSchema,
+  createImportBodySchema,
 } from '../contract/schemas.js';
-import { type FileStorage, DiskFileStorage } from './storage.js';
 import { SOURCE_CONFIGS, goodreadsConfig, normalizeRow } from './configs/index.js';
 import { commitImportRow } from './committer.js';
+import { lockUploadForConsumer, markUploadConsumed } from '../uploads/index.js';
 
-export * from './storage.js';
 export * from './types.js';
 export * from './parser.js';
 export * from './transformers.js';
@@ -115,26 +114,27 @@ export function toImportRowResponse(row: ImportRow): ImportRowResponseItem {
 }
 
 export interface CreateImportInput {
+  uploadId: string;
   source: string;
-  filename: string;
-  buffer: Buffer;
-  mimeType?: string;
   force?: boolean;
 }
 
 export class ImportService {
   constructor(
     private db: Db,
-    private storage: FileStorage,
     private boss?: PgBoss,
   ) {}
 
-  async create(userId: string, input: CreateImportInput): Promise<ImportResponseItem> {
+  /**
+   * `created: false` is a replay: the upload was already consumed by this
+   * user, and the import it produced is returned instead of a 409, so a
+   * double submit or an offline retry is harmless.
+   */
+  async create(
+    userId: string,
+    input: CreateImportInput,
+  ): Promise<{ created: boolean; import: ImportResponseItem }> {
     const rawSource = input.source?.trim().toLowerCase();
-    if (!rawSource) {
-      throw ApiError.badRequest('missing_source', 'Import source is required.');
-    }
-
     if (!IMPORT_SOURCES.includes(rawSource as ImportSource)) {
       throw ApiError.badRequest(
         'invalid_source',
@@ -143,81 +143,76 @@ export class ImportService {
       );
     }
 
-    if (!input.buffer || input.buffer.length === 0) {
-      throw ApiError.badRequest('empty_file', 'Uploaded file is empty.');
-    }
+    return this.db.transaction(async (tx) => {
+      const db = tx as unknown as Db;
+      const upload = await lockUploadForConsumer(db, userId, input.uploadId, 'import');
 
-    // SHA-256 for duplicate-import detection per IM-11 and integrity verification
-    const contentHash = crypto.createHash('sha256').update(input.buffer).digest('hex');
-
-    // Duplicate detection by content hash (PRD §34.4, §5141, IM-11):
-    // Unless force=true is supplied, reject if an identical file was previously imported and did not fail.
-    if (!input.force) {
-      const [existing] = await this.db
-        .select({ id: imports.id, createdAt: imports.createdAt })
-        .from(imports)
-        .where(
-          and(
-            eq(imports.userId, userId),
-            eq(imports.contentHash, contentHash),
-            ne(imports.state, 'failed'),
-          ),
-        )
-        .orderBy(desc(imports.createdAt))
-        .limit(1);
-
-      if (existing) {
-        throw ApiError.conflict(
-          'duplicate_import',
-          `An identical file has already been imported on ${existing.createdAt.toISOString().slice(0, 10)} (import ID: ${existing.id}). Pass force=true to import anyway.`,
-        );
+      if (upload.status === 'consumed') {
+        const [existing] = await db
+          .select()
+          .from(imports)
+          .where(and(eq(imports.userId, userId), eq(imports.fileKey, upload.key)))
+          .limit(1);
+        if (!existing) throw ApiError.conflict('upload_consumed', 'This upload has already been used.');
+        return { created: false, import: toImportResponse(existing) };
       }
-    }
 
-    // Safe sanitized filename key
-    const sanitizedName = path
-      .basename(input.filename || 'export.csv')
-      .replace(/[^a-zA-Z0-9._-]/g, '_');
-    const fileKey = `imports/${userId}/${crypto.randomUUID()}-${sanitizedName}`;
+      // Duplicate detection by content hash (PRD §34.4, IM-11): unless
+      // force=true, refuse a file identical to an earlier import that did not
+      // fail. The upload stays 'uploaded', so "import anyway" reuses it.
+      if (!input.force && upload.sha256) {
+        const [existing] = await db
+          .select({ id: imports.id, createdAt: imports.createdAt })
+          .from(imports)
+          .where(
+            and(
+              eq(imports.userId, userId),
+              eq(imports.contentHash, upload.sha256),
+              ne(imports.state, 'failed'),
+            ),
+          )
+          .orderBy(desc(imports.createdAt))
+          .limit(1);
 
-    // Store raw file payload
-    await this.storage.put(fileKey, input.buffer, input.mimeType);
+        if (existing) {
+          throw ApiError.conflict(
+            'duplicate_import',
+            `An identical file has already been imported on ${existing.createdAt.toISOString().slice(0, 10)} (import ID: ${existing.id}). Pass force=true to import anyway.`,
+          );
+        }
+      }
 
-    // Write database record in queued state
-    const [row] = await this.db
-      .insert(imports)
-      .values({
-        userId,
-        source: rawSource,
-        state: 'queued',
-        totalRows: 0,
-        matched: 0,
-        unmatched: 0,
-        fileKey,
-        filename: input.filename || sanitizedName,
-        fileSizeBytes: input.buffer.length,
-        contentHash,
-      })
-      .returning();
+      const [row] = await db
+        .insert(imports)
+        .values({
+          userId,
+          source: rawSource,
+          state: 'queued',
+          totalRows: 0,
+          matched: 0,
+          unmatched: 0,
+          fileKey: upload.key,
+          filename: upload.filename ?? `${rawSource}_export.csv`,
+          fileSizeBytes: upload.size,
+          contentHash: upload.sha256,
+        })
+        .returning();
 
-    if (!row) {
-      throw new ApiError(500, 'import_create_failed', 'Failed to create import job record.');
-    }
+      await markUploadConsumed(db, upload.id);
 
-    // Enqueue background processing job via pg-boss if configured
-    if (this.boss) {
-      try {
-        await this.boss.send(QUEUES.processImport, {
-          importId: row.id,
+      // Same transaction: the upload is consumed and the job exists, or
+      // neither (PV-02). A failed enqueue is a failed request, never an
+      // import stuck in 'queued'.
+      if (this.boss) {
+        await sendInTx(this.boss, tx, QUEUES.processImport, {
+          importId: row!.id,
           userId,
           source: rawSource,
         });
-      } catch (err) {
-        // Warning: if boss fails, the record remains queued and will be picked up by reconciler/retry
       }
-    }
 
-    return toImportResponse(row);
+      return { created: true, import: toImportResponse(row!) };
+    });
   }
 
   async get(userId: string, importId: string): Promise<ImportResponseItem> {
@@ -438,7 +433,6 @@ export class ImportService {
 
 export interface ImportsPluginOptions {
   db: Db;
-  storage?: FileStorage;
   boss?: PgBoss;
 }
 
@@ -446,77 +440,40 @@ export interface ImportsPluginOptions {
  * Fastify plugin registering import endpoints.
  */
 export const importsPlugin: FastifyPluginAsync<ImportsPluginOptions> = async (fastify, opts) => {
-  const storage = opts.storage ?? new DiskFileStorage();
-  const service = new ImportService(opts.db, storage, opts.boss);
+  const service = new ImportService(opts.db, opts.boss);
 
   fastify.post(
     '/imports',
     {
       schema: {
         tags: ['Imports'],
-        summary: 'Upload export file for background import',
+        summary: 'Start a background import from an uploaded export file',
         description:
-          'Uploads an export CSV from Goodreads, StoryGraph, LibraryThing, Calibre, OpenLibrary, or OpenReads. Returns a job ID immediately and queues processing (PRD §6.8, §24.2, AC-9, IM-02).',
-        consumes: ['multipart/form-data'],
-        querystring: uploadImportQuerySchema,
+          'Takes a completed upload (purpose `import`) of a CSV export from Goodreads, StoryGraph, LibraryThing, Calibre, OpenLibrary, or OpenReads. ' +
+          'Returns a job ID immediately and queues processing (PRD §6.8, §24.2, AC-9, IM-02, PV-02). ' +
+          'Repeating the request with the same upload returns the same import with 200.',
+        body: createImportBodySchema,
         response: {
+          200: importResponseSchema,
           201: importResponseSchema,
           400: errorResponseSchema,
           401: errorResponseSchema,
+          404: errorResponseSchema,
           409: errorResponseSchema,
-          413: errorResponseSchema,
+          410: errorResponseSchema,
           422: errorResponseSchema,
         },
       },
     },
     async (request, reply) => {
       const viewer = requireViewer(request);
-
-      if (!request.isMultipart()) {
-        throw ApiError.badRequest('invalid_content_type', 'Request must be multipart/form-data.');
-      }
-
-      let sourceField: string | undefined;
-      let forceField: boolean | undefined;
-      let fileBuffer: Buffer | null = null;
-      let filename: string | null = null;
-      let mimeType: string | undefined;
-
-      const parts = request.parts();
-      for await (const part of parts) {
-        if (part.type === 'file') {
-          filename = part.filename;
-          mimeType = part.mimetype;
-          fileBuffer = await part.toBuffer();
-        } else if (part.type === 'field' && part.fieldname === 'source') {
-          sourceField = typeof part.value === 'string' ? part.value : undefined;
-        } else if (part.type === 'field' && part.fieldname === 'force') {
-          forceField = part.value === 'true' || part.value === '1' || part.value === true;
-        }
-      }
-
-      const query = (request.query as { source?: string; force?: string | boolean }) || {};
-      const source = query.source || sourceField;
-      const force =
-        query.force === 'true' || query.force === '1' || query.force === true || forceField === true;
-
-      if (!source) {
-        throw ApiError.badRequest('missing_source', 'Import source is required.', 'source');
-      }
-
-      if (!fileBuffer) {
-        throw ApiError.badRequest('missing_file', 'No file was uploaded in the form data.', 'file');
-      }
-
+      const body = request.body as { upload_id: string; source: string; force?: boolean };
       const result = await service.create(viewer, {
-        source,
-        filename: filename || 'export.csv',
-        buffer: fileBuffer,
-        mimeType,
-        force,
+        uploadId: body.upload_id,
+        source: body.source,
+        force: body.force === true,
       });
-
-      return reply.status(201).send(result);
+      return reply.status(result.created ? 201 : 200).send(result.import);
     },
   );
 

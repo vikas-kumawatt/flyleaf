@@ -24,9 +24,10 @@ import {
   exports as exportsTable,
 } from '../db/schema.js';
 import type { Db } from '../platform/index.js';
-import { MemoryEmailSender } from '../platform/index.js';
+import { MemoryEmailSender } from '../providers/email/index.js';
 import { buildApp } from '../app.js';
-import { MemoryFileStorage } from '../imports/storage.js';
+import { MemoryObjectStorage, readAll } from '../providers/storage/index.js';
+import { importCsv } from './upload-fixtures.js';
 import { ExportService } from '../exports/index.js';
 import { processImport } from '../imports/processor.js';
 
@@ -35,7 +36,12 @@ const __dirname = path.dirname(__filename);
 
 let app: FastifyInstance;
 let drizzleDb: Db;
-let storage: MemoryFileStorage;
+let storage: MemoryObjectStorage;
+
+async function stored(key: string): Promise<Buffer | null> {
+  const stream = await storage.getStream(key);
+  return stream ? readAll(stream) : null;
+}
 let mailer: MemoryEmailSender;
 let exportService: ExportService;
 
@@ -416,7 +422,7 @@ beforeAll(async () => {
   // Notice: no editions with Scribner ISBN 0026327015 or 9780026327015 are seeded!
 
   // 5. Setup infrastructure
-  storage = new MemoryFileStorage();
+  storage = new MemoryObjectStorage();
   mailer = new MemoryEmailSender();
   exportService = new ExportService(drizzleDb, storage, mailer);
 
@@ -448,24 +454,10 @@ describe('IM-12: Real Library Import & Phase 3 Exit Criteria', () => {
     const csvPath = path.join(__dirname, 'fixtures', 'real-library-goodreads.csv');
     const csvBuffer = fs.readFileSync(csvPath);
 
-    // 1. Upload via multipart API
-    const boundary = '----WebKitFormBoundaryRealGoodreadsTest';
-    const bodyParts = [
-      `--${boundary}\r\nContent-Disposition: form-data; name="source"\r\n\r\ngoodreads\r\n`,
-      `--${boundary}\r\nContent-Disposition: form-data; name="file"; filename="real-library-goodreads.csv"\r\nContent-Type: text/csv\r\n\r\n`,
-      csvBuffer.toString('utf-8'),
-      `\r\n--${boundary}--\r\n`,
-    ];
-    const payload = Buffer.concat(bodyParts.map((p) => Buffer.from(p)));
-
-    const uploadRes = await app.inject({
-      method: 'POST',
-      url: '/v1/imports',
-      headers: {
-        authorization: `Bearer ${ALICE_TOKEN}`,
-        'content-type': `multipart/form-data; boundary=${boundary}`,
-      },
-      payload,
+    // 1. Upload through the presigned flow, then start the import (PV-02)
+    const uploadRes = await importCsv(app, { authorization: `Bearer ${ALICE_TOKEN}` }, csvBuffer, {
+      source: 'goodreads',
+      filename: 'real-library-goodreads.csv',
     });
 
     expect(uploadRes.statusCode).toBe(201);
@@ -639,7 +631,7 @@ describe('IM-12: Real Library Import & Phase 3 Exit Criteria', () => {
       .from(exportsTable)
       .where(eq(exportsTable.id, exportId));
 
-    const csvBuffer = await storage.get(exportRow!.fileKey!);
+    const csvBuffer = await stored(exportRow!.fileKey!);
     expect(csvBuffer).toBeDefined();
     const csvContent = csvBuffer!.toString('utf-8');
 
@@ -650,23 +642,9 @@ describe('IM-12: Real Library Import & Phase 3 Exit Criteria', () => {
     expect(csvContent.toLowerCase()).toContain('favorites');
 
     // 2. Re-import into fresh account (Bob)
-    const bobBoundary = '----WebKitFormBoundaryBobRoundtrip';
-    const bobBodyParts = [
-      `--${bobBoundary}\r\nContent-Disposition: form-data; name="source"\r\n\r\ngoodreads\r\n`,
-      `--${bobBoundary}\r\nContent-Disposition: form-data; name="file"; filename="alice_export.csv"\r\nContent-Type: text/csv\r\n\r\n`,
-      csvContent,
-      `\r\n--${bobBoundary}--\r\n`,
-    ];
-    const bobPayload = Buffer.concat(bobBodyParts.map((p) => Buffer.from(p)));
-
-    const bobUploadRes = await app.inject({
-      method: 'POST',
-      url: '/v1/imports',
-      headers: {
-        authorization: `Bearer ${BOB_TOKEN}`,
-        'content-type': `multipart/form-data; boundary=${bobBoundary}`,
-      },
-      payload: bobPayload,
+    const bobUploadRes = await importCsv(app, { authorization: `Bearer ${BOB_TOKEN}` }, csvContent, {
+      source: 'goodreads',
+      filename: 'alice_export.csv',
     });
 
     expect(bobUploadRes.statusCode).toBe(201);
@@ -725,23 +703,9 @@ describe('IM-12: Real Library Import & Phase 3 Exit Criteria', () => {
     const csvBuffer = fs.readFileSync(csvPath);
 
     // Upload as Charlie
-    const boundary = '----WebKitFormBoundaryStorygraphTest';
-    const bodyParts = [
-      `--${boundary}\r\nContent-Disposition: form-data; name="source"\r\n\r\nstorygraph\r\n`,
-      `--${boundary}\r\nContent-Disposition: form-data; name="file"; filename="real-library-storygraph.csv"\r\nContent-Type: text/csv\r\n\r\n`,
-      csvBuffer.toString('utf-8'),
-      `\r\n--${boundary}--\r\n`,
-    ];
-    const payload = Buffer.concat(bodyParts.map((p) => Buffer.from(p)));
-
-    const uploadRes = await app.inject({
-      method: 'POST',
-      url: '/v1/imports',
-      headers: {
-        authorization: `Bearer ${CHARLIE_TOKEN}`,
-        'content-type': `multipart/form-data; boundary=${boundary}`,
-      },
-      payload,
+    const uploadRes = await importCsv(app, { authorization: `Bearer ${CHARLIE_TOKEN}` }, csvBuffer, {
+      source: 'storygraph',
+      filename: 'real-library-storygraph.csv',
     });
 
     expect(uploadRes.statusCode).toBe(201);

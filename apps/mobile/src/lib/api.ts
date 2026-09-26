@@ -61,7 +61,9 @@ import {
   type ImportSource,
   type ImportResponse,
   type ImportListResponse,
-  type UploadImportOptions,
+  type CreateImportRequest,
+  type UploadFileOptions,
+  type UploadResponse,
   type ImportRowState,
   type ImportRowItem,
   type ImportRowsResponse,
@@ -133,7 +135,9 @@ export type {
   ImportSource,
   ImportResponse,
   ImportListResponse,
-  UploadImportOptions,
+  CreateImportRequest,
+  UploadFileOptions,
+  UploadResponse,
   ImportRowState,
   ImportRowItem,
   ImportRowsResponse,
@@ -306,6 +310,9 @@ export const client = new FlyleafClient({
   baseUrl: API_BASE,
   getToken: loadAccessToken,
   fetch: interceptedFetch as typeof fetch,
+  // Direct uploads go to object storage with the plain fetch: the
+  // interceptor above re-sends a 401 with the bearer token (PV-03).
+  uploadFetch: fetch,
 });
 
 // ---------------------------------------------------------------- API Service
@@ -330,6 +337,8 @@ export const api = {
   },
 
   logout: async () => {
+    // An upload started by this user must not be completed by the next one.
+    client.cancelPendingUploads();
     const refreshToken = await loadRefreshToken();
     if (refreshToken) {
       try {
@@ -539,12 +548,10 @@ export const api = {
   getShelfBySlug: (username: string, slug: string) => client.getShelfBySlug(username, slug),
 
   // Imports (IM-02, IM-08, IM-09, IM-11)
-  uploadImport: (
-    source: ImportSource,
-    file: Blob | File | Uint8Array | ArrayBuffer,
-    filename?: string,
-    options?: UploadImportOptions,
-  ) => client.uploadImport(source, file, filename, options),
+  // Presigned: intent -> straight to storage -> complete (PV-02, PV-03).
+  uploadFile: (file: string | Blob | Uint8Array | ArrayBuffer, options: UploadFileOptions) =>
+    client.uploadFile('import', file, options),
+  createImport: (data: CreateImportRequest) => client.createImport(data),
   getImport: (id: string) => client.getImport(id),
   listImports: () => client.listImports(),
   getImportRows: (

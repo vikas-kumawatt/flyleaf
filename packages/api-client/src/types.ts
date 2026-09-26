@@ -951,6 +951,55 @@ export interface UserShelvesResponse {
   shelves: Shelf[];
 }
 
+// ---------------------------------------------------------------- Uploads (PV-02)
+
+export type UploadPurpose = 'import';
+export type UploadStatus = 'pending' | 'uploaded' | 'consumed' | 'expired';
+
+export interface CreateUploadRequest {
+  purpose: UploadPurpose;
+  content_type: string;
+  /** Exact size in bytes; the upload must match it. */
+  size: number;
+  filename?: string;
+}
+
+/** Where to send the bytes: straight to object storage, never to the API. */
+export interface UploadTarget {
+  url: string;
+  method: 'PUT' | 'POST';
+  headers: Record<string, string>;
+  fields?: Record<string, string>;
+}
+
+export interface UploadResponse {
+  id: string;
+  purpose: UploadPurpose;
+  status: UploadStatus;
+  content_type: string;
+  size: number;
+  max_bytes: number;
+  filename?: string | null;
+  expires_at: string;
+  created_at: string;
+  completed_at?: string | null;
+  /** Only in the response to createUpload. */
+  target?: UploadTarget;
+}
+
+/** A file's bytes: text, a Blob, or raw bytes. */
+export type UploadBody = string | Blob | Uint8Array | ArrayBuffer;
+
+export interface UploadFileOptions {
+  /** Declared and signed: storage refuses a different Content-Type. */
+  contentType: string;
+  filename?: string;
+  /** Bytes sent so far; uses XMLHttpRequest where it exists (browsers, React Native). */
+  onProgress?: (sent: number, total: number) => void;
+  /** Tries for the direct-upload step only (network error, 408, 429, 5xx). Default 3. */
+  attempts?: number;
+}
+
 // ---------------------------------------------------------------- Imports (IM-02)
 
 export type ImportSource =
@@ -984,7 +1033,11 @@ export interface ImportListResponse {
   imports: ImportResponse[];
 }
 
-export interface UploadImportOptions {
+/** POST /v1/imports (PV-02): from a completed upload with purpose `import`. */
+export interface CreateImportRequest {
+  upload_id: string;
+  source: ImportSource;
+  /** Bypass duplicate detection by content hash (IM-11): "import anyway". */
   force?: boolean;
 }
 

@@ -1,8 +1,8 @@
-// Swap-ready email sender interface (FN-65, Architecture §2 & §7).
+// Email port (FN-65, PV-04). The templates (verification, reset, export
+// ready) stay in the code that sends them; an adapter only delivers.
 //
-// Like RateLimiter and Cache, EmailSender is an interface from day one so that
-// switching from console/dev to Resend/SES/Postmark in production is one
-// implementation plus a config line, rather than scattered edits across auth handlers.
+// `console` and `memory` never leave the process: development and tests.
+// providers/index.ts refuses both when NODE_ENV=production.
 
 export interface EmailMessage {
   to: string;
@@ -12,6 +12,7 @@ export interface EmailMessage {
 }
 
 export interface EmailSender {
+  /** Resolves once the provider accepted the message; rejects if it did not. */
   send(message: EmailMessage): Promise<void>;
 }
 

@@ -16,6 +16,7 @@
 import { pino } from 'pino';
 import { config, makeDb, waitForDb, closeDb } from './platform/index.js';
 import { makeBoss, registerQueues, QUEUES } from './jobs/index.js';
+import { createProviders } from './providers/index.js';
 
 const log = pino({
   level: config.logLevel,
@@ -25,6 +26,9 @@ const log = pino({
 });
 
 async function main() {
+  // Before the database, like server.ts: fail fast on provider config (PV-08).
+  const providers = createProviders();
+
   // In `docker compose up` this process wins the race against Postgres, and
   // pg-boss's own start would fail on the first connection rather than wait.
   // The pool is also what job handlers will use as they arrive; the one that
@@ -68,7 +72,7 @@ async function main() {
   boss.on('warning', (warning) => log.warn({ warning }, 'pg-boss'));
 
   await boss.start();
-  await registerQueues(boss, log, db);
+  await registerQueues(boss, log, { db, storage: providers.storage, mailer: providers.mailer });
 
   // Monthly dedupe pass: 1st of every month at midnight (FN-52, Architecture §9).
   // It detects and queues; it merges only if this worker runs with
@@ -82,6 +86,8 @@ async function main() {
   await boss.schedule(QUEUES.reconcileShelves, '0 3 * * *');
   await boss.schedule(QUEUES.reconcileFollows, '15 3 * * *');
   await boss.schedule(QUEUES.reconcileReads, '30 3 * * *');
+  // Expired uploads and export files leave object storage (PV-02).
+  await boss.schedule(QUEUES.storageCleanup, '45 3 * * *');
 
   log.info({ queues: Object.values(QUEUES), schema: 'pgboss' }, 'worker ready');
 

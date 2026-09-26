@@ -96,7 +96,13 @@ import type {
   ImportSource,
   ImportResponse,
   ImportListResponse,
-  UploadImportOptions,
+  CreateImportRequest,
+  CreateUploadRequest,
+  UploadBody,
+  UploadFileOptions,
+  UploadPurpose,
+  UploadResponse,
+  UploadTarget,
   ImportRowState,
   ImportRowItem,
   ImportRowsResponse,
@@ -123,17 +129,37 @@ export interface ClientConfig {
   baseUrl: string;
   getToken?: () => Promise<string | null> | string | null;
   fetch?: typeof fetch;
+  /**
+   * For the direct upload to object storage (PV-03). Never `fetch` above:
+   * an app's API fetch may add the bearer token (a 401 retry does), and the
+   * token must not reach a storage host. Defaults to the global fetch.
+   */
+  uploadFetch?: typeof fetch;
+}
+
+/** Statuses worth retrying the direct upload for; anything else will not change. */
+const RETRYABLE_UPLOAD_STATUS = (status: number) => status === 408 || status === 429 || status >= 500;
+
+function byteLength(body: UploadBody): number {
+  if (typeof body === 'string') return new TextEncoder().encode(body).length;
+  if (body instanceof ArrayBuffer) return body.byteLength;
+  if (body instanceof Uint8Array) return body.byteLength;
+  return body.size;
 }
 
 export class FlyleafClient {
   private baseUrl: string;
   private getToken?: () => Promise<string | null> | string | null;
   private fetchFn: typeof fetch;
+  private uploadFetchFn?: typeof fetch;
+  /** Uploads in progress, so cancelPendingUploads() can stop them (logout). */
+  private inflightUploads = new Set<AbortController>();
 
   constructor(config: ClientConfig) {
     this.baseUrl = config.baseUrl.replace(/\/+$/, '');
     this.getToken = config.getToken;
     this.fetchFn = config.fetch ?? fetch;
+    this.uploadFetchFn = config.uploadFetch;
   }
 
   private async request<T>(path: string, init: RequestInit = {}): Promise<T> {
@@ -763,30 +789,122 @@ export class FlyleafClient {
     );
   }
 
+  // ---------------------------------------------------------------- Uploads (PV-02, PV-03)
+
+  async createUpload(data: CreateUploadRequest): Promise<UploadResponse> {
+    return this.request<UploadResponse>('/uploads', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async completeUpload(id: string): Promise<UploadResponse> {
+    return this.request<UploadResponse>(`/uploads/${encodeURIComponent(id)}/complete`, {
+      method: 'POST',
+    });
+  }
+
+  /**
+   * Intent -> direct upload to storage -> complete. Only the direct upload is
+   * retried: retrying the intent or complete here would hide an error the
+   * caller must see (413, 415, 422). Resolves with the completed upload; its
+   * id goes to a consumer (createImport).
+   */
+  async uploadFile(purpose: UploadPurpose, file: UploadBody, options: UploadFileOptions): Promise<UploadResponse> {
+    const controller = new AbortController();
+    this.inflightUploads.add(controller);
+    const cancelled = () => new FlyleafApiError('upload_cancelled', 'The upload was cancelled.');
+    try {
+      const size = byteLength(file);
+      const intent = await this.createUpload({
+        purpose,
+        content_type: options.contentType,
+        size,
+        ...(options.filename ? { filename: options.filename } : {}),
+      });
+      if (!intent.target) throw new FlyleafApiError('upload_target_missing', 'The server returned no upload target.');
+
+      const attempts = Math.max(1, options.attempts ?? 3);
+      for (let attempt = 1; ; attempt++) {
+        if (controller.signal.aborted) throw cancelled();
+        let status: number;
+        try {
+          status = await this.sendToTarget(intent.target, file, size, options.onProgress, controller.signal);
+        } catch (err) {
+          if (controller.signal.aborted) throw cancelled();
+          if (attempt >= attempts) throw err;
+          await new Promise((r) => setTimeout(r, 500 * 2 ** (attempt - 1)));
+          continue;
+        }
+        if (status >= 200 && status < 300) break;
+        if (!RETRYABLE_UPLOAD_STATUS(status) || attempt >= attempts) {
+          throw new FlyleafApiError('upload_failed', `Storage refused the upload (status ${status}).`, undefined, status);
+        }
+        await new Promise((r) => setTimeout(r, 500 * 2 ** (attempt - 1)));
+      }
+
+      if (controller.signal.aborted) throw cancelled();
+      return await this.completeUpload(intent.id);
+    } finally {
+      this.inflightUploads.delete(controller);
+    }
+  }
+
+  /** Stop every upload in progress. Call on logout: the next user must not finish them. */
+  cancelPendingUploads(): void {
+    for (const controller of this.inflightUploads) controller.abort();
+    this.inflightUploads.clear();
+  }
+
+  /** One attempt. Resolves with the HTTP status; rejects on a network error. */
+  private async sendToTarget(
+    target: UploadTarget,
+    file: UploadBody,
+    size: number,
+    onProgress: UploadFileOptions['onProgress'],
+    signal: AbortSignal,
+  ): Promise<number> {
+    let body: UploadBody | FormData = file;
+    if (target.method === 'POST') {
+      const form = new FormData();
+      for (const [k, v] of Object.entries(target.fields ?? {})) form.append(k, v);
+      form.append('file', file instanceof Blob ? file : new Blob([file as BlobPart]));
+      body = form;
+    }
+
+    if (onProgress && typeof XMLHttpRequest !== 'undefined') {
+      return new Promise<number>((resolve, reject) => {
+        const xhr = new XMLHttpRequest();
+        xhr.open(target.method, target.url);
+        if (target.method === 'PUT') {
+          for (const [k, v] of Object.entries(target.headers)) xhr.setRequestHeader(k, v);
+        }
+        xhr.upload.onprogress = (e) => onProgress(e.loaded, e.lengthComputable ? e.total : size);
+        xhr.onload = () => resolve(xhr.status);
+        xhr.onerror = () => reject(new FlyleafApiError('network_error', 'The upload could not reach storage.'));
+        xhr.onabort = () => reject(new FlyleafApiError('upload_cancelled', 'The upload was cancelled.'));
+        signal.addEventListener('abort', () => xhr.abort(), { once: true });
+        xhr.send(body as XMLHttpRequestBodyInit);
+      });
+    }
+
+    const res = await (this.uploadFetchFn ?? fetch)(target.url, {
+      method: target.method,
+      headers: target.method === 'PUT' ? target.headers : undefined,
+      body: body as BodyInit,
+      signal,
+    });
+    await res.arrayBuffer().catch(() => undefined);
+    if (res.ok) onProgress?.(size, size);
+    return res.status;
+  }
+
   // ---------------------------------------------------------------- Imports (IM-02)
 
-  async uploadImport(
-    source: ImportSource,
-    file: Blob | File | Uint8Array | ArrayBuffer,
-    filename = 'export.csv',
-    options?: UploadImportOptions,
-  ): Promise<ImportResponse> {
-    const formData = new FormData();
-    formData.append('source', source);
-    if (options?.force) {
-      formData.append('force', 'true');
-    }
-
-    if (typeof Blob !== 'undefined' && file instanceof Blob) {
-      formData.append('file', file, filename);
-    } else {
-      formData.append('file', new Blob([file as any]), filename);
-    }
-
-    const qs = options?.force ? '?force=true' : '';
-    return this.request<ImportResponse>(`/imports${qs}`, {
+  async createImport(data: CreateImportRequest): Promise<ImportResponse> {
+    return this.request<ImportResponse>('/imports', {
       method: 'POST',
-      body: formData,
+      body: JSON.stringify(data),
     });
   }
 

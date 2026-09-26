@@ -27,12 +27,12 @@
 | Testing | vitest + testcontainers | 4.1 |
 | **Database** | PostgreSQL (`pg_trgm`, `unaccent`; `pgvector` from Phase 7) | 17 |
 | Managed Postgres | Neon | — |
-| Object storage | Cloudflare R2 (MinIO locally) | — |
+| Object storage | Cloudflare R2 (MinIO locally), behind the storage port (§4.2) | — |
 | Edge / TLS | Caddy | — |
 | Hosting | Fly.io | — |
-| Email | Resend, behind an interface | — |
+| Email | Any SMTP relay (Resend, Postmark, SES), behind the email port (§4.2) | — |
 | CI | GitHub Actions | — |
-| Errors / uptime | Sentry · UptimeRobot | — |
+| Errors / uptime | Sentry (behind the error-reporting port, §4.2) · UptimeRobot | — |
 | Analytics | **First-party, in Postgres** — no third-party PII SDK (PRD §26.5) | — |
 
 ### Rejected, with reasons
@@ -146,7 +146,9 @@ flyleaf/
 │   │       ├── media/            cover proxy, share-card rendering
 │   │       ├── admin/            server-rendered admin console
 │   │       ├── db/schema.ts      Drizzle schema — source of truth
-│   │       └── platform/         db, jobs, config, log, cache, ratelimit, mail
+│   │       ├── uploads/          presigned uploads: policy, intent, complete, cleanup
+│   │       ├── providers/        ports + adapters: storage, email, push, errors, catalog source (§4.2)
+│   │       └── platform/         db, jobs, config, log, cache, ratelimit, outbound client
 │   └── mobile/                   Expo app
 │       ├── app/                  expo-router file routes
 │       ├── src/features/         one folder per domain, mirrors API modules
@@ -166,6 +168,7 @@ flyleaf/
 2. **No circular imports.** If two modules need each other, the shared concept belongs in a third.
 3. **Modules expose classes and functions, not their tables.** These are the seams a service would be extracted along, if that ever becomes justified. It probably will not.
 4. **`platform` depends on nothing.** Everything may depend on `platform`.
+5. **Vendor SDKs live only in `providers/`.** App code depends on the port, never on the vendor (§4.2).
 
 ---
 
@@ -599,6 +602,24 @@ CREATE TABLE import_rows (          -- the unmatched-review list
   PRIMARY KEY (import_id, row_no)
 );
 
+CREATE TABLE uploads (              -- presigned uploads, §4.2 (PV-02, 0024_uploads.sql)
+  id           uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id      uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  purpose      text NOT NULL CHECK (purpose IN ('import')),
+  key          text NOT NULL UNIQUE,  -- uploads/<user>/<id>, server-made
+  content_type text NOT NULL,
+  size         bigint NOT NULL,       -- declared, exact; CHECK size <= max_bytes
+  max_bytes    bigint NOT NULL,
+  filename     text,                  -- display only
+  sha256       text,                  -- set by complete()
+  status       text NOT NULL DEFAULT 'pending',  -- pending | uploaded | consumed | expired
+  expires_at   timestamptz NOT NULL,
+  created_at   timestamptz NOT NULL DEFAULT now(),
+  completed_at timestamptz,
+  consumed_at  timestamptz
+);
+CREATE INDEX uploads_cleanup_idx ON uploads (expires_at) WHERE status IN ('pending','uploaded');
+
 CREATE TABLE corrections (
   id             uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id        uuid NOT NULL REFERENCES users(id),
@@ -743,6 +764,50 @@ export interface Cache {
 > **Adopt Redis the day a second API instance exists.** Not at a user count — at that architectural change, because that is the moment in-process limits become wrong and an in-process cache stops being shared.
 
 **The constraint that keeps the swap clean:** nothing may assume Redis semantics — no atomic `INCR`, no pub/sub, no sorted sets. If those leak into a call site, the interface has failed its purpose and the swap stops being a config change.
+
+---
+
+## 4.2 Providers — third-party services behind ports (PV-0x)
+
+Every third-party service is a **port** (an interface in `apps/api/src/providers/<port>/`) with interchangeable **adapters**. One factory, `createProviders()` in `providers/index.ts`, reads the `*_DRIVER` variables and credentials. `server.ts` and `worker.ts` both call it, before they touch the database, so the two processes cannot disagree about where files and mail go. Swapping a vendor means one adapter file and one env line.
+
+| Port | Interface | Adapters | Variable |
+|---|---|---|---|
+| Object storage | `ObjectStorage`: `createUpload`, `createDownloadUrl`, `head`, `getStream`, `put`, `delete` | `disk` (dev), `memory` (tests), `s3` (AWS, R2, B2, MinIO) | `STORAGE_DRIVER` |
+| Email | `EmailSender.send` | `console` (dev), `memory`, `smtp` (nodemailer: any relay) | `EMAIL_DRIVER` |
+| Push | `PushSender.send` → one result per message | `memory`, `expo` (Expo push HTTPS API) | `PUSH_DRIVER` |
+| Error reporting | `ErrorReporter.capture` | `noop` (default), `memory`, `sentry` (store endpoint) | `ERROR_DRIVER` |
+| Catalog source | `CatalogSource`: `search`, `lookupIsbn`, `lookupWork`, `lookupAuthor`, `coverUrl` | Open Library, through the shared `OutboundClient` (§5.2) | — |
+
+**Rules.**
+
+1. **No vendor SDK outside `src/providers/`.** `src/test/providers.test.ts` scans every import and fails CI otherwise. A repo-wide ESLint was not added for one rule.
+2. **Production refuses to start** on an unset driver (errors default to `noop`), a development adapter (`disk`, `memory`, `console`), or a missing credential, and the message names the variable.
+3. **Every adapter passes the same contract suite** (`src/test/*-contract.test.ts`). The s3 adapter runs it twice. The first run uses the real SDK presigner and an in-memory fake of S3's API that re-signs each presigned URL to verify it, so a wrong type, length, key or expiry is refused as S3 would. The second runs against the local MinIO when it is up.
+4. **Adapters only deliver.** Policy stays in app code: email templates, upload limits, what gets scrubbed from an error (`telemetry/errors.ts` runs `sanitizeContext` before any reporter sees the context), and which catalog data may be stored.
+
+**Presigned uploads: the API never receives file bytes.**
+
+```
+client ── POST /v1/uploads {purpose, content_type, size} ──▶ API   policy check (uploads/index.ts),
+       ◀── {id, target: {url, method: PUT, headers}} ───────        uploads row 'pending'
+client ── PUT bytes ──────────────────────────────────────▶ storage  signature binds key, type,
+                                                                     exact length, 15 min expiry
+client ── POST /v1/uploads/:id/complete ───────────────────▶ API   head() + one streamed read:
+                                                                     size, type, magic bytes, SHA-256
+                                                                     -> 'uploaded'
+client ── POST /v1/imports {upload_id, source} ────────────▶ API   one transaction: lock the upload,
+                                                                     duplicate check, insert import,
+                                                                     'consumed', enqueue (sendInTx)
+worker ── getStream() ─────────────────────────────────────▶ storage  re-checks the SHA-256: the PUT
+                                                                     URL outlives complete()
+```
+
+- A presigned **PUT**, not a POST policy. A PUT can bind the exact declared length and content type, which is all the flow needs, and R2 (production) does not implement POST Object. The policy's maximum (10 MB for imports, PRD §6.8) is checked before signing.
+- `complete` reads the object once, up to the policy maximum. That is how the type is judged by content (PRD §42 #11) and how import duplicate detection (PRD §34.4) stays a synchronous 409 without the bytes ever arriving in a request.
+- Exports: the worker `put()`s the file. `GET /v1/exports/:id/download` authorizes by the emailed token or the owner, then 302s to a 5-minute storage URL.
+- `disk` and `memory` serve HMAC-signed URLs from a dev-only route (`/v1/storage/object`, hidden from the spec), so the presigned flow runs locally and in tests with no cloud account. That route is the only one that accepts file bytes, and production cannot enable it.
+- `storage.cleanup` (daily) deletes unconsumed uploads past their 1 h life and export files past their 48 h link.
 
 ---
 
@@ -933,7 +998,8 @@ Hard constraints after ranking: ≤2 consecutive cards per actor, ≤3 per book 
 | `catalog.gapfill` | On demand | Behind the shared limiter |
 | `catalog.dedupe` | Monthly | Stages 1–2 auto-merge, 3–4 queue |
 | `catalog.reprocess` | Manual | Re-normalise from `raw_payloads` |
-| `import.process` | On demand | Chunked, progress-reported, resumable |
+| `import.process` | On demand | Chunked, progress-reported, resumable; re-checks the upload's SHA-256 |
+| `storage.cleanup` | Daily 03:45 | Unconsumed uploads and expired export files leave object storage (§4.2) |
 | `stats.workstats` | Hourly | Incremental |
 | `stats.reconcile` | Nightly | Counter drift |
 | `feed.prune` | Daily | Activity older than 180 days |
@@ -1012,7 +1078,7 @@ git push → CI (vitest, migrate check, npm audit, tsc build)
 | Edge | Caddy — automatic TLS, three-line config |
 | Runtime | Single static binary, systemd or Docker |
 | Database | Postgres on the same host initially; separate host from ~10k users |
-| Object storage | MinIO locally; any S3-compatible in production |
+| Object storage | MinIO locally; any S3-compatible in production (`STORAGE_DRIVER=s3`); clients upload to it directly (§4.2) |
 | Config | Environment variables, 12-factor |
 
 ### Non-negotiable operational rules
@@ -1025,7 +1091,7 @@ git push → CI (vitest, migrate check, npm audit, tsc build)
 
 ### Observability
 
-Pino structured JSON with a request ID on every line · Prometheus `/metrics` · `/healthz` and `/readyz` · external uptime pinger every 60s · Sentry for app and API.
+Pino structured JSON with a request ID on every line · Prometheus `/metrics` · `/healthz` and `/readyz` · external uptime pinger every 60s · Sentry for app and API (API: `ERROR_DRIVER=sentry`, §4.2).
 
 **Alerts:** p95 > 1s for 5 min · error rate > 2% · job queue > 1,000 · disk > 70% · **backup failure** · cert expiring within 14 days.
 

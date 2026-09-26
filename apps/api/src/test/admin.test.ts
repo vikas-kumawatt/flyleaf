@@ -25,7 +25,8 @@ import {
 import { IdentityService } from '../identity/index.js';
 import { CatalogService } from '../catalog/index.js';
 import { ReadingService } from '../reading/index.js';
-import { MemoryCache, MemoryEmailSender, PgRateLimiter } from '../platform/index.js';
+import { MemoryCache, PgRateLimiter } from '../platform/index.js';
+import { MemoryEmailSender } from '../providers/email/index.js';
 
 describe('TOTP Two-Factor Engine (FN-90)', () => {
   it('encodes and decodes base32 symmetrically', () => {

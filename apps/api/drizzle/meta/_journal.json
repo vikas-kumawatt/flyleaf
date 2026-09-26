@@ -169,6 +169,13 @@
       "when": 1789060000000,
       "tag": "0023_admin_hardening",
       "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "7",
+      "when": 1789070000000,
+      "tag": "0024_uploads",
+      "breakpoints": true
     }
   ]
 }

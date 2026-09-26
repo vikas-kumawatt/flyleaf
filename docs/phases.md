@@ -129,6 +129,7 @@ Layers 1+2 are one week and produce a catalog good enough to build the entire ap
 - `openapi.yaml` and generated TypeScript client
 - CI: vitest, migrations, `tsc --noEmit`, `npm audit`
 - Admin console: merges, maturity override, ingestion status
+- Providers (PV-0x, added during the audit): storage, email, push, error reporting and the catalog source behind ports, one factory, and production refuses dev adapters or missing credentials. Uploads go from the client straight to object storage via presigned URLs (architecture §4.2)
 
 ### Exit criteria
 
@@ -210,6 +211,7 @@ Importing your own thousand-book library is the **best load test the catalog wil
 | `My Rating = 0` imports as `NULL` | Not 0, not dropped. This is why the column is nullable |
 | Imported reads never enter the feed | `source='import'`, excluded from `activity` |
 | It is a pg-boss job | 2,000 books × rate-limited lookups is not a request |
+| The file never passes through the API | Presigned upload to object storage, checked on `complete`, consumed by the import in one transaction (PV-02) |
 
 ### Exit criteria
 - [x] Your own real Goodreads or StoryGraph export imports with ≥85% match (92.0% achieved with 23/25 matched)

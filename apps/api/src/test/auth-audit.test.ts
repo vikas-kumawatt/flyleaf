@@ -22,12 +22,12 @@ import { signAdminToken } from '../admin/auth.js';
 import { buildApp, registerCoreHooks } from '../app.js';
 import {
   config,
-  MemoryEmailSender,
   parseTrustProxy,
   PgRateLimiter,
   resolveJwtSecret,
   type Db,
 } from '../platform/index.js';
+import { MemoryEmailSender } from '../providers/email/index.js';
 import { freshDrizzle } from './pg.js';
 
 const run = promisify(execFile);

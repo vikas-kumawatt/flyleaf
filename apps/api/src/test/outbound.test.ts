@@ -9,7 +9,8 @@ import type { PGlite } from '@electric-sql/pglite';
 import {
   CircuitBreaker, OutboundClient, TokenBucket,
 } from '../platform/outbound.js';
-import { GapFillService, parseOlSearch } from '../catalog/gapfill.js';
+import { GapFillService } from '../catalog/gapfill.js';
+import { OpenLibrarySource, parseOlSearch } from '../providers/catalog/index.js';
 import { freshDrizzle } from './pg.js';
 
 describe('TokenBucket', () => {
@@ -189,7 +190,7 @@ describe('GapFillService', () => {
 
   const makeService = (db: unknown) => new GapFillService(
     db as never,
-    new OutboundClient(new TokenBucket(100, 100), new CircuitBreaker(), 'Flyleaf/test'),
+    new OpenLibrarySource(new OutboundClient(new TokenBucket(100, 100), new CircuitBreaker(), 'Flyleaf/test')),
   );
 
   beforeAll(async () => {

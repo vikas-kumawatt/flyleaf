@@ -9,10 +9,11 @@
 //    - Unrated books (My Rating = 0) import as rating = NULL in reads.
 //    - All created reads have source = 'import' and are excluded from activity feed.
 
+import crypto from 'node:crypto';
 import { sql, eq } from 'drizzle-orm';
 import type { Db } from '../platform/index.js';
 import { imports, importRows } from '../db/schema.js';
-import { type FileStorage } from './storage.js';
+import { readAll, type ObjectStorage } from '../providers/storage/index.js';
 import { parseCsv } from './parser.js';
 import { SOURCE_CONFIGS, normalizeImport } from './configs/index.js';
 import { detectSource } from './detector.js';
@@ -40,7 +41,7 @@ export interface ProcessImportResult {
  */
 export async function processImport(
   db: Db,
-  storage: FileStorage,
+  storage: ObjectStorage,
   importId: string,
   options: ProcessImportOptions = {},
 ): Promise<ProcessImportResult> {
@@ -82,9 +83,20 @@ export async function processImport(
       throw new Error(`Import ${importId} has no file_key attached.`);
     }
 
-    const fileBuffer = await storage.get(job.fileKey);
+    const stream = await storage.getStream(job.fileKey);
+    const fileBuffer = stream ? await readAll(stream) : null;
     if (!fileBuffer || fileBuffer.length === 0) {
       throw new Error(`File payload not found in storage for key: ${job.fileKey}`);
+    }
+
+    // The presigned upload URL stays valid after /complete checked the file,
+    // so the object could have been replaced since (PV-02). Process only the
+    // bytes that were checked.
+    if (job.contentHash) {
+      const actual = crypto.createHash('sha256').update(fileBuffer).digest('hex');
+      if (actual !== job.contentHash) {
+        throw new Error('The uploaded file changed after it was checked. Upload it again.');
+      }
     }
 
     const fileContent = fileBuffer.toString('utf-8');

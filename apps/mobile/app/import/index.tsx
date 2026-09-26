@@ -60,6 +60,7 @@ export default function ImportScreen() {
   const [inputMode, setInputMode] = useState<'paste' | 'file'>('paste');
   const [csvText, setCsvText] = useState('');
   const [uploading, setUploading] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState<number | null>(null);
   const [activeImportId, setActiveImportId] = useState<string | null>(null);
   const [pastImports, setPastImports] = useState<ImportResponse[]>([]);
   const [loadingPast, setLoadingPast] = useState(true);
@@ -105,6 +106,21 @@ export default function ImportScreen() {
     void loadImports();
   }, [loadImports]);
 
+  // Pasted text goes straight to object storage (PV-03), then the import is
+  // started from the completed upload. On a duplicate, "Import anyway"
+  // reuses that upload rather than sending the file again.
+  const startImport = async (uploadId: string, force: boolean) => {
+    const result = await api.createImport({
+      upload_id: uploadId,
+      source: selectedSource,
+      ...(force ? { force: true } : {}),
+    });
+    void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    setCsvText('');
+    setActiveImportId(result.id);
+    void loadImports();
+  };
+
   const handleUpload = async () => {
     if (!user) {
       router.push('/auth');
@@ -117,26 +133,22 @@ export default function ImportScreen() {
       return;
     }
 
+    let uploadId: string | null = null;
     try {
       setUploading(true);
       void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
 
-      const buffer = Buffer.from(trimmed, 'utf-8');
-      const filename = `${selectedSource}_export.csv`;
-
-      const result = await api.uploadImport(selectedSource, buffer, filename);
-
-      void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-      setCsvText('');
-      setActiveImportId(result.id);
-      void loadImports();
+      const upload = await api.uploadFile(trimmed, {
+        contentType: 'text/csv',
+        filename: `${selectedSource}_export.csv`,
+        onProgress: (sent, total) => setUploadProgress(total > 0 ? Math.round((sent / total) * 100) : null),
+      });
+      uploadId = upload.id;
+      await startImport(upload.id, false);
     } catch (err: any) {
       void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
-      if (
-        err.code === 'duplicate_import' ||
-        err.message?.includes('duplicate_import') ||
-        err.message?.includes('identical file')
-      ) {
+      const refused = uploadId;
+      if (err.code === 'duplicate_import' && refused) {
         Alert.alert(
           'Duplicate File',
           'An identical file has already been imported into your library. Would you like to import it anyway?',
@@ -147,17 +159,9 @@ export default function ImportScreen() {
               onPress: async () => {
                 try {
                   setUploading(true);
-                  const buffer = Buffer.from(trimmed, 'utf-8');
-                  const filename = `${selectedSource}_export.csv`;
-                  const result = await api.uploadImport(selectedSource, buffer, filename, {
-                    force: true,
-                  });
-                  void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-                  setCsvText('');
-                  setActiveImportId(result.id);
-                  void loadImports();
+                  await startImport(refused, true);
                 } catch (retryErr: any) {
-                  Alert.alert('Import Failed', retryErr.message || 'Could not upload import file.');
+                  Alert.alert('Import Failed', retryErr.message || 'Could not start the import.');
                 } finally {
                   setUploading(false);
                 }
@@ -170,6 +174,7 @@ export default function ImportScreen() {
       }
     } finally {
       setUploading(false);
+      setUploadProgress(null);
     }
   };
 
@@ -346,7 +351,13 @@ export default function ImportScreen() {
           />
 
           <Button
-            label={uploading ? 'Uploading & Enqueueing...' : 'Start Library Import'}
+            label={
+              uploading
+                ? uploadProgress !== null
+                  ? `Uploading ${uploadProgress}%...`
+                  : 'Uploading & Enqueueing...'
+                : 'Start Library Import'
+            }
             variant="primary"
             loading={uploading}
             disabled={uploading || csvText.trim().length === 0}

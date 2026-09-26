@@ -9,34 +9,36 @@
 // server never ran it.
 
 import type { PgBoss } from 'pg-boss';
-import { MemoryCache, PgRateLimiter, ConsoleEmailSender, type Db } from './platform/index.js';
+import { MemoryCache, PgRateLimiter, type Db } from './platform/index.js';
 import { IdentityService } from './identity/index.js';
 import { CatalogService } from './catalog/index.js';
 import { GapFillService } from './catalog/gapfill.js';
 import { ReadingService } from './reading/index.js';
-import { DiskFileStorage } from './imports/storage.js';
+import type { Providers } from './providers/index.js';
 import type { BuildAppOptions } from './app.js';
 
-export function serverDependencies(db: Db, boss: PgBoss) {
+/**
+ * `providers` comes from createProviders() (providers/index.ts), which the
+ * worker calls too: both processes see the same storage and mailer (PV-08).
+ */
+export function serverDependencies(db: Db, boss: PgBoss, providers: Providers) {
   // Auth limits go through Postgres because they must be exact and correct
   // across instances. General caching is in-process because for a single
   // instance that is strictly faster than a network hop to Redis.
   const limiter = new PgRateLimiter(db);
   const cache = new MemoryCache(1000);
-  const mailer = new ConsoleEmailSender();
-  // Same default directory the worker's handlers read from (apps/api/.uploads,
-  // relative to the working directory both processes are started from).
-  const storage = new DiskFileStorage();
+  const { storage, mailer, errors } = providers;
 
   const deps = {
     db,
     boss,
     storage,
     mailer,
+    errorReporter: errors,
     limiter,
     identity: new IdentityService(db, limiter, mailer),
     // Gap-fill turns a search miss into a permanent catalog entry (FN-32).
-    catalog: new CatalogService(db, cache, new GapFillService(db)),
+    catalog: new CatalogService(db, cache, new GapFillService(db, providers.catalog)),
     reading: new ReadingService(db),
   } satisfies BuildAppOptions;
   return deps;

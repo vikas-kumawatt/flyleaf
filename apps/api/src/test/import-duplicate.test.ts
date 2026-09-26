@@ -1,6 +1,5 @@
 // IM-11: Duplicate-Import Detection by Content Hash Tests (PRD §34.4, §5141, IM-11).
 
-import crypto from 'node:crypto';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { FastifyInstance } from 'fastify';
 import { eq } from 'drizzle-orm';
@@ -8,11 +7,12 @@ import { freshDrizzle } from './pg.js';
 import { users, profiles, imports } from '../db/schema.js';
 import type { Db } from '../platform/index.js';
 import { buildApp } from '../app.js';
-import { MemoryFileStorage } from '../imports/storage.js';
+import { MemoryObjectStorage } from '../providers/storage/index.js';
+import { importCsv, uploadFile } from './upload-fixtures.js';
 
 let app: FastifyInstance;
 let drizzleDb: Db;
-let storage: MemoryFileStorage;
+let storage: MemoryObjectStorage;
 
 const USER_ALICE = '11111111-1111-1111-1111-111111111111';
 const USER_BOB = '22222222-2222-2222-2222-222222222222';
@@ -27,39 +27,6 @@ Neuromancer,William Gibson,0441569595,4,read
 const DIFFERENT_CSV = `Title,Author,ISBN,My Rating,Exclusive Shelf
 Foundation,Isaac Asimov,0553293354,5,read
 `;
-
-function buildMultipart(
-  fields: Record<string, string>,
-  file?: { name: string; filename: string; content: string | Buffer; mimeType?: string },
-) {
-  const boundary = '----FlyleafBoundary' + crypto.randomBytes(8).toString('hex');
-  const crlf = '\r\n';
-  const parts: Buffer[] = [];
-
-  for (const [key, value] of Object.entries(fields)) {
-    parts.push(
-      Buffer.from(
-        `--${boundary}${crlf}Content-Disposition: form-data; name="${key}"${crlf}${crlf}${value}${crlf}`,
-      ),
-    );
-  }
-
-  if (file) {
-    const header = `--${boundary}${crlf}Content-Disposition: form-data; name="${file.name}"; filename="${file.filename}"${crlf}Content-Type: ${file.mimeType || 'text/csv'}${crlf}${crlf}`;
-    parts.push(Buffer.from(header));
-    parts.push(Buffer.isBuffer(file.content) ? file.content : Buffer.from(file.content));
-    parts.push(Buffer.from(crlf));
-  }
-
-  parts.push(Buffer.from(`--${boundary}--${crlf}`));
-
-  return {
-    headers: {
-      'content-type': `multipart/form-data; boundary=${boundary}`,
-    },
-    payload: Buffer.concat(parts),
-  };
-}
 
 beforeAll(async () => {
   const context = await freshDrizzle();
@@ -93,7 +60,7 @@ beforeAll(async () => {
     },
   ]);
 
-  storage = new MemoryFileStorage();
+  storage = new MemoryObjectStorage();
 
   const mockIdentity = {
     lookup: async (token: string) => {
@@ -115,21 +82,11 @@ afterAll(async () => {
 });
 
 describe('IM-11: Duplicate-Import Detection by Content Hash', () => {
-  it('1. Uploading an export file succeeds with 201 and persists content_hash', async () => {
-    const { headers, payload } = buildMultipart(
-      { source: 'goodreads' },
-      { name: 'file', filename: 'goodreads_export.csv', content: SAMPLE_CSV },
-    );
+  const ALICE = { authorization: `Bearer ${ALICE_TOKEN}` };
+  const BOB = { authorization: `Bearer ${BOB_TOKEN}` };
 
-    const res = await app.inject({
-      method: 'POST',
-      url: '/v1/imports',
-      headers: {
-        authorization: `Bearer ${ALICE_TOKEN}`,
-        ...headers,
-      },
-      payload,
-    });
+  it('1. Uploading an export file succeeds with 201 and persists content_hash', async () => {
+    const res = await importCsv(app, ALICE, SAMPLE_CSV, { filename: 'goodreads_export.csv' });
 
     expect(res.statusCode).toBe(201);
     const body = res.json();
@@ -149,20 +106,7 @@ describe('IM-11: Duplicate-Import Detection by Content Hash', () => {
   });
 
   it('2. Uploading the exact same file for the same user without force is rejected with 409 duplicate_import', async () => {
-    const { headers, payload } = buildMultipart(
-      { source: 'goodreads' },
-      { name: 'file', filename: 'goodreads_export.csv', content: SAMPLE_CSV },
-    );
-
-    const res = await app.inject({
-      method: 'POST',
-      url: '/v1/imports',
-      headers: {
-        authorization: `Bearer ${ALICE_TOKEN}`,
-        ...headers,
-      },
-      payload,
-    });
+    const res = await importCsv(app, ALICE, SAMPLE_CSV, { filename: 'goodreads_export.csv' });
 
     expect(res.statusCode).toBe(409);
     const body = res.json();
@@ -172,20 +116,7 @@ describe('IM-11: Duplicate-Import Detection by Content Hash', () => {
   });
 
   it('3. Uploading the exact same file for a different user succeeds (per-user scoping)', async () => {
-    const { headers, payload } = buildMultipart(
-      { source: 'goodreads' },
-      { name: 'file', filename: 'goodreads_export.csv', content: SAMPLE_CSV },
-    );
-
-    const res = await app.inject({
-      method: 'POST',
-      url: '/v1/imports',
-      headers: {
-        authorization: `Bearer ${BOB_TOKEN}`,
-        ...headers,
-      },
-      payload,
-    });
+    const res = await importCsv(app, BOB, SAMPLE_CSV, { filename: 'goodreads_export.csv' });
 
     expect(res.statusCode).toBe(201);
     const body = res.json();
@@ -193,21 +124,8 @@ describe('IM-11: Duplicate-Import Detection by Content Hash', () => {
     expect(body.state).toBe('queued');
   });
 
-  it('4. Uploading the identical file with ?force=true query parameter bypasses duplicate check', async () => {
-    const { headers, payload } = buildMultipart(
-      { source: 'goodreads' },
-      { name: 'file', filename: 'goodreads_export.csv', content: SAMPLE_CSV },
-    );
-
-    const res = await app.inject({
-      method: 'POST',
-      url: '/v1/imports?force=true',
-      headers: {
-        authorization: `Bearer ${ALICE_TOKEN}`,
-        ...headers,
-      },
-      payload,
-    });
+  it('4. Uploading the identical file with force=true bypasses duplicate check', async () => {
+    const res = await importCsv(app, ALICE, SAMPLE_CSV, { filename: 'goodreads_export.csv', force: true });
 
     expect(res.statusCode).toBe(201);
     const body = res.json();
@@ -215,44 +133,29 @@ describe('IM-11: Duplicate-Import Detection by Content Hash', () => {
     expect(body.state).toBe('queued');
   });
 
-  it('5. Uploading the identical file with multipart field force=true bypasses duplicate check', async () => {
-    const { headers, payload } = buildMultipart(
-      { source: 'goodreads', force: 'true' },
-      { name: 'file', filename: 'goodreads_export.csv', content: SAMPLE_CSV },
-    );
+  it('5. "Import anyway" reuses the refused upload: no second upload needed', async () => {
+    const uploadId = await uploadFile(app, ALICE, SAMPLE_CSV, { filename: 'goodreads_export.csv' });
+    const take = (force?: boolean) =>
+      app.inject({
+        method: 'POST',
+        url: '/v1/imports',
+        headers: ALICE,
+        payload: { upload_id: uploadId, source: 'goodreads', ...(force ? { force } : {}) },
+      });
 
-    const res = await app.inject({
-      method: 'POST',
-      url: '/v1/imports',
-      headers: {
-        authorization: `Bearer ${ALICE_TOKEN}`,
-        ...headers,
-      },
-      payload,
-    });
+    const refused = await take();
+    expect(refused.statusCode).toBe(409);
+    expect(refused.json().error.code).toBe('duplicate_import');
 
-    expect(res.statusCode).toBe(201);
-    const body = res.json();
-    expect(body.id).toBeDefined();
+    const forced = await take(true);
+    expect(forced.statusCode).toBe(201);
+    expect(forced.json().id).toBeDefined();
   });
 
   it('6. Previously failed imports with the same content hash do not block re-upload', async () => {
     // Create a new distinct file payload
     const FAILED_CSV = `Title,Author,ISBN,My Rating,Exclusive Shelf\nFailed Book,Some Author,1234567890,3,read\n`;
-    const { headers: h1, payload: p1 } = buildMultipart(
-      { source: 'goodreads' },
-      { name: 'file', filename: 'failed_test.csv', content: FAILED_CSV },
-    );
-
-    const res1 = await app.inject({
-      method: 'POST',
-      url: '/v1/imports',
-      headers: {
-        authorization: `Bearer ${ALICE_TOKEN}`,
-        ...h1,
-      },
-      payload: p1,
-    });
+    const res1 = await importCsv(app, ALICE, FAILED_CSV, { filename: 'failed_test.csv' });
 
     expect(res1.statusCode).toBe(201);
     const firstImportId = res1.json().id;
@@ -264,20 +167,7 @@ describe('IM-11: Duplicate-Import Detection by Content Hash', () => {
       .where(eq(imports.id, firstImportId));
 
     // Upload the exact same file again without force
-    const { headers: h2, payload: p2 } = buildMultipart(
-      { source: 'goodreads' },
-      { name: 'file', filename: 'failed_test.csv', content: FAILED_CSV },
-    );
-
-    const res2 = await app.inject({
-      method: 'POST',
-      url: '/v1/imports',
-      headers: {
-        authorization: `Bearer ${ALICE_TOKEN}`,
-        ...h2,
-      },
-      payload: p2,
-    });
+    const res2 = await importCsv(app, ALICE, FAILED_CSV, { filename: 'failed_test.csv' });
 
     // Should succeed because previous attempt was failed
     expect(res2.statusCode).toBe(201);
@@ -286,20 +176,7 @@ describe('IM-11: Duplicate-Import Detection by Content Hash', () => {
   });
 
   it('7. Uploading a different file with a different content hash succeeds without force', async () => {
-    const { headers, payload } = buildMultipart(
-      { source: 'goodreads' },
-      { name: 'file', filename: 'different.csv', content: DIFFERENT_CSV },
-    );
-
-    const res = await app.inject({
-      method: 'POST',
-      url: '/v1/imports',
-      headers: {
-        authorization: `Bearer ${ALICE_TOKEN}`,
-        ...headers,
-      },
-      payload,
-    });
+    const res = await importCsv(app, ALICE, DIFFERENT_CSV, { filename: 'different.csv' });
 
     expect(res.statusCode).toBe(201);
     const body = res.json();

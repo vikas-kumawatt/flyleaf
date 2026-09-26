@@ -34,12 +34,13 @@ import { config } from '../platform/index.js';
  */
 export const JOBS_SCHEMA = 'pgboss';
 
-import type { Db, EmailSender } from '../platform/index.js';
-import { ConsoleEmailSender } from '../platform/index.js';
+import type { Db } from '../platform/index.js';
+import type { EmailSender } from '../providers/email/index.js';
 import { runDedupe, type DedupeReport } from '../catalog/dedupe.js';
 import { processImport } from '../imports/processor.js';
-import { DiskFileStorage, type FileStorage } from '../imports/storage.js';
+import type { ObjectStorage } from '../providers/storage/index.js';
 import { ExportService } from '../exports/index.js';
+import { cleanupStorage, type CleanupResult } from '../uploads/index.js';
 
 /**
  * Every queue, named once.
@@ -82,6 +83,12 @@ export const QUEUES = {
    * Generates CSV/JSON export and emails download link.
    */
   processExport: 'exports.process',
+  /**
+   * Daily storage cleanup (PV-02): uploads never consumed, export files
+   * past their 48 h download window, and import files 30 days after the
+   * import finished are deleted from object storage.
+   */
+  storageCleanup: 'storage.cleanup',
 } as const;
 
 export type QueueName = (typeof QUEUES)[keyof typeof QUEUES];
@@ -212,7 +219,7 @@ export async function reconcileReadsJobHandler(
 export async function processImportJobHandler(
   jobs: Job<ProcessImportJobRequest>[],
   db: Db,
-  storage?: FileStorage,
+  storage: ObjectStorage,
 ): Promise<ProcessImportJobResult> {
   const job = jobs.at(-1);
   const importId = job?.data?.importId ?? '';
@@ -224,8 +231,7 @@ export async function processImportJobHandler(
     };
   }
 
-  const fileStorage = storage ?? new DiskFileStorage();
-  const res = await processImport(db, fileStorage, importId);
+  const res = await processImport(db, storage, importId);
 
   return {
     importId: job.data.importId,
@@ -240,15 +246,13 @@ export async function processImportJobHandler(
 export async function processExportJobHandler(
   jobs: Job<ProcessExportJobRequest>[],
   db: Db,
-  storage?: FileStorage,
-  mailer?: EmailSender,
+  storage: ObjectStorage,
+  mailer: EmailSender,
 ): Promise<ProcessExportJobResult> {
   const job = jobs[0];
   if (!job) throw new Error('No job passed to handler');
 
-  const fileStorage = storage ?? new DiskFileStorage();
-  const emailSender = mailer ?? new ConsoleEmailSender();
-  const service = new ExportService(db, fileStorage, emailSender);
+  const service = new ExportService(db, storage, mailer);
 
   const res = await service.processExport(job.data.exportId);
 
@@ -311,7 +315,19 @@ export type JobLog = { info(obj: object, msg: string): void };
  * one thing it exists for: watching a worker terminal and seeing the job
  * land. A silent handler and a dead worker look identical.
  */
-export async function registerQueues(boss: PgBoss, log: JobLog, db?: Db): Promise<void> {
+/**
+ * What the handlers that touch data need. The worker builds it from the same
+ * provider factory as the API (providers/index.ts), so both processes read and
+ * write the same storage -- the handlers used to default to a local disk and
+ * a console mailer of their own.
+ */
+export interface WorkerDeps {
+  db: Db;
+  storage: ObjectStorage;
+  mailer: EmailSender;
+}
+
+export async function registerQueues(boss: PgBoss, log: JobLog, deps?: WorkerDeps): Promise<void> {
   for (const name of Object.values(QUEUES)) await boss.createQueue(name);
 
   // The monthly dedupe pass reads the whole catalog: stage 1–2 detection alone
@@ -327,7 +343,8 @@ export async function registerQueues(boss: PgBoss, log: JobLog, db?: Db): Promis
     return result;
   });
 
-  if (db) {
+  if (deps) {
+    const { db, storage, mailer } = deps;
     await boss.work<DedupeJobRequest, DedupeJobResult>(QUEUES.catalogDedupe, async (jobs) => {
       const result = await dedupeJobHandler(jobs, db);
       log.info(
@@ -394,7 +411,7 @@ export async function registerQueues(boss: PgBoss, log: JobLog, db?: Db): Promis
     await boss.work<ProcessImportJobRequest, ProcessImportJobResult>(
       QUEUES.processImport,
       async (jobs) => {
-        const result = await processImportJobHandler(jobs, db);
+        const result = await processImportJobHandler(jobs, db, storage);
         log.info(
           {
             queue: QUEUES.processImport,
@@ -413,7 +430,7 @@ export async function registerQueues(boss: PgBoss, log: JobLog, db?: Db): Promis
     await boss.work<ProcessExportJobRequest, ProcessExportJobResult>(
       QUEUES.processExport,
       async (jobs) => {
-        const result = await processExportJobHandler(jobs, db);
+        const result = await processExportJobHandler(jobs, db, storage, mailer);
         log.info(
           {
             queue: QUEUES.processExport,
@@ -426,6 +443,21 @@ export async function registerQueues(boss: PgBoss, log: JobLog, db?: Db): Promis
         return result;
       },
     );
+
+    await boss.work<void, CleanupResult>(QUEUES.storageCleanup, async (jobs) => {
+      const result = await cleanupStorage(db, storage);
+      log.info(
+        {
+          queue: QUEUES.storageCleanup,
+          ids: jobs.map((j) => j.id),
+          uploadsExpired: result.uploadsExpired,
+          exportFilesDeleted: result.exportFilesDeleted,
+          importFilesDeleted: result.importFilesDeleted,
+        },
+        'job handled',
+      );
+      return result;
+    });
   }
 }
 

@@ -10,6 +10,7 @@ import { sql } from 'drizzle-orm';
 import { buildApp } from '../app.js';
 import { CatalogService } from '../catalog/index.js';
 import { GapFillService } from '../catalog/gapfill.js';
+import { OpenLibrarySource } from '../providers/catalog/index.js';
 import { IdentityService } from '../identity/index.js';
 import { ReadingService } from '../reading/index.js';
 import { CircuitBreaker, OutboundClient, TokenBucket } from '../platform/outbound.js';
@@ -273,7 +274,7 @@ describe('gap-fill when Open Library is down', () => {
       }));
 
     const client = new OutboundClient(new TokenBucket(3, 5), new CircuitBreaker(1, 60_000), 'flyleaf-test');
-    const catalog = new CatalogService(db, new MemoryCache(), new GapFillService(db, client));
+    const catalog = new CatalogService(db, new MemoryCache(), new GapFillService(db, new OpenLibrarySource(client)));
 
     let t = performance.now();
     expect(await catalog.search(null, 'zzqx nothing matches this')).toEqual([]);
@@ -292,7 +293,7 @@ describe('gap-fill when Open Library is down', () => {
     const empty = new TokenBucket(0.001, 1);
     empty.tryAcquire(); // drained
     const client = new OutboundClient(empty, new CircuitBreaker(5, 60_000), 'flyleaf-test');
-    const catalog = new CatalogService(db, new MemoryCache(), new GapFillService(db, client));
+    const catalog = new CatalogService(db, new MemoryCache(), new GapFillService(db, new OpenLibrarySource(client)));
 
     const t = performance.now();
     expect(await catalog.search(null, 'zzqx still nothing')).toEqual([]);

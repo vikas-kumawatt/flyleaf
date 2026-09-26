@@ -7,7 +7,8 @@ import * as jose from 'jose';
 
 import { registerCoreHooks } from '../app.js';
 import { telemetryRoutes, getBudgetMetrics, recordEvents } from '../telemetry/index.js';
-import { sanitizeContext, captureApiException, initSentry, isSentryEnabled } from '../telemetry/sentry.js';
+import { sanitizeContext } from '../telemetry/errors.js';
+import { MemoryErrorReporter } from '../providers/errors/index.js';
 import { signAccessToken } from '../identity/index.js';
 import { config, type Db } from '../platform/index.js';
 import { freshDrizzle } from './pg.js';
@@ -306,15 +307,46 @@ describe('Telemetry & Interaction Budgets Suite (SL-8x)', () => {
       expect(sanitized.body?.totp).toBe('[REDACTED]');
     });
 
-    it('gracefully handles missing SENTRY_DSN as a no-op without throwing', async () => {
-      initSentry({ dsn: '' });
-      expect(isSentryEnabled()).toBe(false);
-
-      const eventId = await captureApiException(new Error('Simulated internal server error'), {
-        requestId: 'req-test',
+    it('a 500 reaches the configured reporter with a scrubbed context, and the client sees no detail (PV-06)', async () => {
+      const reporter = new MemoryErrorReporter();
+      const app = Fastify();
+      registerCoreHooks(app, { errorReporter: reporter });
+      app.post('/boom', async () => {
+        throw new Error('database exploded at row 42');
       });
-      expect(typeof eventId).toBe('string');
-      expect(eventId.length).toBeGreaterThan(0);
+
+      const res = await app.inject({
+        method: 'POST',
+        url: '/boom?token=emailed-secret&tab=1',
+        headers: { authorization: 'Bearer secret-access-token-jwt' },
+        payload: { password: 'hunter2hunter2', title: 'ok' },
+      });
+      await new Promise((r) => setImmediate(r));
+
+      expect(res.statusCode).toBe(500);
+      expect(res.body).not.toContain('exploded');
+      expect(reporter.captured).toHaveLength(1);
+      const { error, context } = reporter.captured[0]!;
+      expect(error.message).toBe('database exploded at row 42');
+      expect(context.requestId).toBe(res.headers['x-request-id']);
+      expect(context.route).toBe('/boom');
+      expect(context.headers?.authorization).toBe('[REDACTED]');
+      expect(context.query?.token).toBe('[REDACTED]');
+      expect(context.query?.tab).toBe('1');
+      expect(context.body?.password).toBe('[REDACTED]');
+      await app.close();
+    });
+
+    it('with no reporter configured a 500 is still a clean 500', async () => {
+      const app = Fastify();
+      registerCoreHooks(app);
+      app.get('/boom', async () => {
+        throw new Error('nope');
+      });
+      const res = await app.inject({ method: 'GET', url: '/boom' });
+      expect(res.statusCode).toBe(500);
+      expect(res.json()).toEqual({ error: { code: 'internal', message: 'Something went wrong.' } });
+      await app.close();
     });
   });
 });

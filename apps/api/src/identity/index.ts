@@ -11,7 +11,8 @@ import * as jose from 'jose';
 import { z } from 'zod';
 import type { FastifyInstance } from 'fastify';
 
-import { config, type Db, type RateLimiter, type EmailSender, ConsoleEmailSender } from '../platform/index.js';
+import { config, type Db, type RateLimiter } from '../platform/index.js';
+import { type EmailSender, ConsoleEmailSender } from '../providers/email/index.js';
 import { users, profiles, works, follows, blocks, refreshTokens, emailVerificationTokens, passwordResetTokens } from '../db/schema.js';
 import { ApiError, requireViewer } from '../http.js';
 import { isCommonPassword } from './common-passwords.js';

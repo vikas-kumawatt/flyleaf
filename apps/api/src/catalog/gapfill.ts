@@ -19,84 +19,19 @@
 
 import { sql } from 'drizzle-orm';
 import type { Db } from '../platform/index.js';
-import { outbound, type OutboundClient } from '../platform/outbound.js';
-
-export type GapFillWork = {
-  olWorkKey: string;
-  title: string;
-  firstPublishYear: number | null;
-  coverId: number | null;
-  authorKeys: string[];
-  authorNames: string[];
-  editionCount: number;
-};
-
-type OlSearchResponse = {
-  docs?: {
-    key?: string;
-    title?: string;
-    first_publish_year?: number;
-    cover_i?: number;
-    author_key?: string[];
-    author_name?: string[];
-    edition_count?: number;
-  }[];
-};
-
-const OL_SEARCH = 'https://openlibrary.org/search.json';
-
-/** Only the fields we store. Asking for fewer makes their query far cheaper. */
-const OL_FIELDS = 'key,title,first_publish_year,cover_i,author_key,author_name,edition_count';
-
-export function parseOlSearch(body: OlSearchResponse): GapFillWork[] {
-  const docs = Array.isArray(body.docs) ? body.docs : [];
-  const out: GapFillWork[] = [];
-
-  for (const d of docs) {
-    const key = typeof d.key === 'string' ? d.key : null;
-    const title = typeof d.title === 'string' ? d.title.trim() : '';
-    if (!key || !key.startsWith('/works/') || !title) continue;
-
-    const authorKeys = (d.author_key ?? []).filter((k) => typeof k === 'string');
-    const authorNames = (d.author_name ?? []).filter((n) => typeof n === 'string');
-    // Same filter rule as the dump ingest (FN-22): no author, not a book we
-    // can meaningfully show. Applying it in both places is what keeps the
-    // gap-filled catalog and the ingested catalog the same shape.
-    if (authorKeys.length === 0 || authorNames.length === 0) continue;
-
-    out.push({
-      olWorkKey: key,
-      title,
-      firstPublishYear: typeof d.first_publish_year === 'number' ? d.first_publish_year : null,
-      coverId: typeof d.cover_i === 'number' && d.cover_i > 0 ? d.cover_i : null,
-      // search.json returns bare ids ("OL23919A"); the dumps use full paths.
-      // Normalising here means both sources land on the same rows.
-      authorKeys: authorKeys.map((k) => (k.startsWith('/authors/') ? k : `/authors/${k}`)),
-      authorNames,
-      editionCount: typeof d.edition_count === 'number' ? d.edition_count : 0,
-    });
-  }
-
-  return out;
-}
+import type { CatalogSource, SearchWork } from '../providers/catalog/index.js';
 
 export class GapFillService {
-  constructor(private db: Db, private client: OutboundClient = outbound) {}
+  /** `source` is Open Library (PV-07): the only source we may persist. */
+  constructor(private db: Db, private source: CatalogSource) {}
 
   /**
    * Ask Open Library. Returns [] on any failure -- a rate limit, an open
    * circuit, a timeout. The caller is always mid-request for a real person,
    * and the right answer to "the internet is slow" is the local results.
    */
-  async search(q: string, limit = 10): Promise<GapFillWork[]> {
-    const query = q.trim();
-    if (query.length < 3) return [];
-
-    const url = `${OL_SEARCH}?q=${encodeURIComponent(query)}&limit=${limit}&fields=${OL_FIELDS}`;
-    const result = await this.client.getJson<OlSearchResponse>(url, { timeoutMs: 2_500 });
-    if (!result.ok) return [];
-
-    return parseOlSearch(result.data);
+  async search(q: string, limit = 10): Promise<SearchWork[]> {
+    return this.source.search(q, limit);
   }
 
   /**
@@ -108,7 +43,7 @@ export class GapFillService {
    * except that the next search for the same thing fetches it again, so it
    * must never propagate into the request.
    */
-  async persist(works: GapFillWork[]): Promise<number> {
+  async persist(works: SearchWork[]): Promise<number> {
     let stored = 0;
 
     for (const w of works) {

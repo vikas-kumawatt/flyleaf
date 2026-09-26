@@ -68,6 +68,8 @@ describe('API Contract — openapi.yaml (FN-80)', () => {
         identity: {} as never,
         catalog: {} as never,
         reading: {} as never,
+        // Uploads and exports are served only with a storage (PV-01).
+        storage: {} as never,
         limiter: { allow: async () => true },
       });
       await app.close();

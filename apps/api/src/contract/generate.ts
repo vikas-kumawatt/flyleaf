@@ -31,6 +31,8 @@ export async function buildOpenApiSpec(): Promise<object> {
     identity: stub,
     catalog: stub,
     reading: stub,
+    // Not a disk/memory store, so the dev-only signed object route stays out.
+    storage: stub,
     limiter: { allow: async () => true },
   });
   await app.ready();

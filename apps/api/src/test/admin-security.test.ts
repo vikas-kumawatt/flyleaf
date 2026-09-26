@@ -27,9 +27,12 @@ import { overrideWorkMaturity, getIngestDashboardStatus } from '../admin/catalog
 import { queueReportedDuplicate } from '../catalog/dedupe.js';
 import { MERGE_WORKS, STAGING } from '../catalog/ingest/writer.js';
 import { GapFillService } from '../catalog/gapfill.js';
+import { OpenLibrarySource } from '../providers/catalog/index.js';
+import { outbound } from '../platform/outbound.js';
 import { IdentityService } from '../identity/index.js';
 import { isCommonPassword } from '../identity/common-passwords.js';
-import { config, MemoryEmailSender, PgRateLimiter, type Db } from '../platform/index.js';
+import { config, PgRateLimiter, type Db } from '../platform/index.js';
+import { MemoryEmailSender } from '../providers/email/index.js';
 import { freshDrizzle } from './pg.js';
 import { makeUser, unlimited } from './interaction-fixtures.js';
 
@@ -712,7 +715,7 @@ describe('a locked maturity override survives re-ingest (PRD §7.9 [LOCKED])', (
     await db.execute(sql`
       INSERT INTO field_provenance (entity_type, entity_id, field_name, provider, confidence, is_locked)
       VALUES ('work', ${w!.id}, 'title', 'user', 100, true)`);
-    await new GapFillService(db).persist([
+    await new GapFillService(db, new OpenLibrarySource(outbound)).persist([
       { olWorkKey: '/works/OLLOCK3W', title: 'Wrong OL Title', firstPublishYear: 2001, coverId: null, authorKeys: [], authorNames: [], editionCount: 1 },
     ]);
     const [after] = await db.execute<{ title: string; first_publish_year: number }>(sql`SELECT title, first_publish_year FROM works WHERE id = ${w!.id}`);

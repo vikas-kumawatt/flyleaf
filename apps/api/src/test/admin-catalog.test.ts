@@ -15,7 +15,8 @@ import { generateTotp } from '../admin/totp.js';
 import { IdentityService } from '../identity/index.js';
 import { CatalogService } from '../catalog/index.js';
 import { ReadingService } from '../reading/index.js';
-import { MemoryCache, MemoryEmailSender, PgRateLimiter } from '../platform/index.js';
+import { MemoryCache, PgRateLimiter } from '../platform/index.js';
+import { MemoryEmailSender } from '../providers/email/index.js';
 
 describe('Admin Catalog Maturity & Ingestion Telemetry (FN-92)', () => {
   async function setupHarness() {

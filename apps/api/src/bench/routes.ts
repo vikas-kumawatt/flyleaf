@@ -84,7 +84,8 @@ const { freshDrizzle } = await import('../test/pg.js');
 const { IdentityService, signAccessToken } = await import('../identity/index.js');
 const { CatalogService } = await import('../catalog/index.js');
 const { ReadingService } = await import('../reading/index.js');
-const { MemoryCache, MemoryEmailSender, PgRateLimiter } = await import('../platform/index.js');
+const { MemoryCache, PgRateLimiter } = await import('../platform/index.js');
+const { MemoryEmailSender } = await import('../providers/email/index.js');
 
 const { db } = await freshDrizzle();
 const limiter = new PgRateLimiter(db);

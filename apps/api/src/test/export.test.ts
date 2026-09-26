@@ -16,15 +16,21 @@ import {
   exports as exportsTable,
 } from '../db/schema.js';
 import type { Db } from '../platform/index.js';
-import { MemoryEmailSender } from '../platform/index.js';
+import { MemoryEmailSender } from '../providers/email/index.js';
 import { buildApp } from '../app.js';
-import { MemoryFileStorage } from '../imports/storage.js';
+import { MemoryObjectStorage, readAll } from '../providers/storage/index.js';
+import { targetPath } from './upload-fixtures.js';
 import { ExportService } from '../exports/index.js';
 import { processImport } from '../imports/processor.js';
 
 let app: FastifyInstance;
 let drizzleDb: Db;
-let storage: MemoryFileStorage;
+let storage: MemoryObjectStorage;
+
+async function stored(key: string): Promise<Buffer | null> {
+  const stream = await storage.getStream(key);
+  return stream ? readAll(stream) : null;
+}
 let mailer: MemoryEmailSender;
 let exportService: ExportService;
 
@@ -142,7 +148,7 @@ beforeAll(async () => {
     source: 'app',
   });
 
-  storage = new MemoryFileStorage();
+  storage = new MemoryObjectStorage();
   mailer = new MemoryEmailSender();
 
   exportService = new ExportService(drizzleDb, storage, mailer);
@@ -224,7 +230,7 @@ describe('IM-10: CSV/JSON Export & Emailed Link API', () => {
       .from(exportsTable)
       .where(eq(exportsTable.id, createdExportId));
 
-    const fileContent = await storage.get(row!.fileKey!);
+    const fileContent = await stored(row!.fileKey!);
     expect(fileContent).toBeDefined();
     const csvString = fileContent!.toString('utf-8');
 
@@ -247,28 +253,54 @@ describe('IM-10: CSV/JSON Export & Emailed Link API', () => {
     expect(sent.text).toContain(`token=${downloadToken}`);
   });
 
-  it('GET /v1/exports/:id/download downloads CSV file via emailed token without auth', async () => {
+  it('GET /v1/exports/:id/download with the emailed token redirects to a short-lived storage URL (PV-02)', async () => {
     const res = await app.inject({
       method: 'GET',
       url: `/v1/exports/${createdExportId}/download?token=${downloadToken}`,
     });
 
-    expect(res.statusCode).toBe(200);
-    expect(res.headers['content-type']).toContain('text/csv');
-    expect(res.headers['content-disposition']).toContain('attachment; filename=');
-    expect(res.body).toContain('Dune');
-    expect(res.body).toContain('Neuromancer');
+    expect(res.statusCode).toBe(302);
+    expect(res.headers['cache-control']).toBe('no-store');
+    expect(res.headers['referrer-policy']).toBe('no-referrer');
+    const location = String(res.headers.location);
+    // The storage URL carries its own signature, never the emailed token.
+    expect(location).not.toContain(downloadToken);
+    const exp = Number(new URL(location).searchParams.get('exp'));
+    expect(exp * 1000 - Date.now()).toBeLessThanOrEqual(5 * 60_000);
+
+    const file = await app.inject({ method: 'GET', url: targetPath(location) });
+    expect(file.statusCode).toBe(200);
+    expect(file.headers['content-type']).toContain('text/csv');
+    expect(file.headers['content-disposition']).toContain('attachment; filename=');
+    expect(file.body).toContain('Dune');
+    expect(file.body).toContain('Neuromancer');
   });
 
-  it('GET /v1/exports/:id/download downloads file via Bearer token as owner', async () => {
+  it('GET /v1/exports/:id/download redirects the owner with a Bearer token', async () => {
     const res = await app.inject({
       method: 'GET',
       url: `/v1/exports/${createdExportId}/download`,
       headers: { authorization: `Bearer ${ALICE_TOKEN}` },
     });
 
-    expect(res.statusCode).toBe(200);
-    expect(res.body).toContain('Dune');
+    expect(res.statusCode).toBe(302);
+    const file = await app.inject({ method: 'GET', url: targetPath(String(res.headers.location)) });
+    expect(file.body).toContain('Dune');
+  });
+
+  it('GET /v1/exports/:id/download is 404 when the file is gone from storage', async () => {
+    const [row] = await drizzleDb.select().from(exportsTable).where(eq(exportsTable.id, createdExportId));
+    const saved = await stored(row!.fileKey!);
+    await storage.delete(row!.fileKey!);
+    try {
+      const res = await app.inject({
+        method: 'GET',
+        url: `/v1/exports/${createdExportId}/download?token=${downloadToken}`,
+      });
+      expect(res.statusCode).toBe(404);
+    } finally {
+      await storage.put(row!.fileKey!, saved!, 'text/csv');
+    }
   });
 
   it('GET /v1/exports/:id/download returns 404 for invalid token or unauthorized user', async () => {
@@ -308,7 +340,7 @@ describe('IM-10: CSV/JSON Export & Emailed Link API', () => {
       .from(exportsTable)
       .where(eq(exportsTable.id, jsonExportId));
 
-    const content = await storage.get(row!.fileKey!);
+    const content = await stored(row!.fileKey!);
     const parsed = JSON.parse(content!.toString('utf-8'));
 
     expect(parsed.version).toBe('1.0');
@@ -325,7 +357,7 @@ describe('IM-10: CSV/JSON Export & Emailed Link API', () => {
       .from(exportsTable)
       .where(eq(exportsTable.id, createdExportId));
 
-    const csvBuffer = await storage.get(aliceExport!.fileKey!);
+    const csvBuffer = await stored(aliceExport!.fileKey!);
     expect(csvBuffer).toBeDefined();
 
     // 2. Upload and process this CSV into Bob's account using the standard importer

@@ -285,7 +285,7 @@ make ping          # or: cd apps\api ; npm run ping
 
 The worker logs `job handled` with the job id within a couple of seconds. pg-boss owns its own `pgboss` schema and migrates it itself — a deliberate exception to "drizzle is the source of truth", because those tables are library internals and hand-managing them makes every pg-boss upgrade a migration you have to get right.
 
-The `catalog.dedupe` cron job runs monthly (`0 0 1 * *`). Counter reconciliation runs nightly (UTC): `shelves.reconcile` 03:00, `follows.reconcile` 03:15, `reads.reconcile` 03:30 — each corrects drift in trigger-maintained counters. To trigger dedupe manually:
+The `catalog.dedupe` cron job runs monthly (`0 0 1 * *`). Counter reconciliation runs nightly (UTC): `shelves.reconcile` 03:00, `follows.reconcile` 03:15, `reads.reconcile` 03:30 — each corrects drift in trigger-maintained counters. `storage.cleanup` 03:45 deletes uploads that were never used and export files past their 48 h link. To trigger dedupe manually:
 
 ```powershell
 npm run worker -- --dedupe
@@ -306,6 +306,34 @@ $env:FLYLEAF_TEST_WORKERS = 2; node scripts/ci.mjs     # bash: FLYLEAF_TEST_WORK
 ```
 
 It passes `--maxWorkers=<n>` to vitest; unset, vitest picks one worker per core. For a single run: `npx vitest run --maxWorkers=2` in `apps/api`.
+
+### 3d. Swapping a provider
+
+Every third-party service sits behind a port in `apps/api/src/providers/`, and one factory (`providers/index.ts`, `createProviders()`) picks the adapters from the environment. The API and the worker both call it, so they always agree on where files and mail go. **Swapping a vendor = one adapter file + one env line.** No vendor SDK may be imported outside `src/providers/`; `src/test/providers.test.ts` fails the build if one is.
+
+| Port | Variable | Adapters (default first) | Production needs |
+|---|---|---|---|
+| Object storage | `STORAGE_DRIVER` | `disk` (dev), `memory` (tests), `s3` | `s3` + `S3_BUCKET`, `S3_REGION`, `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY`; `S3_ENDPOINT` for R2/B2/MinIO; `S3_FORCE_PATH_STYLE=true` for MinIO |
+| Email | `EMAIL_DRIVER` | `console` (dev), `memory`, `smtp` | `smtp` + `SMTP_URL` (e.g. `smtps://user:pass@smtp.postmarkapp.com:465`), `EMAIL_FROM` |
+| Push | `PUSH_DRIVER` | `memory` (dev), `expo` | `expo`; `EXPO_ACCESS_TOKEN` only if the Expo project enforces it |
+| Error reporting | `ERROR_DRIVER` | `noop`, `memory`, `sentry` | nothing (`noop` is allowed); `sentry` + `SENTRY_DSN` (optional `SENTRY_ENVIRONMENT`, `SENTRY_RELEASE`) |
+| Catalog source | — | Open Library | nothing: it is the only source we may store (CC0) |
+
+With `NODE_ENV=production` the API and the worker **refuse to start** when a driver is unset (except errors), is a development adapter (`disk`, `memory`, `console`), or is missing a credential. The message names the variable. The check runs before the database connection, so the failure is immediate.
+
+**Uploads never pass through the API.** The client asks for an upload (`POST /v1/uploads`), sends the file straight to storage with the signed target it gets back, and confirms (`POST /v1/uploads/:id/complete`). The API then checks what arrived (size, type, content) and hands the upload id to a consumer (`POST /v1/imports {upload_id, source}`). Export downloads redirect to a 5-minute storage URL.
+
+Local development:
+
+- The default `disk` adapter keeps files in `apps/api/.uploads` and serves HMAC-signed URLs from the API itself (`/v1/storage/object`), so the whole presigned flow runs with no cloud account. For a phone on your LAN, set `STORAGE_PUBLIC_URL=http://<your-LAN-IP>:3000`; the upload URLs must be reachable from the device.
+- To run against the MinIO in `docker-compose.yml` instead: `STORAGE_DRIVER=s3 S3_ENDPOINT=http://localhost:9000 S3_FORCE_PATH_STYLE=true S3_REGION=us-east-1 S3_BUCKET=flyleaf S3_ACCESS_KEY_ID=flyleaf S3_SECRET_ACCESS_KEY=flyleaf123` (create the bucket in the console at <http://localhost:9001> first). The storage contract suite runs against this MinIO automatically when it is up.
+
+Adding an adapter, e.g. a Resend HTTP mailer:
+
+1. Write `providers/email/resend.ts` implementing `EmailSender`. The vendor SDK is imported only there.
+2. Add it to `createMailer()` in `providers/index.ts`, with its credentials in the `required(...)` list.
+3. Add a harness for it to `src/test/email-contract.test.ts`. It must pass the same cases as the others.
+4. Set `EMAIL_DRIVER=resend` in the environment.
 
 ### 4. Mobile app — a development build, not Expo Go
 
@@ -453,7 +481,9 @@ flyleaf/
 │       ├── dedupe.ts           duplicate detection CLI
 │       ├── fetch-dumps.ts      resumable dump downloader
 │       ├── db/schema.ts        Drizzle schema — the source of truth
-│       ├── platform/           config, pool, Cache + RateLimiter interfaces
+│       ├── platform/           config, pool, Cache + RateLimiter interfaces, outbound client
+│       ├── providers/          storage, email, push, errors, catalog source: ports + adapters (§3d)
+│       ├── uploads/            presigned uploads: policy, intent, complete, cleanup
 │       ├── http.ts             error shape, viewer, requireAdmin/requireModerator
 │       ├── identity/           argon2id, JWT, refresh tokens, email verification
 │       ├── authorization/      canView(), assertCanView() — the access control layer
@@ -474,7 +504,7 @@ flyleaf/
 │       ├── reviews/            reviews, Bayesian rating, review ranking + exploration
 │       ├── interactions/       likes + comments on reads, rate-limited
 │       ├── activity/           feed: fan-out on read, ranking, aggregation, cold start
-│       ├── telemetry/          event ingestion, budget calculation, Sentry hook
+│       ├── telemetry/          event ingestion, budget calculation, error scrubbing
 │       └── test/               19 test suites, every SQL suite runs on PGlite
 └── apps/mobile/                Expo SDK 57 (React Native 0.86) — 52 tests
     ├── app/                    expo-router filesystem routing

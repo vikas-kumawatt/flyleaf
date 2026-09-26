@@ -13,7 +13,8 @@ import { buildApp } from '../app.js';
 import { CatalogService } from '../catalog/index.js';
 import { IdentityService, signAccessToken, verifyAccessToken } from '../identity/index.js';
 import { signAdminToken, verifyAdminToken } from '../admin/auth.js';
-import { closeDb, makeDb, MemoryCache, MemoryEmailSender, PgRateLimiter } from '../platform/index.js';
+import { closeDb, makeDb, MemoryCache, PgRateLimiter } from '../platform/index.js';
+import { MemoryEmailSender } from '../providers/email/index.js';
 
 const CONCURRENT_LOGINS = 20;
 const SAMPLES = 200;

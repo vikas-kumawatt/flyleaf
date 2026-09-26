@@ -194,7 +194,7 @@
   - Presenting an already-consumed refresh token immediately revokes all tokens matching its `family_id` and rejects with 403 `token_reused`. ~~All 35 identity tests pass in 2.8s.~~ (stale count)
   - **Audit (2026-09-25):** ⚠️ — sequential reuse revoked the family as claimed, but two concurrent refreshes with one token both succeeded and forked the family; rotation is now one conditional `UPDATE … RETURNING` (strict, no grace window); see A-04-005.
 - [x] **FN-65** Email verification + password reset behind a sender interface — 1d
-  - Defined swap-ready `EmailSender` interface, `ConsoleEmailSender`, and `MemoryEmailSender` in `platform/mail.ts`.
+  - ~~Defined swap-ready `EmailSender` interface, `ConsoleEmailSender`, and `MemoryEmailSender` in `platform/mail.ts`.~~ Moved to `providers/email/` with an SMTP adapter (PV-04).
   - Added `email_verification_tokens` and `password_reset_tokens` tables (SHA-256 hashed, short-lived, single-use) with migration `0007_auth_tokens.sql` applied to live PostgreSQL.
   - Implemented `POST /v1/auth/verify-email` (burns token, marks `users.email_verified_at`), `POST /v1/auth/resend-verification` (authenticated `Bearer`, 1/60s rate limit, no-op when verified), `POST /v1/auth/forgot-password` (unauthenticated, always 200 without email enumeration), and `POST /v1/auth/reset-password` (argon2id update, burns token, **revokes all active refresh token families** for user).
   - Registration automatically dispatches a 24-hour verification token.
@@ -275,6 +275,58 @@
   - Audit log query API (`GET /v1/admin/audit-log`) with filtering by `action`, `actorId`, and pagination.
   - HTML audit trail viewer at `/admin/audit-log` with formatted JSON payloads and chronological history.
   - 22 dedicated test cases in `apps/api/src/test/admin.test.ts`. 100% test coverage for 2FA, token isolation, role enforcement, and audit recording.
+
+### Providers — `PV-0x` · 5d
+- [x] **PV-01** ⚠️ **Object-storage port.** `ObjectStorage` in `src/providers/storage/`: `createUpload({key, contentType, maxBytes, expiresIn})` → `{url, method, headers, fields?}` (covers S3 PUT, S3 POST policy and Cloudinary-style signed form posts), `createDownloadUrl(key, {expiresIn, filename})`, `head(key)` → `{size, contentType, etag} | null`, `getStream(key)`, `put(key, body, contentType)` (server-generated files only), `delete(key)`. Adapters: `disk` (dev: HMAC-signed local URLs served by a small route, so the presigned flow is exercised locally), `memory` (tests), `s3` (any S3-compatible: AWS, R2, B2, MinIO). One shared contract test suite runs against every adapter. `FileStorage` is deleted — 1.5d
+  - `src/providers/storage/`: `ObjectStorage` (`types.ts`), `disk` + `memory` (`local.ts`, sharing one HMAC-SHA256 signed-URL scheme and the dev route `local-routes.ts` at `/v1/storage/object`, hidden from the spec), `s3` (`s3.ts`, `@aws-sdk/client-s3` + `s3-request-presigner` 3.1141.0).
+  - ~~`createUpload({key, contentType, maxBytes, expiresIn})`~~ `createUpload({key, contentType, contentLength, expiresIn})`: a presigned **PUT** binds the exact declared length and type (`signableHeaders`), and the policy maximum is checked before signing. A range needs a POST policy, and R2 (the production target) does not implement POST Object. The `{url, method, headers, fields?}` shape still allows a POST adapter.
+  - One key rule for every adapter (`assertValidKey`: no `..`, empty or absolute segments). `put()` is used only for exports.
+  - Contract suite `src/test/storage-contract.test.ts`: 10 cases × memory, disk, s3 with a mocked client (the fake re-signs every presigned URL with the SDK, so a wrong type, length, key or expiry is refused as S3 would), and s3 against the local MinIO when `flyleaf-minio` is reachable. Removing `signableHeaders` makes the MinIO wrong-type case fail (checked).
+  - `FileStorage` (`imports/storage.ts`) deleted; imports, exports and the job handlers use `ObjectStorage`.
+
+- [x] **PV-02** ⚠️ **Presigned upload flow.** `uploads` table (id, user_id, purpose, key, content_type, max_bytes, status `pending|uploaded|consumed|expired`, expires_at). `POST /v1/uploads` {purpose, content_type, size} → upload id + presigned target, limits per purpose from one policy table (PRD numbers with section refs). Client uploads directly. `POST /v1/uploads/:id/complete` → server `head()`s the object, checks owner, size, declared type and magic bytes (ranged read), marks `uploaded`. Consumers take `upload_id` (imports first), mark it `consumed` in the same transaction as the job enqueue. Exports: worker `put()`s, client downloads via short-lived `createDownloadUrl`. Daily cleanup job deletes expired/unconsumed uploads and their objects. Remove `@fastify/multipart` and the multipart route. Idempotent `complete`; another user's upload id → 404 — 1.5d
+  - Migration `0024_uploads.sql` (+ `uploads` in `schema.ts`): `size` (declared, exact), `max_bytes`, `filename`, `sha256`, `completed_at`, `consumed_at`; the cleanup index is partial on live rows.
+  - `src/uploads/index.ts`: `UPLOAD_POLICIES` (import: 10 MB, CSV/text types, PRD §6.8 + §42 #11), `POST /v1/uploads` (415 wrong type, 413 over the limit, the target lives 15 min and the upload 1 h), `POST /v1/uploads/:id/complete` (404 for someone else's id with the same body as a random one; 409 `upload_missing`; 410 expired; 422 size, type or content mismatch, after which the object is deleted and the same target can be retried; idempotent and race-safe).
+  - ~~magic bytes (ranged read)~~ `complete` streams the object once (≤ 10 MB) to sniff it (binary signatures, NUL bytes) **and** hash it, so duplicate detection (PRD §34.4) stays a synchronous 409. The API never receives the bytes in a request. The worker re-checks the SHA-256 before processing, because the PUT target stays valid after `complete` (see Audit PV, D-PV-2).
+  - `POST /v1/imports {upload_id, source, force?}` (JSON). It row-locks the upload, checks for duplicates, inserts the import, marks the upload consumed and enqueues through `sendInTx`, all in one transaction: a failed enqueue leaves no import and a reusable upload. Replaying the same upload returns the same import with 200.
+  - Exports: the worker `put()`s; `GET /v1/exports/:id/download` authorizes by the emailed token or the owner, then **302**s to a 5-minute storage URL (`no-store`, `no-referrer`). Emailed links keep working.
+  - Daily `storage.cleanup` (03:45): expired uploads that were never consumed, and export files past their 48 h window, are deleted from storage (the object first, then the row).
+  - Import files are deleted 30 days after the import finishes (D-PV-3; there is no undo window to wait for). A deleted account's files → Part 15 retention sweep (account deletion is not built). `complete` hashes while streaming; the disk adapter now streams too (D-PV-2).
+  - `@fastify/multipart` removed. An unparseable Content-Type is now 415 `unsupported_media_type` (it was an unhandled 500).
+  - Tests: `uploads.test.ts` (17) and `imports.test.ts`, `import-duplicate.test.ts`, `export.test.ts`, `import-real-library.test.ts`, `server-wiring.test.ts` rewritten for the flow. Seen failing with the guard removed: PDF-as-CSV, NUL bytes, and a file replaced after `complete`.
+
+- [x] **PV-03** api-client + mobile: `uploadFile(purpose, file, {onProgress})` does intent → direct upload → complete, with retry of the upload step only; import screen switched; export download uses the presigned URL; pending uploads cleared per user on logout — 0.5d
+  - api-client: `createUpload`, `completeUpload`, `uploadFile(purpose, body, {contentType, filename?, onProgress?, attempts?})` (intent, then the direct PUT/POST, retried up to 3 times only on a network error, 408, 429 or 5xx, then complete), `createImport({upload_id, source, force?})`, `cancelPendingUploads()`. ~~`uploadImport`~~ is removed. Sizes are counted in UTF-8 bytes. Progress uses XHR where it exists.
+  - The direct upload uses `ClientConfig.uploadFetch` (the global fetch by default), never the API fetch. The mobile interceptor re-sends a 401 with the bearer token, and the token must not reach a storage host (the test checks the PUT carries no `Authorization`).
+  - Mobile: the import screen uploads the pasted CSV with progress (`Uploading N%`), then calls `createImport`. "Import anyway" after a 409 duplicate reuses the same upload with `force: true`, so nothing is sent again. `api.logout()` calls `cancelPendingUploads()` first.
+  - Export download: `download_url` is still the emailed API link, which now 302s to the short-lived storage URL, so `Linking.openURL` ends at the presigned URL with no mobile change.
+  - Tests: `apps/api/src/test/api-client-upload.test.ts` (6) runs the built client against the real app: call order, no token to storage, 503 retried and 403 not, a 415 surfaced before any upload, cancel-on-logout. Mobile typecheck and 100 offline tests green.
+- [x] **PV-04** Email port: `EmailSender` moves to `src/providers/email/`, adds one real adapter (SMTP via nodemailer, or Resend/SES/Postmark) selected by `EMAIL_DRIVER`; templates stay in app code — 0.25d
+  - `platform/mail.ts` moved to `src/providers/email/local.ts` (`EmailSender`, `console`, `memory`), with no re-export left in `platform`; all 18 importers now point at `providers/email/index.js`. New `smtp.ts`: `SmtpEmailSender` on nodemailer 10.0.10 (it ships its own types, so no `@types/nodemailer`). Any vendor with an SMTP relay (Postmark, SES, Resend, Mailgun) is a `SMTP_URL`, not code.
+  - `EMAIL_DRIVER=console|memory|smtp` (+ `SMTP_URL`, `EMAIL_FROM`) through `createMailer()`. The API and the worker both use it (the worker used a console mailer of its own before). Templates stay in `identity/` and `exports/`.
+  - Contract suite `src/test/email-contract.test.ts`: memory, console and smtp (nodemailer's real message builder over its JSON transport, no network); a provider refusal rejects; a CR/LF in the subject adds no header on the wire.
+- [x] **PV-05** Push port: `PushSender` interface + Expo push adapter + memory adapter, so SO-30 builds on it — 0.25d
+  - `src/providers/push/index.ts`: `PushSender.send(messages)` returns one `PushResult` per message, in order, and never throws for a single bad message. Failures are named for what SO-30 must do: `device_not_registered` (delete the token), `invalid_token`, `message_too_big`, `rate_limited`, `provider_error`.
+  - Adapters: `memory` (tests and development) and `expo`, which is Expo's push HTTPS API through `fetch` with a 10 s timeout, batches of 100 and an optional `EXPO_ACCESS_TOKEN`. There is no `expo-server-sdk` dependency. `PUSH_DRIVER=memory|expo` via `createPush()`; production requires `expo`.
+  - Only push *tickets*: reading Expo's delivery *receipts* (a second call, minutes later) is left to SO-30, which owns the token table it would update.
+  - Contract suite `src/test/push-contract.test.ts` (12): memory, and expo against a fake of Expo's API (the documented ticket shapes, DeviceNotRegistered, the 100-per-request limit); a 503 or 429 or an unreachable host marks the batch instead of throwing.
+- [x] **PV-06** Error-reporting port: `ErrorReporter` interface; Sentry becomes one adapter; `noop` default; PII scrubbing (`sanitizeContext`) stays outside the adapter — 0.25d
+  - `src/providers/errors/index.ts`: `ErrorReporter.capture(error, context)` returns an event id or null and never throws. Adapters: `noop` (the default, allowed in production), `memory` (tests), and `sentry` (the existing store-endpoint call moved into an adapter, now with a 5 s timeout, `environment` and `release`, and the DSN validated at startup). `ERROR_DRIVER=noop|memory|sentry` + `SENTRY_DSN`, `SENTRY_ENVIRONMENT`, `SENTRY_RELEASE`.
+  - `telemetry/sentry.ts` renamed to `telemetry/errors.ts`: `sanitizeContext` stays there, and `reportApiError(reporter, …)` scrubs *before* any adapter sees the context. The 500 handler (`registerCoreHooks`) reports through the injected reporter.
+  - ~~Sentry reporting (SL-82)~~ **was never on:** `initSentry()` had no caller, so `captureApiException` was a no-op whatever `SENTRY_DSN` said (see Audit PV, A-PV-003). The factory now builds the reporter that `serverDependencies()` hands the app.
+  - Tests: `error-reporter-contract.test.ts` (10) runs noop, memory, and sentry against a fake store endpoint (payload, key, no headers or body sent, failure returns null, a bad DSN is refused). `telemetry.test.ts`: a thrown 500 reaches the reporter with authorization, query token and password redacted, and the client body has no detail. The `initSentry` no-op test is replaced.
+- [x] **PV-07** Catalog-source port: Open Library access behind `CatalogSource` (lookup by ISBN / work / author, cover URL); `OutboundClient` rate limit + breaker stay shared — 0.25d
+  - `src/providers/catalog/`: `CatalogSource` with `search(q, limit)`, `lookupIsbn`, `lookupWork`, `lookupAuthor` and `coverUrl(id, S|M|L)`, and the `OpenLibrarySource` adapter. The lookups return the **same rows as the dump ingest** by running `normaliseEdition` / `normaliseWork` / `normaliseAuthor`, so there is one parser for OL records. An invalid ISBN or a malformed key is refused before any request (no path injection); every method returns null / [] instead of throwing.
+  - All requests go through the one shared `OutboundClient` (limiter and breaker unchanged). The search keeps its 2.5 s timeout. `createCatalogSource()` has no driver variable, because Open Library is the only source we may store (CC0).
+  - `GapFillService(db, source)`: the OL search, `parseOlSearch` and the URL moved into the adapter. `persist()` and its licensing rule stay in `catalog/gapfill.ts` (the licensing test still reads that file).
+  - Only `search` has a production caller today; the lookups exist for the declared scope and are exercised by the contract suite only.
+  - Contract suite `catalog-source-contract.test.ts` (9): a fake openlibrary.org serving the real fixture records, a real `OutboundClient`, ISBN-10/13/hyphenated, full and bare keys, source down, and a drained limiter means no request.
+- [x] **PV-08** Wiring + guard rails: one `providers/index.ts` factory reads `STORAGE_DRIVER`, `EMAIL_DRIVER`, `PUSH_DRIVER`, `ERROR_DRIVER` and fails fast on missing credentials in production; `serverDependencies()` and the worker both use it; ESLint `no-restricted-imports` forbids vendor SDKs (`@aws-sdk/*`, `@sentry/*`, `nodemailer`, `expo-server-sdk`, …) outside `src/providers/`; README gets a "Swapping a provider" section; architecture.md updated — 0.5d
+  - `providers/index.ts`: `createProviders(env)` → `{storage, mailer, push, errors, catalog}`, built from `createStorage`, `createMailer`, `createPush`, `createErrorReporter` and `createCatalogSource`. An unset driver in production is a refusal (`ERROR_DRIVER` falls back to `noop`), as are a dev adapter (`disk`, `memory`, `console`), a missing or blank credential (every missing variable is named), an invalid Sentry DSN, and an unknown driver. Credentials are also required outside production (`s3` without a bucket is a mistake anywhere).
+  - `server.ts` and `worker.ts` call it **first, before the database**, so a bad config exits at once instead of after 15 s of DB retries. `serverDependencies(db, boss, providers)` hands the app storage, mailer, the error reporter and the catalog source. The worker's handlers get the same storage and mailer: they used to default to a local disk and a console mailer of their own.
+  - ~~ESLint `no-restricted-imports`~~ The repository has no ESLint, so the rule is a test: `src/test/providers.test.ts` scans every import outside `src/providers/` (tests excepted) for `@aws-sdk/*`, `@smithy/*`, `@sentry/*`, `nodemailer`, `expo-server-sdk`, `@google-cloud/*`, `@azure/*`, `firebase-admin`, `cloudinary`, `resend`, `postmark`, `@sendgrid/*` and `mailgun*`, and the checker is tested on a sample. Adding ESLint for one rule was rejected (a new toolchain and CI step); see Audit PV, D-PV-4.
+  - Tests: `providers.test.ts` (14) covers the factory rules, spawns `server.ts` and `worker.ts` with `NODE_ENV=production` and a dead database (both exit naming the variable in under 14 s), and the boundary check. `server-wiring.test.ts` builds the app from `createProviders()`.
+  - Docs: README §3d "Swapping a provider"; architecture §4.2 (ports, rules, the presigned flow diagram), §3.7 `uploads` DDL, §9 `storage.cleanup`; `.env.example`; phases.md.
 
 **Exit:** 50 owned books findable · panel ≥90% · cross-user suite green · migrations clean in CI.
 
@@ -410,7 +462,7 @@
   - Admin budget analytics endpoint `GET /v1/admin/telemetry/budgets` computing PostgreSQL `percentile_cont(0.75)` for progress, finish, and log sheet durations, tap counts, and flow abandonment rate.
   - 10 mobile unit tests covering event queuing, session rotation, and all 5 budget events in `apps/mobile/src/lib/__tests__/telemetry-budgets.test.ts`.
 - [x] **SL-82** Sentry, app + API — 0.5d
-  - API Sentry integration in `apps/api/src/telemetry/sentry.ts` and `apps/api/src/app.ts`: custom Fastify 500 error hook capturing unhandled exceptions with automatic redaction of sensitive headers (`authorization`, `cookie`, `secret`, `password`, `token`, `totp`).
+  - ~~API Sentry integration in `apps/api/src/telemetry/sentry.ts` and `apps/api/src/app.ts`: custom Fastify 500 error hook capturing unhandled exceptions~~ The hook never sent anything: `initSentry()` had no caller, so capture was a no-op whatever `SENTRY_DSN` said. Now an `ErrorReporter` port chosen by `ERROR_DRIVER` (PV-06, A-PV-003); the redaction stays in `telemetry/errors.ts`. with automatic redaction of sensitive headers (`authorization`, `cookie`, `secret`, `password`, `token`, `totp`).
   - Mobile Sentry wrapper in `apps/mobile/src/lib/sentry.ts` with exception formatting, platform tagging, and graceful fallback.
   - Global `ErrorBoundary` in `apps/mobile/src/ui/ErrorBoundary.tsx` wrapping the application root in `apps/mobile/app/_layout.tsx` with user-friendly recovery screen and error reporting.
   - 7 backend tests in `apps/api/src/test/telemetry.test.ts` covering event ingestion, budget calculation, moderator role gating, and Sentry context sanitization. 100% green CI pipeline.
@@ -610,15 +662,15 @@
   - Comprehensive migration test suite in `apps/api/src/test/imports-migration.test.ts` (12 tests passing).
   - Clean migration applied to live PostgreSQL and verified 100% green in full CI (489 API tests passing).
 - [x] **IM-02** Upload endpoint → job ID, returns immediately — 0.5d
-  - Created file storage abstraction in `apps/api/src/imports/storage.ts` supporting `DiskFileStorage` (persistent local disk directory) and `MemoryFileStorage` (fast isolated test memory).
-  - Configured `@fastify/multipart` in `apps/api/src/app.ts` with 10MB limit (PRD §6.8) and custom 413 `file_too_large` error envelope mapping.
+  - ~~Created file storage abstraction in `apps/api/src/imports/storage.ts` supporting `DiskFileStorage` (persistent local disk directory) and `MemoryFileStorage` (fast isolated test memory).~~ Replaced by the `ObjectStorage` port (PV-01).
+  - ~~Configured `@fastify/multipart` in `apps/api/src/app.ts` with 10MB limit (PRD §6.8) and custom 413 `file_too_large` error envelope mapping.~~ Multipart removed (PV-02): the file goes to object storage through a presigned upload, and `POST /v1/imports` takes `{upload_id, source, force?}`. The 10 MB limit is a 413 at `POST /v1/uploads`, before any byte is sent.
   - Added background job queue `processImport: 'imports.process'` and registered worker handler in `apps/api/src/jobs/index.ts`.
   - Implemented `ImportService` and `importsPlugin` in `apps/api/src/imports/index.ts`:
     - `POST /v1/imports`: Validates source against the 6 supported platforms (`goodreads`, `storygraph`, `librarything`, `calibre`, `openlibrary`, `openreads`), enforces non-empty file, calculates SHA-256 `content_hash`, writes `queued` import record, enqueues pg-boss task, and returns `{ id, job_id, state: 'queued', source, total_rows: 0, matched: 0, unmatched: 0, ... }` immediately per PRD AC-9.
     - `GET /v1/imports/:id`: Status and progress inspection with strict 404 security isolation for cross-user requests.
     - `GET /v1/imports`: Reverse-chronological list of imports for authenticated viewer.
   - Declared OpenAPI 3.1 schemas in `apps/api/src/contract/schemas.ts` and regenerated `openapi.yaml` with 0 drift.
-  - Added typed client methods `uploadImport()`, `getImport()`, and `listImports()` in `packages/api-client/src/client.ts` supporting standard web `Blob | File | Uint8Array`.
+  - ~~Added typed client methods `uploadImport()`,~~ `uploadImport()` replaced by `uploadFile()` + `createImport()` (PV-03); `getImport()`, and `listImports()` in `packages/api-client/src/client.ts` supporting standard web `Blob | File | Uint8Array`.
   - Comprehensive automated integration test suite in `apps/api/src/test/imports.test.ts` (16 tests passing).
   - Verified 100% green across full monorepo CI (all 9 gates passing in 301s).
 - [x] **IM-03** ⚠️ **Declarative column map, one config per source** — 1.5d
@@ -723,7 +775,7 @@
       - `POST /v1/exports`: Enqueues export job, generates 48-hour download token, and dispatches pg-boss job (`exports.process`).
       - `GET /v1/exports`: Lists user's export history with timestamps, formats, states, and file sizes.
       - `GET /v1/exports/:id`: Inspects individual export status.
-      - `GET /v1/exports/:id/download`: Secure dual-access file streaming (either Bearer token authentication or single-use emailed token `?token=...` without auth).
+      - `GET /v1/exports/:id/download`: ~~Secure dual-access file streaming~~ Authorizes the same two ways, then 302s to a 5-minute storage URL; the API no longer streams the file (PV-02). (either Bearer token authentication or single-use emailed token `?token=...` without auth).
       - Emailed notification dispatched via `mailer.send()` with 48h valid secure download link upon completion (PRD §1290, §3424).
     - **Client SDK & Mobile UI**:
       - Typed client methods `requestExport()`, `getExport()`, `listExports()` in `@flyleaf/api-client` and `apps/mobile/src/lib/api.ts`.
@@ -743,13 +795,13 @@
       - Failed imports (`state = 'failed'`) do not block re-uploads.
     - **Duplicate Conflict & Force Override**:
       - If an identical file was previously imported, rejects with `409 Conflict` (`ApiError.conflict('duplicate_import', ...)`).
-      - Allows intentional re-imports via `force=true` (querystring `?force=true` or multipart form field `force: 'true'`).
+      - Allows intentional re-imports via `force=true` ~~(querystring `?force=true` or multipart form field `force: 'true'`)~~ (`force: true` in the JSON body, PV-02; the refused upload is reused, nothing is re-sent).
     - **Contract & OpenAPI 3.1.0**:
-      - Added `force` query parameter to `uploadImportQuerySchema` in `apps/api/src/contract/schemas.ts`.
+      - ~~Added `force` query parameter to `uploadImportQuerySchema` in `apps/api/src/contract/schemas.ts`.~~ Now `force` in `createImportBodySchema` (PV-02).
       - Added `409: errorResponseSchema` to `POST /v1/imports` route contract.
       - Verified 0 OpenAPI contract drift via `npm run spec:check`.
     - **Client SDK & Mobile UI**:
-      - Added `UploadImportOptions` with `force?: boolean` to `@flyleaf/api-client` and `apps/mobile/src/lib/api.ts`.
+      - ~~Added `UploadImportOptions` with `force?: boolean`~~ Now `CreateImportRequest.force` (PV-03); to `@flyleaf/api-client` and `apps/mobile/src/lib/api.ts`.
       - Mobile import screen (`apps/mobile/app/import/index.tsx`) catches `duplicate_import` error and presents confirmation dialog ("Duplicate File: An identical file has already been imported. Would you like to import it anyway?") with "Import Anyway" (`force: true`) or "Cancel".
     - **Integration Tests & CI**:
       - 7 dedicated integration tests in `apps/api/src/test/import-duplicate.test.ts` (100% passing).

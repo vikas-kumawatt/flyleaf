@@ -1688,6 +1688,54 @@ export const shelfSlugParamsSchema = {
   required: ['username', 'slug'],
 } as const;
 
+// ---------------------------------------------------------------- uploads (PV-02)
+
+export const uploadPurposeEnum = ['import'] as const;
+export const uploadStatusEnum = ['pending', 'uploaded', 'consumed', 'expired'] as const;
+
+export const createUploadBodySchema = {
+  type: 'object',
+  properties: {
+    purpose: { type: 'string', enum: uploadPurposeEnum },
+    content_type: { type: 'string', minLength: 1, maxLength: 100 },
+    size: { type: 'integer', minimum: 1, description: 'Exact size in bytes; the upload must match it.' },
+    filename: { type: 'string', maxLength: 255 },
+  },
+  required: ['purpose', 'content_type', 'size'],
+} as const;
+
+export const uploadTargetSchema = {
+  type: 'object',
+  description:
+    'Send the file here directly. PUT: the raw bytes with exactly these headers. ' +
+    'POST: a multipart form of `fields` followed by the file.',
+  properties: {
+    url: { type: 'string' },
+    method: { type: 'string', enum: ['PUT', 'POST'] },
+    headers: { type: 'object', additionalProperties: { type: 'string' } },
+    fields: { type: 'object', additionalProperties: { type: 'string' } },
+  },
+  required: ['url', 'method', 'headers'],
+} as const;
+
+export const uploadResponseSchema = {
+  type: 'object',
+  properties: {
+    id: { type: 'string', format: 'uuid' },
+    purpose: { type: 'string', enum: uploadPurposeEnum },
+    status: { type: 'string', enum: uploadStatusEnum },
+    content_type: { type: 'string' },
+    size: { type: 'integer' },
+    max_bytes: { type: 'integer' },
+    filename: { type: ['string', 'null'] },
+    expires_at: { type: 'string', format: 'date-time' },
+    created_at: { type: 'string', format: 'date-time' },
+    completed_at: { type: ['string', 'null'], format: 'date-time' },
+    target: { ...uploadTargetSchema, description: 'Present only in the response to POST /v1/uploads.' },
+  },
+  required: ['id', 'purpose', 'status', 'content_type', 'size', 'max_bytes', 'expires_at', 'created_at'],
+} as const;
+
 // ---------------------------------------------------------------- imports (IM-02)
 
 export const importSourceEnum = [
@@ -1754,19 +1802,25 @@ export const importListResponseSchema = {
   required: ['imports'],
 } as const;
 
-export const uploadImportQuerySchema = {
+export const createImportBodySchema = {
   type: 'object',
   properties: {
+    upload_id: {
+      type: 'string',
+      format: 'uuid',
+      description: 'A completed upload with purpose `import` (POST /v1/uploads, then /complete).',
+    },
     source: {
       type: 'string',
       enum: importSourceEnum,
-      description: 'Source platform export format (can also be provided as a multipart form field)',
+      description: 'Source platform export format',
     },
     force: {
       type: 'boolean',
       description: 'If true, bypasses duplicate-import detection by content hash (IM-11)',
     },
   },
+  required: ['upload_id', 'source'],
 } as const;
 
 export const importRowStateEnum = [

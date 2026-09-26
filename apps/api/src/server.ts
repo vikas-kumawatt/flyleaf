@@ -5,8 +5,13 @@ import { config, makeDb, waitForDb, closeDb } from './platform/index.js';
 import { buildApp, redactUrl } from './app.js';
 import { makeProducerBoss, QUEUES } from './jobs/index.js';
 import { serverDependencies } from './server-wiring.js';
+import { createProviders } from './providers/index.js';
 
 async function main() {
+  // First: a production process with a dev adapter or missing credentials
+  // must exit here, before it waits on the database (PV-08).
+  const providers = createProviders();
+
   const db = makeDb();
   await waitForDb(db);
 
@@ -21,7 +26,7 @@ async function main() {
   await boss.createQueue(QUEUES.processExport);
 
   const app = await buildApp({
-    ...serverDependencies(db, boss),
+    ...serverDependencies(db, boss, providers),
     trustProxy: config.trustProxy,
     logger: {
       level: config.logLevel,

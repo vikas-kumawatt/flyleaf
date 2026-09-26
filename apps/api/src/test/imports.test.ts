@@ -1,21 +1,27 @@
-// IM-02: Upload endpoint returning job ID immediately.
+// IM-02: Import endpoint returning job ID immediately.
 // PRD §6.8, §24.2, AC-9, Architecture §3.7.
+//
+// PV-02: the file reaches storage directly through a presigned upload; the
+// import takes the completed upload's id. The upload flow's own edge cases
+// live in uploads.test.ts.
 
 import crypto from 'node:crypto';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { FastifyInstance } from 'fastify';
 import { eq } from 'drizzle-orm';
-import { freshDb, freshDrizzle } from './pg.js';
-import { imports, users } from '../db/schema.js';
+import { freshDrizzle } from './pg.js';
+import { imports, uploads, users } from '../db/schema.js';
 import type { Db } from '../platform/index.js';
 import { buildApp } from '../app.js';
-import { MemoryFileStorage, IMPORT_SOURCES } from '../imports/index.js';
-import { QUEUES, makeBoss } from '../jobs/index.js';
+import { IMPORT_SOURCES } from '../imports/index.js';
+import { MemoryObjectStorage, readAll } from '../providers/storage/index.js';
+import { QUEUES } from '../jobs/index.js';
 import type { PgBoss } from 'pg-boss';
+import { importCsv, startUpload, uploadFile } from './upload-fixtures.js';
 
 let app: FastifyInstance;
 let drizzleDb: Db;
-let storage: MemoryFileStorage;
+let storage: MemoryObjectStorage;
 let boss: PgBoss;
 
 const USER_ALICE = '11111111-1111-1111-1111-111111111111';
@@ -23,42 +29,8 @@ const USER_BOB = '22222222-2222-2222-2222-222222222222';
 
 const ALICE_TOKEN = 'token-alice';
 const BOB_TOKEN = 'token-bob';
-
-/**
- * Builds a deterministic multipart/form-data payload with headers.
- */
-function buildMultipart(
-  fields: Record<string, string>,
-  file?: { name: string; filename: string; content: string | Buffer; mimeType?: string },
-) {
-  const boundary = '----FlyleafBoundary' + crypto.randomBytes(8).toString('hex');
-  const crlf = '\r\n';
-  const parts: Buffer[] = [];
-
-  for (const [key, value] of Object.entries(fields)) {
-    parts.push(
-      Buffer.from(
-        `--${boundary}${crlf}Content-Disposition: form-data; name="${key}"${crlf}${crlf}${value}${crlf}`,
-      ),
-    );
-  }
-
-  if (file) {
-    const header = `--${boundary}${crlf}Content-Disposition: form-data; name="${file.name}"; filename="${file.filename}"${crlf}Content-Type: ${file.mimeType || 'text/csv'}${crlf}${crlf}`;
-    parts.push(Buffer.from(header));
-    parts.push(Buffer.isBuffer(file.content) ? file.content : Buffer.from(file.content));
-    parts.push(Buffer.from(crlf));
-  }
-
-  parts.push(Buffer.from(`--${boundary}--${crlf}`));
-
-  return {
-    headers: {
-      'content-type': `multipart/form-data; boundary=${boundary}`,
-    },
-    payload: Buffer.concat(parts),
-  };
-}
+const ALICE = { authorization: `Bearer ${ALICE_TOKEN}` };
+const BOB = { authorization: `Bearer ${BOB_TOKEN}` };
 
 beforeAll(async () => {
   const context = await freshDrizzle();
@@ -79,7 +51,7 @@ beforeAll(async () => {
     },
   ]);
 
-  storage = new MemoryFileStorage();
+  storage = new MemoryObjectStorage();
 
   const mockIdentity = {
     lookup: async (token: string) => {
@@ -111,18 +83,12 @@ afterAll(async () => {
   await app?.close();
 });
 
-describe('IM-02: POST /v1/imports (Upload Endpoint)', () => {
+describe('IM-02: POST /v1/imports (from a completed upload)', () => {
   it('rejects unauthenticated requests with 401', async () => {
-    const { headers, payload } = buildMultipart(
-      { source: 'goodreads' },
-      { name: 'file', filename: 'export.csv', content: 'Title,Author\nDune,Frank Herbert' },
-    );
-
     const res = await app.inject({
       method: 'POST',
       url: '/v1/imports',
-      headers,
-      payload,
+      payload: { upload_id: crypto.randomUUID(), source: 'goodreads' },
     });
 
     expect(res.statusCode).toBe(401);
@@ -130,120 +96,78 @@ describe('IM-02: POST /v1/imports (Upload Endpoint)', () => {
     expect(body.error.code).toBe('auth_required');
   });
 
-  it('rejects non-multipart requests with 400', async () => {
+  it('rejects a body without upload_id with 422', async () => {
     const res = await app.inject({
       method: 'POST',
       url: '/v1/imports',
-      headers: {
-        authorization: `Bearer ${ALICE_TOKEN}`,
-        'content-type': 'application/json',
-      },
-      payload: JSON.stringify({ source: 'goodreads' }),
+      headers: ALICE,
+      payload: { source: 'goodreads' },
     });
 
-    expect(res.statusCode).toBe(400);
-    const body = res.json();
-    expect(body.error.code).toBe('invalid_content_type');
+    expect(res.statusCode).toBe(422);
+    expect(res.json().error.field).toBe('upload_id');
   });
 
-  it('rejects upload when source is missing with 400', async () => {
-    const { headers, payload } = buildMultipart(
-      {},
-      { name: 'file', filename: 'export.csv', content: 'Title,Author\nDune,Frank Herbert' },
-    );
-
+  it('refuses a multipart upload to /v1/imports: the API takes no file bytes', async () => {
     const res = await app.inject({
       method: 'POST',
       url: '/v1/imports',
-      headers: {
-        ...headers,
-        authorization: `Bearer ${ALICE_TOKEN}`,
-      },
-      payload,
+      headers: { ...ALICE, 'content-type': 'multipart/form-data; boundary=x' },
+      payload:
+        '--x\r\nContent-Disposition: form-data; name="file"; filename="a.csv"\r\n\r\nTitle\r\n--x--\r\n',
     });
 
-    expect(res.statusCode).toBe(400);
-    const body = res.json();
-    expect(body.error.code).toBe('missing_source');
+    expect(res.statusCode).toBe(415);
   });
 
-  it('rejects unsupported source with 400 invalid_source', async () => {
-    const { headers, payload } = buildMultipart(
-      { source: 'amazon_kindle' },
-      { name: 'file', filename: 'export.csv', content: 'Title,Author\nDune,Frank Herbert' },
-    );
-
+  it('rejects a missing source with 422', async () => {
+    const uploadId = await uploadFile(app, ALICE, 'Title,Author\nDune,Frank Herbert');
     const res = await app.inject({
       method: 'POST',
       url: '/v1/imports',
-      headers: {
-        ...headers,
-        authorization: `Bearer ${ALICE_TOKEN}`,
-      },
-      payload,
+      headers: ALICE,
+      payload: { upload_id: uploadId },
     });
 
-    expect(res.statusCode).toBe(400);
-    const body = res.json();
-    expect(body.error.code).toBe('invalid_source');
+    expect(res.statusCode).toBe(422);
+    expect(res.json().error.field).toBe('source');
   });
 
-  it('rejects upload when file is missing with 400', async () => {
-    const { headers, payload } = buildMultipart({ source: 'goodreads' });
-
+  it('rejects an unsupported source with 422 and leaves the upload usable', async () => {
+    const uploadId = await uploadFile(app, ALICE, 'Title,Author\nDune,Frank Herbert');
     const res = await app.inject({
       method: 'POST',
       url: '/v1/imports',
-      headers: {
-        ...headers,
-        authorization: `Bearer ${ALICE_TOKEN}`,
-      },
-      payload,
+      headers: ALICE,
+      payload: { upload_id: uploadId, source: 'amazon_kindle' },
     });
 
-    expect(res.statusCode).toBe(400);
-    const body = res.json();
-    expect(body.error.code).toBe('missing_file');
+    expect(res.statusCode).toBe(422);
+    const [u] = await drizzleDb.select().from(uploads).where(eq(uploads.id, uploadId));
+    expect(u!.status).toBe('uploaded');
   });
 
-  it('rejects empty file upload with 400 empty_file', async () => {
-    const { headers, payload } = buildMultipart(
-      { source: 'goodreads' },
-      { name: 'file', filename: 'empty.csv', content: '' },
-    );
-
-    const res = await app.inject({
+  it('rejects an upload whose file never arrived with 409 upload_not_complete', async () => {
+    const { res } = await startUpload(app, ALICE, 'Title,Author\nDune,Frank Herbert');
+    const imp = await app.inject({
       method: 'POST',
       url: '/v1/imports',
-      headers: {
-        ...headers,
-        authorization: `Bearer ${ALICE_TOKEN}`,
-      },
-      payload,
+      headers: ALICE,
+      payload: { upload_id: res.json().id, source: 'goodreads' },
     });
 
-    expect(res.statusCode).toBe(400);
-    const body = res.json();
-    expect(body.error.code).toBe('empty_file');
+    expect(imp.statusCode).toBe(409);
+    expect(imp.json().error.code).toBe('upload_not_complete');
   });
 
-  it('rejects files exceeding 10MB limit with 413 file_too_large (PRD §6.8)', async () => {
-    // 10MB + 1 byte
-    const oversizedBuffer = Buffer.alloc(10 * 1024 * 1024 + 1, 'a');
-    const { headers, payload } = buildMultipart(
-      { source: 'goodreads' },
-      { name: 'file', filename: 'huge.csv', content: oversizedBuffer },
-    );
+  it('rejects an empty file at the upload step with 422', async () => {
+    const { res } = await startUpload(app, ALICE, '');
+    expect(res.statusCode).toBe(422);
+    expect(res.json().error.field).toBe('size');
+  });
 
-    const res = await app.inject({
-      method: 'POST',
-      url: '/v1/imports',
-      headers: {
-        ...headers,
-        authorization: `Bearer ${ALICE_TOKEN}`,
-      },
-      payload,
-    });
+  it('rejects files exceeding 10MB limit with 413 file_too_large before any byte is sent (PRD §6.8)', async () => {
+    const { res } = await startUpload(app, ALICE, 'x', { size: 10 * 1024 * 1024 + 1 });
 
     expect(res.statusCode).toBe(413);
     const body = res.json();
@@ -256,20 +180,7 @@ describe('IM-02: POST /v1/imports (Upload Endpoint)', () => {
       'Book Id,Title,Author,My Rating,Exclusive Shelf,Date Read\n1,The Left Hand of Darkness,Ursula K. Le Guin,5,read,2026/01/15\n2,Hyperion,Dan Simmons,0,to-read,';
     const expectedHash = crypto.createHash('sha256').update(Buffer.from(csvContent)).digest('hex');
 
-    const { headers, payload } = buildMultipart(
-      { source: 'goodreads' },
-      { name: 'file', filename: 'goodreads_library_export.csv', content: csvContent },
-    );
-
-    const res = await app.inject({
-      method: 'POST',
-      url: '/v1/imports',
-      headers: {
-        ...headers,
-        authorization: `Bearer ${ALICE_TOKEN}`,
-      },
-      payload,
-    });
+    const res = await importCsv(app, ALICE, csvContent, { filename: 'goodreads_library_export.csv' });
 
     expect(res.statusCode).toBe(201);
     const body = res.json();
@@ -300,10 +211,15 @@ describe('IM-02: POST /v1/imports (Upload Endpoint)', () => {
     expect(dbRow?.state).toBe('queued');
     expect(dbRow?.contentHash).toBe(expectedHash);
 
-    // Verify raw file stored in storage
-    const storedFile = await storage.get(dbRow!.fileKey!);
-    expect(storedFile).not.toBeNull();
-    expect(storedFile?.toString()).toBe(csvContent);
+    // The file is the uploaded object, under a server-made key
+    expect(dbRow!.fileKey).toMatch(new RegExp(`^uploads/${USER_ALICE}/[0-9a-f-]{36}$`));
+    const stored = await storage.getStream(dbRow!.fileKey!);
+    expect((await readAll(stored!)).toString()).toBe(csvContent);
+
+    // The upload is consumed
+    const [u] = await drizzleDb.select().from(uploads).where(eq(uploads.key, dbRow!.fileKey!));
+    expect(u!.status).toBe('consumed');
+    expect(u!.consumedAt).not.toBeNull();
 
     // Verify job was enqueued into pg-boss queue
     const enqueued = (boss as any)._enqueued.find(
@@ -314,46 +230,44 @@ describe('IM-02: POST /v1/imports (Upload Endpoint)', () => {
     expect(enqueued.data.source).toBe('goodreads');
   });
 
-  it('accepts source from query parameter (?source=storygraph) if not in form fields', async () => {
-    const csvContent = 'Title,Authors,Tags,Date Added\nNeuromancer,William Gibson,cyberpunk,2026-02-01';
-    const { headers, payload } = buildMultipart(
-      {},
-      { name: 'file', filename: 'storygraph_export.csv', content: csvContent },
-    );
+  it('a repeated request with the same upload returns the same import with 200 and enqueues once', async () => {
+    const uploadId = await uploadFile(app, ALICE, 'Title,Author\nReplay,Someone');
+    const send = () =>
+      app.inject({
+        method: 'POST',
+        url: '/v1/imports',
+        headers: ALICE,
+        payload: { upload_id: uploadId, source: 'storygraph' },
+      });
 
-    const res = await app.inject({
-      method: 'POST',
-      url: '/v1/imports?source=storygraph',
-      headers: {
-        ...headers,
-        authorization: `Bearer ${ALICE_TOKEN}`,
-      },
-      payload,
-    });
+    const first = await send();
+    const second = await send();
 
-    expect(res.statusCode).toBe(201);
-    const body = res.json();
-    expect(body.source).toBe('storygraph');
-    expect(body.state).toBe('queued');
+    expect(first.statusCode).toBe(201);
+    expect(second.statusCode).toBe(200);
+    expect(second.json().id).toBe(first.json().id);
+    const jobs = (boss as any)._enqueued.filter((j: any) => j.data.importId === first.json().id);
+    expect(jobs).toHaveLength(1);
+  });
+
+  it("another user's upload id is 404, with the same body as a random one", async () => {
+    const aliceUpload = await uploadFile(app, ALICE, 'Title,Author\nMine,Alice');
+    const take = (id: string) =>
+      app.inject({ method: 'POST', url: '/v1/imports', headers: BOB, payload: { upload_id: id, source: 'goodreads' } });
+
+    const stolen = await take(aliceUpload);
+    const random = await take(crypto.randomUUID());
+
+    expect(stolen.statusCode).toBe(404);
+    expect(stolen.body).toBe(random.body);
+    const [u] = await drizzleDb.select().from(uploads).where(eq(uploads.id, aliceUpload));
+    expect(u!.status).toBe('uploaded');
   });
 
   it('supports all 6 platform sources', async () => {
     for (const src of IMPORT_SOURCES) {
       const csv = `title,author\nSample Book,Sample Author for ${src}`;
-      const { headers, payload } = buildMultipart(
-        { source: src },
-        { name: 'file', filename: `${src}.csv`, content: csv },
-      );
-
-      const res = await app.inject({
-        method: 'POST',
-        url: '/v1/imports',
-        headers: {
-          ...headers,
-          authorization: `Bearer ${ALICE_TOKEN}`,
-        },
-        payload,
-      });
+      const res = await importCsv(app, ALICE, csv, { source: src, filename: `${src}.csv` });
 
       expect(res.statusCode).toBe(201);
       expect(res.json().source).toBe(src);
@@ -381,18 +295,8 @@ describe('IM-02: GET /v1/imports/:id (Job Status & Isolation)', () => {
 
   it('enforces strict cross-user privacy: returns 404 when Bob requests Alice import', async () => {
     // Alice creates an import
-    const { headers, payload } = buildMultipart(
-      { source: 'goodreads' },
-      { name: 'file', filename: 'alice_secret.csv', content: 'Title,Author\nPrivate Diary,Alice' },
-    );
-    const createRes = await app.inject({
-      method: 'POST',
-      url: '/v1/imports',
-      headers: {
-        ...headers,
-        authorization: `Bearer ${ALICE_TOKEN}`,
-      },
-      payload,
+    const createRes = await importCsv(app, ALICE, 'Title,Author\nPrivate Diary,Alice', {
+      filename: 'alice_secret.csv',
     });
     const aliceImportId = createRes.json().id;
 
@@ -408,18 +312,9 @@ describe('IM-02: GET /v1/imports/:id (Job Status & Isolation)', () => {
   });
 
   it('returns import details to owner', async () => {
-    const { headers, payload } = buildMultipart(
-      { source: 'librarything' },
-      { name: 'file', filename: 'librarything.csv', content: 'Title,Author\nFoundation,Isaac Asimov' },
-    );
-    const createRes = await app.inject({
-      method: 'POST',
-      url: '/v1/imports',
-      headers: {
-        ...headers,
-        authorization: `Bearer ${ALICE_TOKEN}`,
-      },
-      payload,
+    const createRes = await importCsv(app, ALICE, 'Title,Author\nFoundation,Isaac Asimov', {
+      source: 'librarything',
+      filename: 'librarything.csv',
     });
     const importId = createRes.json().id;
 
@@ -451,18 +346,9 @@ describe('IM-02: GET /v1/imports (List User Imports)', () => {
   it('returns list of imports belonging strictly to caller in newest-first order', async () => {
     // Bob uploads two imports
     for (const src of ['calibre', 'openreads']) {
-      const { headers, payload } = buildMultipart(
-        { source: src },
-        { name: 'file', filename: `${src}.csv`, content: `Title,Author\nBook from ${src},Author` },
-      );
-      await app.inject({
-        method: 'POST',
-        url: '/v1/imports',
-        headers: {
-          ...headers,
-          authorization: `Bearer ${BOB_TOKEN}`,
-        },
-        payload,
+      await importCsv(app, BOB, `Title,Author\nBook from ${src},Author`, {
+        source: src,
+        filename: `${src}.csv`,
       });
     }
 

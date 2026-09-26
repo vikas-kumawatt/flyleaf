@@ -26,14 +26,14 @@ import {
   shelves,
   shelfItems,
 } from '../db/schema.js';
-import { MemoryFileStorage } from '../imports/storage.js';
+import { MemoryObjectStorage } from '../providers/storage/index.js';
 import { processImport } from '../imports/processor.js';
 import { processImportJobHandler } from '../jobs/index.js';
 import type { Job } from 'pg-boss';
 
 describe('IM-08: Import Background Processor (Chunked, Resumable, Progress-Reported)', () => {
   let db: Db;
-  let storage: MemoryFileStorage;
+  let storage: MemoryObjectStorage;
   let testUserId: string;
 
   let duneWorkId: string;
@@ -45,7 +45,7 @@ describe('IM-08: Import Background Processor (Chunked, Resumable, Progress-Repor
   beforeAll(async () => {
     const fixture = await freshDrizzle();
     db = fixture.db;
-    storage = new MemoryFileStorage();
+    storage = new MemoryObjectStorage();
 
     // 1. Create test user
     const [u] = await db
@@ -147,7 +147,7 @@ describe('IM-08: Import Background Processor (Chunked, Resumable, Progress-Repor
     ].join('\n');
 
     const fileKey = `imports/${testUserId}/test-export.csv`;
-    await storage.put(fileKey, Buffer.from(csvContent));
+    await storage.put(fileKey, Buffer.from(csvContent), 'text/csv');
 
     const [imp] = await db
       .insert(imports)
@@ -259,7 +259,7 @@ describe('IM-08: Import Background Processor (Chunked, Resumable, Progress-Repor
     ].join('\n');
 
     const fileKey = `imports/${testUserId}/resumable-export.csv`;
-    await storage.put(fileKey, Buffer.from(csvContent));
+    await storage.put(fileKey, Buffer.from(csvContent), 'text/csv');
 
     const [imp] = await db
       .insert(imports)
@@ -347,7 +347,7 @@ describe('IM-08: Import Background Processor (Chunked, Resumable, Progress-Repor
     ].join('\n');
 
     const fileKey = `imports/${testUserId}/boss-job.csv`;
-    await storage.put(fileKey, Buffer.from(csvContent));
+    await storage.put(fileKey, Buffer.from(csvContent), 'text/csv');
 
     const [imp] = await db
       .insert(imports)

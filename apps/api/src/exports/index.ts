@@ -2,15 +2,17 @@
 //
 // Handles requests to export user reading data (CSV or JSON), creates export records,
 // executes data gathering and RFC 4180 / JSON formatting, stores files, sends email with
-// secure download links, and serves authenticated or tokenized file downloads.
+// secure download links, and redirects an authorized download to a short-lived
+// object-storage URL (PV-02): the API never streams the file itself.
 
 import crypto from 'node:crypto';
 import type { FastifyPluginAsync } from 'fastify';
 import { eq, desc, and } from 'drizzle-orm';
 import type { PgBoss } from 'pg-boss';
 
-import type { Db, EmailSender } from '../platform/index.js';
-import { ConsoleEmailSender } from '../platform/index.js';
+import type { Db } from '../platform/index.js';
+import type { EmailSender } from '../providers/email/index.js';
+import { ConsoleEmailSender } from '../providers/email/index.js';
 import { exports as exportsTable, users, type Export } from '../db/schema.js';
 import { ApiError, requireViewer } from '../http.js';
 import { QUEUES } from '../jobs/index.js';
@@ -22,7 +24,7 @@ import {
   exportListResponseSchema,
   downloadExportQuerySchema,
 } from '../contract/schemas.js';
-import { type FileStorage, DiskFileStorage } from '../imports/storage.js';
+import type { ObjectStorage } from '../providers/storage/index.js';
 import {
   generateExportData,
   formatAsCsv,
@@ -32,6 +34,12 @@ import {
 export * from './generator.js';
 
 export const EXPORT_FORMATS = ['csv', 'json'] as const;
+
+/**
+ * Life of the storage URL a download redirects to. The emailed link is the
+ * durable one (48 h, authorized here); this only has to outlive the redirect.
+ */
+export const EXPORT_DOWNLOAD_URL_TTL_SECONDS = 5 * 60;
 export type ExportFormat = (typeof EXPORT_FORMATS)[number];
 
 export interface ExportResponseItem {
@@ -74,7 +82,7 @@ export interface CreateExportInput {
 export class ExportService {
   constructor(
     private db: Db,
-    private storage: FileStorage,
+    private storage: ObjectStorage,
     private mailer: EmailSender = new ConsoleEmailSender(),
     private boss?: PgBoss,
     private baseUrl = 'https://flyleaf.app',
@@ -176,6 +184,7 @@ export class ExportService {
       }
 
       const fileBuffer = Buffer.from(fileContent, 'utf-8');
+      // Keys are server-made; the user id and export id are UUIDs.
       const fileKey = `exports/${exportRow.userId}/${exportId}.${extension}`;
 
       // 4. Save to storage
@@ -245,11 +254,12 @@ export class ExportService {
     return rows.map((r) => toExportResponse(r, this.baseUrl));
   }
 
+  /** Where the file can be fetched for the next few minutes. */
   async download(
     exportId: string,
     token?: string,
     viewerId?: string,
-  ): Promise<{ buffer: Buffer; filename: string; mimeType: string }> {
+  ): Promise<{ url: string }> {
     const [row] = await this.db
       .select()
       .from(exportsTable)
@@ -277,25 +287,23 @@ export class ExportService {
       throw ApiError.badRequest('export_not_ready', 'Export is still processing or has failed.');
     }
 
-    const fileBuffer = await this.storage.get(row.fileKey);
-    if (!fileBuffer) {
+    if (!(await this.storage.head(row.fileKey))) {
       throw ApiError.notFound('Export file not found in storage.');
     }
 
-    const mimeType = row.format === 'json' ? 'application/json' : 'text/csv';
     const filename = `flyleaf_export_${row.userId.slice(0, 8)}.${row.format}`;
-
     return {
-      buffer: fileBuffer,
-      filename,
-      mimeType,
+      url: await this.storage.createDownloadUrl(row.fileKey, {
+        expiresIn: EXPORT_DOWNLOAD_URL_TTL_SECONDS,
+        filename,
+      }),
     };
   }
 }
 
 export interface ExportsPluginOptions {
   db: Db;
-  storage?: FileStorage;
+  storage: ObjectStorage;
   mailer?: EmailSender;
   boss?: PgBoss;
 }
@@ -304,9 +312,8 @@ export interface ExportsPluginOptions {
  * Fastify plugin registering export endpoints.
  */
 export const exportsPlugin: FastifyPluginAsync<ExportsPluginOptions> = async (fastify, opts) => {
-  const storage = opts.storage ?? new DiskFileStorage();
   const mailer = opts.mailer ?? new ConsoleEmailSender();
-  const service = new ExportService(opts.db, storage, mailer, opts.boss);
+  const service = new ExportService(opts.db, opts.storage, mailer, opts.boss);
 
   // POST /v1/exports (PRD §3424, IM-10)
   fastify.post(
@@ -387,10 +394,12 @@ export const exportsPlugin: FastifyPluginAsync<ExportsPluginOptions> = async (fa
         tags: ['Exports'],
         summary: 'Download exported library file',
         description:
-          'Downloads the generated export file (CSV/JSON) using a secure emailed token or Bearer authentication.',
+          'Authorizes the download with the emailed token or Bearer authentication, then redirects (302) ' +
+          'to a storage URL valid for 5 minutes (PV-02).',
         params: idParamSchema,
         querystring: downloadExportQuerySchema,
         response: {
+          302: { description: 'Location: a short-lived storage URL for the file.', type: 'null' },
           400: errorResponseSchema,
           404: errorResponseSchema,
         },
@@ -401,12 +410,13 @@ export const exportsPlugin: FastifyPluginAsync<ExportsPluginOptions> = async (fa
       const { token } = (request.query as { token?: string }) || {};
       const viewerId = request.viewer ?? undefined;
 
-      const file = await service.download(id, token, viewerId);
+      const { url } = await service.download(id, token, viewerId);
 
+      // The request URL carries the token: no caching, no Referer onward.
       return reply
-        .header('Content-Type', file.mimeType)
-        .header('Content-Disposition', `attachment; filename="${file.filename}"`)
-        .send(file.buffer);
+        .header('cache-control', 'no-store')
+        .header('referrer-policy', 'no-referrer')
+        .redirect(url, 302);
     },
   );
 };

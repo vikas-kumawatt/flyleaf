@@ -10015,34 +10015,116 @@ paths:
                   - error
   /imports:
     post:
-      summary: Upload export file for background import
+      summary: Start a background import from an uploaded export file
       tags:
         - Imports
-      description: Uploads an export CSV from Goodreads, StoryGraph, LibraryThing,
-        Calibre, OpenLibrary, or OpenReads. Returns a job ID immediately and
-        queues processing (PRD §6.8, §24.2, AC-9, IM-02).
-      parameters:
-        - schema:
-            type: string
-            enum:
-              - goodreads
-              - storygraph
-              - librarything
-              - calibre
-              - openlibrary
-              - openreads
-          in: query
-          name: source
-          required: false
-          description: Source platform export format (can also be provided as a multipart
-            form field)
-        - schema:
-            type: boolean
-          in: query
-          name: force
-          required: false
-          description: If true, bypasses duplicate-import detection by content hash (IM-11)
+      description: Takes a completed upload (purpose `import`) of a CSV export from
+        Goodreads, StoryGraph, LibraryThing, Calibre, OpenLibrary, or OpenReads.
+        Returns a job ID immediately and queues processing (PRD §6.8, §24.2,
+        AC-9, IM-02, PV-02). Repeating the request with the same upload returns
+        the same import with 200.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                upload_id:
+                  type: string
+                  format: uuid
+                  description: A completed upload with purpose `import` (POST /v1/uploads, then
+                    /complete).
+                source:
+                  type: string
+                  enum:
+                    - goodreads
+                    - storygraph
+                    - librarything
+                    - calibre
+                    - openlibrary
+                    - openreads
+                  description: Source platform export format
+                force:
+                  type: boolean
+                  description: If true, bypasses duplicate-import detection by content hash
+                    (IM-11)
+              required:
+                - upload_id
+                - source
       responses:
+        "200":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id:
+                    type: string
+                    format: uuid
+                  job_id:
+                    type: string
+                    format: uuid
+                  source:
+                    type: string
+                    enum:
+                      - goodreads
+                      - storygraph
+                      - librarything
+                      - calibre
+                      - openlibrary
+                      - openreads
+                  state:
+                    type: string
+                    enum:
+                      - queued
+                      - processing
+                      - completed
+                      - failed
+                  total_rows:
+                    type: integer
+                  matched:
+                    type: integer
+                  unmatched:
+                    type: integer
+                  filename:
+                    type:
+                      - "null"
+                      - string
+                  file_size_bytes:
+                    type:
+                      - "null"
+                      - integer
+                  content_hash:
+                    type:
+                      - "null"
+                      - string
+                  error:
+                    type:
+                      - "null"
+                      - string
+                  created_at:
+                    type: string
+                    format: date-time
+                  updated_at:
+                    type: string
+                    format: date-time
+                  finished_at:
+                    type:
+                      - "null"
+                      - string
+                    format: date-time
+                required:
+                  - id
+                  - job_id
+                  - source
+                  - state
+                  - total_rows
+                  - matched
+                  - unmatched
+                  - created_at
+                  - updated_at
         "201":
           description: Default Response
           content:
@@ -10163,6 +10245,30 @@ paths:
                       - message
                 required:
                   - error
+        "404":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      code:
+                        type: string
+                        description: Machine-readable error code
+                      message:
+                        type: string
+                        description: Human-readable error description
+                      field:
+                        type: string
+                        description: Invalid field name if applicable
+                    required:
+                      - code
+                      - message
+                required:
+                  - error
         "409":
           description: Default Response
           content:
@@ -10187,7 +10293,7 @@ paths:
                       - message
                 required:
                   - error
-        "413":
+        "410":
           description: Default Response
           content:
             application/json:
@@ -10908,6 +11014,422 @@ paths:
                       - message
                 required:
                   - error
+  /uploads:
+    post:
+      summary: Start an upload
+      tags:
+        - Uploads
+      description: "Returns a short-lived target to send the file to directly; the API
+        never receives the bytes. Limits per purpose: import 10 MB, CSV/text
+        (PRD §6.8, §42 #11). Then POST /v1/uploads/{id}/complete (PV-02)."
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                purpose:
+                  type: string
+                  enum:
+                    - import
+                content_type:
+                  type: string
+                  minLength: 1
+                  maxLength: 100
+                size:
+                  type: integer
+                  minimum: 1
+                  description: Exact size in bytes; the upload must match it.
+                filename:
+                  type: string
+                  maxLength: 255
+              required:
+                - purpose
+                - content_type
+                - size
+      responses:
+        "201":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id:
+                    type: string
+                    format: uuid
+                  purpose:
+                    type: string
+                    enum:
+                      - import
+                  status:
+                    type: string
+                    enum:
+                      - pending
+                      - uploaded
+                      - consumed
+                      - expired
+                  content_type:
+                    type: string
+                  size:
+                    type: integer
+                  max_bytes:
+                    type: integer
+                  filename:
+                    type:
+                      - "null"
+                      - string
+                  expires_at:
+                    type: string
+                    format: date-time
+                  created_at:
+                    type: string
+                    format: date-time
+                  completed_at:
+                    type:
+                      - "null"
+                      - string
+                    format: date-time
+                  target:
+                    type: object
+                    description: Present only in the response to POST /v1/uploads.
+                    properties:
+                      url:
+                        type: string
+                      method:
+                        type: string
+                        enum:
+                          - PUT
+                          - POST
+                      headers:
+                        type: object
+                        additionalProperties:
+                          type: string
+                      fields:
+                        type: object
+                        additionalProperties:
+                          type: string
+                    required:
+                      - url
+                      - method
+                      - headers
+                required:
+                  - id
+                  - purpose
+                  - status
+                  - content_type
+                  - size
+                  - max_bytes
+                  - expires_at
+                  - created_at
+        "401":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      code:
+                        type: string
+                        description: Machine-readable error code
+                      message:
+                        type: string
+                        description: Human-readable error description
+                      field:
+                        type: string
+                        description: Invalid field name if applicable
+                    required:
+                      - code
+                      - message
+                required:
+                  - error
+        "413":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      code:
+                        type: string
+                        description: Machine-readable error code
+                      message:
+                        type: string
+                        description: Human-readable error description
+                      field:
+                        type: string
+                        description: Invalid field name if applicable
+                    required:
+                      - code
+                      - message
+                required:
+                  - error
+        "415":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      code:
+                        type: string
+                        description: Machine-readable error code
+                      message:
+                        type: string
+                        description: Human-readable error description
+                      field:
+                        type: string
+                        description: Invalid field name if applicable
+                    required:
+                      - code
+                      - message
+                required:
+                  - error
+        "422":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      code:
+                        type: string
+                        description: Machine-readable error code
+                      message:
+                        type: string
+                        description: Human-readable error description
+                      field:
+                        type: string
+                        description: Invalid field name if applicable
+                    required:
+                      - code
+                      - message
+                required:
+                  - error
+  /uploads/{id}/complete:
+    post:
+      summary: Confirm an upload arrived
+      tags:
+        - Uploads
+      description: "Checks the stored file against what was declared (size, type,
+        content) and marks it uploaded. Idempotent. 409 upload_missing: the file
+        has not arrived yet (PV-02)."
+      parameters:
+        - schema:
+            type: string
+            format: uuid
+          in: path
+          name: id
+          required: true
+          description: Resource UUID
+      responses:
+        "200":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id:
+                    type: string
+                    format: uuid
+                  purpose:
+                    type: string
+                    enum:
+                      - import
+                  status:
+                    type: string
+                    enum:
+                      - pending
+                      - uploaded
+                      - consumed
+                      - expired
+                  content_type:
+                    type: string
+                  size:
+                    type: integer
+                  max_bytes:
+                    type: integer
+                  filename:
+                    type:
+                      - "null"
+                      - string
+                  expires_at:
+                    type: string
+                    format: date-time
+                  created_at:
+                    type: string
+                    format: date-time
+                  completed_at:
+                    type:
+                      - "null"
+                      - string
+                    format: date-time
+                  target:
+                    type: object
+                    description: Present only in the response to POST /v1/uploads.
+                    properties:
+                      url:
+                        type: string
+                      method:
+                        type: string
+                        enum:
+                          - PUT
+                          - POST
+                      headers:
+                        type: object
+                        additionalProperties:
+                          type: string
+                      fields:
+                        type: object
+                        additionalProperties:
+                          type: string
+                    required:
+                      - url
+                      - method
+                      - headers
+                required:
+                  - id
+                  - purpose
+                  - status
+                  - content_type
+                  - size
+                  - max_bytes
+                  - expires_at
+                  - created_at
+        "401":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      code:
+                        type: string
+                        description: Machine-readable error code
+                      message:
+                        type: string
+                        description: Human-readable error description
+                      field:
+                        type: string
+                        description: Invalid field name if applicable
+                    required:
+                      - code
+                      - message
+                required:
+                  - error
+        "404":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      code:
+                        type: string
+                        description: Machine-readable error code
+                      message:
+                        type: string
+                        description: Human-readable error description
+                      field:
+                        type: string
+                        description: Invalid field name if applicable
+                    required:
+                      - code
+                      - message
+                required:
+                  - error
+        "409":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      code:
+                        type: string
+                        description: Machine-readable error code
+                      message:
+                        type: string
+                        description: Human-readable error description
+                      field:
+                        type: string
+                        description: Invalid field name if applicable
+                    required:
+                      - code
+                      - message
+                required:
+                  - error
+        "410":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      code:
+                        type: string
+                        description: Machine-readable error code
+                      message:
+                        type: string
+                        description: Human-readable error description
+                      field:
+                        type: string
+                        description: Invalid field name if applicable
+                    required:
+                      - code
+                      - message
+                required:
+                  - error
+        "422":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      code:
+                        type: string
+                        description: Machine-readable error code
+                      message:
+                        type: string
+                        description: Human-readable error description
+                      field:
+                        type: string
+                        description: Invalid field name if applicable
+                    required:
+                      - code
+                      - message
+                required:
+                  - error
   /exports:
     post:
       summary: Request full reading library export
@@ -11252,8 +11774,9 @@ paths:
       summary: Download exported library file
       tags:
         - Exports
-      description: Downloads the generated export file (CSV/JSON) using a secure
-        emailed token or Bearer authentication.
+      description: Authorizes the download with the emailed token or Bearer
+        authentication, then redirects (302) to a storage URL valid for 5
+        minutes (PV-02).
       parameters:
         - schema:
             type: string
@@ -11269,6 +11792,8 @@ paths:
           required: true
           description: Resource UUID
       responses:
+        "302":
+          description: "Location: a short-lived storage URL for the file."
         "400":
           description: Default Response
           content:

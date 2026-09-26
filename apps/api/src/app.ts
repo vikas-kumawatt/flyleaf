@@ -24,16 +24,19 @@ import { adminAuthRoutes } from './admin/routes.js';
 import { adminCatalogRoutes } from './admin/catalog-routes.js';
 import { auditContext, logAdminAction, lookupAdmin, verifyAdminToken } from './admin/auth.js';
 import { telemetryRoutes } from './telemetry/index.js';
-import { captureApiException } from './telemetry/sentry.js';
+import { reportApiError } from './telemetry/errors.js';
+import { NoopErrorReporter, type ErrorReporter } from './providers/errors/index.js';
 import { shelvesPlugin, shelvesWebPlugin } from './shelves/index.js';
-import fastifyMultipart from '@fastify/multipart';
 import type { PgBoss } from 'pg-boss';
-import { importsPlugin, type FileStorage } from './imports/index.js';
+import { importsPlugin } from './imports/index.js';
+import { uploadsPlugin } from './uploads/index.js';
+import { LocalObjectStorage, localStorageRoutes, type ObjectStorage } from './providers/storage/index.js';
 import { exportsPlugin } from './exports/index.js';
 import { socialPlugin } from './social/index.js';
 import { activityPlugin } from './activity/index.js';
 import { interactionsPlugin } from './interactions/index.js';
-import type { EmailSender, RateLimiter } from './platform/index.js';
+import type { RateLimiter } from './platform/index.js';
+import type { EmailSender } from './providers/email/index.js';
 import { queryCountingEnabled, registerQueryCounter } from './bench/query-counter.js';
 import { registerSwagger } from './contract/index.js';
 
@@ -119,6 +122,8 @@ export interface CoreHookOptions {
    * one (hook-only harnesses) the token's own claims are used.
    */
   adminLookup?: (token: string) => Promise<AdminViewer | null>;
+  /** Where unhandled 500s are reported (PV-06). Default: nowhere. */
+  errorReporter?: ErrorReporter;
 }
 
 /**
@@ -126,6 +131,7 @@ export interface CoreHookOptions {
  * Used by buildApp() as well as lightweight test harnesses.
  */
 export function registerCoreHooks(app: FastifyInstance, options?: CoreHookOptions) {
+  const errorReporter = options?.errorReporter ?? new NoopErrorReporter();
   // 1. Auth hook: populates viewer when a token is valid, leaves null otherwise.
   // Auth NEVER rejects. A guest is a legitimate caller across search, works, editions, and public reads.
   app.decorateRequest('viewer', null);
@@ -213,24 +219,18 @@ export function registerCoreHooks(app: FastifyInstance, options?: CoreHookOption
       });
     }
 
+    // A body type no route parses (multipart since PV-02: files go to object
+    // storage, never here). Was an unhandled 500.
+    if (e?.code === 'FST_ERR_CTP_INVALID_MEDIA_TYPE') {
+      return reply.status(415).send({
+        error: { code: 'unsupported_media_type', message: 'Send a JSON body (Content-Type: application/json).' },
+      });
+    }
+
     // A JSON body over bodyLimit is not an upload: say so (Audit 05).
     if (e?.code === 'FST_ERR_CTP_BODY_TOO_LARGE') {
       return reply.status(413).send({
         error: { code: 'body_too_large', message: 'Request body is too large.' },
-      });
-    }
-
-    // File size limit exceeded (PRD §6.8: >10MB)
-    if (
-      e?.code === 'FST_ERR_FILE_TOO_LARGE' ||
-      e?.code === 'FST_REQ_FILE_TOO_LARGE' ||
-      e?.statusCode === 413
-    ) {
-      return reply.status(413).send({
-        error: {
-          code: 'file_too_large',
-          message: 'File exceeds the 10MB limit. Please split your export into smaller files.',
-        },
       });
     }
 
@@ -244,7 +244,7 @@ export function registerCoreHooks(app: FastifyInstance, options?: CoreHookOption
     }
 
     req.log.error({ err }, 'unhandled');
-    void captureApiException(err, {
+    void reportApiError(errorReporter, err, {
       requestId: req.id,
       userId: req.viewer ?? req.admin?.id ?? undefined,
       route: req.routeOptions?.url,
@@ -310,8 +310,14 @@ export interface BuildAppOptions {
   reading?: ReadingService;
   reviews?: ReviewService;
   boss?: PgBoss;
-  storage?: FileStorage;
+  /**
+   * Object storage (PV-01). Without it the upload and export routes are not
+   * served: nothing may fall back to a local disk behind the wiring's back
+   * (L-03). Imports need none; they take a completed upload.
+   */
+  storage?: ObjectStorage;
   mailer?: EmailSender;
+  errorReporter?: ErrorReporter;
   /** Shared limiter for write throttles (comments). Defaults to Postgres-backed. */
   limiter?: RateLimiter;
   logger?: FastifyServerOptions['logger'];
@@ -354,12 +360,6 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
   // Only the configured browser origins (A-05-022). The native app sends no
   // Origin; the admin console is same-origin.
   await app.register(cors, { origin: [...config.corsOrigins] });
-  await app.register(fastifyMultipart, {
-    limits: {
-      fileSize: 10 * 1024 * 1024, // 10MB per PRD §6.8
-      files: 1,
-    },
-  });
 
   // Audit bench only; registers nothing unless BENCH_COUNT_QUERIES=1. First,
   // so the auth hook's queries are counted.
@@ -368,6 +368,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
   registerCoreHooks(app, {
     identityLookup: options.identity ? (token) => options.identity!.lookup(token) : undefined,
     adminLookup: options.db ? (token) => lookupAdmin(options.db!, token) : undefined,
+    errorReporter: options.errorReporter,
   });
 
   if (options.db) {
@@ -429,19 +430,20 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
     await app.register(telemetryRoutes(options.db));
     await app.register(shelvesPlugin, { prefix: '/v1', db: options.db });
     await app.register(shelvesWebPlugin, { db: options.db });
-    await app.register(importsPlugin, {
-      prefix: '/v1',
-      db: options.db,
-      boss: options.boss,
-      storage: options.storage,
-    });
-    await app.register(exportsPlugin, {
-      prefix: '/v1',
-      db: options.db,
-      boss: options.boss,
-      storage: options.storage,
-      mailer: options.mailer,
-    });
+    await app.register(importsPlugin, { prefix: '/v1', db: options.db, boss: options.boss });
+    if (options.storage) {
+      const storage = options.storage;
+      // disk/memory only: the signed route that stands in for a provider.
+      if (storage instanceof LocalObjectStorage) await app.register(localStorageRoutes(storage));
+      await app.register(uploadsPlugin, { prefix: '/v1', db: options.db, storage });
+      await app.register(exportsPlugin, {
+        prefix: '/v1',
+        db: options.db,
+        boss: options.boss,
+        storage,
+        mailer: options.mailer,
+      });
+    }
     await app.register(socialPlugin, {
       prefix: '/v1',
       db: options.db,

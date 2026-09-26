@@ -7,11 +7,11 @@ import { freshDrizzle } from './pg.js';
 import { imports, importRows, users, works, reads } from '../db/schema.js';
 import type { Db } from '../platform/index.js';
 import { buildApp } from '../app.js';
-import { MemoryFileStorage } from '../imports/index.js';
+import { MemoryObjectStorage } from '../providers/storage/index.js';
 
 let app: FastifyInstance;
 let drizzleDb: Db;
-let storage: MemoryFileStorage;
+let storage: MemoryObjectStorage;
 
 const USER_ALICE = '11111111-1111-1111-1111-111111111111';
 const USER_BOB = '22222222-2222-2222-2222-222222222222';
@@ -128,7 +128,7 @@ beforeAll(async () => {
     },
   ]);
 
-  storage = new MemoryFileStorage();
+  storage = new MemoryObjectStorage();
 
   const mockIdentity = {
     lookup: async (token: string) => {
