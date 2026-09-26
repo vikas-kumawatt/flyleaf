@@ -16,7 +16,8 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as os from 'node:os';
 
-import { SCHEMA_SQL, type LocalRead } from '../schema';
+import type { LocalRead } from '../schema';
+import { migrateOfflineDb } from '../migrations';
 import { NodeSqliteDriver } from './sqlite-driver';
 import { OfflineRepository } from '../repository';
 import { budgetTracker } from '@/lib/budgetTracker';
@@ -40,7 +41,7 @@ describe('Phase 1 Exit Criteria Verification', () => {
     dbPath = path.join(tmpDir, 'test.db');
     rawDb = new DatabaseSync(dbPath);
     db = new NodeSqliteDriver(rawDb);
-    await db.exec(SCHEMA_SQL);
+    await migrateOfflineDb(db);
   });
 
   afterEach(async () => {
@@ -76,12 +77,12 @@ describe('Phase 1 Exit Criteria Verification', () => {
       },
     };
 
-    const repo = new OfflineRepository(db, mockHandler);
+    const repo = new OfflineRepository(db, userId, mockHandler);
 
     // ------------------------------------------------ Book 1: Piranesi
     const work1Id = 'work-piranesi-101';
     // 1. Reader discovers and shelves book as Want to Read
-    await repo.saveReadStatus(work1Id, userId, 'want', null, false, {
+    await repo.saveReadStatus(work1Id, 'want', null, false, {
       title: 'Piranesi',
       author_name: 'Susanna Clarke',
       cover_id: 8231856,
@@ -96,7 +97,7 @@ describe('Phase 1 Exit Criteria Verification', () => {
     assert.equal(read1.status, 'want');
 
     // 2. Reader starts reading
-    await repo.saveReadStatus(work1Id, userId, 'reading', null, false, {
+    await repo.saveReadStatus(work1Id, 'reading', null, false, {
       title: 'Piranesi',
       author_name: 'Susanna Clarke',
       page_count: 245,
@@ -136,7 +137,9 @@ describe('Phase 1 Exit Criteria Verification', () => {
       visibility: 'public',
     });
 
-    const finished1 = (await repo.getLocalReads()).find((r) => r.id === read1.id)!;
+    // The background flush may already have swapped the local id for the
+    // server's (A-07-005), so look the read up by its work.
+    const finished1 = (await repo.getLocalReads()).find((r) => r.work_id === work1Id)!;
     assert.equal(finished1.status, 'finished');
     assert.equal(finished1.rating, 5.0);
     assert.equal(finished1.hearted, 1);
@@ -147,7 +150,7 @@ describe('Phase 1 Exit Criteria Verification', () => {
     // ------------------------------------------------ Book 2: The Left Hand of Darkness
     const work2Id = 'work-lefthand-202';
     // 1. Direct start reading from catalog
-    await repo.saveReadStatus(work2Id, userId, 'reading', null, false, {
+    await repo.saveReadStatus(work2Id, 'reading', null, false, {
       title: 'The Left Hand of Darkness',
       author_name: 'Ursula K. Le Guin',
       cover_id: 9142851,
@@ -173,7 +176,7 @@ describe('Phase 1 Exit Criteria Verification', () => {
       visibility: 'public',
     });
 
-    const finished2 = (await repo.getLocalReads()).find((r) => r.id === read2.id)!;
+    const finished2 = (await repo.getLocalReads()).find((r) => r.work_id === work2Id)!;
     assert.equal(finished2.status, 'finished');
     assert.equal(finished2.rating, 4.5);
     assert.equal(finished2.hearted, 0);
@@ -258,19 +261,22 @@ describe('Phase 1 Exit Criteria Verification', () => {
     let networkOnline = false;
     const syncdCalls: string[] = [];
 
+    // React Native's fetch rejects with a TypeError when there is no network.
+    const offline = () => new TypeError('Network request failed');
+    const SERVER_READ_ID = 'server-read-303';
     const flakyHandler = {
-      addProgress: async (_readId: string, page: number | null, _percent: number | null, _minutes: number | null, clientEventId: string) => {
-        if (!networkOnline) throw new Error('Offline: network down');
-        syncdCalls.push(`progress-${page}`);
+      addProgress: async (readId: string, page: number | null, _percent: number | null, _minutes: number | null, clientEventId: string) => {
+        if (!networkOnline) throw offline();
+        syncdCalls.push(`progress-${readId}-${page}`);
         return { success: true, client_event_id: clientEventId };
       },
       upsertRead: async (workId: string, status: string) => {
-        if (!networkOnline) throw new Error('Offline: network down');
+        if (!networkOnline) throw offline();
         syncdCalls.push(`upsert-${workId}-${status}`);
-        return { id: workId, status };
+        return { id: SERVER_READ_ID, status };
       },
       finishRead: async (readId: string) => {
-        if (!networkOnline) throw new Error('Offline: network down');
+        if (!networkOnline) throw offline();
         syncdCalls.push(`finish-${readId}`);
         return { id: readId, status: 'finished' };
       },
@@ -279,12 +285,12 @@ describe('Phase 1 Exit Criteria Verification', () => {
     };
 
     // 1. Start repository in offline state
-    const repo1 = new OfflineRepository(db, flakyHandler);
     const testWorkId = 'work-offline-303';
     const userId = 'user-offline-1';
+    const repo1 = new OfflineRepository(db, userId, flakyHandler);
 
     // Start reading while offline: optimistic write must NOT throw
-    await repo1.saveReadStatus(testWorkId, userId, 'reading', null, false, {
+    await repo1.saveReadStatus(testWorkId, 'reading', null, false, {
       title: 'A Wizard of Earthsea',
       author_name: 'Ursula K. Le Guin',
       page_count: 200,
@@ -319,6 +325,10 @@ describe('Phase 1 Exit Criteria Verification', () => {
     const pendingCount = await repo1.getUnsyncedCount();
     assert.equal(pendingCount, 3); // upsert_read + add_progress + finish_read
 
+    // Being offline does not use up retry attempts (PRD §35.2 "network error → persist, wait").
+    const attempts = await db.getAll<{ attempts: number }>(`SELECT attempts FROM mutation_queue`);
+    assert.deepEqual(attempts.map((a) => a.attempts), [0, 0, 0]);
+
     // 2. SIMULATE APP CRASH / PROCESS DEATH
     // Close SQLite database and destroy in-memory state
     await db.close();
@@ -328,7 +338,7 @@ describe('Phase 1 Exit Criteria Verification', () => {
     const db2 = new NodeSqliteDriver(rawDb2);
 
     // Reconnection: verify local reads and pending queue survived process restart
-    const repo2 = new OfflineRepository(db2, flakyHandler);
+    const repo2 = new OfflineRepository(db2, userId, flakyHandler);
     const recoveredReads = await repo2.getLocalReads();
     assert.equal(recoveredReads.length, 1);
     assert.equal(recoveredReads[0]!.status, 'finished');
@@ -343,16 +353,29 @@ describe('Phase 1 Exit Criteria Verification', () => {
     assert.equal(processed.processed, 3);
     assert.equal(processed.succeeded, 3);
 
-    // Assert all 3 mutations were delivered in strict per-entity FIFO sequence
+    // Assert all 3 mutations were delivered in strict per-entity FIFO sequence,
+    // and the read created offline was replaced by the server's id before its
+    // progress and finish were sent (A-07-005).
     assert.deepEqual(syncdCalls, [
       `upsert-${testWorkId}-reading`,
-      'progress-100',
-      `finish-${readId}`,
+      `progress-${SERVER_READ_ID}-100`,
+      `finish-${SERVER_READ_ID}`,
     ]);
-
+    const after = await repo2.getLocalReads();
+    assert.deepEqual(after.map((r) => [r.id, r.synced]), [[SERVER_READ_ID, 1]]);
     // Pending count must now be 0
     const remainingPending = await repo2.getUnsyncedCount();
     assert.equal(remainingPending, 0);
+
+    assert.equal((await repo2.getProgressEvents(readId)).length, 1, 'progress follows the read to its server id');
+    networkOnline = false; // keep the row queued so it can be inspected
+    const late = await repo2.saveProgress(readId, 150, 75); // a screen still holding the local id
+    const queued = await db2.getFirst<{ entity_id: string }>(
+      `SELECT entity_id FROM mutation_queue WHERE client_event_id = ?`,
+      [late.clientEventId],
+    );
+    assert.equal(queued?.entity_id, SERVER_READ_ID);
+
 
     await db2.close();
   });

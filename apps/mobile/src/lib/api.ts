@@ -8,6 +8,7 @@
 import Constants from 'expo-constants';
 import * as SecureStore from 'expo-secure-store';
 import * as Crypto from 'expo-crypto';
+import { createAuthFetch } from './authFetch';
 
 import {
   FlyleafClient,
@@ -223,6 +224,7 @@ export async function clearAllTokens(): Promise<void> {
     SecureStore.deleteItemAsync(ACCESS_TOKEN_KEY).catch(() => {}),
     SecureStore.deleteItemAsync(REFRESH_TOKEN_KEY).catch(() => {}),
     SecureStore.deleteItemAsync(LEGACY_TOKEN_KEY).catch(() => {}),
+    SecureStore.deleteItemAsync(SESSION_USER_KEY).catch(() => {}),
   ]);
 }
 
@@ -231,8 +233,25 @@ export const saveToken = (t: string) => saveTokens(t);
 export const loadToken = () => loadAccessToken();
 export const clearToken = () => clearAllTokens();
 
+// The signed-in user, so a cold start with no network keeps the session
+// (PRD §6.1: "Network failure → route to Home in cached/offline mode").
+const SESSION_USER_KEY = 'flyleaf.session_user';
+
+export async function saveSessionUser(user: User): Promise<void> {
+  await SecureStore.setItemAsync(SESSION_USER_KEY, JSON.stringify(user));
+}
+
+export async function loadSessionUser(): Promise<User | null> {
+  const raw = await SecureStore.getItemAsync(SESSION_USER_KEY);
+  if (!raw) return null;
+  try {
+    return JSON.parse(raw) as User;
+  } catch {
+    return null;
+  }
+}
+
 // ---------------------------------------------------------------- 401 Refresh Interceptor
-let refreshPromise: Promise<string | null> | null = null;
 type AuthListener = (user: User | null) => void;
 const authListeners = new Set<AuthListener>();
 
@@ -242,74 +261,52 @@ export function subscribeAuthChange(listener: AuthListener): () => void {
 }
 
 function notifyAuthFailed() {
+  // Uploads in flight belong to the session that just ended (PV-03).
+  client.cancelPendingUploads();
   for (const listener of authListeners) {
     listener(null);
   }
 }
 
-async function executeRefresh(): Promise<string | null> {
-  try {
-    const refreshToken = await loadRefreshToken();
-    if (!refreshToken) {
-      await clearAllTokens();
-      notifyAuthFailed();
-      return null;
-    }
+// Single-flight, and only a refused refresh token ends the session (authFetch.ts).
+const interceptedFetch = createAuthFetch({
+  fetch: (input, init) => fetch(input, init),
+  refreshUrl: `${API_BASE}/auth/refresh`,
+  loadAccessToken,
+  loadRefreshToken,
+  saveTokens,
+  clearTokens: clearAllTokens,
+  onSessionEnded: notifyAuthFailed,
+});
 
-    const res = await fetch(`${API_BASE}/auth/refresh`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ refreshToken }),
-    });
+// 403 email_unverified from any call (review, comment, follow; A-05-011) opens
+// the "verify your email" prompt, wherever the call was made from.
+const unverifiedListeners = new Set<() => void>();
 
-    if (!res.ok) {
-      await clearAllTokens();
-      notifyAuthFailed();
-      return null;
-    }
-
-    const data = (await res.json()) as RefreshResponse;
-    await saveTokens(data.accessToken, data.refreshToken);
-    return data.accessToken;
-  } catch {
-    return null;
-  } finally {
-    refreshPromise = null;
-  }
+export function subscribeEmailUnverified(listener: () => void): () => void {
+  unverifiedListeners.add(listener);
+  return () => unverifiedListeners.delete(listener);
 }
 
-async function interceptedFetch(url: string, init?: RequestInit): Promise<Response> {
-  const reqInit = init ?? {};
-  const isAuthEndpoint =
-    typeof url === 'string' &&
-    (url.includes('/auth/login') ||
-      url.includes('/auth/register') ||
-      url.includes('/auth/refresh'));
-
-  let res = await fetch(url, reqInit);
-
-  if (res.status === 401 && !isAuthEndpoint) {
-    // Single-flight lock: coalesce concurrent refreshes
-    if (!refreshPromise) {
-      refreshPromise = executeRefresh();
-    }
-    const newAccessToken = await refreshPromise;
-
-    if (newAccessToken) {
-      const headers = new Headers(reqInit.headers);
-      headers.set('Authorization', `Bearer ${newAccessToken}`);
-      res = await fetch(url, { ...reqInit, headers });
-    }
+const apiFetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+  const res = await interceptedFetch(input, init);
+  if (res.status === 403) {
+    void res
+      .clone()
+      .json()
+      .then((body: { error?: { code?: string } }) => {
+        if (body?.error?.code === 'email_unverified') unverifiedListeners.forEach((l) => l());
+      })
+      .catch(() => {});
   }
-
   return res;
-}
+}) as typeof fetch;
 
 // ---------------------------------------------------------------- FlyleafClient
 export const client = new FlyleafClient({
   baseUrl: API_BASE,
   getToken: loadAccessToken,
-  fetch: interceptedFetch as typeof fetch,
+  fetch: apiFetch,
   // Direct uploads go to object storage with the plain fetch: the
   // interceptor above re-sends a 401 with the bearer token (PV-03).
   uploadFetch: fetch,
@@ -323,7 +320,7 @@ export const api = {
     email: string,
     username: string,
     password: string,
-    dateOfBirth = '2000-01-01',
+    dateOfBirth: string,
   ) => {
     const r = await client.register({ email, username, password, dateOfBirth });
     await saveTokens(r.accessToken, r.refreshToken);
@@ -429,6 +426,8 @@ export const api = {
   verifyEmail: (token: string) => client.verifyEmail({ token }),
 
   resendVerification: () => client.resendVerification(),
+
+  checkUsername: (username: string, signal?: AbortSignal) => client.checkUsername(username, { signal }),
 
   lookupIsbn: (isbn: string) => client.getEditionByIsbn(isbn),
   reviews: (workId: string, options?: { sort?: 'friends' | 'likes' | 'newest' | 'highest' | 'lowest'; rating?: number; limit?: number; offset?: number }) =>

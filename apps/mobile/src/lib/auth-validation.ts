@@ -74,18 +74,21 @@ export function validatePassword(password: string): { valid: boolean; error?: st
   return { valid: true, score: Math.min(4, score) };
 }
 
-export function validateDob(dobStr: string): { valid: boolean; error?: string } {
-  if (!dobStr || !/^\d{4}-\d{2}-\d{2}$/.test(dobStr)) {
+// Same rules as the server's dobSchema (apps/api/src/identity/index.ts): a real
+// calendar date from 1900 on, age counted in UTC calendar days.
+export function validateDob(dobStr: string, now: Date = new Date()): { valid: boolean; error?: string } {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(dobStr);
+  if (!match) {
     return { valid: false, error: 'Use YYYY-MM-DD for date of birth.' };
   }
-  const dob = new Date(dobStr);
-  if (Number.isNaN(dob.getTime())) {
-    return { valid: false, error: 'Invalid date.' };
+  const [y, m, d] = [Number(match[1]), Number(match[2]), Number(match[3])];
+  const date = new Date(Date.UTC(y, m - 1, d));
+  if (y < 1900 || date.getUTCFullYear() !== y || date.getUTCMonth() !== m - 1 || date.getUTCDate() !== d) {
+    return { valid: false, error: 'Enter a real date of birth.' };
   }
-  const now = new Date();
-  let age = now.getFullYear() - dob.getFullYear();
-  const m = now.getMonth() - dob.getMonth();
-  if (m < 0 || (m === 0 && now.getDate() < dob.getDate())) {
+  let age = now.getUTCFullYear() - y;
+  const dm = now.getUTCMonth() + 1 - m;
+  if (dm < 0 || (dm === 0 && now.getUTCDate() < d)) {
     age--;
   }
   if (age < 13) {

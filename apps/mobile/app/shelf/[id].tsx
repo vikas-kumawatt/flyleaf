@@ -26,6 +26,7 @@ import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import { api, type Shelf, type ShelfItem } from '@/lib/api';
 import { useSession } from '@/lib/session';
+import { useActionGate } from '@/ui/ActionGate';
 import { track } from '@/lib/events';
 import { Button, Card, Cover, Screen, Stars, Txt } from '@/ui/components';
 import { ShareShelfModal } from '@/ui/ShareShelfModal';
@@ -36,6 +37,7 @@ export default function ShelfDetailScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { user } = useSession();
+  const { promptAuth } = useActionGate();
   const { id } = useLocalSearchParams<{ id: string }>();
 
   const [loading, setLoading] = useState(true);
@@ -96,7 +98,7 @@ export default function ShelfDetailScreen() {
   const handleToggleSave = async () => {
     if (!shelf || !id || saving) return;
     if (!user) {
-      Alert.alert('Sign In Required', 'Please sign in to save shelves to your library.');
+      promptAuth({ title: `Sign up to save ${shelf.name}`, subtitle: 'Saved shelves stay in your library.' });
       return;
     }
     const prevSaved = isSaved;

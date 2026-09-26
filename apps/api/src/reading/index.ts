@@ -512,11 +512,23 @@ export class ReadingService {
 
     if (!owner || owner.userId !== viewer) throw ApiError.notFound('No such read.');
 
-    await this.db.execute(sql`
+    const inserted = await this.db.execute<{ read_id: string }>(sql`
       INSERT INTO progress_events (read_id, page, percent, minutes, note, audio_seconds, client_event_id)
       VALUES (${readId}, ${page}, ${percent}, ${minutes}, ${note ?? null}, ${audioSeconds ?? null}, ${clientEventId})
       ON CONFLICT (client_event_id) DO NOTHING
+      RETURNING read_id
     `);
+    if (inserted.length === 0) {
+      // A replay onto the same read is the idempotent success. The id is
+      // globally unique, so one spent on another read (or another user's) is a
+      // client bug the queue must surface, not a write to drop (Audit 07).
+      const [existing] = await this.db.execute<{ read_id: string }>(sql`
+        SELECT read_id FROM progress_events WHERE client_event_id = ${clientEventId}
+      `);
+      if (existing && existing.read_id !== readId) {
+        throw ApiError.conflict('client_event_conflict', 'This client_event_id was already used for another read.');
+      }
+    }
 
     if (!owner.startedAt) {
       await this.db.execute(sql`
@@ -959,7 +971,7 @@ export function readingRoutes(service: ReadingService) {
         schema: {
           tags: ['Reading'],
           summary: 'Record reading progress',
-          description: 'Appends a progress event. Idempotent on client_event_id for offline replay (PRD §8.3).',
+          description: 'Appends a progress event. Idempotent on client_event_id for offline replay (PRD §8.3): a replay onto the same read returns 200; an id already used on another read returns 409 client_event_conflict.',
           security: [{ BearerAuth: [] }],
           params: idParamSchema,
           body: progressEventBodySchema,
@@ -967,6 +979,7 @@ export function readingRoutes(service: ReadingService) {
             200: readSchema,
             401: errorResponseSchema,
             404: errorResponseSchema,
+            409: errorResponseSchema,
             422: errorResponseSchema,
           },
         },

@@ -187,27 +187,66 @@ export class GuestManager {
     this.notify();
   }
 
-  async migrateToServer(apiClient: {
-    setStatus: (workId: string, status: string) => Promise<any>;
+  private migrating: Promise<{ count: number; message: string | null }> | null = null;
+
+  /**
+   * Moves the local shelf into the signed-in user's library (SL-33), on signup
+   * and on login. Audit 07 (A-07-012):
+   * - a book already in the library is left as it is: setting 'want' would
+   *   turn a book being read back into want-to-read, or start a re-read of a
+   *   finished one;
+   * - a book is removed locally only once it is safely in the library; a
+   *   network or server failure keeps it for the next sign-in;
+   * - a book the server refuses (4xx: no such work) is dropped;
+   * - concurrent calls (boot and sign-in) share one run.
+   */
+  migrateToServer(apiClient: {
+    reads: () => Promise<{ work_id: string }[]>;
+    setStatus: (workId: string, status: string) => Promise<unknown>;
+  }): Promise<{ count: number; message: string | null }> {
+    this.migrating ??= this.runMigration(apiClient).finally(() => {
+      this.migrating = null;
+    });
+    return this.migrating;
+  }
+
+  private async runMigration(apiClient: {
+    reads: () => Promise<{ work_id: string }[]>;
+    setStatus: (workId: string, status: string) => Promise<unknown>;
   }): Promise<{ count: number; message: string | null }> {
     const toMigrate = [...this.books];
     if (toMigrate.length === 0) {
       return { count: 0, message: null };
     }
 
-    const count = toMigrate.length;
-
-    // Migrate each book to authenticated user library with status "want"
-    for (const book of toMigrate) {
-      try {
-        await apiClient.setStatus(book.id, 'want');
-      } catch {
-        // Continue migrating remaining items
-      }
+    let library: Set<string>;
+    try {
+      library = new Set((await apiClient.reads()).map((r) => r.work_id));
+    } catch {
+      return { count: 0, message: null }; // offline: try again next time
     }
 
-    // Clear local guest shelf after successful migration
-    await this.clear();
+    let count = 0;
+    for (const book of toMigrate) {
+      if (!library.has(book.id)) {
+        try {
+          await apiClient.setStatus(book.id, 'want');
+        } catch (err) {
+          const status = (err as { status?: number } | null)?.status;
+          if (status === undefined || status >= 500 || status === 401 || status === 408 || status === 429) {
+            continue; // keep it for the next sign-in
+          }
+          await this.removeBook(book.id); // the catalogue no longer has it
+          continue;
+        }
+      }
+      await this.removeBook(book.id);
+      count++;
+    }
+
+    if (count === 0) {
+      return { count: 0, message: null };
+    }
 
     // Generate copy matching PRD §4.2: "We've kept the 4 books you saved."
     const message =

@@ -24,6 +24,7 @@ import * as SecureStore from 'expo-secure-store';
 import * as Haptics from 'expo-haptics';
 import { useDatabase } from '@/offline/db';
 import { OfflineRepository } from '@/offline/repository';
+import { useSession } from '@/lib/session';
 import type { LocalRead } from '@/offline/schema';
 import { budgetTracker } from '@/lib/budgetTracker';
 import { Button, Card, Cover, Heart, Screen, Stars, Txt, sheet } from '@/ui/components';
@@ -34,6 +35,7 @@ export default function FinishScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const db = useDatabase();
+  const { user } = useSession();
   const { id } = useLocalSearchParams<{ id: string }>();
 
   const [read, setRead] = useState<LocalRead | null>(null);
@@ -74,9 +76,9 @@ export default function FinishScreen() {
   useEffect(() => {
     let mounted = true;
     async function load() {
-      if (!db) return;
+      if (!db || !user) return;
       try {
-        const repo = new OfflineRepository(db);
+        const repo = new OfflineRepository(db, user.id);
         const reads = await repo.getLocalReads();
         const found = reads.find((r) => r.id === id || r.work_id === id);
         if (mounted && found) {
@@ -119,7 +121,7 @@ export default function FinishScreen() {
   }, [review, draftKey]);
 
   const handleFinish = async () => {
-    if (submitting || !db) return;
+    if (submitting || !db || !user) return;
 
     // Validate dates
     if (read?.started_at && finishedAt < read.started_at) {
@@ -133,7 +135,7 @@ export default function FinishScreen() {
     setSubmitting(true);
     try {
       void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-      const repo = new OfflineRepository(db);
+      const repo = new OfflineRepository(db, user.id);
       const readId = read?.id ?? (id as string);
 
       await repo.finishRead(readId, {

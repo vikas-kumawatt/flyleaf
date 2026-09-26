@@ -2,7 +2,7 @@
 //
 // Tests:
 // 1. Offline enqueue & optimistic writes
-// 2. Idempotent replay with 409 conflict handling
+// 2. A 409 is a refusal the user must hear about, not a duplicate (audit 07 lead 1)
 // 3. Strict per-entity FIFO ordering
 // 4. Exponential backoff on network errors
 // 5. Dead-letter queue after 5 failures & recovery
@@ -16,12 +16,30 @@ import * as path from 'node:path';
 import * as os from 'node:os';
 
 import type { OfflineDatabase } from '../db';
-import { SCHEMA_SQL, type QueuedMutation, type LocalRead } from '../schema';
+import type { QueuedMutation } from '../schema';
+import { migrateOfflineDb } from '../migrations';
 import { MutationQueue, type MutationHandler } from '../queue';
 import { FlyleafApiError } from '@flyleaf/api-client';
 
 import { NodeSqliteDriver } from './sqlite-driver';
 export { NodeSqliteDriver };
+
+const USER = 'user-1';
+
+/** A handler whose unlisted actions fail loudly, so a test notices an unexpected call. */
+function handlerWith(overrides: Partial<MutationHandler>): MutationHandler {
+  const unexpected = (name: string) => async () => {
+    throw new Error(`unexpected ${name}`);
+  };
+  return {
+    addProgress: unexpected('addProgress'),
+    upsertRead: unexpected('upsertRead'),
+    finishRead: unexpected('finishRead'),
+    dnfRead: unexpected('dnfRead'),
+    saveReview: unexpected('saveReview'),
+    ...overrides,
+  };
+}
 
 describe('Offline Mutation Queue & Mirroring', () => {
   let db: NodeSqliteDriver;
@@ -30,7 +48,7 @@ describe('Offline Mutation Queue & Mirroring', () => {
   beforeEach(async () => {
     rawDb = new DatabaseSync(':memory:');
     db = new NodeSqliteDriver(rawDb);
-    await db.exec(SCHEMA_SQL);
+    await migrateOfflineDb(db);
   });
 
   afterEach(async () => {
@@ -38,7 +56,7 @@ describe('Offline Mutation Queue & Mirroring', () => {
   });
 
   test('1. Offline enqueue persists mutation and records optimistic write', async () => {
-    const queue = new MutationQueue(db);
+    const queue = new MutationQueue(db, USER);
     const readId = 'read-123';
     const clientEventId = 'event-uuid-1';
 
@@ -67,15 +85,17 @@ describe('Offline Mutation Queue & Mirroring', () => {
     assert.equal(row.attempts, 0);
   });
 
-  test('2. Idempotent replay on 409 conflict marks synced and purges queue', async () => {
+  // Inherited version asserted "409 → synced" and so encoded the bug (Rule 9).
+  // The server answers a replay of the same event with 200; a 409 means it
+  // refused the write, which must reach the user (PRD §35.2 "surface conflict").
+  test('2. A 409 dead-letters at once with its code; the write is not marked synced', async () => {
     const readId = 'read-456';
     const clientEventId = 'dup-event-uuid';
 
-    // Insert optimistic local rows
     await db.run(
-      `INSERT INTO reads (id, user_id, work_id, status, created_at, updated_at)
-       VALUES (?, 'user-1', 'work-1', 'reading', '2026-01-01', '2026-01-01')`,
-      [readId],
+      `INSERT INTO reads (id, user_id, work_id, status, synced, created_at, updated_at)
+       VALUES (?, ?, 'work-1', 'reading', 0, '2026-01-01', '2026-01-01')`,
+      [readId, USER],
     );
     await db.run(
       `INSERT INTO progress_events (id, read_id, at, page, client_event_id, synced)
@@ -83,46 +103,79 @@ describe('Offline Mutation Queue & Mirroring', () => {
       [readId, clientEventId],
     );
 
-    let called = false;
-    const handler: MutationHandler = {
+    let calls = 0;
+    const handler = handlerWith({
       addProgress: async () => {
-        called = true;
-        // Simulate server returning 409 Conflict (event already recorded)
-        throw new FlyleafApiError('conflict', 'Duplicate client_event_id', undefined, 409);
+        calls++;
+        throw new FlyleafApiError('client_event_conflict', 'This client_event_id was already used for another read.', undefined, 409);
       },
-      upsertRead: async () => {},
-    };
+    });
 
-    const queue = new MutationQueue(db, handler);
-    await queue.enqueue('progress_event', readId, 'add_progress', { page: 100 }, clientEventId);
+    const queue = new MutationQueue(db, USER, handler);
+    const m = await queue.enqueue('progress_event', readId, 'add_progress', { page: 100 }, clientEventId);
 
     const result = await queue.flush();
-    assert.equal(called, true);
-    assert.equal(result.succeeded, 1);
-    assert.equal(result.failed, 0);
+    assert.equal(result.succeeded, 0);
+    assert.equal(result.failed, 1);
+    await queue.flush(true);
+    assert.equal(calls, 1, 'a refusal is not retried');
 
-    // Assert queue is empty
-    const pendingCount = await queue.getPendingCount();
-    assert.equal(pendingCount, 0);
+    const row = await db.getFirst<QueuedMutation>(`SELECT * FROM mutation_queue WHERE id = ?`, [m.id]);
+    assert.equal(row?.status, 'dead_letter');
+    assert.equal(row?.error_code, 'client_event_conflict');
+    assert.equal((await queue.getDeadLetters()).length, 1);
 
-    // Assert local progress_events row was marked synced = 1
     const pe = await db.getFirst<{ synced: number }>(
       `SELECT synced FROM progress_events WHERE client_event_id = ?`,
       [clientEventId],
     );
-    assert.equal(pe?.synced, 1);
+    assert.equal(pe?.synced, 0);
+  });
+
+  test('2b. Every other refusal (403, 404, 409, 410, 422) dead-letters at once with its code', async () => {
+    for (const [status, code] of [[403, 'email_unverified'], [404, 'not_found'], [409, 'thread_locked'], [410, 'gone'], [422, 'invalid_progress']] as const) {
+      const queue = new MutationQueue(db, USER, handlerWith({
+        saveReview: async () => {
+          throw new FlyleafApiError(code, 'no', undefined, status);
+        },
+      }));
+      const m = await queue.enqueue('review', `read-${status}`, 'save_review', { body: 'x' });
+      await queue.flush();
+      const row = await db.getFirst<QueuedMutation>(`SELECT * FROM mutation_queue WHERE id = ?`, [m.id]);
+      assert.equal(row?.status, 'dead_letter', String(status));
+      assert.equal(row?.error_code, code);
+      assert.equal(row?.attempts, 1);
+    }
+  });
+
+  test('2c. Offline (TypeError) and 401 wait without using an attempt, and stop the flush', async () => {
+    for (const failure of [new TypeError('Network request failed'), new FlyleafApiError('unauthorized', 'no', undefined, 401)]) {
+      const sent: string[] = [];
+      const queue = new MutationQueue(db, USER, handlerWith({
+        addProgress: async (readId) => {
+          sent.push(readId);
+          throw failure;
+        },
+      }));
+      await queue.enqueue('progress_event', 'wait-A', 'add_progress', { page: 1 });
+      await queue.enqueue('progress_event', 'wait-B', 'add_progress', { page: 1 });
+      await queue.flush();
+      assert.deepEqual(sent, ['wait-A'], 'one failed request is enough to know');
+      const rows = await db.getAll<QueuedMutation>(`SELECT * FROM mutation_queue WHERE entity_id LIKE 'wait-%'`);
+      assert.deepEqual(rows.map((r) => [r.status, r.attempts]), [['pending', 0], ['pending', 0]]);
+      await db.run(`DELETE FROM mutation_queue`);
+    }
   });
 
   test('3. Per-entity FIFO ordering is strictly preserved', async () => {
     const executionOrder: string[] = [];
-    const handler: MutationHandler = {
+    const handler = handlerWith({
       addProgress: async (readId, page) => {
         executionOrder.push(`${readId}:p${page}`);
       },
-      upsertRead: async () => {},
-    };
+    });
 
-    const queue = new MutationQueue(db, handler);
+    const queue = new MutationQueue(db, USER, handler);
 
     // Enqueue 3 mutations for Book A and 2 for Book B
     await queue.enqueue('progress_event', 'book-A', 'add_progress', { page: 10 });
@@ -144,17 +197,16 @@ describe('Offline Mutation Queue & Mirroring', () => {
 
   test('4. Per-entity FIFO halts subsequent mutations for the same entity if predecessor fails', async () => {
     const executed: number[] = [];
-    const handler: MutationHandler = {
+    const handler = handlerWith({
       addProgress: async (_, page) => {
         if (page === 20) {
           throw new Error('Network timeout');
         }
         executed.push(page!);
       },
-      upsertRead: async () => {},
-    };
+    });
 
-    const queue = new MutationQueue(db, handler);
+    const queue = new MutationQueue(db, USER, handler);
     await queue.enqueue('progress_event', 'book-A', 'add_progress', { page: 10 });
     await queue.enqueue('progress_event', 'book-A', 'add_progress', { page: 20 });
     await queue.enqueue('progress_event', 'book-A', 'add_progress', { page: 30 });
@@ -173,15 +225,14 @@ describe('Offline Mutation Queue & Mirroring', () => {
 
   test('5. Exponential backoff and dead-letter queue after 5 failures', async () => {
     let failCount = 0;
-    const handler: MutationHandler = {
+    const handler = handlerWith({
       addProgress: async () => {
         failCount++;
         throw new Error('Server unreachable 503');
       },
-      upsertRead: async () => {},
-    };
+    });
 
-    const queue = new MutationQueue(db, handler);
+    const queue = new MutationQueue(db, USER, handler);
     const m = await queue.enqueue('progress_event', 'read-1', 'add_progress', { page: 50 });
 
     // Attempt 1: backoff scheduled
@@ -225,9 +276,9 @@ describe('Offline Mutation Queue & Mirroring', () => {
       // 1. Process 1: Open disk database, enqueue mutations offline
       const rawDb1 = new DatabaseSync(dbPath);
       const driver1 = new NodeSqliteDriver(rawDb1);
-      await driver1.exec(SCHEMA_SQL);
+      await migrateOfflineDb(driver1);
 
-      const queue1 = new MutationQueue(driver1);
+      const queue1 = new MutationQueue(driver1, USER);
       const m1 = await queue1.enqueue('progress_event', 'read-offline-1', 'add_progress', { page: 50 }, 'uuid-off-1');
       const m2 = await queue1.enqueue('progress_event', 'read-offline-1', 'add_progress', { page: 60 }, 'uuid-off-2');
       const m3 = await queue1.enqueue('progress_event', 'read-offline-2', 'add_progress', { page: 120 }, 'uuid-off-3');
@@ -242,14 +293,13 @@ describe('Offline Mutation Queue & Mirroring', () => {
       const driver2 = new NodeSqliteDriver(rawDb2);
 
       const replayedCalls: string[] = [];
-      const handler: MutationHandler = {
+      const handler = handlerWith({
         addProgress: async (readId, page, _, __, clientEventId) => {
           replayedCalls.push(`${readId}:p${page}:${clientEventId}`);
         },
-        upsertRead: async () => {},
-      };
+      });
 
-      const queue2 = new MutationQueue(driver2, handler);
+      const queue2 = new MutationQueue(driver2, USER, handler);
 
       // Verify all 3 mutations survived process death with intact client_event_ids
       const recoveredCount = await queue2.getPendingCount();
@@ -279,15 +329,14 @@ describe('Offline Mutation Queue & Mirroring', () => {
   test('7. Offline review creation and queue replay (SL-63)', async () => {
     let replayedReadId: string | null = null;
     let replayedReview: any = null;
-    const handler: MutationHandler = {
+    const handler = handlerWith({
       addProgress: async () => {},
-      upsertRead: async () => {},
       saveReview: async (readId, payload) => {
         replayedReadId = readId;
         replayedReview = payload;
       },
-    };
-    const queue = new MutationQueue(db, handler);
+    });
+    const queue = new MutationQueue(db, USER, handler);
 
     await queue.enqueue(
       'review',
@@ -310,12 +359,12 @@ describe('Offline Mutation Queue & Mirroring', () => {
     assert.equal(await queue.getPendingCount(), 0);
 
     assert.equal(replayedReadId, 'read-rev-100');
+    // client_event_id is queue bookkeeping; the review body goes out without it.
     assert.deepEqual(replayedReview, {
       body: 'A truly magnificent novel with intricate worldbuilding.',
       containsSpoilers: true,
       spoilerPage: 240,
       visibility: 'public',
-      client_event_id: 'event-rev-uuid-1',
     });
   });
 });

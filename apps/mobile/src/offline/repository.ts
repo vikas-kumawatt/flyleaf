@@ -23,11 +23,13 @@ function randomUUID(): string {
   });
 }
 
+// One user's view of the local store: reads are filtered to that user and
+// every queued write is theirs (audit 07, A-07-002).
 export class OfflineRepository {
   private queue: MutationQueue;
 
-  constructor(private db: OfflineDatabase, handler?: MutationHandler) {
-    this.queue = new MutationQueue(db, handler || {
+  constructor(private db: OfflineDatabase, private userId: string, handler?: MutationHandler) {
+    this.queue = new MutationQueue(db, userId, handler || {
       addProgress: async (readId, page, percent, minutes, clientEventId, note, audioSeconds) => {
         // eslint-disable-next-line @typescript-eslint/no-require-imports
         const { api } = require('@/lib/api');
@@ -68,6 +70,19 @@ export class OfflineRepository {
   }
 
   /**
+   * The server id for a read created offline, once the queue has learnt it.
+   * Resolve inside the write's transaction, so a remap cannot land between
+   * the lookup and the write.
+   */
+  private async resolveReadId(readId: string, db: OfflineDatabase = this.db): Promise<string> {
+    const alias = await db.getFirst<{ server_id: string }>(
+      `SELECT server_id FROM read_aliases WHERE local_id = ?`,
+      [readId],
+    );
+    return alias?.server_id ?? readId;
+  }
+
+  /**
    * Records progress with instant optimistic write to SQLite.
    * Never blocks on network roundtrip.
    */
@@ -84,6 +99,7 @@ export class OfflineRepository {
     const now = new Date().toISOString();
 
     await this.db.transaction(async (tx) => {
+      readId = await this.resolveReadId(readId, tx);
       // 1. Optimistic append to progress_events
       await tx.run(
         `INSERT INTO progress_events (id, read_id, at, page, percent, audio_seconds, minutes, note, client_event_id, synced)
@@ -137,6 +153,7 @@ export class OfflineRepository {
     const finishedAt = opts.finishedAt ?? now.slice(0, 10);
 
     await this.db.transaction(async (tx) => {
+      readId = await this.resolveReadId(readId, tx);
       await tx.run(
         `UPDATE reads SET
           status = 'finished',
@@ -165,9 +182,18 @@ export class OfflineRepository {
         rating: opts.rating ?? null,
         hearted: opts.hearted ?? null,
         format_override: opts.formatOverride ?? null,
-        review: opts.review ?? null,
         visibility: opts.visibility ?? null,
       });
+
+      // POST /reads/:id/finish ignores `review` (A-07-006): the text is
+      // published as a review of the same read, after the finish.
+      const review = opts.review?.trim();
+      if (review) {
+        await this.queue.enqueue('review', readId, 'save_review', {
+          body: review,
+          ...(opts.visibility ? { visibility: opts.visibility } : {}),
+        });
+      }
     });
 
     void this.queue.flush();
@@ -190,6 +216,7 @@ export class OfflineRepository {
     const abandonedAt = now.slice(0, 10);
 
     await this.db.transaction(async (tx) => {
+      readId = await this.resolveReadId(readId, tx);
       await tx.run(
         `UPDATE reads SET
           status = 'dnf',
@@ -229,7 +256,6 @@ export class OfflineRepository {
    */
   async saveReadStatus(
     workId: string,
-    userId: string,
     status: string,
     rating: number | null = null,
     hearted = false,
@@ -249,7 +275,7 @@ export class OfflineRepository {
       // Check existing read for this work
       const existing = await tx.getFirst<LocalRead>(
         `SELECT id, attempt_no, status FROM reads WHERE work_id = ? AND user_id = ? ORDER BY attempt_no DESC LIMIT 1`,
-        [workId, userId],
+        [workId, this.userId],
       );
 
       const startsNewAttempt =
@@ -291,7 +317,7 @@ export class OfflineRepository {
           ) VALUES (?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, 'public', ?, ?, ?, NULL, NULL, ?, 0, ?, ?)`,
           [
             readId,
-            userId,
+            this.userId,
             workId,
             meta?.edition_id ?? null,
             status,
@@ -310,7 +336,10 @@ export class OfflineRepository {
         );
       }
 
-      await this.queue.enqueue('read', workId, 'upsert_read', {
+      // Keyed by the read, so its progress and finish replay after it; a new
+      // attempt's local id is swapped for the server's on success (A-07-005).
+      await this.queue.enqueue('read', existing && !startsNewAttempt ? existing.id : readId, 'upsert_read', {
+        work_id: workId,
         status,
         rating,
         hearted,
@@ -384,17 +413,21 @@ export class OfflineRepository {
   async getLocalReads(status?: ReadStatus): Promise<LocalRead[]> {
     if (status) {
       return this.db.getAll<LocalRead>(
-        `SELECT * FROM reads WHERE status = ? ORDER BY updated_at DESC`,
-        [status],
+        `SELECT * FROM reads WHERE user_id = ? AND status = ? ORDER BY updated_at DESC`,
+        [this.userId, status],
       );
     }
-    return this.db.getAll<LocalRead>(`SELECT * FROM reads ORDER BY updated_at DESC`);
+    return this.db.getAll<LocalRead>(
+      `SELECT * FROM reads WHERE user_id = ? ORDER BY updated_at DESC`,
+      [this.userId],
+    );
   }
 
   /**
    * Retrieves progress events for a specific read.
    */
   async getProgressEvents(readId: string): Promise<LocalProgressEvent[]> {
+    readId = await this.resolveReadId(readId);
     return this.db.getAll<LocalProgressEvent>(
       `SELECT * FROM progress_events WHERE read_id = ? ORDER BY at DESC`,
       [readId],
@@ -419,6 +452,7 @@ export class OfflineRepository {
       hearted?: boolean | null;
     },
   ): Promise<void> {
+    readId = await this.resolveReadId(readId);
     if (data.rating !== undefined || data.hearted !== undefined) {
       const updates: string[] = [];
       const params: any[] = [];

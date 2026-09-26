@@ -169,6 +169,10 @@ export default function ImportScreen() {
             },
           ],
         );
+      } else if (err instanceof TypeError || err?.code === 'network_error') {
+        // Uploads are online-only: a presigned URL expires, so they are never
+        // queued (PV-03). The pasted text stays in the box.
+        Alert.alert('You are offline', 'Importing needs an internet connection. Your text is still here; try again when you are back online.');
       } else {
         Alert.alert('Import Failed', err.message || 'Could not upload import file.');
       }

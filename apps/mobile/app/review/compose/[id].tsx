@@ -26,6 +26,7 @@ import * as Haptics from 'expo-haptics';
 import { api, type Work } from '@/lib/api';
 import { useDatabase } from '@/offline/db';
 import { OfflineRepository } from '@/offline/repository';
+import { useSession } from '@/lib/session';
 import type { LocalRead } from '@/offline/schema';
 import { budgetTracker } from '@/lib/budgetTracker';
 import { Button, Card, Cover, Heart, Screen, SegmentedControl, Stars, Txt, sheet } from '@/ui/components';
@@ -36,6 +37,7 @@ export default function ReviewComposerScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const db = useDatabase();
+  const { user } = useSession();
   const { id } = useLocalSearchParams<{ id: string }>(); // read_id or work_id
 
   const [read, setRead] = useState<LocalRead | null>(null);
@@ -77,8 +79,8 @@ export default function ReviewComposerScreen() {
     let mounted = true;
     async function loadData() {
       try {
-        if (db && id) {
-          const repo = new OfflineRepository(db);
+        if (db && id && user) {
+          const repo = new OfflineRepository(db, user.id);
           const reads = await repo.getLocalReads();
           const found = reads.find((r) => r.id === id || r.work_id === id);
           if (found && mounted) {
@@ -183,9 +185,9 @@ export default function ReviewComposerScreen() {
         hearted,
       };
 
-      if (db) {
+      if (db && user) {
         // Save via offline repository with persistent mutation queue replay
-        const repo = new OfflineRepository(db);
+        const repo = new OfflineRepository(db, user.id);
         await repo.saveReview(targetReadId, reviewPayload);
       } else {
         await api.client.createReview(targetReadId, reviewPayload);

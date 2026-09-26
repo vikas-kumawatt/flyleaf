@@ -387,6 +387,73 @@ paths:
                       - ok
                 required:
                   - status
+  /auth/username-available:
+    get:
+      summary: Check username availability
+      tags:
+        - Auth
+      description: Live check for the signup username field (PRD §6.7). Invalid,
+        reserved and taken names return 200 with available=false and a reason; a
+        taken name comes with up to three free suggestions.
+      parameters:
+        - schema:
+            type: string
+          in: query
+          name: username
+          required: false
+          description: The name to check; trimmed and lowercased like register
+      responses:
+        "200":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  username:
+                    type: string
+                    description: The normalised name that was checked
+                  available:
+                    type: boolean
+                  reason:
+                    type: string
+                    enum:
+                      - invalid
+                      - reserved
+                      - taken
+                  suggestions:
+                    type: array
+                    items:
+                      type: string
+                    maxItems: 3
+                    description: Free alternatives, when the name is taken
+                required:
+                  - username
+                  - available
+        "422":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      code:
+                        type: string
+                        description: Machine-readable error code
+                      message:
+                        type: string
+                        description: Human-readable error description
+                      field:
+                        type: string
+                        description: Invalid field name if applicable
+                    required:
+                      - code
+                      - message
+                required:
+                  - error
   /auth/verify-email:
     post:
       summary: Verify email
@@ -2987,8 +3054,9 @@ paths:
       summary: Record reading progress
       tags:
         - Reading
-      description: Appends a progress event. Idempotent on client_event_id for offline
-        replay (PRD §8.3).
+      description: "Appends a progress event. Idempotent on client_event_id for
+        offline replay (PRD §8.3): a replay onto the same read returns 200; an
+        id already used on another read returns 409 client_event_conflict."
       requestBody:
         required: true
         content:
@@ -3164,6 +3232,30 @@ paths:
                 required:
                   - error
         "404":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      code:
+                        type: string
+                        description: Machine-readable error code
+                      message:
+                        type: string
+                        description: Human-readable error description
+                      field:
+                        type: string
+                        description: Invalid field name if applicable
+                    required:
+                      - code
+                      - message
+                required:
+                  - error
+        "409":
           description: Default Response
           content:
             application/json:

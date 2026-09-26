@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import * as SQLite from 'expo-sqlite';
-import { SCHEMA_SQL } from './schema';
+import { migrateOfflineDb } from './migrations';
 
 export interface OfflineDatabase {
   exec(sql: string): Promise<void>;
@@ -57,8 +57,8 @@ export async function getOfflineDb(name = 'flyleaf.db'): Promise<OfflineDatabase
   initPromise = (async () => {
     const rawDb = await SQLite.openDatabaseAsync(name);
     const driver = new ExpoSqliteDriver(rawDb);
-    // Initialize schema
-    await driver.exec(SCHEMA_SQL);
+    // Before anything reads it (PRD §34.5)
+    await migrateOfflineDb(driver);
     dbInstance = driver;
     return driver;
   })();

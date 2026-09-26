@@ -15,7 +15,9 @@ import {
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as Haptics from 'expo-haptics';
-import { api, type Profile, type ReadingStats } from '@/lib/api';
+import { api, FlyleafApiError, type Profile, type ReadingStats } from '@/lib/api';
+import { useSession } from '@/lib/session';
+import { useActionGate } from '@/ui/ActionGate';
 import {
   Button,
   Card,
@@ -32,6 +34,8 @@ export default function UserProfileScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { id } = useLocalSearchParams<{ id: string }>();
+  const { user } = useSession();
+  const { promptAuth } = useActionGate();
 
   const [profile, setProfile] = useState<Profile | null>(null);
   const [stats, setStats] = useState<ReadingStats | null>(null);
@@ -72,6 +76,13 @@ export default function UserProfileScreen() {
 
   const handleFollowToggle = async () => {
     if (!id || !profile || profile.followStatus === 'self' || submittingFollow) return;
+    if (!user) {
+      promptAuth({
+        title: `Sign up to follow @${profile.username}`,
+        subtitle: 'Follow readers whose taste you trust and see what they read.',
+      });
+      return;
+    }
     try {
       setSubmittingFollow(true);
       void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
@@ -104,8 +115,11 @@ export default function UserProfileScreen() {
             : null,
         );
       }
-    } catch {
-      // Re-sync on failure
+    } catch (err) {
+      // email_unverified has its own prompt (VerifyEmailProvider); say so for the rest.
+      if (!(err instanceof FlyleafApiError && err.code === 'email_unverified')) {
+        Alert.alert('Could not update', 'We could not reach Flyleaf. Try again in a moment.');
+      }
       void loadProfileData();
     } finally {
       setSubmittingFollow(false);
@@ -114,6 +128,10 @@ export default function UserProfileScreen() {
 
   const handleBlockUser = async () => {
     if (!id || !profile || profile.followStatus === 'self') return;
+    if (!user) {
+      promptAuth({ title: `Sign up to block @${profile.username}` });
+      return;
+    }
     Alert.alert(
       `Block @${profile.username}?`,
       "They won't be able to see your profile or content, and you won't see theirs. They will not be notified.",
@@ -139,6 +157,10 @@ export default function UserProfileScreen() {
 
   const handleMuteUser = async () => {
     if (!id || !profile || profile.followStatus === 'self') return;
+    if (!user) {
+      promptAuth({ title: `Sign up to mute @${profile.username}` });
+      return;
+    }
     try {
       void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
       await api.muteUser(id);
@@ -316,7 +338,9 @@ export default function UserProfileScreen() {
                         ? 'Following'
                         : profile.followStatus === 'pending'
                           ? 'Requested'
-                          : 'Follow'
+                          : profile.isPrivate
+                            ? 'Request to follow'
+                            : 'Follow'
                     }
                     variant={profile.followStatus === 'none' ? 'primary' : 'outline'}
                     onPress={handleFollowToggle}

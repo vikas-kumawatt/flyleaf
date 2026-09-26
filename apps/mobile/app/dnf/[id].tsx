@@ -22,6 +22,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as Haptics from 'expo-haptics';
 import { useDatabase } from '@/offline/db';
 import { OfflineRepository } from '@/offline/repository';
+import { useSession } from '@/lib/session';
 import type { LocalRead } from '@/offline/schema';
 import { Button, Card, Cover, Screen, Stars, Txt, sheet } from '@/ui/components';
 import { radius, space, useTheme } from '@/ui/tokens';
@@ -40,6 +41,7 @@ export default function DnfScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const db = useDatabase();
+  const { user } = useSession();
   const { id } = useLocalSearchParams<{ id: string }>();
 
   const [read, setRead] = useState<LocalRead | null>(null);
@@ -56,9 +58,9 @@ export default function DnfScreen() {
   useEffect(() => {
     let mounted = true;
     async function load() {
-      if (!db) return;
+      if (!db || !user) return;
       try {
-        const repo = new OfflineRepository(db);
+        const repo = new OfflineRepository(db, user.id);
         const reads = await repo.getLocalReads();
         const found = reads.find((r) => r.id === id || r.work_id === id);
         if (mounted && found) {
@@ -76,12 +78,12 @@ export default function DnfScreen() {
   }, [id, db]);
 
   const handleSaveDnf = async () => {
-    if (submitting || !db) return;
+    if (submitting || !db || !user) return;
     setSubmitting(true);
 
     try {
       void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-      const repo = new OfflineRepository(db);
+      const repo = new OfflineRepository(db, user.id);
       const readId = read?.id ?? (id as string);
       const abandonedPage = pageInput ? parseInt(pageInput, 10) : null;
 

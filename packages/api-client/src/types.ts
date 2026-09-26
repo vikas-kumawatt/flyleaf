@@ -154,6 +154,14 @@ export interface StandardResponse {
   message: string;
 }
 
+/** GET /auth/username-available (PRD §6.7). */
+export interface UsernameAvailability {
+  username: string;
+  available: boolean;
+  reason?: 'invalid' | 'reserved' | 'taken';
+  suggestions?: string[];
+}
+
 export interface VerifyEmailRequest {
   token: string;
 }

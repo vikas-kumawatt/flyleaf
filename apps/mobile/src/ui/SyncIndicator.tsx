@@ -6,12 +6,14 @@
 import React from 'react';
 import { View, Pressable, StyleSheet } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { useRouter } from 'expo-router';
 import { useOfflineSync } from '@/offline/sync';
 import { Txt } from './components';
 import { space, radius, useTheme } from './tokens';
 
 export function SyncIndicator() {
   const c = useTheme();
+  const router = useRouter();
   const { unsyncedCount, deadLetterCount, isSyncing, syncNow } = useOfflineSync();
 
   if (unsyncedCount === 0 && deadLetterCount === 0) {
@@ -24,7 +26,13 @@ export function SyncIndicator() {
 
   return (
     <View style={[styles.container, { backgroundColor: c.surface2, borderColor: c.line }]}>
-      <View style={styles.content}>
+      <Pressable
+        style={styles.content}
+        onPress={() => router.push('/sync-issues' as any)}
+        disabled={deadLetterCount === 0}
+        accessibilityRole={deadLetterCount > 0 ? 'link' : undefined}
+        accessibilityHint={deadLetterCount > 0 ? 'Shows what could not sync, with retry and discard' : undefined}
+      >
         {/* Subtle dot */}
         <View
           style={[
@@ -35,7 +43,8 @@ export function SyncIndicator() {
         <Txt variant="caption" color="ink2">
           {label}
         </Txt>
-      </View>
+        {deadLetterCount > 0 ? <Ionicons name="chevron-forward" size={14} color={c.muted} /> : null}
+      </Pressable>
 
       <Pressable
         onPress={syncNow}

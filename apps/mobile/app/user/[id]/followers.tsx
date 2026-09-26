@@ -9,11 +9,14 @@ import {
   ActivityIndicator,
   RefreshControl,
   StyleSheet,
+  Alert,
 } from 'react-native';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as Haptics from 'expo-haptics';
-import { api, type FollowUserListItem } from '@/lib/api';
+import { api, FlyleafApiError, type FollowUserListItem } from '@/lib/api';
+import { useSession } from '@/lib/session';
+import { useActionGate } from '@/ui/ActionGate';
 import {
   Button,
   Card,
@@ -29,6 +32,8 @@ export default function FollowersScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { id } = useLocalSearchParams<{ id: string }>();
+  const { user } = useSession();
+  const { promptAuth } = useActionGate();
 
   const [users, setUsers] = useState<FollowUserListItem[]>([]);
   const [total, setTotal] = useState(0);
@@ -66,6 +71,10 @@ export default function FollowersScreen() {
   };
 
   const handleToggleFollow = async (targetUser: FollowUserListItem) => {
+    if (!user) {
+      promptAuth({ title: `Sign up to follow @${targetUser.username}` });
+      return;
+    }
     try {
       setProcessingId(targetUser.id);
       void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
@@ -82,8 +91,11 @@ export default function FollowersScreen() {
         );
       }
       void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-    } catch {
-      // Ignore network error
+    } catch (err) {
+      // email_unverified has its own prompt (VerifyEmailProvider); say so for the rest.
+      if (!(err instanceof FlyleafApiError && err.code === 'email_unverified')) {
+        Alert.alert('Could not update', 'We could not reach Flyleaf. Try again in a moment.');
+      }
     } finally {
       setProcessingId(null);
     }

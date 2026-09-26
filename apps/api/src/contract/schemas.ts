@@ -185,6 +185,30 @@ export const verifyEmailBodySchema = {
 } as const;
 
 export const verifyEmailResponseSchema = standardStatusResponseSchema;
+
+// Checked in the handler, so a missing name is the same 422 as an empty one.
+export const usernameAvailableQuerySchema = {
+  type: 'object',
+  properties: {
+    username: { type: 'string', description: 'The name to check; trimmed and lowercased like register' },
+  },
+} as const;
+
+export const usernameAvailableResponseSchema = {
+  type: 'object',
+  properties: {
+    username: { type: 'string', description: 'The normalised name that was checked' },
+    available: { type: 'boolean' },
+    reason: { type: 'string', enum: ['invalid', 'reserved', 'taken'] },
+    suggestions: {
+      type: 'array',
+      items: { type: 'string' },
+      maxItems: 3,
+      description: 'Free alternatives, when the name is taken',
+    },
+  },
+  required: ['username', 'available'],
+} as const;
 export const resendVerificationResponseSchema = standardStatusResponseSchema;
 
 export const forgotPasswordBodySchema = {

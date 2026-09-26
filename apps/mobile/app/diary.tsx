@@ -30,7 +30,7 @@ export default function DiaryScreen() {
   const loadReads = useCallback(async () => {
     if (!user || !db) return;
     try {
-      const repo = new OfflineRepository(db);
+      const repo = new OfflineRepository(db, user.id);
       const local = await repo.getLocalReads();
       setReads(local);
 

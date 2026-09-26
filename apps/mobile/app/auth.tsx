@@ -9,7 +9,7 @@
 // 6. reset: Reset password with token
 // 7. verify: Email verification notice with 60s cooldown timer
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   View,
   ScrollView,
@@ -18,7 +18,7 @@ import {
   StyleSheet,
   ActivityIndicator,
 } from 'react-native';
-import { useRouter } from 'expo-router';
+import { useLocalSearchParams, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import { api, FlyleafApiError } from '@/lib/api';
@@ -28,6 +28,7 @@ import {
   validatePassword,
   validateDob,
 } from '@/lib/auth-validation';
+import { createUsernameChecker, type UsernameStatus } from '@/lib/usernameCheck';
 import { WelcomeCarousel } from '@/ui/WelcomeCarousel';
 import { Button, Card, Screen, Txt, sheet } from '@/ui/components';
 import { space, radius, useTheme } from '@/ui/tokens';
@@ -45,13 +46,18 @@ export default function AuthScreen() {
   const c = useTheme();
   const router = useRouter();
   const { signIn, signUp } = useSession();
+  // /reset-password and /verify-email send people here for a new link.
+  const { mode: initialMode } = useLocalSearchParams<{ mode?: string }>();
 
-  const [mode, setMode] = useState<AuthMode>('welcome');
+  const [mode, setMode] = useState<AuthMode>(
+    initialMode === 'forgot' || initialMode === 'login' ? initialMode : 'welcome',
+  );
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
-  const [dob, setDob] = useState('2000-01-01');
+  // Empty: a pre-filled adult date let anyone tap through the age gate (A-07-004).
+  const [dob, setDob] = useState('');
   const [username, setUsername] = useState('');
   const [resetToken, setResetToken] = useState('');
   const [busy, setBusy] = useState(false);
@@ -69,6 +75,15 @@ export default function AuthScreen() {
 
   // Username validation state
   const usernameCheck = validateUsername(username);
+
+  // Live availability, 400 ms after typing stops (PRD §6.7)
+  const [usernameStatus, setUsernameStatus] = useState<UsernameStatus>({ state: 'idle' });
+  const checker = useRef<ReturnType<typeof createUsernameChecker> | null>(null);
+  checker.current ??= createUsernameChecker((u, signal) => api.checkUsername(u, signal), setUsernameStatus);
+  useEffect(() => () => checker.current?.dispose(), []);
+  useEffect(() => {
+    checker.current?.update(usernameCheck.valid ? username.trim().toLowerCase() : null);
+  }, [username, usernameCheck.valid]);
   const passwordCheck = validatePassword(password);
   const dobCheck = validateDob(dob);
 
@@ -118,7 +133,7 @@ export default function AuthScreen() {
 
     setBusy(true);
     try {
-      await signUp(email.trim(), username.trim().toLowerCase(), password);
+      await signUp(email.trim(), username.trim().toLowerCase(), password, dob.trim());
       router.back();
     } catch (err: any) {
       if (err instanceof FlyleafApiError && err.code === 'username_taken') {
@@ -486,14 +501,42 @@ export default function AuthScreen() {
                   placeholderTextColor={c.muted}
                   style={{ flex: 1, color: c.ink, fontSize: 15 }}
                 />
-                {username.length >= 3 && usernameCheck.valid && (
-                  <Ionicons name="checkmark-circle" size={18} color={c.positive} />
+                {usernameCheck.valid && usernameStatus.state === 'checking' && (
+                  <ActivityIndicator size="small" color={c.muted} />
+                )}
+                {usernameCheck.valid && usernameStatus.state === 'available' && (
+                  <Ionicons name="checkmark-circle" size={18} color={c.positive} accessibilityLabel="Available" />
+                )}
+                {usernameCheck.valid && usernameStatus.state === 'unavailable' && (
+                  <Ionicons name="close-circle" size={18} color={c.critical} accessibilityLabel="Not available" />
                 )}
               </View>
               {username.length > 0 && !usernameCheck.valid ? (
                 <Txt variant="caption" color="critical">
                   {usernameCheck.error}
                 </Txt>
+              ) : usernameStatus.state === 'unavailable' ? (
+                <View style={{ gap: space[1] }}>
+                  <Txt variant="caption" color="critical">
+                    {usernameStatus.reason === 'taken' ? 'That username is taken.' : 'That username is not available.'}
+                    {usernameStatus.suggestions.length > 0 ? ' Try one of these:' : ''}
+                  </Txt>
+                  <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: space[2] }}>
+                    {usernameStatus.suggestions.map((s) => (
+                      <Pressable
+                        key={s}
+                        onPress={() => setUsername(s)}
+                        accessibilityRole="button"
+                        accessibilityLabel={`Use ${s}`}
+                        style={{ minHeight: 44, justifyContent: 'center' }}
+                      >
+                        <Txt variant="caption" color="accent" style={{ fontWeight: '600' }}>
+                          @{s}
+                        </Txt>
+                      </Pressable>
+                    ))}
+                  </View>
+                </View>
               ) : (
                 <Txt variant="caption" color="muted">
                   3–20 characters: letters, numbers, underscores.
@@ -506,7 +549,7 @@ export default function AuthScreen() {
               variant="primary"
               onPress={handleSignupSubmit}
               loading={busy}
-              disabled={!usernameCheck.valid}
+              disabled={!usernameCheck.valid || usernameStatus.state === 'unavailable'}
             />
           </View>
         )}

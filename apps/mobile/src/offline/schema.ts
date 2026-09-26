@@ -4,6 +4,8 @@
 // 1. `reads`: current status, attempt_no, ratings, cached book metadata.
 // 2. `progress_events`: append-only stream of page/percent updates with client_event_id.
 // 3. `mutation_queue`: persistent FIFO queue for offline writes, backoff, and dead-letters.
+//
+// SCHEMA_SQL is migration step 1 only. Later changes are steps in migrations.ts.
 
 export interface LocalRead {
   id: string;
@@ -50,13 +52,18 @@ export type MutationStatus = 'pending' | 'processing' | 'dead_letter';
 
 export interface QueuedMutation {
   id: string;
+  /** Whose write this is: only replayed under that user's session (migration 2). */
+  user_id: string | null;
   entity_type: 'read' | 'progress_event' | 'review';
+  /** The read the mutation is about, so a read's writes replay in order. */
   entity_id: string;
   action: MutationAction;
   payload: string; // JSON
   client_event_id: string;
   attempts: number;
   last_error: string | null;
+  /** The server's error code when a replay was refused (migration 2). */
+  error_code: string | null;
   status: MutationStatus;
   next_retry_at: string | null;
   created_at: string;

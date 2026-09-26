@@ -15,6 +15,7 @@ import { AppQueryProvider } from '@/lib/query';
 import { SyncProvider } from '@/offline/sync';
 import { SyncIndicator } from '@/ui/SyncIndicator';
 import { ActionGateProvider } from '@/ui/ActionGate';
+import { VerifyEmailBanner, VerifyEmailProvider } from '@/ui/VerifyEmail';
 import { ThemeProvider, useTheme, useThemeContext } from '@/ui/tokens';
 import { ErrorBoundary } from '@/ui/ErrorBoundary';
 import { initTelemetry } from '@/lib/events';
@@ -25,6 +26,7 @@ function Nav() {
   return (
     <View style={{ flex: 1 }}>
       <SyncIndicator />
+      <VerifyEmailBanner />
       <Stack
         screenOptions={{
           headerStyle: { backgroundColor: c.ground },
@@ -79,6 +81,9 @@ function Nav() {
         <Stack.Screen name="user/[id]" options={{ presentation: 'card', headerShown: false }} />
         <Stack.Screen name="read/[id]/comments" options={{ presentation: 'card', headerShown: false }} />
         <Stack.Screen name="u/[username]/shelves/[slug]" options={{ presentation: 'card', headerShown: false }} />
+        <Stack.Screen name="sync-issues" options={{ presentation: 'card', headerShown: false }} />
+        <Stack.Screen name="verify-email" options={{ title: 'Verify email' }} />
+        <Stack.Screen name="reset-password" options={{ title: 'New password' }} />
       </Stack>
     </View>
   );
@@ -113,7 +118,9 @@ export default function RootLayout() {
             <SessionProvider>
               <SyncProvider>
                 <ActionGateProvider>
-                  <Nav />
+                  <VerifyEmailProvider>
+                    <Nav />
+                  </VerifyEmailProvider>
                 </ActionGateProvider>
               </SyncProvider>
             </SessionProvider>

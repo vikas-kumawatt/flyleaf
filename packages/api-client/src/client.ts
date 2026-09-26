@@ -72,6 +72,7 @@ import type {
   UpsertReadRequest,
   User,
   VerifyEmailRequest,
+  UsernameAvailability,
   Shelf,
   ShelfResponse,
   CreateShelfRequest,
@@ -235,6 +236,13 @@ export class FlyleafClient {
     return this.request<StandardResponse>('/auth/verify-email', {
       method: 'POST',
       body: JSON.stringify(data),
+    });
+  }
+
+  async checkUsername(username: string, init?: { signal?: AbortSignal }): Promise<UsernameAvailability> {
+    return this.request<UsernameAvailability>(`/auth/username-available?username=${encodeURIComponent(username)}`, {
+      method: 'GET',
+      ...(init?.signal ? { signal: init.signal } : {}),
     });
   }
 

@@ -62,9 +62,9 @@ export default function WallScreen() {
   const loadReads = useCallback(async () => {
     if (!targetUserId) return;
     try {
-      if (!isOtherUser && db) {
+      if (!isOtherUser && db && user) {
         // Load local SQLite for instant feel
-        const repo = new OfflineRepository(db);
+        const repo = new OfflineRepository(db, user.id);
         const local = await repo.getLocalReads();
         setReads(local.filter((r) => r.status === 'finished'));
 

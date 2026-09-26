@@ -258,6 +258,47 @@ describe('Reading Core (SL-5x)', () => {
       expect(Number(count[0]!.count)).toBe(1);
     });
 
+    // Audit 07 lead 3: a client_event_id already spent on another read (the
+    // same user's or someone else's) is a refusal, not a silent success.
+    it('POST /v1/reads/:id/progress refuses a client_event_id used by another read or user', async () => {
+      const [w1] = await db.insert(works).values({ title: 'Replay One' }).returning({ id: works.id });
+      const [w2] = await db.insert(works).values({ title: 'Replay Two' }).returning({ id: works.id });
+      const readOne = await service.upsert(USER_ID, w1!.id, 'reading');
+      const readTwo = await service.upsert(USER_ID, w2!.id, 'reading');
+
+      const OTHER_ID = randomUUID();
+      await db.insert(users).values({ id: OTHER_ID, email: 'other-replay@example.com', passwordHash: 'x', dateOfBirth: '1990-01-01' });
+      await db.insert(profiles).values({ userId: OTHER_ID, username: 'other_replay', isPrivate: false });
+      const otherRead = await service.upsert(OTHER_ID, w1!.id, 'reading');
+      const otherToken = await signAccessToken(OTHER_ID);
+
+      const eventId = randomUUID();
+      const post = (readId: string, token: string, page: number) =>
+        app.inject({
+          method: 'POST',
+          url: `/v1/reads/${readId}/progress`,
+          headers: { authorization: `Bearer ${token}` },
+          payload: { client_event_id: eventId, page },
+        });
+
+      expect((await post(readOne.id, authToken, 10)).statusCode).toBe(200);
+      // Same read, same id: the replay the queue relies on.
+      expect((await post(readOne.id, authToken, 10)).statusCode).toBe(200);
+
+      const crossRead = await post(readTwo.id, authToken, 99);
+      expect(crossRead.statusCode).toBe(409);
+      expect(JSON.parse(crossRead.body).error.code).toBe('client_event_conflict');
+
+      const crossUser = await post(otherRead.id, otherToken, 99);
+      expect(crossUser.statusCode).toBe(409);
+      expect(JSON.parse(crossUser.body).error.code).toBe('client_event_conflict');
+
+      const rows = await db.execute<{ read_id: string; page: number }>(
+        sql`SELECT read_id, page FROM progress_events WHERE client_event_id = ${eventId}`
+      );
+      expect(rows).toEqual([{ read_id: readOne.id, page: 10 }]);
+    });
+
     it('POST /v1/reads/:id/finish finishes read atomically', async () => {
       const [w] = await db.insert(works).values({ title: 'Novella' }).returning({ id: works.id });
       const workId = w!.id;

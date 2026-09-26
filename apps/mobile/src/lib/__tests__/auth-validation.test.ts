@@ -90,5 +90,24 @@ describe('Auth Validation Suite (SL-21, SL-22)', () => {
       assert.equal(validateDob(fourteenYearsAgo).valid, true);
       assert.equal(validateDob('1990-05-15').valid, true);
     });
+
+    // Audit 07: the same rules as the server's dobSchema (identity/index.ts),
+    // so a date the server refuses is caught on step 1, not after the username.
+    test('rejects impossible calendar dates and years before 1900, like the server', () => {
+      for (const d of ['2001-02-29', '2001-02-30', '2001-04-31', '1899-12-31', '1000-01-01', '2000-13-01', '2000-00-10']) {
+        assert.equal(validateDob(d).valid, false, d);
+      }
+      assert.equal(validateDob('2000-02-29').valid, true);
+      assert.equal(validateDob('1900-01-01').valid, true);
+    });
+
+    test('computes age in UTC calendar days: a 29 February birthday turns 13 on 1 March', () => {
+      const leap = (y: number) => (y % 4 === 0 && y % 100 !== 0) || y % 400 === 0;
+      let y = new Date().getUTCFullYear() - 13;
+      while (!leap(y)) y--;
+      const born = `${y}-02-29`;
+      assert.equal(validateDob(born, new Date(Date.UTC(y + 13, 1, 28))).valid, false);
+      assert.equal(validateDob(born, new Date(Date.UTC(y + 13, 2, 1))).valid, true);
+    });
   });
 });

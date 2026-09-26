@@ -25,6 +25,8 @@ import {
 } from '../lib/feedCard';
 import { nextLikeState } from '../lib/comments';
 import { api } from '../lib/api';
+import { useSession } from '../lib/session';
+import { useActionGate } from './ActionGate';
 
 export interface FeedCardProps {
   item: FeedActivityItem;
@@ -48,6 +50,8 @@ export function FeedCard({
 }: FeedCardProps) {
   const c = useTheme();
   const router = useRouter();
+  const { user } = useSession();
+  const { promptAuth } = useActionGate();
   const [showSpoilers, setShowSpoilers] = useState(false);
   const interaction = getCardInteraction(item);
   const [likeState, setLikeState] = useState({
@@ -70,6 +74,10 @@ export function FeedCard({
 
   const handleLikePress = () => {
     if (!readId) return;
+    if (!user) {
+      promptAuth({ title: 'Sign up to like this', subtitle: 'Like reads and reviews from readers you follow.' });
+      return;
+    }
     void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     const next = nextLikeState(likeState);
     setLikeState(next);

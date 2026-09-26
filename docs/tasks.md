@@ -336,29 +336,47 @@
 
 ### Client foundation — `SL-0x` · 6d
 - [x] **SL-00** ⚠️ Run `npx expo install --check` and `npx expo-doctor` before adding any mobile dependency. Expo Go rejects a project whose native module versions differ from what it ships — pin from `bundledNativeModules.json`, never npm `latest` — 0.25d
+  - **Audit (2026-09-26):** ⚠️ — no npm `latest` versions, but 6 packages are now patch releases behind SDK 57 (`expo-doctor` 20/21); `expo install --fix` left to the owner (native rebuild); see A-07-022.
 - [x] **SL-01** Expo Router shell, 5 tabs + centre FAB — 1d
+  - **Audit (2026-09-26):** ✅ — the five tabs of PRD §5.2 plus the centre FAB, which is gated for guests.
 - [x] **SL-02** Design system from `design.md`: tokens, Button, Card, Sheet, Cover, StarRating, Heart, ProgressBar, Skeleton, EmptyState — Reanimated + gesture-handler — 3d
+  - **Audit (2026-09-26):** ✅ — the components exist and are used (existence checked, not behaviour); colour literals in screens are A-07-021.
 - [x] **SL-03** API client wiring, TanStack Query, error surface — 0.5d
+  - **Audit (2026-09-26):** ⚠️ — queries never retry a 4xx, but several user-facing writes swallowed errors; follow fixed, work-page writes → Part 08; see A-07-020.
 - [x] **SL-04** `expo-secure-store` refresh token; 401 → refresh interceptor — 1d
+  - **Audit (2026-09-26):** ❌ — single-flight held, but a 429/5xx on refresh and any offline cold start signed the user out; fixed (`authFetch.ts`, tested with parallel 401s); single-flight covers every caller, so the D-04 grace window is not needed; see A-07-009.
 - [x] **SL-05** Theme switching, system default, both palettes verified — 0.5d
+  - **Audit (2026-09-26):** ⚠️ — both palettes are complete in `tokens.ts`, but 66 hard-coded colour literals remain in 18 files (deferred); see A-07-021.
 
 ### Offline — `SL-1x` · 6d
 - [x] **SL-10** ⚠️ SQLite schema mirroring reads + progress_events — 1d
+  - **Audit (2026-09-26):** ❌ — local reads were not scoped to a user and the local database had no migrations; fixed (`migrations.ts`, `user_version`); see A-07-002, A-07-007.
 - [x] **SL-11** ⚠️ **Mutation queue: persist, replay, backoff, dead-letter** — 2d
+  - **Audit (2026-09-26):** ❌ — any 409 was treated as synced, 4xx were retried, offline dead-lettered everything within minutes, dead letters were never shown, queues replayed across accounts, flushes ran concurrently, and reads created offline never got their server id; all fixed, with a Couldn't sync screen; see A-07-001, A-07-002, A-07-005, A-07-008.
 - [x] **SL-12** ⚠️ `client_event_id` generation + idempotent replay — 0.5d
+  - **Audit (2026-09-26):** ⚠️ — client correct; the server accepted an id reused on another read or user as success; now 409 `client_event_conflict`; see A-07-015.
 - [x] **SL-13** ⚠️ **Offline queue test suite incl. simulated process death** — 1.5d
-- [x] SL-14 Sync-on-foreground and on reconnect; unsynced indicator — 1d
+  - **Audit (2026-09-26):** ⚠️ — process death covered; one test asserted the 409 bug (updated); users, concurrency, migrations and id remapping are now covered (`queue-audit.test.ts`); a11y criterion is tautological; see A-07-001, A-07-026.
+- [x] SL-14 Sync-on-foreground ~~and on reconnect~~ (no network listener: a 30 s retry timer runs while writes are pending, audit 07); unsynced indicator — 1d
+  - **Audit (2026-09-26):** ⚠️ — foreground sync yes; no reconnect trigger; polled every 30 s forever; the indicator counted all users; fixed except a NetInfo listener (D-07-2); see A-07-014.
 
 ### Auth screens — `SL-2x` · 3d
 - [x] SL-20 Welcome carousel with "Look around first" — 0.5d
+  - **Audit (2026-09-26):** ✅ — carousel with "Look around first".
 - [x] SL-21 Sign up / log in / forgot / reset / verify — 1.5d
-- [x] SL-22 Username + avatar; live availability; reserved words — 1d
+  - **Audit (2026-09-26):** ❌ — signup never sent the entered DOB (always 2000-01-01, field pre-filled); no screens for the emailed verify/reset links; `email_unverified` unhandled; all fixed (links still open in the browser until D-07-1); see A-07-004, A-07-011, A-07-016, A-07-017.
+- [x] SL-22 Username ~~+ avatar~~ (typographic default only, audit 07 → Part 10); live availability (built in audit 07); reserved words — 1d
+  - **Audit (2026-09-26):** ❌ — there was no availability check at all (no endpoint, no request) and no avatar picker; availability built (`GET /v1/auth/username-available`, 400 ms debounce, stale responses dropped); avatar → Part 10; see A-07-010, A-07-032.
 
 ### Guest mode — `SL-3x` · 3d
 - [x] **SL-30** ⚠️ Guest routing: no session → Home in browse mode — 0.5d
+  - **Audit (2026-09-26):** ✅ — no auth wall; guests land on Home; the Reading tab is the upsell.
 - [x] **SL-31** ⚠️ **Action gate**: contextual prompt at Log/Rate/Follow/Like, one-tap dismiss — 1d
+  - **Audit (2026-09-26):** ⚠️ — follow/block/mute, follow lists, mute book, feed-card like and shelf save were ungated or dead-ended; fixed; see A-07-013.
 - [x] **SL-32** ⚠️ Local Want-to-Read (cap 20) — 0.75d
+  - **Audit (2026-09-26):** ✅ — cap 20, dedupe and SQLite persistence.
 - [x] **SL-33** ⚠️ **Migrate local shelf on signup + confirmation copy** — 0.75d
+  - **Audit (2026-09-26):** ❌ — failures still cleared the shelf, books already in the library were reset to want (or re-read), and runs overlapped; fixed and tested; merged works → Part 08; see A-07-012, A-07-024.
 
 ### Catalog screens — `SL-4x` · 7d
 - [x] **SL-40** Search screen: debounce 250ms, tabs, recents, filters — 2d

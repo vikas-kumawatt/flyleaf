@@ -70,6 +70,10 @@ export default function WorkScreen() {
 
   const handleMuteBook = async () => {
     if (!id || !work) return;
+    if (!user) {
+      promptAuth({ title: `Sign up to mute ${work.title}`, subtitle: 'Muted books stay out of your feed.' });
+      return;
+    }
     try {
       void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
       if (isMuted) {

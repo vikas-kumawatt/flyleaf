@@ -81,7 +81,7 @@ export default function ReadingScreen() {
   const loadReads = useCallback(async () => {
     if (!user || !db) return;
     try {
-      const repo = new OfflineRepository(db);
+      const repo = new OfflineRepository(db, user.id);
       const local = await repo.getLocalReads();
       setReads(local);
 
@@ -148,8 +148,8 @@ export default function ReadingScreen() {
 
   // Handlers for active reading
   const handleSliderRelease = async (read: LocalRead, newPage: number, newPercent: number) => {
-    if (!db) return;
-    const repo = new OfflineRepository(db);
+    if (!db || !user) return;
+    const repo = new OfflineRepository(db, user.id);
     budgetTracker.recordProgressSaved({ method: 'slider', deltaPages: Math.max(0, newPage - (read.page ?? 0)) });
     // Optimistically update local state immediately
     setReads((prev) =>
@@ -163,10 +163,10 @@ export default function ReadingScreen() {
   };
 
   const handleAddTenPages = async (read: LocalRead) => {
-    if (!db) return;
+    if (!db || !user) return;
     void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     budgetTracker.recordProgressSaved({ method: 'quick_add', deltaPages: 10 });
-    const repo = new OfflineRepository(db);
+    const repo = new OfflineRepository(db, user.id);
     const currentPage = read.page ?? 0;
     const pageCount = read.page_count;
     const targetPage = pageCount ? Math.min(pageCount, currentPage + 10) : currentPage + 10;
@@ -186,8 +186,8 @@ export default function ReadingScreen() {
     if (!db || !user) return;
     void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     budgetTracker.recordBookLogged({ tapCount: 2, source: 'reading_tab', targetStatus: 'reading' });
-    const repo = new OfflineRepository(db);
-    await repo.saveReadStatus(read.work_id, user.id, 'reading', null, false, {
+    const repo = new OfflineRepository(db, user.id);
+    await repo.saveReadStatus(read.work_id, 'reading', null, false, {
       title: read.title ?? undefined,
       author_name: read.author_name ?? undefined,
       cover_id: read.cover_id,
@@ -205,7 +205,7 @@ export default function ReadingScreen() {
     note: string | null;
     quote: string | null;
   }) => {
-    if (!sheetRead || !db) return;
+    if (!sheetRead || !db || !user) return;
     budgetTracker.recordProgressSaved({
       method: 'sheet',
       deltaPages: data.page != null && sheetRead.page != null ? Math.max(0, data.page - sheetRead.page) : 0,
@@ -215,7 +215,7 @@ export default function ReadingScreen() {
       hadNote: Boolean(data.note),
       hadMinutes: Boolean(data.minutes),
     });
-    const repo = new OfflineRepository(db);
+    const repo = new OfflineRepository(db, user.id);
     setReads((prev) =>
       prev.map((r) =>
         r.id === sheetRead.id
@@ -231,8 +231,8 @@ export default function ReadingScreen() {
     if (!db || !user) return;
     setOverflowRead(null);
     void Haptics.selectionAsync();
-    const repo = new OfflineRepository(db);
-    await repo.saveReadStatus(read.work_id, user.id, 'reading', null, false, {
+    const repo = new OfflineRepository(db, user.id);
+    await repo.saveReadStatus(read.work_id, 'reading', null, false, {
       title: read.title ?? undefined,
       author_name: read.author_name ?? undefined,
       cover_id: read.cover_id,
@@ -263,11 +263,11 @@ export default function ReadingScreen() {
           text: 'Remove',
           style: 'destructive',
           onPress: async () => {
-            const repo = new OfflineRepository(db);
+            const repo = new OfflineRepository(db, user.id);
             for (const readId of selectedIds) {
               const target = reads.find((r) => r.id === readId);
               if (target) {
-                await repo.saveReadStatus(target.work_id, user.id, 'paused');
+                await repo.saveReadStatus(target.work_id, 'paused');
               }
             }
             setSelectedIds(new Set());

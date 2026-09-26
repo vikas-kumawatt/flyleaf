@@ -29,6 +29,7 @@ import * as Haptics from 'expo-haptics';
 import { useSession } from '@/lib/session';
 import { useDatabase } from '@/offline/db';
 import { OfflineRepository } from '@/offline/repository';
+import { useOfflineSync } from '@/offline/sync';
 import type { LocalRead } from '@/offline/schema';
 import {
   api,
@@ -53,6 +54,7 @@ export default function ProfileScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { user, signOut } = useSession();
+  const { unsyncedCount, deadLetterCount } = useOfflineSync();
   const { mode, setMode } = useThemeContext();
   const db = useDatabase();
 
@@ -94,8 +96,8 @@ export default function ProfileScreen() {
       }
 
       // 2. Fetch local reads for Currently Reading and Wall
-      if (db) {
-        const repo = new OfflineRepository(db);
+      if (db && user) {
+        const repo = new OfflineRepository(db, user.id);
         const local = await repo.getLocalReads();
         setReads(local);
       }
@@ -174,7 +176,21 @@ export default function ProfileScreen() {
               size="sm"
               onPress={() => {
                 void Haptics.selectionAsync();
-                signOut();
+                const waiting = unsyncedCount + deadLetterCount;
+                if (waiting === 0) {
+                  void signOut();
+                  return;
+                }
+                // Queued writes are kept for this account and sent when it signs
+                // in again on this phone; they never replay for anyone else (A-07-002).
+                Alert.alert(
+                  'Some updates have not synced',
+                  `${waiting} ${waiting === 1 ? 'update is' : 'updates are'} still on this phone. They will be sent next time you sign in here.`,
+                  [
+                    { text: 'Cancel', style: 'cancel' },
+                    { text: 'Sign out', style: 'destructive', onPress: () => void signOut() },
+                  ],
+                );
               }}
             />
           )}

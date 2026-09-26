@@ -247,6 +247,42 @@ export class IdentityService {
     this.activityService = new ActivityService(db);
   }
 
+  /**
+   * Live availability for the signup username field (PRD §6.7). Public: it
+   * reveals nothing register's 409 username_taken does not. A taken name
+   * comes with up to three free alternatives ("Taken → suggest three").
+   */
+  async usernameAvailability(raw: string): Promise<{
+    username: string;
+    available: boolean;
+    reason?: 'invalid' | 'reserved' | 'taken';
+    suggestions?: string[];
+  }> {
+    const username = raw.trim().toLowerCase();
+    if (!/^[a-z0-9_]{3,20}$/.test(username)) return { username, available: false, reason: 'invalid' };
+    if (RESERVED_USERNAMES.has(username)) return { username, available: false, reason: 'reserved' };
+
+    const base = username.slice(0, 14);
+    const year = new Date().getUTCFullYear() % 100;
+    const candidates = [username, `${base}_reads`, `${base}_books`, `${base}${year}`, `the_${base}`, `${base}_${year}`, `${base}_page`]
+      .filter((c, i, all) => c.length <= 20 && all.indexOf(c) === i && !RESERVED_USERNAMES.has(c));
+    const taken = new Set(
+      (
+        await this.db
+          .select({ username: profiles.username })
+          .from(profiles)
+          .where(inArray(profiles.username, candidates))
+      ).map((r) => r.username),
+    );
+    if (!taken.has(username)) return { username, available: true };
+    return {
+      username,
+      available: false,
+      reason: 'taken',
+      suggestions: candidates.filter((c) => c !== username && !taken.has(c)).slice(0, 3),
+    };
+  }
+
   async register(email: string, username: string, password: string, dateOfBirth: string, device?: string) {
     const passwordHash = await argonHash(normalisePassword(password));
     const familyId = randomUUID();
@@ -916,6 +952,8 @@ import {
   logoutResponseSchema,
   verifyEmailBodySchema,
   verifyEmailResponseSchema,
+  usernameAvailableQuerySchema,
+  usernameAvailableResponseSchema,
   resendVerificationResponseSchema,
   forgotPasswordBodySchema,
   forgotPasswordResponseSchema,
@@ -1028,6 +1066,30 @@ export function identityRoutes(service: IdentityService) {
         const parsed = refreshBody.safeParse(req.body);
         if (!parsed.success) return { status: 'ok' };
         return service.logout(parsed.data.refreshToken);
+      },
+    );
+
+    app.get<{ Querystring: { username?: string } }>(
+      '/auth/username-available',
+      {
+        schema: {
+          tags: ['Auth'],
+          summary: 'Check username availability',
+          description:
+            'Live check for the signup username field (PRD §6.7). Invalid, reserved and taken names return 200 with available=false and a reason; a taken name comes with up to three free suggestions.',
+          querystring: usernameAvailableQuerySchema,
+          response: {
+            200: usernameAvailableResponseSchema,
+            422: errorResponseSchema,
+          },
+        },
+      },
+      async (req) => {
+        const username = req.query.username;
+        if (typeof username !== 'string' || username.length === 0 || username.length > 64) {
+          throw ApiError.unprocessable('invalid_field', 'Send a username to check.', 'username');
+        }
+        return service.usernameAvailability(username);
       },
     );
 

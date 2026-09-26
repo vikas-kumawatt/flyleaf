@@ -97,6 +97,7 @@ describe('Guest Mode Local Want-to-Read & Migration (SL-32, SL-33)', () => {
     const manager = new GuestManager();
     const calls: { workId: string; status: string }[] = [];
     const mockApi = {
+      reads: async () => [],
       setStatus: async (workId: string, status: string) => {
         calls.push({ workId, status });
         return { success: true };
@@ -134,6 +135,7 @@ describe('Guest Mode Local Want-to-Read & Migration (SL-32, SL-33)', () => {
     const manager = new GuestManager();
     const calls: any[] = [];
     const mockApi = {
+      reads: async () => [],
       setStatus: async (workId: string, status: string) => {
         calls.push({ workId, status });
       },
@@ -143,5 +145,87 @@ describe('Guest Mode Local Want-to-Read & Migration (SL-32, SL-33)', () => {
     const result = await manager.migrateToServer(mockApi);
     assert.equal(result.count, 1);
     assert.equal(result.message, "We've kept the 1 book you saved.");
+  });
+
+  // Audit 07 (A-07-012)
+  describe('migration edge cases', () => {
+    const httpError = (status: number) => Object.assign(new Error(`HTTP ${status}`), { status });
+
+    async function shelfOf(...ids: string[]) {
+      const manager = new GuestManager();
+      for (const id of ids) await manager.addBook({ id, title: id, author_name: 'A' });
+      return manager;
+    }
+
+    test('a book already in the library is left alone: no status change, still counted as kept', async () => {
+      const manager = await shelfOf('reading-now', 'new-one');
+      const calls: string[] = [];
+      const result = await manager.migrateToServer({
+        reads: async () => [{ work_id: 'reading-now' }],
+        setStatus: async (workId) => {
+          calls.push(workId);
+        },
+      });
+      assert.deepEqual(calls, ['new-one']);
+      assert.equal(result.count, 2);
+      assert.equal(manager.getCount(), 0);
+    });
+
+    test('a network or server failure keeps the book for the next sign-in and is not counted', async () => {
+      const manager = await shelfOf('ok', 'flaky', 'down');
+      const result = await manager.migrateToServer({
+        reads: async () => [],
+        setStatus: async (workId) => {
+          if (workId === 'flaky') throw new TypeError('Network request failed');
+          if (workId === 'down') throw httpError(503);
+        },
+      });
+      assert.equal(result.count, 1);
+      assert.equal(result.message, "We've kept the 1 book you saved.");
+      assert.deepEqual(manager.getBooks().map((b) => b.id).sort(), ['down', 'flaky']);
+    });
+
+    test('a work the server refuses (404, 422) is dropped, not retried forever, and not counted', async () => {
+      const manager = await shelfOf('gone', 'bad');
+      const result = await manager.migrateToServer({
+        reads: async () => [],
+        setStatus: async (workId) => {
+          throw httpError(workId === 'gone' ? 404 : 422);
+        },
+      });
+      assert.equal(result.count, 0);
+      assert.equal(result.message, null);
+      assert.equal(manager.getCount(), 0);
+    });
+
+    test('when the library cannot be read, nothing is sent and nothing is removed', async () => {
+      const manager = await shelfOf('a', 'b');
+      let sent = 0;
+      const result = await manager.migrateToServer({
+        reads: async () => {
+          throw new TypeError('Network request failed');
+        },
+        setStatus: async () => {
+          sent++;
+        },
+      });
+      assert.equal(sent, 0);
+      assert.equal(result.count, 0);
+      assert.equal(manager.getCount(), 2);
+    });
+
+    test('boot and sign-in migrating at once send each book once', async () => {
+      const manager = await shelfOf('x', 'y');
+      const calls: string[] = [];
+      const api = {
+        reads: async () => [],
+        setStatus: async (workId: string) => {
+          await new Promise((r) => setTimeout(r, 5));
+          calls.push(workId);
+        },
+      };
+      await Promise.all([manager.migrateToServer(api), manager.migrateToServer(api)]);
+      assert.deepEqual(calls.sort(), ['x', 'y']);
+    });
   });
 });
