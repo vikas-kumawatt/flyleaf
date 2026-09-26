@@ -1,6 +1,7 @@
 // Unsynced / Offline Indicator (SL-14, PRD §35.1, design.md §5).
 //
-// Appears at the top of screens when updates are pending sync or in dead-letter state.
+// Appears at the top of screens when updates are pending sync or in dead-letter
+// state, and whenever the phone is offline (D-07-2).
 // Literary, restrained, non-blocking. Never an alarming red banner.
 
 import React from 'react';
@@ -14,15 +15,20 @@ import { space, radius, useTheme } from './tokens';
 export function SyncIndicator() {
   const c = useTheme();
   const router = useRouter();
-  const { unsyncedCount, deadLetterCount, isSyncing, syncNow } = useOfflineSync();
+  const { unsyncedCount, deadLetterCount, isSyncing, isOnline, syncNow } = useOfflineSync();
 
-  if (unsyncedCount === 0 && deadLetterCount === 0) {
+  if (isOnline && unsyncedCount === 0 && deadLetterCount === 0) {
     return null;
   }
 
+  const updates = (n: number) => `${n} ${n === 1 ? 'update' : 'updates'}`;
   const label = deadLetterCount > 0
-    ? `${deadLetterCount} ${deadLetterCount === 1 ? 'update' : 'updates'} could not sync`
-    : `${unsyncedCount} ${unsyncedCount === 1 ? 'update' : 'updates'} will sync`;
+    ? `${updates(deadLetterCount)} could not sync`
+    : !isOnline
+      ? unsyncedCount > 0
+        ? `Offline · ${updates(unsyncedCount)} will sync when you reconnect`
+        : "Offline · changes will sync when you're back"
+      : `${updates(unsyncedCount)} will sync`;
 
   return (
     <View style={[styles.container, { backgroundColor: c.surface2, borderColor: c.line }]}>
@@ -37,7 +43,7 @@ export function SyncIndicator() {
         <View
           style={[
             styles.dot,
-            { backgroundColor: deadLetterCount > 0 ? c.critical : c.accent },
+            { backgroundColor: deadLetterCount > 0 ? c.critical : isOnline ? c.accent : c.muted },
           ]}
         />
         <Txt variant="caption" color="ink2">
@@ -46,22 +52,25 @@ export function SyncIndicator() {
         {deadLetterCount > 0 ? <Ionicons name="chevron-forward" size={14} color={c.muted} /> : null}
       </Pressable>
 
-      <Pressable
-        onPress={syncNow}
-        disabled={isSyncing}
-        accessibilityRole="button"
-        accessibilityLabel="Sync pending updates"
-        style={styles.actionButton}
-      >
-        <Ionicons
-          name={isSyncing ? 'refresh' : 'cloud-upload-outline'}
-          size={16}
-          color={c.accent}
-        />
-        <Txt variant="caption" color="accent" style={{ fontWeight: '600' }}>
-          {isSyncing ? 'Syncing…' : 'Sync now'}
-        </Txt>
-      </Pressable>
+      {/* Offline there is nowhere to send it. */}
+      {isOnline ? (
+        <Pressable
+          onPress={syncNow}
+          disabled={isSyncing}
+          accessibilityRole="button"
+          accessibilityLabel="Sync pending updates"
+          style={styles.actionButton}
+        >
+          <Ionicons
+            name={isSyncing ? 'refresh' : 'cloud-upload-outline'}
+            size={16}
+            color={c.accent}
+          />
+          <Txt variant="caption" color="accent" style={{ fontWeight: '600' }}>
+            {isSyncing ? 'Syncing…' : 'Sync now'}
+          </Txt>
+        </Pressable>
+      ) : null}
     </View>
   );
 }

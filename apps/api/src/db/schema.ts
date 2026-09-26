@@ -325,6 +325,8 @@ export const users = pgTable('users', {
   emailVerifiedAt: timestamp('email_verified_at', { withTimezone: true }),
   passwordHash: text('password_hash').notNull(),
   dateOfBirth: date('date_of_birth').notNull(),
+  // False: the date of birth was never entered (0025, D-07-3); most restricted until confirmed.
+  dobConfirmed: boolean('dob_confirmed').notNull().default(true),
   role: text('role').notNull().default('user'),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   deletedAt: timestamp('deleted_at', { withTimezone: true }),

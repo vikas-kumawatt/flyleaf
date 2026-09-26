@@ -73,3 +73,13 @@ Bench scenarios: `GET /v1/reads?status=reading` for a heavy reader (hundreds of 
 ## Deliverables
 
 `docs/audit/findings/08-catalog-reading.md`, the status-transition matrix test, fixes, the manual device checklist additions, and audit lines under each task.
+
+## Also routed here (added 26 Sep, after Parts 03b and 07)
+
+- **`reads.work_id` has no general index** (Part 03b). The dedupe impact calculation, the merge, and the stage-3 probe set all scan `reads` because of it, and Part 03c's full-catalog dry run depends on this fix. Add it as part of the L-01 rewrite, created **concurrently** so it's safe on the full database (the LA-05 lesson from 0019). Check whether an existing composite index already covers `work_id` as its leading column before adding one. Record EXPLAIN before and after for a work's reads and for the merge.
+- **From Part 07** (`findings/07-mobile-foundation.md`):
+  - `POST /reads` ignores merged works. Solve it together with D3 above: one resolution path for reads and writes.
+  - The author and series screens show made-up data. Wire them to the real endpoints, and add empty, loading and error states.
+  - Some work-page writes skip the offline queue. Route them through it, the same way Part 07/07b did for the others (per-user, coalescing, idempotent replay).
+  - The server ignores `review` sent with a finish. Either store it (in the same transaction as the finish) or reject it explicitly. Don't drop it silently. The mobile finish flow was fixed in Part 07 to stop losing the text, so check the two agree.
+- **Migrations touch both databases.** The user-level `DATABASE_URL` points at `flyleaf_dev`, so a bare `npm run migrate` only reaches that database. Apply every new migration to `flyleaf` explicitly as well. Any backfill over `works` (3.2M rows) or `reads` must run in batches, not as one UPDATE.

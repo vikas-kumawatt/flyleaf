@@ -417,12 +417,13 @@ export class CatalogService {
    * PRD §7.8 [LOCKED]: explicit works reach search only for an 18+ account
    * that turned the setting on. A guest never qualifies (§4.2). The age is
    * checked here as well as when the setting is changed, so a stale or
-   * hand-edited flag cannot expose them to a minor.
+   * hand-edited flag cannot expose them to a minor. A date of birth the user
+   * never entered (dob_confirmed false, D-07-3) counts as a minor's.
    */
   async #allowsExplicit(viewer: string | null): Promise<boolean> {
     if (!viewer) return false;
     const [row] = await this.db.execute<{ ok: boolean }>(sql`
-      SELECT p.show_explicit AND u.date_of_birth <= (current_date - interval '18 years')::date AS ok
+      SELECT p.show_explicit AND u.dob_confirmed AND u.date_of_birth <= (current_date - interval '18 years')::date AS ok
       FROM users u JOIN profiles p ON p.user_id = u.id
       WHERE u.id = ${viewer} AND u.deleted_at IS NULL`);
     return row?.ok === true;

@@ -36,6 +36,12 @@ function recordingHandler(log: string[], delayMs = 0): MutationHandler {
     saveReview: async (readId, payload) => {
       log.push(`review:${readId}:${payload.body}`);
     },
+    setLiked: async (readId, liked) => {
+      log.push(`like:${readId}:${liked}`);
+    },
+    setFollowing: async (userId, following) => {
+      log.push(`follow:${userId}:${following}`);
+    },
   };
 }
 

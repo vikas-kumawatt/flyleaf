@@ -147,6 +147,8 @@ const registerBody = z.object({
   dateOfBirth: dobSchema,
 });
 
+const confirmDobBody = z.object({ dateOfBirth: dobSchema });
+
 const loginBody = z.object({
   email: z.string(),
   password: z.string(),
@@ -232,7 +234,7 @@ export function uniqueViolationField(err: unknown): 'email' | 'username' | 'othe
 
 // ---------------------------------------------------------------- service
 
-export type User = { id: string; email: string; username: string; emailVerified?: boolean };
+export type User = { id: string; email: string; username: string; emailVerified?: boolean; dobConfirmed?: boolean };
 
 import { ActivityService } from '../activity/index.js';
 
@@ -508,12 +510,34 @@ export class IdentityService {
         email: users.email,
         username: profiles.username,
         emailVerified: sql<boolean>`${users.emailVerifiedAt} IS NOT NULL`,
+        dobConfirmed: users.dobConfirmed,
       })
       .from(users)
       .innerJoin(profiles, eq(users.id, profiles.userId))
       .where(eq(users.id, id))
       .limit(1);
     return row ? { ...row, emailVerified: Boolean(row.emailVerified) } : null;
+  }
+
+  /**
+   * Records the date of birth of an account whose stored one was never entered
+   * (dob_confirmed false, D-07-3). Validated like signup by the route. Once:
+   * a confirmed date is not editable here, or anyone could rewrite their age.
+   */
+  async confirmDateOfBirth(userId: string, dateOfBirth: string): Promise<User> {
+    const updated = await this.db
+      .update(users)
+      .set({ dateOfBirth, dobConfirmed: true })
+      .where(and(eq(users.id, userId), eq(users.dobConfirmed, false), isNull(users.deletedAt)))
+      .returning({ id: users.id });
+    if (updated.length === 0) {
+      const current = await this.get(userId);
+      if (!current) throw ApiError.notFound('No such account.');
+      throw ApiError.conflict('dob_already_confirmed', 'Your date of birth is already confirmed.');
+    }
+    const user = await this.get(userId);
+    if (!user) throw ApiError.notFound('No such account.');
+    return user;
   }
 
   /**
@@ -962,6 +986,7 @@ import {
   sessionListResponseSchema,
   revokeSessionResponseSchema,
   userSchema,
+  confirmDobBodySchema,
   profileSchema,
   updateProfileBodySchema,
   updateProfileResponseSchema,
@@ -1275,6 +1300,36 @@ export function identityRoutes(service: IdentityService) {
         const user = await service.get(viewer);
         if (!user) throw ApiError.notFound('No such account.');
         return user;
+      },
+    );
+
+    app.post(
+      '/me/date-of-birth',
+      {
+        schema: {
+          tags: ['Auth'],
+          summary: 'Confirm date of birth',
+          description:
+            'For an account whose date of birth was never entered (GET /me dobConfirmed false, D-07-3). Same rules as signup (PRD §26.6). Until it is confirmed the account is treated as a minor for maturity rules (PRD §7.8). Allowed once: 409 dob_already_confirmed afterwards.',
+          security: [{ BearerAuth: [] }],
+          body: confirmDobBodySchema,
+          response: {
+            200: userSchema,
+            401: errorResponseSchema,
+            404: errorResponseSchema,
+            409: errorResponseSchema,
+            422: errorResponseSchema,
+          },
+        },
+      },
+      async (req) => {
+        const viewer = requireViewer(req);
+        const parsed = confirmDobBody.safeParse(req.body);
+        if (!parsed.success) {
+          const issue = parsed.error.issues[0];
+          throw ApiError.unprocessable('invalid_field', issue?.message ?? 'Check that.', 'dateOfBirth');
+        }
+        return service.confirmDateOfBirth(viewer, parsed.data.dateOfBirth);
       },
     );
 

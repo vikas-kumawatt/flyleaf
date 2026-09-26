@@ -89,18 +89,26 @@ describe('API Contract — openapi.yaml (FN-80)', () => {
     // share pages (Audit 05), and the admin console's pages and form posts
     // (Audit 06): they render HTML or redirect, and left in the spec they took
     // the path keys of the REST /v1/admin/audit-log and /v1/admin/merges, whose
-    // schemas then went missing (A-06-019). Listed by name so a JSON route
-    // hidden by mistake still fails here.
+    // schemas then went missing (A-06-019). The emailed-link pages and the two
+    // /.well-known files (Audit 07b, D-07-1): JSON, but in formats Android and
+    // Apple define, not API. Listed by name so a JSON route hidden by mistake
+    // still fails here.
     expect([...hidden].sort()).toEqual([
+      'get /.well-known/apple-app-site-association',
+      'get /.well-known/assetlinks.json',
       'get /admin/audit-log',
       'get /admin/catalog/maturity',
       'get /admin/ingest',
       'get /admin/login',
       'get /admin/merges',
+      'get /reset-password',
       'get /shelf/{id}',
       'get /u/{username}/shelves/{slug}',
+      'get /verify-email',
       'post /admin/login',
       'post /admin/logout',
+      'post /reset-password',
+      'post /verify-email',
     ]);
   });
 

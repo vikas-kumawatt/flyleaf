@@ -47,15 +47,20 @@ export interface LocalProgressEvent {
   synced: number; // 1 = clean, 0 = pending sync
 }
 
-export type MutationAction = 'add_progress' | 'upsert_read' | 'finish_read' | 'dnf_read' | 'save_review';
+export type MutationAction =
+  | 'add_progress' | 'upsert_read' | 'finish_read' | 'dnf_read' | 'save_review'
+  // Desired-state social writes (D-07-2): the payload says liked/following
+  // true or false, never "toggle", so a replay cannot flip the result.
+  | 'set_like' | 'set_follow';
+/** 'processing' only while a flush is sending the row; a flush left over from a killed process is reset at the next flush. */
 export type MutationStatus = 'pending' | 'processing' | 'dead_letter';
 
 export interface QueuedMutation {
   id: string;
   /** Whose write this is: only replayed under that user's session (migration 2). */
   user_id: string | null;
-  entity_type: 'read' | 'progress_event' | 'review';
-  /** The read the mutation is about, so a read's writes replay in order. */
+  entity_type: 'read' | 'progress_event' | 'review' | 'like' | 'follow';
+  /** The read (or, for a follow, the user) the mutation is about, so its writes replay in order. */
   entity_id: string;
   action: MutationAction;
   payload: string; // JSON

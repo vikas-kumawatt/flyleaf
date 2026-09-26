@@ -349,6 +349,7 @@ export const api = {
   },
 
   me: () => client.getMe(),
+  confirmDateOfBirth: (dateOfBirth: string) => client.confirmDateOfBirth(dateOfBirth),
   myProfile: () => client.getMyProfile(),
   updateProfile: (data: UpdateProfileRequest) => client.updateProfile(data),
   userProfile: (userId: string) => client.getUserProfile(userId),

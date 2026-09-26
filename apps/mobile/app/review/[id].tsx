@@ -24,6 +24,7 @@ import * as Haptics from 'expo-haptics';
 import { api, type Review } from '@/lib/api';
 import { useSession } from '@/lib/session';
 import { useActionGate } from '@/ui/ActionGate';
+import { useOfflineSync } from '@/offline/sync';
 import { Button, Card, Cover, Screen, Stars, Txt, sheet } from '@/ui/components';
 import { radius, space, useTheme } from '@/ui/tokens';
 
@@ -33,6 +34,7 @@ export default function ReviewDetailScreen() {
   const insets = useSafeAreaInsets();
   const { user } = useSession();
   const { promptAuth } = useActionGate();
+  const { setLiked: setQueuedLike } = useOfflineSync();
   const { id } = useLocalSearchParams<{ id: string }>();
 
   const [review, setReview] = useState<Review | null>(null);
@@ -90,9 +92,8 @@ export default function ReviewDetailScreen() {
     setLikeCount(nextCount);
 
     try {
-      const res = await api.client.setLiked(review.read_id, nextLiked);
-      setLiked(res.liked);
-      setLikeCount(res.like_count);
+      // Queued (D-07-2): the optimistic state stands; a refusal shows on Couldn't sync.
+      await setQueuedLike(review.read_id, nextLiked);
     } catch {
       // Revert on failure
       setLiked(!nextLiked);

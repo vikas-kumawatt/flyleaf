@@ -17,6 +17,8 @@ import * as Haptics from 'expo-haptics';
 import { api, FlyleafApiError, type FollowUserListItem } from '@/lib/api';
 import { useSession } from '@/lib/session';
 import { useActionGate } from '@/ui/ActionGate';
+import { useOfflineSync } from '@/offline/sync';
+import { useVerifyEmailPrompt } from '@/ui/VerifyEmail';
 import {
   Button,
   Card,
@@ -34,6 +36,8 @@ export default function FollowingScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const { user } = useSession();
   const { promptAuth } = useActionGate();
+  const { setFollowing } = useOfflineSync();
+  const { prompt: promptVerify } = useVerifyEmailPrompt();
 
   const [users, setUsers] = useState<FollowUserListItem[]>([]);
   const [total, setTotal] = useState(0);
@@ -75,17 +79,24 @@ export default function FollowingScreen() {
       promptAuth({ title: `Sign up to follow @${targetUser.username}` });
       return;
     }
+    // The server refuses follows until the email is verified (D-04-1): say so
+    // now rather than queue a write that can only fail (D-07-2).
+    if (user.emailVerified === false) {
+      promptVerify();
+      return;
+    }
     try {
       setProcessingId(targetUser.id);
       void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
 
+      // Queued (D-07-2): sent now if online, after reconnect otherwise.
       if (targetUser.followedByViewer) {
-        await api.unfollowUser(targetUser.id);
+        await setFollowing(targetUser.id, false);
         setUsers((prev) =>
           prev.map((u) => (u.id === targetUser.id ? { ...u, followedByViewer: false } : u)),
         );
       } else {
-        await api.followUser(targetUser.id);
+        await setFollowing(targetUser.id, true);
         setUsers((prev) =>
           prev.map((u) => (u.id === targetUser.id ? { ...u, followedByViewer: true } : u)),
         );

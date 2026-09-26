@@ -13,9 +13,10 @@ import cors from '@fastify/cors';
 import { sql } from 'drizzle-orm';
 
 import { ADMIN_SESSION_COOKIE, ApiError, sendError, type AdminViewer } from './http.js';
-import { config, type Db } from './platform/index.js';
+import { config, type AppLinks, type Db } from './platform/index.js';
 import { waitForDb } from './platform/index.js';
 import { type IdentityService, identityRoutes } from './identity/index.js';
+import { identityLinkPages } from './identity/link-pages.js';
 import { type CatalogService, catalogRoutes } from './catalog/index.js';
 import { type ReadingService, readingRoutes } from './reading/index.js';
 import { reviewsPlugin, type ReviewService } from './reviews/index.js';
@@ -329,6 +330,8 @@ export interface BuildAppOptions {
    * exactly what this app serves. Used by contract/generate.ts (Audit 05).
    */
   spec?: boolean;
+  /** What /.well-known serves for App Links (D-07-1). Default: from the environment. */
+  appLinks?: AppLinks;
 }
 
 /**
@@ -410,6 +413,8 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
   // Domain routes
   if (options.identity) {
     await app.register(identityRoutes(options.identity), { prefix: '/v1' });
+    // The emailed links and /.well-known, at the root like the shelf share pages.
+    await app.register(identityLinkPages(options.identity, options.appLinks ?? config.appLinks));
   }
   if (options.catalog) {
     await app.register(catalogRoutes(options.catalog), { prefix: '/v1' });

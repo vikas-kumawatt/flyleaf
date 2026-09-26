@@ -11,11 +11,23 @@
       "permissions": [
         "android.permission.CAMERA",
         "android.permission.RECORD_AUDIO"
+      ],
+      "intentFilters": [
+        {
+          "action": "VIEW",
+          "autoVerify": true,
+          "data": [
+            { "scheme": "https", "host": "flyleaf.app", "path": "/verify-email" },
+            { "scheme": "https", "host": "flyleaf.app", "path": "/reset-password" }
+          ],
+          "category": ["BROWSABLE", "DEFAULT"]
+        }
       ]
     },
     "ios": {
       "bundleIdentifier": "app.flyleaf.skeleton",
-      "supportsTablet": false
+      "supportsTablet": false,
+      "associatedDomains": ["applinks:flyleaf.app"]
     },
     "plugins": [
       "expo-dev-client",

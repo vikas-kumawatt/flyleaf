@@ -8,9 +8,15 @@ import { countQuery, queryCountingEnabled } from '../bench/query-counter.js';
 
 const DEV_JWT_SECRET = 'flyleaf-dev-secret-do-not-use-in-production-must-be-at-least-32-chars!';
 
+/**
+ * Where the emailed links point in production. The mobile app's App Links
+ * (apps/mobile/app.json) name the same host at build time (D-07b-2).
+ */
+export const PRODUCTION_APP_BASE_URL = 'https://flyleaf.app';
+
 const APP_BASE_URL = (
   process.env.APP_BASE_URL ??
-  (process.env.NODE_ENV === 'production' ? 'https://flyleaf.app' : 'http://localhost:8081')
+  (process.env.NODE_ENV === 'production' ? PRODUCTION_APP_BASE_URL : 'http://localhost:8081')
 ).replace(/\/+$/, '');
 
 export const config = {
@@ -25,7 +31,47 @@ export const config = {
   // Base of the links in verification and reset emails.
   appBaseUrl: APP_BASE_URL,
   corsOrigins: parseCorsOrigins(process.env.CORS_ORIGINS, APP_BASE_URL),
+  appLinks: parseAppLinks(process.env),
 } as const;
+
+/** What /.well-known serves so the emailed links open the app (D-07-1). Null: that file 404s. */
+export interface AppLinks {
+  android: { packageName: string; sha256Fingerprints: string[] } | null;
+  ios: { appId: string } | null;
+}
+
+/**
+ * ANDROID_APP_PACKAGE + ANDROID_CERT_SHA256 (comma-separated, the signing
+ * certificates' SHA-256 as `AA:BB:…`), and IOS_TEAM_ID + IOS_BUNDLE_ID. Each
+ * platform is on only when both of its values are set. A malformed value stops
+ * the process: a wrong fingerprint would silently fail verification on phones.
+ */
+export function parseAppLinks(env: Record<string, string | undefined>): AppLinks {
+  const pkg = env.ANDROID_APP_PACKAGE?.trim();
+  const certs = env.ANDROID_CERT_SHA256?.split(',').map((c) => c.trim().toUpperCase()).filter(Boolean) ?? [];
+  const team = env.IOS_TEAM_ID?.trim();
+  const bundle = env.IOS_BUNDLE_ID?.trim();
+  const bundleId = /^[A-Za-z][A-Za-z0-9_]*(\.[A-Za-z0-9_-]+)+$/;
+
+  let android: AppLinks['android'] = null;
+  if (pkg && certs.length > 0) {
+    if (!bundleId.test(pkg)) throw new Error(`ANDROID_APP_PACKAGE is not a package name: ${pkg}`);
+    for (const c of certs) {
+      if (!/^([0-9A-F]{2}:){31}[0-9A-F]{2}$/.test(c)) {
+        throw new Error(`ANDROID_CERT_SHA256 must be colon-separated SHA-256 fingerprints (AA:BB:…, 32 bytes): ${c}`);
+      }
+    }
+    android = { packageName: pkg, sha256Fingerprints: certs };
+  }
+
+  let ios: AppLinks['ios'] = null;
+  if (team && bundle) {
+    if (!/^[A-Z0-9]{10}$/.test(team)) throw new Error(`IOS_TEAM_ID must be 10 letters or digits: ${team}`);
+    if (!bundleId.test(bundle)) throw new Error(`IOS_BUNDLE_ID is not a bundle identifier: ${bundle}`);
+    ios = { appId: `${team}.${bundle}` };
+  }
+  return { android, ios };
+}
 
 /**
  * Browser origins allowed to call the API cross-origin, from CORS_ORIGINS

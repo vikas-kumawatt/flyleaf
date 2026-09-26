@@ -16,6 +16,7 @@ import { SyncProvider } from '@/offline/sync';
 import { SyncIndicator } from '@/ui/SyncIndicator';
 import { ActionGateProvider } from '@/ui/ActionGate';
 import { VerifyEmailBanner, VerifyEmailProvider } from '@/ui/VerifyEmail';
+import { ConfirmDobPrompt } from '@/ui/ConfirmDob';
 import { ThemeProvider, useTheme, useThemeContext } from '@/ui/tokens';
 import { ErrorBoundary } from '@/ui/ErrorBoundary';
 import { initTelemetry } from '@/lib/events';
@@ -120,6 +121,7 @@ export default function RootLayout() {
                 <ActionGateProvider>
                   <VerifyEmailProvider>
                     <Nav />
+                    <ConfirmDobPrompt />
                   </VerifyEmailProvider>
                 </ActionGateProvider>
               </SyncProvider>

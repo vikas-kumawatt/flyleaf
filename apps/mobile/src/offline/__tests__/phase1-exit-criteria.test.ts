@@ -75,6 +75,8 @@ describe('Phase 1 Exit Criteria Verification', () => {
         syncdMutations.push({ type: 'review', readId, payload });
         return { id: `rev-${readId}`, read_id: readId, ...payload };
       },
+      setLiked: async () => ({}),
+      setFollowing: async () => ({}),
     };
 
     const repo = new OfflineRepository(db, userId, mockHandler);
@@ -282,6 +284,8 @@ describe('Phase 1 Exit Criteria Verification', () => {
       },
       dnfRead: async () => ({ success: true }),
       saveReview: async () => ({ success: true }),
+      setLiked: async () => ({}),
+      setFollowing: async () => ({}),
     };
 
     // 1. Start repository in offline state

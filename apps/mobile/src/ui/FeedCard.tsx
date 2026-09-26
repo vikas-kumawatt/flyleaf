@@ -24,8 +24,8 @@ import {
   getCardInteraction,
 } from '../lib/feedCard';
 import { nextLikeState } from '../lib/comments';
-import { api } from '../lib/api';
 import { useSession } from '../lib/session';
+import { useOfflineSync } from '../offline/sync';
 import { useActionGate } from './ActionGate';
 
 export interface FeedCardProps {
@@ -52,6 +52,7 @@ export function FeedCard({
   const router = useRouter();
   const { user } = useSession();
   const { promptAuth } = useActionGate();
+  const { setLiked } = useOfflineSync();
   const [showSpoilers, setShowSpoilers] = useState(false);
   const interaction = getCardInteraction(item);
   const [likeState, setLikeState] = useState({
@@ -86,11 +87,10 @@ export function FeedCard({
       onLike(readId, next.liked);
       return;
     }
+    // Queued (D-07-2): sent now if online, after reconnect otherwise. Only a
+    // failure to queue it at all reverts the heart.
     const previous = likeState;
-    api.client
-      .setLiked(readId, next.liked)
-      .then((res) => setLikeState({ liked: res.liked, count: res.like_count }))
-      .catch(() => setLikeState(previous));
+    setLiked(readId, next.liked).catch(() => setLikeState(previous));
   };
 
   const handleCommentPress = () => {

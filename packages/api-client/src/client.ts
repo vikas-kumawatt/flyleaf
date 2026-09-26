@@ -291,6 +291,14 @@ export class FlyleafClient {
     });
   }
 
+  /** Once, while GET /me says dobConfirmed false. Same rules as signup; 409 dob_already_confirmed after. */
+  async confirmDateOfBirth(dateOfBirth: string): Promise<User> {
+    return this.request<User>('/me/date-of-birth', {
+      method: 'POST',
+      body: JSON.stringify({ dateOfBirth }),
+    });
+  }
+
   async getUserProfile(userId: string): Promise<Profile> {
     return this.request<Profile>(`/users/${encodeURIComponent(userId)}`, {
       method: 'GET',

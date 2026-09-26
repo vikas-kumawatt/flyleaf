@@ -452,6 +452,32 @@ Open the **Flyleaf** app on your phone (not Expo Go) and it connects to Metro. R
 
 If the phone loads the bundle but every request fails, allow **port 3000** through Windows Firewall for private networks.
 
+#### Native changes waiting for a rebuild (audit Part 07b)
+
+These change the native app, so a JavaScript reload does not pick them up:
+
+| Change | Why |
+|---|---|
+| `@react-native-community/netinfo` 12.0.1 (new) | Flush the offline queue the moment the connection returns, and show "Offline" (D-07-2) |
+| `expo` 57.0.23 → 57.0.25 | SDK 57 patch release (A-07-022) |
+| `expo-updates` 57.0.22 → 57.0.23 | patch (A-07-022) |
+| `expo-constants` 57.0.18 → 57.0.19 | patch (A-07-022) |
+| `expo-router` 57.0.21 → 57.0.23 | patch (A-07-022) |
+| `expo-linking` 57.0.10 → 57.0.11 | patch (A-07-022) |
+| `@expo/metro-runtime` 57.0.15 → 57.0.16 | patch (A-07-022) |
+| `app.json` › `android.intentFilters`: `https://flyleaf.app/verify-email` and `/reset-password`, `autoVerify` | Android App Links: the emailed links open the app (D-07-1) |
+| `app.json` › `ios.associatedDomains`: `applinks:flyleaf.app` | iOS Universal Links, same links (not built here: Android only) |
+
+The intent filter lives in the generated `android/` folder, so it must be regenerated, not just rebuilt. One command, from `apps\mobile` (PowerShell; it deletes and recreates the generated `android\` folder, re-applies the Gradle timeout fix, then builds and installs):
+
+```powershell
+npx expo prebuild --platform android --clean; if ($?) { ..\..\scripts\fix-gradle.ps1 }; if ($?) { npx expo run:android }
+```
+
+On the cloud path, `npx eas-cli@latest build --profile development --platform android` does the same (EAS runs prebuild itself).
+
+**App Links need the domain.** Android verifies `flyleaf.app` against `https://flyleaf.app/.well-known/assetlinks.json`, which the API serves once `ANDROID_APP_PACKAGE` and `ANDROID_CERT_SHA256` are set (see Endpoints › Email links). Until the domain serves it, the links open the fallback page in the browser, whose **Open in the app** button works everywhere. To try the in-app path on a dev build: Settings → Apps → Flyleaf → Open by default → Add link → `flyleaf.app`, then `adb shell am start -a android.intent.action.VIEW -d "https://flyleaf.app/verify-email?token=<token>"`. The domain in `app.json` is fixed at build time; if production moves, change it there and in `APP_BASE_URL` together.
+
 #### Dependency rule
 
 For anything in `apps/mobile`, use **`npx expo install <pkg>`**, never `npm install <pkg>`. Expo resolves the version its SDK actually bundles; npm resolves whatever is newest, and newest is frequently incompatible. Every version in this `package.json` came from SDK 57's own `bundledNativeModules.json`. Check with `npx expo install --check` and `npx expo-doctor`.
@@ -553,6 +579,7 @@ flyleaf/
 | DELETE | `/auth/sessions/{id}` | no |
 | POST | `/auth/logout-all` | no |
 | GET | `/me` | no |
+| POST | `/me/date-of-birth` | no — once, while `/me` says `dobConfirmed: false` |
 | GET | `/users/{id}` | **yes** |
 | GET | `/search?q=` | **yes** |
 | GET | `/works/{id}` | **yes** |
@@ -582,6 +609,19 @@ flyleaf/
 | DELETE | `/shelves/{id}` | no |
 | GET | `/shelves/{id}/items` | **yes** |
 | POST | `/shelves/{id}/items` | no |
+
+### Email links and App Links (no prefix)
+
+Server-rendered, for the links in verification and reset emails (`APP_BASE_URL/verify-email?token=…`). A GET never spends the token; only the button or form POST does. Each page also offers **Open in the app** (`flyleaf://…`).
+
+| Method | Path | What it is |
+|---|---|---|
+| GET, POST | `/verify-email` | "Verify my email" button; the POST verifies |
+| GET, POST | `/reset-password` | New password form; the POST resets and signs out every device |
+| GET | `/.well-known/assetlinks.json` | Android App Links. 404 unless `ANDROID_APP_PACKAGE` and `ANDROID_CERT_SHA256` (comma-separated `AA:BB:…` SHA-256 of the signing certificates) are set |
+| GET | `/.well-known/apple-app-site-association` | iOS Universal Links. 404 unless `IOS_TEAM_ID` and `IOS_BUNDLE_ID` are set |
+
+A malformed value in any of those four stops the API at start-up. To open the pages from a phone in development, set `APP_BASE_URL=http://<your-LAN-IP>:3000` so the emails link to the API.
 
 ### Admin API (prefixed `/admin`)
 

@@ -580,6 +580,34 @@ describe('follow replay is idempotent', () => {
       SELECT count(*)::int AS n FROM activity WHERE actor_id = ${a.id}::uuid AND verb = 'followed'`);
     expect(n!.n).toBe(1);
   });
+
+  // Audit 07b (D-07-2): the offline queue replays follow and unfollow as desired states.
+  it('a replayed request to a private account stays one pending request', async () => {
+    const a = await makeUser(db, 'replay_requester');
+    const b = await makeUser(db, 'replay_private', { isPrivate: true });
+    for (let i = 0; i < 2; i++) {
+      const res = await app.inject({ method: 'POST', url: `/v1/users/${b.id}/follow`, headers: a.auth });
+      expect(res.statusCode).toBe(200);
+      expect(JSON.parse(res.payload).status).toBe('pending');
+    }
+    const [n] = await db.execute<{ n: number }>(sql`
+      SELECT count(*)::int AS n FROM follows WHERE follower_id = ${a.id}::uuid AND followee_id = ${b.id}::uuid`);
+    expect(n!.n).toBe(1);
+  });
+
+  it('a replayed unfollow is a 200 with nothing left to remove', async () => {
+    const a = await makeUser(db, 'replay_unfollower');
+    const b = await makeUser(db, 'replay_unfollowed');
+    await app.inject({ method: 'POST', url: `/v1/users/${b.id}/follow`, headers: a.auth });
+    for (let i = 0; i < 2; i++) {
+      const res = await app.inject({ method: 'DELETE', url: `/v1/users/${b.id}/follow`, headers: a.auth });
+      expect(res.statusCode).toBe(200);
+      expect(JSON.parse(res.payload).status).toBe('none');
+    }
+    const [n] = await db.execute<{ n: number }>(sql`
+      SELECT count(*)::int AS n FROM follows WHERE follower_id = ${a.id}::uuid AND followee_id = ${b.id}::uuid`);
+    expect(n!.n).toBe(0);
+  });
 });
 
 describe('the feed is served once, under /v1 (lead 4)', () => {

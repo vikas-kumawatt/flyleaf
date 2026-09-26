@@ -39,6 +39,11 @@ export const userSchema = {
       type: 'boolean',
       description: 'On GET /me. False: reviews, comments and follows answer 403 email_unverified (D-04-1).',
     },
+    dobConfirmed: {
+      type: 'boolean',
+      description:
+        'On GET /me. False: the date of birth was never entered; the account is treated as a minor for maturity rules until POST /me/date-of-birth (D-07-3).',
+    },
   },
   required: ['id', 'email', 'username'],
 } as const;
@@ -119,6 +124,13 @@ export const registerBodySchema = {
     },
   },
   required: ['email', 'username', 'password', 'dateOfBirth'],
+} as const;
+
+/** POST /me/date-of-birth: the signup field itself, so both refuse a value the same way (D-07-3). */
+export const confirmDobBodySchema = {
+  type: 'object',
+  properties: { dateOfBirth: registerBodySchema.properties.dateOfBirth },
+  required: ['dateOfBirth'],
 } as const;
 
 export const registerResponseSchema = {

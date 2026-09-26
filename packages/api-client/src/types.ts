@@ -21,6 +21,11 @@ export interface User {
   username: string;
   /** Present on GET /me. False: reviews, comments and follows get 403 email_unverified. */
   emailVerified?: boolean;
+  /**
+   * Present on GET /me. False: the date of birth was never entered (D-07-3);
+   * ask for it with confirmDateOfBirth. Until then the account is treated as a minor.
+   */
+  dobConfirmed?: boolean;
 }
 
 export interface ProfileFavourite {

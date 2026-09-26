@@ -25,6 +25,7 @@ import { api, type Work, type Review } from '@/lib/api';
 import { useSession } from '@/lib/session';
 import { useGuestShelf } from '@/lib/guest';
 import { useActionGate } from '@/ui/ActionGate';
+import { useOfflineSync } from '@/offline/sync';
 import { AddToShelfSheet } from '@/ui/AddToShelfSheet';
 import { budgetTracker } from '@/lib/budgetTracker';
 import {
@@ -56,6 +57,7 @@ export default function WorkScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const { user } = useSession();
   const { promptAuth } = useActionGate();
+  const { setLiked: setQueuedLike } = useOfflineSync();
   const { isSaved, addBook, removeBook } = useGuestShelf();
   const router = useRouter();
   const c = useTheme();
@@ -131,17 +133,21 @@ export default function WorkScreen() {
       return;
     }
     void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    try {
-      const res = await api.client.setLiked(review.read_id, !review.viewer_has_liked);
+    const liked = !review.viewer_has_liked;
+    const apply = (to: boolean) =>
       setReviewsList((prev) =>
         prev.map((r) =>
           r.id === review.id
-            ? { ...r, viewer_has_liked: res.liked, like_count: res.like_count }
+            ? { ...r, viewer_has_liked: to, like_count: Math.max(0, r.like_count + (to ? 1 : -1)) }
             : r,
         ),
       );
+    // Optimistic, then queued (D-07-2); reverted only if it could not be queued.
+    apply(liked);
+    try {
+      await setQueuedLike(review.read_id, liked);
     } catch {
-      // Ignore
+      apply(!liked);
     }
   };
 

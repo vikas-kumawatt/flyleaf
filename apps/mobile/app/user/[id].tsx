@@ -18,6 +18,8 @@ import * as Haptics from 'expo-haptics';
 import { api, FlyleafApiError, type Profile, type ReadingStats } from '@/lib/api';
 import { useSession } from '@/lib/session';
 import { useActionGate } from '@/ui/ActionGate';
+import { useOfflineSync } from '@/offline/sync';
+import { useVerifyEmailPrompt } from '@/ui/VerifyEmail';
 import {
   Button,
   Card,
@@ -36,6 +38,8 @@ export default function UserProfileScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const { user } = useSession();
   const { promptAuth } = useActionGate();
+  const { setFollowing } = useOfflineSync();
+  const { prompt: promptVerify } = useVerifyEmailPrompt();
 
   const [profile, setProfile] = useState<Profile | null>(null);
   const [stats, setStats] = useState<ReadingStats | null>(null);
@@ -83,12 +87,20 @@ export default function UserProfileScreen() {
       });
       return;
     }
+    // The server refuses follows until the email is verified (D-04-1): say so
+    // now rather than queue a write that can only fail (D-07-2).
+    if (user.emailVerified === false) {
+      promptVerify();
+      return;
+    }
     try {
       setSubmittingFollow(true);
       void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
 
+      // Queued (D-07-2): the new state shows at once and is sent now if online,
+      // after reconnect otherwise. A private account gets a request.
       if (profile.followStatus === 'accepted' || profile.followStatus === 'pending') {
-        const res = await api.unfollowUser(id);
+        await setFollowing(id, false);
         setProfile((prev) =>
           prev
             ? {
@@ -102,8 +114,8 @@ export default function UserProfileScreen() {
             : null,
         );
       } else {
-        const res = await api.followUser(id);
-        const newStatus = res.status;
+        await setFollowing(id, true);
+        const newStatus = profile.isPrivate ? 'pending' : 'accepted';
         setProfile((prev) =>
           prev
             ? {

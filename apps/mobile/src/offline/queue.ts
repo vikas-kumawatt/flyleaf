@@ -12,6 +12,10 @@
 //   Dead letters are surfaced on the sync-issues screen with retry and discard.
 // - A read created offline gets a local id; when the server returns the real
 //   one, the local id is remapped everywhere (A-07-005).
+// - Likes and follows are queued as the state the user wants (D-07-2). An
+//   opposite write still waiting for the same target cancels it, so like then
+//   unlike offline sends nothing. A row a flush is already sending is claimed
+//   ('processing') and is never cancelled; the opposite write queues after it.
 
 import type { OfflineDatabase } from './db';
 import type { QueuedMutation, MutationAction } from './schema';
@@ -77,7 +81,19 @@ export interface MutationHandler {
       hearted?: boolean | null;
     },
   ) => Promise<unknown>;
+  /** POST or DELETE /reads/:id/like; both idempotent on the server (SO-21). */
+  setLiked: (readId: string, liked: boolean) => Promise<unknown>;
+  /** POST or DELETE /users/:id/follow; both idempotent on the server (Audit 05). */
+  setFollowing: (userId: string, following: boolean) => Promise<unknown>;
 }
+
+/** The desired-state social writes and the payload field each carries. */
+const DESIRED_STATE = {
+  set_like: { entityType: 'like', field: 'liked' },
+  set_follow: { entityType: 'follow', field: 'following' },
+} as const;
+
+export type DesiredStateAction = keyof typeof DESIRED_STATE;
 
 export const MAX_ATTEMPTS = 5;
 /** How long to wait before trying again while offline or signed out. */
@@ -110,6 +126,8 @@ function queueChanged() {
 
 /** One flush at a time per database, however many queue objects screens create. */
 const flushing = new WeakSet<OfflineDatabase>();
+/** A flush was asked for while one was running: run again when it ends, so a write queued meanwhile does not wait for the timer. */
+const flushAgain = new WeakSet<OfflineDatabase>();
 
 type Outcome = 'ok' | 'next' | 'halt_entity' | 'halt_all';
 
@@ -168,17 +186,68 @@ export class MutationQueue {
   }
 
   /**
+   * Queues the state the user wants for a like or follow (D-07-2), coalescing
+   * with the write still waiting for the same target:
+   *   same state waiting     -> 'unchanged' (nothing new is queued)
+   *   opposite state waiting -> 'cancelled' (both are gone; nothing is sent)
+   *   nothing waiting        -> 'queued'
+   * A row a flush has claimed is being sent and cannot be taken back, so the
+   * new state queues behind it.
+   */
+  async enqueueDesiredState(
+    action: DesiredStateAction,
+    targetId: string,
+    desired: boolean,
+  ): Promise<'queued' | 'cancelled' | 'unchanged'> {
+    const { entityType, field } = DESIRED_STATE[action];
+    const outcome = await this.db.transaction(async (tx) => {
+      const waiting = await tx.getFirst<{ id: string; payload: string }>(
+        `SELECT id, payload FROM mutation_queue
+          WHERE user_id = ? AND action = ? AND entity_id = ? AND status = 'pending'
+          ORDER BY created_at DESC LIMIT 1`,
+        [this.userId, action, targetId],
+      );
+      if (waiting) {
+        if (JSON.parse(waiting.payload)[field] === desired) return 'unchanged' as const;
+        // Conditional: if a flush claimed it since the SELECT, it is being sent.
+        const removed = await tx.run(`DELETE FROM mutation_queue WHERE id = ? AND status = 'pending'`, [waiting.id]);
+        if (removed.rowsAffected === 1) return 'cancelled' as const;
+      }
+      const id = generateUuid();
+      const eventId = generateUuid();
+      const now = new Date().toISOString();
+      await tx.run(
+        `INSERT INTO mutation_queue (
+          id, user_id, entity_type, entity_id, action, payload, client_event_id,
+          attempts, last_error, error_code, status, next_retry_at, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, 0, NULL, NULL, 'pending', ?, ?, ?)`,
+        [id, this.userId, entityType, targetId, action, JSON.stringify({ [field]: desired, client_event_id: eventId }), eventId, now, now, now],
+      );
+      return 'queued' as const;
+    });
+    queueChanged();
+    return outcome;
+  }
+
+  /**
    * Replays this user's eligible mutations, per-entity FIFO.
    */
   async flush(force = false): Promise<{ processed: number; succeeded: number; failed: number }> {
-    if (flushing.has(this.db) || !this.handler) {
+    if (!this.handler) return { processed: 0, succeeded: 0, failed: 0 };
+    if (flushing.has(this.db)) {
+      flushAgain.add(this.db);
       return { processed: 0, succeeded: 0, failed: 0 };
     }
     flushing.add(this.db);
+    flushAgain.delete(this.db);
     let succeeded = 0;
     let failed = 0;
 
     try {
+      // No flush is running (the lock above), so a claimed row is left over
+      // from a process that died while sending it: send it again.
+      await this.db.run(`UPDATE mutation_queue SET status = 'pending' WHERE status = 'processing'`);
+
       const eligible = await this.db.getAll<{ id: string; entity_id: string }>(
         `SELECT id, entity_id FROM mutation_queue
           WHERE user_id = ? AND status = 'pending'
@@ -196,11 +265,15 @@ export class MutationQueue {
 
       entities: for (const ids of byEntity.values()) {
         for (const id of ids) {
-          // Re-read: an earlier mutation may have remapped this row's read id.
-          const m = await this.db.getFirst<QueuedMutation>(
-            `SELECT * FROM mutation_queue WHERE id = ? AND status = 'pending'`,
+          // Claim, so coalescing cannot cancel a row while it is being sent.
+          // Gone (cancelled or discarded since the SELECT): skip it.
+          const claimed = await this.db.run(
+            `UPDATE mutation_queue SET status = 'processing' WHERE id = ? AND status = 'pending'`,
             [id],
           );
+          if (claimed.rowsAffected !== 1) continue;
+          // Re-read: an earlier mutation may have remapped this row's read id.
+          const m = await this.db.getFirst<QueuedMutation>(`SELECT * FROM mutation_queue WHERE id = ?`, [id]);
           if (!m) continue;
           const outcome = await this.processMutation(m);
           if (outcome === 'ok') {
@@ -217,6 +290,10 @@ export class MutationQueue {
     } finally {
       flushing.delete(this.db);
       queueChanged();
+      if (flushAgain.has(this.db)) {
+        flushAgain.delete(this.db);
+        void this.flush();
+      }
     }
   }
 
@@ -260,6 +337,12 @@ export class MutationQueue {
         case 'save_review':
           result = await handler.saveReview(m.entity_id, body);
           break;
+        case 'set_like':
+          result = await handler.setLiked(m.entity_id, payload.liked === true);
+          break;
+        case 'set_follow':
+          result = await handler.setFollowing(m.entity_id, payload.following === true);
+          break;
         default:
           throw new Error(`Unknown queued action: ${String(m.action)}`);
       }
@@ -267,7 +350,7 @@ export class MutationQueue {
       const kind = classifyFailure(err);
       if (kind === 'wait') {
         await this.db.run(
-          `UPDATE mutation_queue SET next_retry_at = ?, updated_at = ? WHERE id = ?`,
+          `UPDATE mutation_queue SET status = 'pending', next_retry_at = ?, updated_at = ? WHERE id = ?`,
           [new Date(Date.now() + WAIT_MS).toISOString(), new Date().toISOString(), m.id],
         );
         // Offline or signed out: every other request would fail the same way.
@@ -321,7 +404,7 @@ export class MutationQueue {
     const delayMs = Math.min(60_000, 1000 * 2 ** (attempts - 1));
     const now = Date.now();
     await this.db.run(
-      `UPDATE mutation_queue SET attempts = ?, last_error = ?, error_code = ?, next_retry_at = ?, updated_at = ? WHERE id = ?`,
+      `UPDATE mutation_queue SET status = 'pending', attempts = ?, last_error = ?, error_code = ?, next_retry_at = ?, updated_at = ? WHERE id = ?`,
       [attempts, errorMessage(err), errorCode(err), new Date(now + delayMs).toISOString(), new Date(now).toISOString(), m.id],
     );
   }
@@ -336,7 +419,7 @@ export class MutationQueue {
   // ---------------------------------------------------------------- Monitoring & Recovery
   async getPendingCount(): Promise<number> {
     const row = await this.db.getFirst<{ count: number }>(
-      `SELECT COUNT(*) as count FROM mutation_queue WHERE user_id = ? AND status = 'pending'`,
+      `SELECT COUNT(*) as count FROM mutation_queue WHERE user_id = ? AND status IN ('pending', 'processing')`,
       [this.userId],
     );
     return row?.count ?? 0;

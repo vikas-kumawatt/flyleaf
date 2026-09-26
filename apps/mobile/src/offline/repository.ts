@@ -62,6 +62,16 @@ export class OfflineRepository {
         const { api } = require('@/lib/api');
         return api.client.createReview(readId, payload);
       },
+      setLiked: async (readId, liked) => {
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
+        const { api } = require('@/lib/api');
+        return api.client.setLiked(readId, liked);
+      },
+      setFollowing: async (userId, following) => {
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
+        const { api } = require('@/lib/api');
+        return following ? api.client.followUser(userId) : api.client.unfollowUser(userId);
+      },
     });
   }
 
@@ -432,6 +442,21 @@ export class OfflineRepository {
       `SELECT * FROM progress_events WHERE read_id = ? ORDER BY at DESC`,
       [readId],
     );
+  }
+
+  /**
+   * Like or unlike a read (D-07-2): queued as the wanted state and sent now if
+   * online. Liking then unliking before it is sent sends nothing.
+   */
+  async setLiked(readId: string, liked: boolean): Promise<void> {
+    await this.queue.enqueueDesiredState('set_like', readId, liked);
+    void this.queue.flush();
+  }
+
+  /** Follow (or request to follow) or unfollow, queued like setLiked. */
+  async setFollowing(userId: string, following: boolean): Promise<void> {
+    await this.queue.enqueueDesiredState('set_follow', userId, following);
+    void this.queue.flush();
   }
 
   async getUnsyncedCount(): Promise<number> {

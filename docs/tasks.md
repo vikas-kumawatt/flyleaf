@@ -337,6 +337,7 @@
 ### Client foundation — `SL-0x` · 6d
 - [x] **SL-00** ⚠️ Run `npx expo install --check` and `npx expo-doctor` before adding any mobile dependency. Expo Go rejects a project whose native module versions differ from what it ships — pin from `bundledNativeModules.json`, never npm `latest` — 0.25d
   - **Audit (2026-09-26):** ⚠️ — no npm `latest` versions, but 6 packages are now patch releases behind SDK 57 (`expo-doctor` 20/21); `expo install --fix` left to the owner (native rebuild); see A-07-022.
+  - **Audit (2026-09-26, Part 07b):** ✅ — patches applied and NetInfo 12.0.1 added through `expo install`; `expo install --check` clean, `expo-doctor` 21/21; native rebuild pending on the phone (README › Native changes waiting for a rebuild); see A-07-022, A-07-034.
 - [x] **SL-01** Expo Router shell, 5 tabs + centre FAB — 1d
   - **Audit (2026-09-26):** ✅ — the five tabs of PRD §5.2 plus the centre FAB, which is gated for guests.
 - [x] **SL-02** Design system from `design.md`: tokens, Button, Card, Sheet, Cover, StarRating, Heart, ProgressBar, Skeleton, EmptyState — Reanimated + gesture-handler — 3d
@@ -353,18 +354,21 @@
   - **Audit (2026-09-26):** ❌ — local reads were not scoped to a user and the local database had no migrations; fixed (`migrations.ts`, `user_version`); see A-07-002, A-07-007.
 - [x] **SL-11** ⚠️ **Mutation queue: persist, replay, backoff, dead-letter** — 2d
   - **Audit (2026-09-26):** ❌ — any 409 was treated as synced, 4xx were retried, offline dead-lettered everything within minutes, dead letters were never shown, queues replayed across accounts, flushes ran concurrently, and reads created offline never got their server id; all fixed, with a Couldn't sync screen; see A-07-001, A-07-002, A-07-005, A-07-008.
+  - **Audit (2026-09-26, Part 07b):** ✅ — likes and follows are now queued as desired states; an opposite write still waiting cancels it (like then unlike offline sends nothing); a row being sent is claimed and never cancelled; a 429 burst on replay is a Part 15 item; see A-07-034, A-07-039.
 - [x] **SL-12** ⚠️ `client_event_id` generation + idempotent replay — 0.5d
   - **Audit (2026-09-26):** ⚠️ — client correct; the server accepted an id reused on another read or user as success; now 409 `client_event_conflict`; see A-07-015.
 - [x] **SL-13** ⚠️ **Offline queue test suite incl. simulated process death** — 1.5d
   - **Audit (2026-09-26):** ⚠️ — process death covered; one test asserted the 409 bug (updated); users, concurrency, migrations and id remapping are now covered (`queue-audit.test.ts`); a11y criterion is tautological; see A-07-001, A-07-026.
 - [x] SL-14 Sync-on-foreground ~~and on reconnect~~ (no network listener: a 30 s retry timer runs while writes are pending, audit 07); unsynced indicator — 1d
   - **Audit (2026-09-26):** ⚠️ — foreground sync yes; no reconnect trigger; polled every 30 s forever; the indicator counted all users; fixed except a NetInfo listener (D-07-2); see A-07-014.
+  - **Audit (2026-09-26, Part 07b):** ✅ — NetInfo reconnect now flushes at once, and the indicator shows an offline state; the 30 s timer stays as the fallback; see A-07-034.
 
 ### Auth screens — `SL-2x` · 3d
 - [x] SL-20 Welcome carousel with "Look around first" — 0.5d
   - **Audit (2026-09-26):** ✅ — carousel with "Look around first".
 - [x] SL-21 Sign up / log in / forgot / reset / verify — 1.5d
   - **Audit (2026-09-26):** ❌ — signup never sent the entered DOB (always 2000-01-01, field pre-filled); no screens for the emailed verify/reset links; `email_unverified` unhandled; all fixed (links still open in the browser until D-07-1); see A-07-004, A-07-011, A-07-016, A-07-017.
+  - **Audit (2026-09-26, Part 07b):** ✅ — Android App Links and iOS associated domains for both links, fallback pages whose GET never spends a token, well-known files from env; accounts with the 2000-01-01 placeholder are asked for their date of birth and get the explicit filter until they answer (`dob_confirmed`, `POST /v1/me/date-of-birth`); the explicit setting itself has no endpoint, and the neutral under-13 gate (D-07b-1) is Part 10's; the app's link host is tested against the production `APP_BASE_URL` (D-07b-2); see A-07-033, A-07-035, A-07-036.
 - [x] SL-22 Username ~~+ avatar~~ (typographic default only, audit 07 → Part 10); live availability (built in audit 07); reserved words — 1d
   - **Audit (2026-09-26):** ❌ — there was no availability check at all (no endpoint, no request) and no avatar picker; availability built (`GET /v1/auth/username-available`, 400 ms debounce, stale responses dropped); avatar → Part 10; see A-07-010, A-07-032.
 
