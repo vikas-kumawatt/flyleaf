@@ -23,6 +23,8 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import { api, type Work, type Shelf } from '@/lib/api';
+import { addRecent, latestOnly } from '@/lib/searchState';
+import { loadRecents, saveRecents } from '@/lib/recentsStore';
 import { useSession } from '@/lib/session';
 import { useGuestShelf } from '@/lib/guest';
 import { useActionGate } from '@/ui/ActionGate';
@@ -38,8 +40,6 @@ import {
 } from '@/ui/components';
 import { space, radius, useTheme } from '@/ui/tokens';
 
-const MAX_RECENTS = 10;
-const INITIAL_RECENTS = ['Piranesi', 'Ursula K. Le Guin', 'Klara and the Sun', 'Dune'];
 
 const CURATED_SHELVES = [
   {
@@ -76,7 +76,20 @@ export default function DiscoverScreen() {
   const [shelfLoading, setShelfLoading] = useState(false);
   const [curatedLists, setCuratedLists] = useState<Shelf[]>([]);
   const [curatedListsLoading, setCuratedListsLoading] = useState(false);
-  const [recents, setRecents] = useState<string[]>(INITIAL_RECENTS);
+  const [recents, setRecents] = useState<string[]>([]);
+  // One guard per screen: only the latest request may set results (A-02-017).
+  const [guard] = useState(latestOnly);
+  useEffect(() => {
+    void loadRecents().then(setRecents);
+  }, []);
+  /** Recorded when the user submits or opens a result, not on every keystroke. */
+  const rememberQuery = () => {
+    setRecents((prev) => {
+      const next = addRecent(prev, q);
+      if (next !== prev) void saveRecents(next);
+      return next;
+    });
+  };
   const [activeTab, setActiveTab] = useState<'books' | 'authors' | 'lists'>('books');
   const [formatFilter, setFormatFilter] = useState<'all' | 'print' | 'ebook' | 'audio'>('all');
   const [shelfTargetWork, setShelfTargetWork] = useState<AddToShelfWork | null>(null);
@@ -128,43 +141,39 @@ export default function DiscoverScreen() {
     if (activeTab === 'lists') {
       setShelfLoading(true);
       const timer = setTimeout(async () => {
+        const current = guard.begin();
         try {
           const res = await api.browseShelves({ query: trimmed, sort: 'ranked' });
-          setShelfResults(res.shelves || []);
-
-          // Save to recents if not already there
-          setRecents((prev) => {
-            const next = [trimmed, ...prev.filter((r) => r.toLowerCase() !== trimmed.toLowerCase())];
-            return next.slice(0, MAX_RECENTS);
-          });
+          if (current()) setShelfResults(res.shelves || []);
         } catch {
-          setShelfResults([]);
+          if (current()) setShelfResults([]);
         } finally {
-          setShelfLoading(false);
+          if (current()) setShelfLoading(false);
         }
       }, 250);
 
-      return () => clearTimeout(timer);
+      return () => {
+        clearTimeout(timer);
+        guard.invalidate();
+      };
     } else {
       setLoading(true);
       const timer = setTimeout(async () => {
+        const current = guard.begin();
         try {
           const data = await api.search(trimmed);
-          setResults(data);
-
-          // Save to recents if not already there
-          setRecents((prev) => {
-            const next = [trimmed, ...prev.filter((r) => r.toLowerCase() !== trimmed.toLowerCase())];
-            return next.slice(0, MAX_RECENTS);
-          });
+          if (current()) setResults(data);
         } catch {
-          setResults([]);
+          if (current()) setResults([]);
         } finally {
-          setLoading(false);
+          if (current()) setLoading(false);
         }
       }, 250);
 
-      return () => clearTimeout(timer);
+      return () => {
+        clearTimeout(timer);
+        guard.invalidate();
+      };
     }
   }, [q, activeTab]);
 
@@ -176,6 +185,7 @@ export default function DiscoverScreen() {
   const handleClearRecents = () => {
     void Haptics.selectionAsync();
     setRecents([]);
+    void saveRecents([]);
   };
 
   // Filter results by format if specified
@@ -259,6 +269,7 @@ export default function DiscoverScreen() {
             autoCorrect={false}
             autoCapitalize="none"
             returnKeyType="search"
+            onSubmitEditing={rememberQuery}
             accessibilityLabel="Search books or authors"
             style={{
               flex: 1,
@@ -712,7 +723,10 @@ export default function DiscoverScreen() {
 
             return (
               <Card
-                onPress={() => router.push(`/work/${item.id}`)}
+                onPress={() => {
+                  rememberQuery();
+                  router.push(`/work/${item.id}`);
+                }}
                 onLongPress={() => handleOpenShelf(item)}
                 style={{ marginBottom: space[3], padding: space[3] }}
               >
@@ -733,7 +747,12 @@ export default function DiscoverScreen() {
                       <Pressable
                         onPress={(e) => {
                           e.stopPropagation();
-                          router.push(`/author/${encodeURIComponent(item.author_name)}` as any);
+                          // The author page takes an author id (SL-43); search
+                          // results carry the name only, so ask the work.
+                          void api.work(item.id).then((w) => {
+                            const authorId = w.authors?.[0]?.id;
+                            router.push((authorId ? `/author/${authorId}` : `/work/${item.id}`) as any);
+                          }).catch(() => router.push(`/work/${item.id}` as any));
                         }}
                         hitSlop={4}
                       >
@@ -762,6 +781,14 @@ export default function DiscoverScreen() {
                         <View style={[styles.statusPill, { backgroundColor: c.surface2 }]}>
                           <Txt variant="micro" color="ink" style={{ fontWeight: '600' }}>
                             Reading
+                          </Txt>
+                        </View>
+                      )}
+                      {/* AC-7 "my status if any": every status, not only finished and reading */}
+                      {item.your_read && !isFinished && !isReading && (
+                        <View style={[styles.statusPill, { backgroundColor: c.surface2 }]}>
+                          <Txt variant="micro" color="muted" style={{ fontWeight: '600' }}>
+                            {({ want: 'Want to read', paused: 'Paused', dnf: 'Stopped' } as Record<string, string>)[item.your_read.status] ?? item.your_read.status}
                           </Txt>
                         </View>
                       )}

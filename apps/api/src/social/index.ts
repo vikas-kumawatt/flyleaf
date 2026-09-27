@@ -13,6 +13,7 @@ import { and, desc, eq, inArray, or, sql } from 'drizzle-orm';
 import type { Db } from '../platform/index.js';
 import { users, profiles, follows, blocks, mutes, works } from '../db/schema.js';
 import { ApiError, requireViewer } from '../http.js';
+import { resolveWorkId } from '../catalog/resolve.js';
 import { canViewWith, loadRelationship, requireVerified } from '../authorization/index.js';
 import {
   followResponseSchema,
@@ -470,24 +471,21 @@ export class SocialService {
    * Low-stakes, silent tool. Hides book activity from feeds.
    */
   async muteWork(viewer: string, workId: string): Promise<MuteResult> {
-    const [targetWork] = await this.db
-      .select({ id: works.id })
-      .from(works)
-      .where(eq(works.id, workId))
-      .limit(1);
-
-    if (!targetWork) {
-      throw ApiError.notFound('Book not found.');
-    }
-
-    await this.db
-      .insert(mutes)
-      .values({
-        userId: viewer,
-        targetType: 'work',
-        targetId: workId,
-      })
-      .onConflictDoNothing();
+    // D3: a merged work's id mutes the survivor, resolved under the merge's
+    // lock so a mute racing a merge cannot land on the tombstone.
+    workId = await this.db.transaction(async (tx) => {
+      const resolved = await resolveWorkId(tx as unknown as Db, workId, { lock: true });
+      if (!resolved) throw ApiError.notFound('Book not found.');
+      await tx
+        .insert(mutes)
+        .values({
+          userId: viewer,
+          targetType: 'work',
+          targetId: resolved,
+        })
+        .onConflictDoNothing();
+      return resolved;
+    });
 
     return {
       status: 'muted',
@@ -501,6 +499,8 @@ export class SocialService {
    * Unmute a book / work (SO-04).
    */
   async unmuteWork(viewer: string, workId: string): Promise<MuteResult> {
+    // D3: the merge moved the mute to the survivor.
+    workId = (await resolveWorkId(this.db, workId)) ?? workId;
     await this.db
       .delete(mutes)
       .where(

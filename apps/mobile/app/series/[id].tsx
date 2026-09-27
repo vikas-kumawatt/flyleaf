@@ -1,12 +1,15 @@
 // Series Detail Screen (PRD §6.30, design.md §10, SL-43).
 //
 // Features:
-// - Series title & author header
+// - Series title header
 // - Reading progress indicator: "X of Y books read" with progress bar
-// - "Next in series" recommendation card
+// - "Next in series": the first entry the reader has not finished
 // - Ordered book list with position numbers (#1, #2, #2.5 novella, #3)
+//
+// Audit 08: everything here was hard-coded (The Locked Tomb / Earthsea for
+// every id). It now comes from GET /series/:id.
 
-import React, { useEffect, useState } from 'react';
+import React from 'react';
 import {
   ScrollView,
   View,
@@ -16,7 +19,9 @@ import {
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
-import { api, type SeriesDetail } from '@/lib/api';
+import { api } from '@/lib/api';
+import { useRemote } from '@/lib/useRemote';
+import { RemoteStatus } from '@/ui/RemoteStatus';
 import {
   Card,
   Cover,
@@ -32,25 +37,16 @@ export default function SeriesScreen() {
   const router = useRouter();
   const c = useTheme();
 
-  const [series, setSeries] = useState<SeriesDetail | null>(null);
-
-  useEffect(() => {
-    if (id) {
-      api.series(id).then(setSeries).catch(() => {});
-    }
-  }, [id]);
-
-  if (!series) {
-    return (
-      <Screen>
-        <View style={sheet.pad}>
-          <Txt color="muted">Loading series…</Txt>
-        </View>
-      </Screen>
-    );
+  const remote = useRemote(id ? () => api.series(id) : null, [id]);
+  if (remote.state !== 'ready') {
+    return <RemoteStatus remote={remote} noun="series" onRetry={() => void remote.reload()} />;
   }
+  const series = remote.data;
 
-  const percent = Math.round((series.read_books / series.total_books) * 100);
+  const total = series.entries.length;
+  const percent = total > 0 ? Math.round((series.read_books / total) * 100) : 0;
+  // Up next: the first book in order not finished yet, once one has been.
+  const next = series.read_books > 0 ? series.entries.find((e) => e.your_status !== 'finished') : undefined;
 
   return (
     <Screen>
@@ -80,9 +76,11 @@ export default function SeriesScreen() {
           <Txt variant="displayM" numberOfLines={1}>
             {series.name}
           </Txt>
-          <Txt variant="caption" color="muted">
-            by {series.author_name}
-          </Txt>
+          {series.entries[0] ? (
+            <Txt variant="caption" color="muted">
+              by {series.entries[0].author_name}
+            </Txt>
+          ) : null}
         </View>
       </View>
 
@@ -100,15 +98,16 @@ export default function SeriesScreen() {
               YOUR SERIES PROGRESS
             </Txt>
             <Txt variant="caption" color="accent" style={{ fontWeight: '600' }}>
-              {series.read_books} of {series.total_books} read ({percent}%)
+              {series.read_books} of {total} read ({percent}%)
             </Txt>
           </View>
           <ProgressBar percent={percent} />
         </Card>
 
         {/* Next In Series Card */}
+        {next ? (
         <Card
-          onPress={() => router.push(`/work/${series.entries[1]?.work_id ?? 'next'}`)}
+          onPress={() => router.push(`/work/${next.work_id}`)}
           style={{
             backgroundColor: c.surface,
             borderLeftWidth: 4,
@@ -120,30 +119,27 @@ export default function SeriesScreen() {
             UP NEXT IN SERIES
           </Txt>
           <View style={sheet.rowTop}>
-            <Cover
-              coverId={series.entries[1]?.cover_id}
-              title={series.entries[1]?.title ?? 'Next Book'}
-              size="s"
-            />
+            <Cover coverId={next.cover_id} title={next.title} size="s" />
             <View style={{ flex: 1, marginLeft: space[3], justifyContent: 'center' }}>
               <Txt variant="title">
-                Book #{series.entries[1]?.position}: {series.entries[1]?.title}
+                {next.position != null ? `Book #${next.position}: ` : ''}{next.title}
               </Txt>
               <Txt variant="caption" color="muted">
-                {series.entries[1]?.author_name}
+                {next.author_name}
               </Txt>
             </View>
           </View>
         </Card>
+        ) : null}
 
         {/* Ordered Series Book List */}
         <View style={{ gap: space[3] }}>
           <Txt variant="title">Books in Series</Txt>
           <View style={{ gap: space[3] }}>
             {series.entries.map((entry) => {
-              const isFinished = entry.status === 'finished';
-              const isReading = entry.status === 'reading';
-              const isWant = entry.status === 'want';
+              const isFinished = entry.your_status === 'finished';
+              const isReading = entry.your_status === 'reading';
+              const isWant = entry.your_status === 'want';
 
               return (
                 <Card
@@ -165,7 +161,7 @@ export default function SeriesScreen() {
                       }}
                     >
                       <Txt variant="caption" color="ink" style={{ fontWeight: '700' }}>
-                        #{entry.position}
+                        {entry.position != null ? `#${entry.position}` : '–'}
                       </Txt>
                     </View>
 

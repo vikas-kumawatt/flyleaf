@@ -568,16 +568,21 @@ async function main() {
 const WORKS_INDEXES: [name: string, ddl: string][] = [
   ['works_search_idx', 'CREATE INDEX IF NOT EXISTS works_search_idx ON works USING gin (search_vector)'],
   ['works_title_trgm_idx', 'CREATE INDEX IF NOT EXISTS works_title_trgm_idx ON works USING gin (title gin_trgm_ops)'],
-  ['works_log_count_idx', 'CREATE INDEX IF NOT EXISTS works_log_count_idx ON works (log_count)'],
+  // Same expression as ONLINE_SQL in migrate.ts: log_count is virtual (0026).
+  ['works_log_count_idx', 'CREATE INDEX IF NOT EXISTS works_log_count_idx ON works ((ol_log_count + reader_count))'],
 ];
 
 /**
- * Populate `works.log_count` from the reading-log and ratings dumps (FN-41).
+ * Populate `works.ol_log_count` from the reading-log and ratings dumps (FN-41).
+ * `log_count`, which search ranks by, is this plus Flyleaf's own readers
+ * (`reader_count`, kept by the reads triggers), so a re-run of this pass
+ * never touches what Flyleaf counted (audit 08, migration 0026).
  *
  * WHY THIS DROPS INDEXES FIRST. Updating three million rows through the two
  * GIN indexes is not slow, it is effectively unbounded. Postgres can skip
  * index maintenance on an UPDATE only via a HOT update, which requires that
- * no INDEXED column changed -- and `log_count` is indexed -- and that the
+ * no INDEXED column changed -- and `ol_log_count` is indexed (inside the
+ * works_log_count_idx expression) -- and that the
  * page has room, which after a bulk load it does not. So every row change
  * re-inserts into both GIN indexes: roughly five lexemes per title in
  * `works_search_idx` and twenty-odd trigrams in `works_title_trgm_idx`, so
@@ -681,11 +686,11 @@ async function loadPopularity(db: ReturnType<typeof makeDb>, files: string[]) {
     let updated = 0;
     for (let from = 0; from < total; from += CHUNK) {
       const res = await client.unsafe(`
-        UPDATE works w SET log_count = s.n
+        UPDATE works w SET ol_log_count = s.n
         FROM stage_popularity s
         WHERE w.ol_work_key = s.ol_work_key
           AND s.id >= $1 AND s.id < $2
-          AND w.log_count IS DISTINCT FROM s.n`, [from, from + CHUNK]);
+          AND w.ol_log_count IS DISTINCT FROM s.n`, [from, from + CHUNK]);
       updated += (res as unknown as { count?: number }).count ?? 0;
       const elapsed = Date.now() - started;
       const pctDone = Math.min(1, (from + CHUNK) / total);
@@ -874,7 +879,7 @@ Options
   --restart          ignore the checkpoint and start over
   --status           show every run, where it stopped, and the catalog size
   --only-referenced  (authors) skip authors no work credits — ~1M not 15.4M
-  --popularity       fill works.log_count from --seed dumps (ranking depends on it)
+  --popularity       fill works.ol_log_count from --seed dumps (ranking depends on it)
 
 Downloads
 ${Object.entries(DUMP_URLS).map(([k, v]) => `  ${k.padEnd(12)} ${v}`).join('\n')}

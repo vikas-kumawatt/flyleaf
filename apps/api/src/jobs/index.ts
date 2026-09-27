@@ -74,6 +74,13 @@ export const QUEUES = {
    */
   reconcileReads: 'reads.reconcile',
   /**
+   * Nightly work counter reconciliation (Architecture §3.9, audit 08).
+   * Refreshes the catalog mean rating, then repairs work_stats and
+   * works.reader_count from reads. Writes only rows that drifted, except
+   * weighted ratings, which move with the catalog mean.
+   */
+  reconcileWorks: 'works.reconcile',
+  /**
    * Reading library import processing job (PRD §6.8, §24.2, IM-02, IM-08).
    * Parses uploaded CSV, matches against catalog, and populates user reads.
    */
@@ -101,6 +108,16 @@ export type ReconcileShelvesResult = { reconciled: true; workedAt: string };
 export type ReconcileFollowsResult = { reconciled: true; workedAt: string };
 
 export type ReconcileReadsResult = { reconciled: true; corrected: number; workedAt: string };
+
+export type ReconcileWorksResult = {
+  reconciled: true;
+  /** work_stats rows rewritten. Includes weighted ratings that moved with the catalog mean. */
+  workStats: number;
+  /** works whose reader_count had drifted; should be 0 every night. */
+  readerCount: number;
+  catalogMean: number;
+  workedAt: string;
+};
 
 export type DedupeJobRequest = {
   dryRun?: boolean;
@@ -210,6 +227,27 @@ export async function reconcileReadsJobHandler(
     sql`SELECT reconcile_read_counters() AS corrected;`,
   );
   return { reconciled: true, corrected: Number(row?.corrected ?? 0), workedAt: new Date().toISOString() };
+}
+
+/**
+ * Work counter reconciliation (Architecture §3.9, audit 08).
+ * `readerCount` should be 0 every night: anything else means a path changed
+ * reads without the triggers seeing it (or a race the lock does not cover).
+ */
+export async function reconcileWorksJobHandler(
+  _jobs: Job<void>[],
+  db: Db,
+): Promise<ReconcileWorksResult> {
+  const [row] = await db.execute<{ r: { work_stats: number; reader_count: number; catalog_mean: string } }>(
+    sql`SELECT reconcile_work_counters() AS r;`,
+  );
+  return {
+    reconciled: true,
+    workStats: Number(row?.r.work_stats ?? 0),
+    readerCount: Number(row?.r.reader_count ?? 0),
+    catalogMean: Number(row?.r.catalog_mean ?? 0),
+    workedAt: new Date().toISOString(),
+  };
 }
 
 /**
@@ -402,6 +440,21 @@ export async function registerQueues(boss: PgBoss, log: JobLog, deps?: WorkerDep
           queue: QUEUES.reconcileReads,
           ids: jobs.map((j) => j.id),
           corrected: result.corrected,
+        },
+        'job handled',
+      );
+      return result;
+    });
+
+    await boss.work<void, ReconcileWorksResult>(QUEUES.reconcileWorks, async (jobs) => {
+      const result = await reconcileWorksJobHandler(jobs, db);
+      log.info(
+        {
+          queue: QUEUES.reconcileWorks,
+          ids: jobs.map((j) => j.id),
+          workStats: result.workStats,
+          readerCount: result.readerCount,
+          catalogMean: result.catalogMean,
         },
         'job handled',
       );

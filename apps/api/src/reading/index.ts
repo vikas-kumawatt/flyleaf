@@ -14,6 +14,7 @@ import type { FastifyInstance } from 'fastify';
 import type { Db } from '../platform/index.js';
 import { reads, works, progressEvents, profiles, editions } from '../db/schema.js';
 import { ApiError, requireViewer } from '../http.js';
+import { resolveWorkId } from '../catalog/resolve.js';
 import { type Visibility, VISIBILITIES, canViewWith, loadRelationship, visibleLevels } from '../authorization/index.js';
 import {
   readSchema,
@@ -26,6 +27,7 @@ import {
   dnfReadBodySchema,
   readingStatsQuerySchema,
   readingStatsResponseSchema,
+  deleteReadResponseSchema,
   errorResponseSchema,
 } from '../contract/schemas.js';
 
@@ -40,12 +42,27 @@ const ratingSchema = z
   .max(5)
   .refine((v) => v * 2 === Math.floor(v * 2), 'Ratings run in half steps.');
 
+/**
+ * A calendar date, YYYY-MM-DD, that exists (2026-02-30 does not) and is not
+ * in the future. "Today" is the user's, not the server's (PRD §8.5): a finish
+ * logged at 00:30 in Auckland is already tomorrow in UTC, so up to one day
+ * ahead of the server's UTC date is accepted and anything later is refused.
+ * Before this, a bad string reached `::date` and came back as the database's
+ * generic 422 ("A date is out of range"), with no field (audit 08).
+ */
+const readDate = z
+  .string()
+  .regex(/^\d{4}-\d{2}-\d{2}$/, 'Dates are YYYY-MM-DD.')
+  .refine((d) => !Number.isNaN(Date.parse(`${d}T00:00:00Z`))
+    && new Date(`${d}T00:00:00Z`).toISOString().slice(0, 10) === d, 'That date does not exist.')
+  .refine((d) => d <= new Date(Date.now() + 86_400_000).toISOString().slice(0, 10), 'That date is in the future.');
+
 const upsertBody = z.object({
   work_id: z.string().uuid(),
   status: z.enum(STATUSES),
   edition_id: z.string().uuid().nullish(),
-  started_at: z.string().nullish(),
-  finished_at: z.string().nullish(),
+  started_at: readDate.nullish(),
+  finished_at: readDate.nullish(),
   abandoned_page: z.number().int().min(0).nullish(),
   dnf_reason: z.string().nullish(),
   rating: ratingSchema.nullish(),
@@ -60,7 +77,9 @@ const progressBody = z
     page: z.number().int().min(0).nullish(),
     percent: z.number().min(0).max(100).nullish(),
     audio_seconds: z.number().int().min(0).nullish(),
-    minutes: z.number().int().min(0).nullish(),
+    // Optional and never prompted (§8.4); one day at most, so a typo cannot
+    // wreck a reading-speed statistic or overflow the integer (audit 08).
+    minutes: z.number().int().min(0).max(1440).nullish(),
     note: z.string().max(280).nullish(),
   })
   .refine((b) => b.page != null || b.percent != null || b.audio_seconds != null, {
@@ -68,11 +87,14 @@ const progressBody = z
   });
 
 const finishBody = z.object({
-  finished_at: z.string().nullish(),
+  finished_at: readDate.nullish(),
   rating: ratingSchema.nullish(),
   hearted: z.boolean().nullish(),
   format_override: z.enum(['print', 'ebook', 'audiobook']).nullish(),
-  review: z.string().nullish(),
+  // Refused, not dropped (audit 08, A-07-006): a review is published with
+  // POST /reads/:id/review, which applies the verified-email gate and the
+  // review rules. The app has queued it that way since Part 07.
+  review: z.null({ message: 'Publish a review with POST /reads/{id}/review, not with the finish.' }).optional(),
   visibility: z.enum(VISIBILITIES).nullish(),
 });
 
@@ -96,6 +118,7 @@ export type Read = {
   abandoned_at?: string | null;
   abandoned_page?: number | null;
   dnf_reason?: string | null;
+  dnf_note?: string | null;
   rating: number | null;
   hearted: boolean;
   format_override?: string | null;
@@ -111,6 +134,48 @@ export type Read = {
 
 import { ActivityService } from '../activity/index.js';
 
+/**
+ * PRD §8.1 / §8.2 [LOCKED]: `finished` and `dnf` are terminal. Moving a
+ * terminal attempt to any OTHER status is a new attempt, so a finished or
+ * abandoned record is never overwritten: a DNF followed by a finish is two
+ * rows (§6.18, §34.2), a finished book started again is a re-read (§6.17).
+ * The same status again edits the attempt (a rating changed later, §34.2).
+ * Non-terminal statuses move freely within one attempt.
+ *
+ * The mobile app applies the same rule offline (saveReadStatus).
+ */
+export function startsNewAttempt(current: Status | null, next: Status): boolean {
+  if (current === null) return true;
+  return (current === 'finished' || current === 'dnf') && next !== current;
+}
+
+/**
+ * The activity a status change writes. `paused` is silent (§8.2). `want` is
+ * "low, aggregated", which the feed cannot express yet (Part 14), so it writes
+ * none rather than telling followers the book was started.
+ */
+function verbFor(status: Status): 'started' | 'finished' | 'dnf' | null {
+  return status === 'reading' ? 'started' : status === 'finished' ? 'finished' : status === 'dnf' ? 'dnf' : null;
+}
+
+/** A CHECK violation on reads_dates_ck. §8.5 wants a clear message, not the generic "A value is out of range". */
+function isDateOrderViolation(err: unknown): boolean {
+  let e = err as { code?: string; constraint_name?: string; constraint?: string; cause?: unknown } | undefined;
+  for (let depth = 0; e && depth < 5; depth++) {
+    if (e.code === '23514' && (e.constraint_name ?? e.constraint) === 'reads_dates_ck') return true;
+    e = e.cause as typeof e;
+  }
+  return false;
+}
+
+const dateOrderError = () =>
+  ApiError.unprocessable('invalid_date', 'Finish date cannot be earlier than started date.', 'finished_at');
+
+type AttemptRow = {
+  id: string; user_id: string; work_id: string; status: Status; attempt_no: number;
+  started_at: string | null; finished_at: string | null; source: string; visibility: Visibility;
+};
+
 export class ReadingService {
   private activityService: ActivityService;
 
@@ -119,11 +184,12 @@ export class ReadingService {
   }
 
   /**
-   * Creates or updates the current attempt.
+   * Creates or updates the current attempt of a work (see startsNewAttempt).
    *
-   * Starting a book that is already finished or abandoned creates a NEW
-   * attempt rather than mutating the old one — that is what makes re-reads
-   * honest and keeps a DNF-then-finished history true.
+   * One transaction: the work id is resolved to the survivor of a dedupe
+   * merge under a lock (D3), attempts for this user and work are serialised
+   * (SL-56: two concurrent starts could compute the same attempt_no), and
+   * activity is written only when the status changes.
    */
   async upsert(
     viewer: string,
@@ -141,51 +207,33 @@ export class ReadingService {
       formatOverride?: string | null;
     },
   ): Promise<Read> {
-    return this.db.transaction(async (tx) => {
-      const [existing] = await tx
-        .select({ id: reads.id, attemptNo: reads.attemptNo, status: reads.status })
-        .from(reads)
-        .where(sql`${reads.userId} = ${viewer} AND ${reads.workId} = ${workId}`)
-        .orderBy(desc(reads.attemptNo))
-        .limit(1);
+    try {
+      return await this.db.transaction(async (tx) => {
+        const db = tx as unknown as Db;
+        const resolved = await resolveWorkId(db, workId, { lock: true });
+        if (!resolved) throw ApiError.notFound('No such work.');
+        await this.#lockAttempts(db, viewer, resolved);
 
-      const startsNewAttempt =
-        !existing ||
-        ((existing.status === 'finished' || existing.status === 'dnf') &&
-          (status === 'reading' || status === 'want'));
+        const [existing] = await db.execute<{ id: string; status: Status; attempt_no: number }>(sql`
+          SELECT id, status, attempt_no FROM reads
+          WHERE user_id = ${viewer} AND work_id = ${resolved}
+          ORDER BY attempt_no DESC LIMIT 1`);
 
-      let id: string;
+        if (startsNewAttempt(existing?.status ?? null, status)) {
+          const id = await this.#insertAttempt(db, viewer, resolved, status, Number(existing?.attempt_no ?? 0) + 1, {
+            rating, hearted, visibility, ...extra,
+          });
+          return this.#afterWrite(db, viewer, id, { statusChanged: true, visibilityChanged: false });
+        }
 
-      if (startsNewAttempt) {
-        const [row] = await tx.execute<{ id: string }>(sql`
-          INSERT INTO reads (
-            user_id, work_id, edition_id, status, attempt_no,
-            started_at, finished_at, abandoned_at, abandoned_page, dnf_reason,
-            rating, hearted, format_override, visibility
-          )
-          VALUES (
-            ${viewer}, ${workId}, ${extra?.editionId ?? null}, ${status}, ${(existing?.attemptNo ?? 0) + 1},
-            COALESCE(${extra?.startedAt ?? null}::date, CASE WHEN ${status} IN ('reading','finished') THEN CURRENT_DATE END),
-            COALESCE(${extra?.finishedAt ?? null}::date, CASE WHEN ${status} = 'finished' THEN CURRENT_DATE END),
-            CASE WHEN ${status} = 'dnf' THEN CURRENT_DATE END,
-            ${extra?.abandonedPage ?? null},
-            ${extra?.dnfReason ?? null},
-            ${rating ?? null}, ${hearted ?? false}, ${extra?.formatOverride ?? null}, ${visibility ?? 'public'}
-          )
-          RETURNING id
-        `);
-        if (!row) throw new Error('insert returned no row');
-        id = row.id;
-        await tx.execute(sql`UPDATE works SET log_count = log_count + 1 WHERE id = ${workId}`);
-      } else {
-        id = existing.id;
-        await tx.execute(sql`
+        const current = existing!;
+        await db.execute(sql`
           UPDATE reads SET
             status          = ${status},
             edition_id      = COALESCE(${extra?.editionId ?? null}, edition_id),
             started_at      = COALESCE(${extra?.startedAt ?? null}::date, started_at, CASE WHEN ${status} IN ('reading','finished') THEN CURRENT_DATE END),
             finished_at     = CASE WHEN ${status} = 'finished' THEN COALESCE(${extra?.finishedAt ?? null}::date, finished_at, CURRENT_DATE) ELSE finished_at END,
-            abandoned_at    = CASE WHEN ${status} = 'dnf' THEN CURRENT_DATE ELSE abandoned_at END,
+            abandoned_at    = CASE WHEN ${status} = 'dnf' THEN COALESCE(abandoned_at, CURRENT_DATE) ELSE abandoned_at END,
             abandoned_page  = COALESCE(${extra?.abandonedPage ?? null}, abandoned_page),
             dnf_reason      = COALESCE(${extra?.dnfReason ?? null}, dnf_reason),
             rating          = COALESCE(${rating ?? null}, rating),
@@ -193,42 +241,27 @@ export class ReadingService {
             format_override = COALESCE(${extra?.formatOverride ?? null}, format_override),
             visibility      = COALESCE(${visibility ?? null}, visibility),
             updated_at      = now()
-          WHERE id = ${id}
+          WHERE id = ${current.id}
         `);
-      }
-
-      const read = await this.#get(tx as unknown as Db, viewer, id);
-      if (!read) throw new Error('read vanished mid-transaction');
-
-      if ((read.source ?? 'app') !== 'import') {
-        const verb = status === 'finished' ? 'finished' : status === 'dnf' ? 'dnf' : (status === 'reading' || status === 'want') ? 'started' : null;
-        if (verb) {
-          await this.activityService.recordActivity(tx as unknown as Db, {
-            actorId: viewer,
-            verb,
-            workId: read.work_id,
-            objectType: 'read',
-            objectId: read.id,
-            metadata: {
-              rating: read.rating ? Number(read.rating) : null,
-              attemptNo: read.attempt_no,
-              finishedAt: read.finished_at,
-            },
-            visibility: read.visibility,
-            source: read.source ?? 'app',
-          });
-        }
-        if (read.visibility === 'private') {
-          await this.activityService.updateActivityVisibility(tx as unknown as Db, 'read', read.id, 'private');
-        }
-      }
-
-      return read;
-    });
+        return this.#afterWrite(db, viewer, current.id, {
+          statusChanged: current.status !== status,
+          visibilityChanged: visibility != null,
+        });
+      });
+    } catch (err) {
+      if (isDateOrderViolation(err)) throw dateOrderError();
+      throw err;
+    }
   }
 
   /**
-   * Finishes a read attempt in one atomic call (PRD §6.17, §3389).
+   * Finishes a read attempt in one transaction (PRD §6.17).
+   *
+   *   want / reading / paused    → this attempt becomes finished; one activity.
+   *   finished, same or no date  → an edit (a replay, a double tap, a rating
+   *                                changed later): no new row, no activity.
+   *   finished, another date     → a re-read: a new finished attempt (§6.17).
+   *   dnf                        → a new finished attempt; the DNF stays (§6.18).
    */
   async finish(
     viewer: string,
@@ -238,60 +271,55 @@ export class ReadingService {
       rating?: number | null;
       hearted?: boolean | null;
       formatOverride?: string | null;
-      review?: string | null;
       visibility?: Visibility | null;
     },
   ): Promise<Read> {
-    const [read] = await this.db
-      .select({ id: reads.id, userId: reads.userId, startedAt: reads.startedAt })
-      .from(reads)
-      .where(eq(reads.id, readId))
-      .limit(1);
+    try {
+      return await this.db.transaction(async (tx) => {
+        const db = tx as unknown as Db;
+        const read = await this.#lockOwnRead(db, viewer, readId);
+        const finishedAt = opts.finishedAt ?? null;
 
-    if (!read || read.userId !== viewer) throw ApiError.notFound('No such read.');
+        const newAttempt = read.status === 'dnf'
+          || (read.status === 'finished' && finishedAt !== null && finishedAt !== read.finished_at);
+        if (newAttempt) {
+          const id = await this.#insertAttempt(db, viewer, read.work_id, 'finished', await this.#nextAttempt(db, viewer, read.work_id), {
+            rating: opts.rating, hearted: opts.hearted, visibility: opts.visibility ?? read.visibility,
+            finishedAt, formatOverride: opts.formatOverride,
+          });
+          return this.#afterWrite(db, viewer, id, { statusChanged: true, visibilityChanged: false });
+        }
 
-    const finishedAt = opts.finishedAt ?? new Date().toISOString().slice(0, 10);
-    if (read.startedAt && finishedAt < read.startedAt) {
-      throw ApiError.unprocessable('invalid_date', 'Finish date cannot be earlier than started date.', 'finished_at');
-    }
-
-    await this.db.execute(sql`
-      UPDATE reads SET
-        status = 'finished',
-        started_at = COALESCE(started_at, CURRENT_DATE),
-        finished_at = ${finishedAt}::date,
-        rating = COALESCE(${opts.rating ?? null}, rating),
-        hearted = COALESCE(${opts.hearted ?? null}, hearted),
-        format_override = COALESCE(${opts.formatOverride ?? null}, format_override),
-        visibility = COALESCE(${opts.visibility ?? null}, visibility),
-        updated_at = now()
-      WHERE id = ${readId}
-    `);
-
-    const updated = await this.get(viewer, readId);
-    if (!updated) throw ApiError.notFound('No such read.');
-
-    if ((updated.source ?? 'app') !== 'import') {
-      await this.activityService.recordActivity(this.db, {
-        actorId: viewer,
-        verb: 'finished',
-        workId: updated.work_id,
-        objectType: 'read',
-        objectId: readId,
-        metadata: {
-          rating: updated.rating ? Number(updated.rating) : null,
-          finishedAt: updated.finished_at,
-        },
-        visibility: updated.visibility,
-        source: updated.source ?? 'app',
+        if (finishedAt && read.started_at && finishedAt < read.started_at) throw dateOrderError();
+        await db.execute(sql`
+          UPDATE reads SET
+            status = 'finished',
+            finished_at = COALESCE(${finishedAt}::date, finished_at, CURRENT_DATE),
+            -- Never after the finish: a want finished with a past date used
+            -- to get started_at = today, trip reads_dates_ck and be refused.
+            started_at = COALESCE(started_at, ${finishedAt}::date, finished_at, CURRENT_DATE),
+            rating = COALESCE(${opts.rating ?? null}, rating),
+            hearted = COALESCE(${opts.hearted ?? null}, hearted),
+            format_override = COALESCE(${opts.formatOverride ?? null}, format_override),
+            visibility = COALESCE(${opts.visibility ?? null}, visibility),
+            updated_at = now()
+          WHERE id = ${readId}
+        `);
+        return this.#afterWrite(db, viewer, readId, {
+          statusChanged: read.status !== 'finished',
+          visibilityChanged: opts.visibility != null,
+        });
       });
+    } catch (err) {
+      if (isDateOrderViolation(err)) throw dateOrderError();
+      throw err;
     }
-
-    return updated;
   }
 
   /**
-   * Marks a read attempt as stopped/abandoned (DNF) with neutral copy and reason (PRD §6.18).
+   * Marks a read attempt as stopped (DNF) with neutral copy and reason (PRD §6.18).
+   * A finished attempt is never overwritten: stopping it records a new attempt.
+   * Stopping a DNF again edits it, with no new activity.
    */
   async dnf(
     viewer: string,
@@ -304,46 +332,168 @@ export class ReadingService {
       visibility?: Visibility | null;
     },
   ): Promise<Read> {
-    const [read] = await this.db
-      .select({ id: reads.id, userId: reads.userId })
-      .from(reads)
-      .where(eq(reads.id, readId))
-      .limit(1);
+    return this.db.transaction(async (tx) => {
+      const db = tx as unknown as Db;
+      const read = await this.#lockOwnRead(db, viewer, readId);
 
-    if (!read || read.userId !== viewer) throw ApiError.notFound('No such read.');
+      if (read.status === 'finished') {
+        const id = await this.#insertAttempt(db, viewer, read.work_id, 'dnf', await this.#nextAttempt(db, viewer, read.work_id), {
+          rating: opts.rating, visibility: opts.visibility ?? read.visibility,
+          abandonedPage: opts.abandonedPage, dnfReason: opts.dnfReason, dnfNote: opts.note,
+        });
+        return this.#afterWrite(db, viewer, id, { statusChanged: true, visibilityChanged: false });
+      }
 
-    await this.db.execute(sql`
-      UPDATE reads SET
-        status = 'dnf',
-        abandoned_at = CURRENT_DATE,
-        abandoned_page = ${opts.abandonedPage ?? null},
-        dnf_reason = ${opts.dnfReason ?? null},
-        rating = COALESCE(${opts.rating ?? null}, rating),
-        visibility = COALESCE(${opts.visibility ?? null}, visibility),
-        updated_at = now()
-      WHERE id = ${readId}
+      await db.execute(sql`
+        UPDATE reads SET
+          status = 'dnf',
+          abandoned_at = COALESCE(abandoned_at, CURRENT_DATE),
+          abandoned_page = COALESCE(${opts.abandonedPage ?? null}, abandoned_page),
+          dnf_reason = COALESCE(${opts.dnfReason ?? null}, dnf_reason),
+          dnf_note = COALESCE(${opts.note ?? null}, dnf_note),
+          rating = COALESCE(${opts.rating ?? null}, rating),
+          visibility = COALESCE(${opts.visibility ?? null}, visibility),
+          updated_at = now()
+        WHERE id = ${readId}
+      `);
+      return this.#afterWrite(db, viewer, readId, {
+        statusChanged: read.status !== 'dnf',
+        visibilityChanged: opts.visibility != null,
+      });
+    });
+  }
+
+  /**
+   * Deletes one of the viewer's reads (PRD §34.2 "Deleting a finished read";
+   * SL-57's "remove from want to read"). Its progress history, likes,
+   * comments and review go with it (foreign keys cascade); its activity and
+   * its review's activity are removed here, because activity has no foreign
+   * key to what it describes. The reads triggers then recompute work_stats and
+   * the reader count. Someone else's read, or one already deleted, is a 404.
+   */
+  async delete(viewer: string, readId: string): Promise<{ deleted: true; id: string }> {
+    return this.db.transaction(async (tx) => {
+      const db = tx as unknown as Db;
+      await this.#lockOwnRead(db, viewer, readId);
+      await db.execute(sql`
+        DELETE FROM activity
+        WHERE (object_type = 'read' AND object_id = ${readId})
+           OR (object_type = 'review' AND object_id IN (SELECT id FROM reviews WHERE read_id = ${readId}))`);
+      await db.execute(sql`DELETE FROM reads WHERE id = ${readId}`);
+      return { deleted: true as const, id: readId };
+    });
+  }
+
+  /** SL-56: one writer at a time decides the next attempt for (user, work). Released at commit. */
+  async #lockAttempts(db: Db, viewer: string, workId: string): Promise<void> {
+    await db.execute(sql`SELECT pg_advisory_xact_lock(hashtextextended(${`reads:${viewer}:${workId}`}, 0))`);
+  }
+
+  async #nextAttempt(db: Db, viewer: string, workId: string): Promise<number> {
+    await this.#lockAttempts(db, viewer, workId);
+    const [max] = await db.execute<{ n: number }>(sql`
+      SELECT max(attempt_no)::int AS n FROM reads WHERE user_id = ${viewer} AND work_id = ${workId}`);
+    return Number(max?.n ?? 0) + 1;
+  }
+
+  /** The viewer's own read, locked for the transaction; anyone else's is a 404, never a 403. */
+  async #lockOwnRead(db: Db, viewer: string, readId: string): Promise<AttemptRow> {
+    const [read] = await db.execute<AttemptRow>(sql`
+      SELECT id, user_id, work_id, status, attempt_no,
+             started_at::text AS started_at, finished_at::text AS finished_at, source, visibility
+      FROM reads WHERE id = ${readId} FOR UPDATE`);
+    if (!read || read.user_id !== viewer) throw ApiError.notFound('No such read.');
+    return read;
+  }
+
+  async #insertAttempt(
+    db: Db,
+    viewer: string,
+    workId: string,
+    status: Status,
+    attemptNo: number,
+    v: {
+      rating?: number | null; hearted?: boolean | null; visibility?: Visibility | null;
+      editionId?: string | null; startedAt?: string | null; finishedAt?: string | null;
+      abandonedPage?: number | null; dnfReason?: string | null; dnfNote?: string | null;
+      formatOverride?: string | null;
+    },
+  ): Promise<string> {
+    const [row] = await db.execute<{ id: string }>(sql`
+      INSERT INTO reads (
+        user_id, work_id, edition_id, status, attempt_no,
+        started_at, finished_at, abandoned_at, abandoned_page, dnf_reason, dnf_note,
+        rating, hearted, format_override, visibility
+      )
+      VALUES (
+        ${viewer}, ${workId}, ${v.editionId ?? null}, ${status}, ${attemptNo},
+        -- A finish logged with a past date and no start starts that day, not
+        -- today, which would fail reads_dates_ck and refuse a valid log.
+        COALESCE(${v.startedAt ?? null}::date,
+                 CASE WHEN ${status} = 'finished' THEN COALESCE(${v.finishedAt ?? null}::date, CURRENT_DATE)
+                      WHEN ${status} = 'reading' THEN CURRENT_DATE END),
+        COALESCE(${v.finishedAt ?? null}::date, CASE WHEN ${status} = 'finished' THEN CURRENT_DATE END),
+        CASE WHEN ${status} = 'dnf' THEN CURRENT_DATE END,
+        ${v.abandonedPage ?? null},
+        ${v.dnfReason ?? null},
+        ${v.dnfNote ?? null},
+        ${v.rating ?? null}, ${v.hearted ?? false}, ${v.formatOverride ?? null}, ${v.visibility ?? 'public'}
+      )
+      RETURNING id
     `);
+    if (!row) throw new Error('insert returned no row');
+    // works.reader_count (and so log_count) is kept by the reads trigger:
+    // distinct readers, so a re-read does not count again (0026).
+    return row.id;
+  }
 
-    const updated = await this.get(viewer, readId);
-    if (!updated) throw ApiError.notFound('No such read.');
+  /**
+   * Activity for a write, in the write's transaction. A new row only when the
+   * status changed: a rating, heart or date edit writes none (§34.2), and a
+   * replayed or double-tapped finish writes one, not two. A visibility change
+   * is carried to the read's existing activity (private removes it).
+   */
+  async #afterWrite(
+    db: Db,
+    viewer: string,
+    readId: string,
+    change: { statusChanged: boolean; visibilityChanged: boolean },
+  ): Promise<Read> {
+    const read = await this.#get(db, viewer, readId);
+    if (!read) throw new Error('read vanished mid-transaction');
+    if ((read.source ?? 'app') === 'import') return read;
 
-    if ((updated.source ?? 'app') !== 'import') {
-      await this.activityService.recordActivity(this.db, {
+    if (change.visibilityChanged) {
+      await this.activityService.updateActivityVisibility(
+        db, 'read', read.id, await this.#activityVisibility(db, viewer, read.visibility));
+    }
+    const verb = change.statusChanged ? verbFor(read.status as Status) : null;
+    if (verb) {
+      await this.activityService.recordActivity(db, {
         actorId: viewer,
-        verb: 'dnf',
-        workId: updated.work_id,
+        verb,
+        workId: read.work_id,
         objectType: 'read',
-        objectId: readId,
-        metadata: {
-          abandonedPage: updated.abandoned_page,
-          dnfReason: updated.dnf_reason,
-        },
-        visibility: updated.visibility,
-        source: updated.source ?? 'app',
+        objectId: read.id,
+        metadata: verb === 'dnf'
+          ? { abandonedPage: read.abandoned_page, dnfReason: read.dnf_reason, attemptNo: read.attempt_no }
+          : { rating: read.rating, attemptNo: read.attempt_no, finishedAt: read.finished_at },
+        visibility: read.visibility,
+        source: read.source ?? 'app',
       });
     }
+    return read;
+  }
 
-    return updated;
+  /** What recordActivity stores: a private account's activity is followers-only (PRD §26.2). */
+  async #activityVisibility(db: Db, viewer: string, visibility: Visibility): Promise<Visibility> {
+    if (visibility === 'private') return 'private';
+    const [p] = await db
+      .select({ isPrivate: profiles.isPrivate })
+      .from(profiles)
+      .where(eq(profiles.userId, viewer))
+      .limit(1);
+    return p?.isPrivate ? 'followers' : visibility;
   }
 
   /**
@@ -368,6 +518,7 @@ export class ReadingService {
         abandonedAt: reads.abandonedAt,
         abandonedPage: reads.abandonedPage,
         dnfReason: reads.dnfReason,
+        dnfNote: reads.dnfNote,
         rating: reads.rating,
         hearted: reads.hearted,
         formatOverride: reads.formatOverride,
@@ -397,6 +548,7 @@ export class ReadingService {
       abandoned_at: row.abandonedAt,
       abandoned_page: row.abandonedPage,
       dnf_reason: row.dnfReason,
+      dnf_note: row.dnfNote,
       rating: row.rating === null ? null : Number(row.rating),
       hearted: row.hearted,
       format_override: row.formatOverride,
@@ -438,20 +590,26 @@ export class ReadingService {
                WHERE wa.work_id = w.id
                ORDER BY wa.position, a.name
                LIMIT 1) AS author_name,
-             (SELECT e.ol_cover_id
-                FROM editions e
-               WHERE e.work_id = w.id AND e.ol_cover_id IS NOT NULL
-               -- Prefer the cover of the edition this person is actually
-               -- reading, if they chose one.
-               ORDER BY (e.id = r.edition_id) DESC, e.publish_year DESC NULLS LAST
-               LIMIT 1) AS cover_id,
+             -- The cover of the edition this person is reading, else the
+             -- work's own (denormalised at ingest for exactly this), else the
+             -- newest edition's. COALESCE is lazy, so the edition scan runs
+             -- only for the ~1% with neither. It used to run for every row,
+             -- sorting all of a popular work's editions (audit 08: 2.3 s and
+             -- 133k buffers for a 628-read user on flyleaf_dev).
+             COALESCE(re.ol_cover_id, w.ol_cover_id,
+               (SELECT e.ol_cover_id
+                  FROM editions e
+                 WHERE e.work_id = w.id AND e.ol_cover_id IS NOT NULL
+                 ORDER BY e.publish_year DESC NULLS LAST
+                 LIMIT 1)) AS cover_id,
              pe.page, pe.percent,
-             (SELECT page_count FROM editions e
-               WHERE e.id = r.edition_id
-                  OR (r.edition_id IS NULL AND e.work_id = r.work_id)
-               ORDER BY page_count NULLS LAST LIMIT 1) AS page_count
+             CASE WHEN r.edition_id IS NOT NULL THEN re.page_count
+                  ELSE (SELECT page_count FROM editions e
+                         WHERE e.work_id = r.work_id
+                         ORDER BY page_count NULLS LAST LIMIT 1) END AS page_count
       FROM reads r
       JOIN works w ON w.id = r.work_id
+      LEFT JOIN editions re ON re.id = r.edition_id
       LEFT JOIN LATERAL (
         SELECT page, percent FROM progress_events
         WHERE read_id = r.id ORDER BY at DESC LIMIT 1
@@ -1039,16 +1197,35 @@ export function readingRoutes(service: ReadingService) {
             String(issue?.path[0] ?? ''),
           );
         }
-        const { finished_at, rating, hearted, format_override, review, visibility } = parsed.data;
+        const { finished_at, rating, hearted, format_override, visibility } = parsed.data;
         return service.finish(viewer, req.params.id, {
           finishedAt: finished_at,
           rating,
           hearted,
           formatOverride: format_override,
-          review,
           visibility,
         });
       },
+    );
+
+    // Delete a read and everything hanging off it (PRD §34.2)
+    app.delete<{ Params: { id: string } }>(
+      '/reads/:id',
+      {
+        schema: {
+          tags: ['Reading'],
+          summary: 'Delete a read attempt',
+          description: 'Deletes one of the viewer’s read attempts with its progress history, review, likes, comments and activity (PRD §34.2). The client confirms first, naming what will be lost. Another user’s read, or one already deleted, is 404.',
+          security: [{ BearerAuth: [] }],
+          params: idParamSchema,
+          response: {
+            200: deleteReadResponseSchema,
+            401: errorResponseSchema,
+            404: errorResponseSchema,
+          },
+        },
+      },
+      async (req) => service.delete(requireViewer(req), req.params.id),
     );
 
     // Mark as stopped/DNF (PRD §6.18)

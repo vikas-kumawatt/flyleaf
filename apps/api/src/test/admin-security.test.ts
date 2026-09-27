@@ -559,8 +559,8 @@ describe('admin HTML escapes every value and runs only nonced script (PRD §42 #
 
     const [a] = await db.execute<{ id: string }>(sql`INSERT INTO authors (name) VALUES (${AUTHOR}) RETURNING id`);
     const [w1] = await db.execute<{ id: string }>(sql`
-      INSERT INTO works (title, subtitle, log_count) VALUES (${TITLE}, ${SUBTITLE}, 10) RETURNING id`);
-    const [w2] = await db.execute<{ id: string }>(sql`INSERT INTO works (title, log_count) VALUES (${QUOTE_TITLE}, 9) RETURNING id`);
+      INSERT INTO works (title, subtitle, ol_log_count) VALUES (${TITLE}, ${SUBTITLE}, 10) RETURNING id`);
+    const [w2] = await db.execute<{ id: string }>(sql`INSERT INTO works (title, ol_log_count) VALUES (${QUOTE_TITLE}, 9) RETURNING id`);
     await db.execute(sql`INSERT INTO work_authors (work_id, author_id, role, position) VALUES (${w1!.id}, ${a!.id}, 'author', 0)`);
     await queueReportedDuplicate(db, { survivorId: w1!.id, loserId: w2!.id, reason: REASON });
     await overrideWorkMaturity(db, { workId: w1!.id, maturity: 'mature', reason: REASON, actor: { id: admin.id, email: admin.email, role: 'admin' } });
@@ -820,8 +820,8 @@ describe('merge, dismiss and undo carry a reason into the audit log (D-06-1)', (
   });
 
   const pair = async (stage: number) => {
-    const [a] = await db.execute<{ id: string }>(sql`INSERT INTO works (title, log_count) VALUES ('Survivor', 5) RETURNING id`);
-    const [b] = await db.execute<{ id: string }>(sql`INSERT INTO works (title, log_count) VALUES ('Loser', 1) RETURNING id`);
+    const [a] = await db.execute<{ id: string }>(sql`INSERT INTO works (title, ol_log_count) VALUES ('Survivor', 5) RETURNING id`);
+    const [b] = await db.execute<{ id: string }>(sql`INSERT INTO works (title, ol_log_count) VALUES ('Loser', 1) RETURNING id`);
     const [q] = await db.execute<{ id: string }>(sql`
       INSERT INTO dedupe_queue (survivor_id, loser_id, stage, reason) VALUES (${a!.id}, ${b!.id}, ${stage}, 'rule text')
       RETURNING id`);

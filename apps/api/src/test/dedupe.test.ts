@@ -58,7 +58,7 @@ const author = async (db: Db, name: string) =>
 
 const work = async (db: Db, title: string, logs = 0, authorId?: string) => {
   const [w] = await db.execute<{ id: string }>(
-    sql`INSERT INTO works (title, log_count) VALUES (${title}, ${logs}) RETURNING id`);
+    sql`INSERT INTO works (title, ol_log_count) VALUES (${title}, ${logs}) RETURNING id`);
   if (authorId) {
     await db.execute(sql`
       INSERT INTO work_authors (work_id, author_id, role, position)
@@ -915,12 +915,33 @@ describe('merge coverage: every table that references a work (Audit 03)', () => 
     expect(row!.work_id).toBe(p.survivor);
   });
 
-  it('the survivor gains the loser\'s log count', async () => {
+  it('the survivor gains the loser\'s OL baseline and counts each reader once (audit 08, A-02-013)', async () => {
     const p = await richPair(db);
     await mergeWorks(db, { survivorId: p.survivor, loserId: p.loser, stage: 2, reason: 'test' });
 
-    const [w] = await db.execute<{ log_count: number }>(sql`SELECT log_count FROM works WHERE id = ${p.survivor}`);
-    expect(Number(w!.log_count)).toBe(107);
+    // Baselines 100 + 7. Readers: u1 read both copies, u2 only the loser, so
+    // the survivor has two distinct readers, not three reads.
+    const [w] = await db.execute<{ ol_log_count: number; reader_count: number; log_count: number }>(sql`
+      SELECT ol_log_count, reader_count, log_count FROM works WHERE id = ${p.survivor}`);
+    expect(Number(w!.ol_log_count)).toBe(107);
+    expect(Number(w!.reader_count)).toBe(2);
+    expect(Number(w!.log_count)).toBe(109);
+    const [l] = await db.execute<{ reader_count: number }>(sql`SELECT reader_count FROM works WHERE id = ${p.loser}`);
+    expect(Number(l!.reader_count)).toBe(0);
+  });
+
+  it('undo gives back the baseline and the readers (audit 08, A-02-013)', async () => {
+    const p = await richPair(db);
+    const { mergeId } = await mergeWorks(db, { survivorId: p.survivor, loserId: p.loser, stage: 2, reason: 'test' });
+    await undoMerge(db, mergeId);
+
+    const rows = await db.execute<{ id: string; ol_log_count: number; reader_count: number; log_count: number }>(sql`
+      SELECT id, ol_log_count, reader_count, log_count FROM works WHERE id IN (${p.survivor}, ${p.loser})`);
+    const byId = new Map(rows.map((r) => [r.id, r]));
+    expect(Number(byId.get(p.survivor)!.log_count)).toBe(101);
+    expect(Number(byId.get(p.loser)!.ol_log_count)).toBe(7);
+    expect(Number(byId.get(p.loser)!.reader_count)).toBe(2);
+    expect(Number(byId.get(p.loser)!.log_count)).toBe(9);
   });
 
   it('work_stats is recomputed for the survivor from all moved reads', async () => {

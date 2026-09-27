@@ -199,6 +199,10 @@ export interface Edition {
   page_count: number | null;
   format: string;
   cover_id: number | null;
+  /** GET /works/:id only. */
+  publisher?: string | null;
+  /** GET /works/:id only. */
+  publish_year?: number | null;
 }
 
 export interface EditionDetail {
@@ -243,6 +247,48 @@ export interface Work {
   rating_count?: number;
   editions?: Edition[];
   your_read?: YourRead;
+  /** GET /works/:id only: the requested id was merged into this work; this is the survivor (D3). */
+  merged_into?: string;
+  /** GET /works/:id only (PRD §7.8). */
+  maturity?: 'general' | 'mature' | 'explicit' | 'unclassified';
+  /** GET /works/:id only: explicit, and search would hide it from this viewer. Show the interstitial. */
+  content_warning?: boolean;
+  /** GET /works/:id only. */
+  description?: string | null;
+  /** GET /works/:id only: credited authors, in credit order. */
+  authors?: { id: string; name: string }[];
+  /** GET /works/:id only. */
+  series?: { id: string; name: string; position: number | null }[];
+  /** GET /works/:id only: ratings per star; a half star counts in the bucket above. */
+  rating_distribution?: Record<'1' | '2' | '3' | '4' | '5', number>;
+}
+
+/** GET /authors/:id (SL-43). */
+export interface AuthorDetail {
+  id: string;
+  name: string;
+  alternate_names: string[];
+  bio: string | null;
+  works_count: number;
+  /** Works by this author the viewer has finished; 0 for a guest. */
+  read_count: number;
+  works: Work[];
+}
+
+/** GET /series/:id (SL-43). */
+export interface SeriesDetail {
+  id: string;
+  name: string;
+  /** Entries the viewer has finished; 0 for a guest. */
+  read_books: number;
+  entries: {
+    work_id: string;
+    position: number | null;
+    title: string;
+    author_name: string;
+    cover_id: number | null;
+    your_status: ReadStatus | null;
+  }[];
 }
 
 export interface SearchResponse {
@@ -266,6 +312,8 @@ export interface Read {
   abandoned_at?: string | null;
   abandoned_page?: number | null;
   dnf_reason?: string | null;
+  /** The DNF flow's optional note (PRD §6.18). */
+  dnf_note?: string | null;
   rating: number | null;
   hearted: boolean;
   format_override?: string | null;
@@ -276,6 +324,11 @@ export interface Read {
   page?: number | null;
   percent?: number | null;
   page_count?: number | null;
+}
+
+export interface DeleteReadResponse {
+  deleted: true;
+  id: string;
 }
 
 export interface ReadListResponse {
@@ -310,7 +363,8 @@ export interface FinishReadRequest {
   rating?: number | null;
   hearted?: boolean | null;
   format_override?: string | null;
-  review?: string | null;
+  /** Refused with 422 unless null: publish a review with saveReview (POST /reads/{id}/review). */
+  review?: null;
   visibility?: ReadVisibility | null;
 }
 

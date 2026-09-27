@@ -102,6 +102,7 @@
 - [x] **FN-41** Popularity (`--popularity`) + ranking: title prefix 0.30 · exact title 0.20 · author match 0.20 · trigram 0.10 · `ln(1+log_count)` capped, 0.35. **3,203,476 works scored**; most-logged is Atomic Habits at 64,006 — 0.5d
   - **Audit (2026-09-25):** ⚠️ — the weights match this bullet and the panel, but not PRD §14.3 / architecture §5.4 (no cover, library-boost or recency term; `alternate_titles` weight-C term structurally 0), and `works.log_count` has no trigger, no decrement, no import increment and no reconcile; DECISION NEEDED; see A-02-013, A-02-014.
   - **Audit 02b (2026-09-25):** ✅ **Decided (decision 3):** the weights in this bullet are the spec; PRD §14.3 now states them and architecture §5.4 points there. `log_count` maintenance (A-02-013) is still open; see A-02-014.
+  - **Audit 08 (2026-09-27):** ✅ A-02-013 implemented: `log_count` is now a virtual `ol_log_count` (the OL baseline this pass writes) + `reader_count` (distinct Flyleaf readers, trigger-maintained, reconciled nightly by `works.reconcile`); the relevance panel is unchanged on the corpus and both real catalogs; see A-08-002.
 
 > ### Search on 3.2M works: 40s → 47ms
 >
@@ -384,20 +385,33 @@
 
 ### Catalog screens — `SL-4x` · 7d
 - [x] **SL-40** Search screen: debounce 250ms, tabs, recents, filters — 2d
+  - **Audit (2026-09-27):** ⚠️ — debounce correct; a slow response overwrote a newer one and recents were invented, unpersisted and saved per keystroke (fixed); the format filter is cosmetic (deferred); see A-08-020, A-08-021.
 - [x] **SL-41** **Book detail**: hero, status control, rating + histogram, description, metadata, tabs — 2.5d
+  - **Audit (2026-09-27):** ❌ — the histogram, description, series and metadata fallbacks were fixed values for every book, writes skipped the offline queue and a 404 spun for ever; all fixed, with real fields on `GET /works/:id`; see A-08-016, A-08-019, A-08-026.
 - [x] **SL-42** Cover-forward edition picker; "the copy I own" — 1d
+  - **Audit (2026-09-27):** ❌ — "the copy I own" was never saved and every edition had an invented publisher and year; now the attempt's `edition_id` through the queue, real publisher/year; see A-08-018.
 - [x] SL-43 Author page; series page with your progress — 1d
+  - **Audit (2026-09-27):** ❌ — the author page searched the author's name as a title and invented a bio and books; the series page was hard-coded; `GET /authors/:id` and `GET /series/:id` built and wired; the catalog holds no series data; see A-08-017.
 - [x] SL-44 Barcode scanner + permission rationale + manual fallback — 0.5d
+  - **Audit (2026-09-27):** ⚠️ — rationale and manual entry present; a missed barcode was looked up on every camera frame and every error said "not found" (fixed); unknown ISBNs have no live lookup (deferred); see A-08-022.
 
 ### Reading core — `SL-5x` · 9d
 - [x] **SL-50** reads + progress_events migrations & repos — 1d
+  - **Audit (2026-09-27):** ⚠️ — one row per attempt and append-only progress hold; every reads write scanned the table twice (L-01), terminal attempts were overwritten and nothing could delete a read; all fixed (0026, 0027); see A-08-001, A-08-004, A-08-007, A-08-013.
 - [x] **SL-51** ⚠️ `POST /reads/{id}/progress` idempotent on `client_event_id` — 0.5d
+  - **Audit (2026-09-27):** ✅ — idempotent on `client_event_id` and append-only, verified; `minutes` now bounded at 1,440; see A-08-024.
 - [x] **SL-52** **Reading tab**: cards, slider auto-save, +10, predicted finish — 2.5d
+  - **Audit (2026-09-27):** ⚠️ — slider saves once per drag (code, device check pending); the prediction test was flaky over a real rounding bug and dates were UTC (fixed); see A-08-023, A-08-010.
 - [x] **SL-53** Progress sheet: numeric entry, chips, **optional minutes**, note, quote — 1d
+  - **Audit (2026-09-27):** ⚠️ — optional minutes and note verified; minutes had no upper bound (fixed); see A-08-024.
 - [x] **SL-54** **Finish flow**: stars visible, heart, date, format chips, review, ≤20s — 2d
+  - **Audit (2026-09-27):** ❌ — not one transaction, `review` accepted and dropped, a double tap wrote two activities, the date defaulted to the UTC day and finishing a want with a past date was refused; all fixed; see A-08-006, A-08-008, A-08-010, A-08-011.
 - [x] **SL-55** DNF flow: page pre-filled, reason chips, neutral copy — 0.75d
+  - **Audit (2026-09-27):** ⚠️ — copy and pre-fill fine; the note was dropped and DNF-ing a finished read overwrote it (fixed, `reads.dnf_note`); see A-08-007, A-08-012.
 - [x] **SL-56** Re-read: new row, `attempt_no+1` — 0.5d
+  - **Audit (2026-09-27):** ❌ — concurrent starts returned 409 and `dnf → finished` overwrote the DNF; fixed (advisory lock, terminal-status rule on server and app); see A-08-007, A-08-009.
 - [x] SL-57 Want-to-read queue; sort, filter, bulk — 0.75d
+  - **Audit (2026-09-27):** ❌ — sort and filter work; bulk "Remove" set books to paused and no delete existed; `DELETE /reads/:id` and a queued delete built; see A-08-013.
 
 ### Ratings, reviews — `SL-6x` · 5d
 - [x] **SL-60** Half-star control, extra hit area, haptic, `adjustable` trait — 1d

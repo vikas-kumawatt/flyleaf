@@ -127,6 +127,67 @@ export const PREREQUISITE_SQL: readonly string[] = [
   `SET pg_trgm.similarity_threshold = ${TRIGRAM_THRESHOLD}`,
 ];
 
+/** Drops an index left INVALID by an interrupted CREATE INDEX CONCURRENTLY, which IF NOT EXISTS would otherwise keep forever. */
+const dropIfInvalid = (index: string) => `DO $do$ BEGIN
+     IF EXISTS (SELECT 1 FROM pg_index i JOIN pg_class c ON c.oid = i.indexrelid
+                WHERE c.relname = '${index}' AND NOT i.indisvalid) THEN
+       EXECUTE 'DROP INDEX ${index}';
+     END IF;
+   END $do$`;
+
+/**
+ * Steps that cannot run inside drizzle's migration transaction, applied
+ * AFTER the journal on every run. Each must be idempotent.
+ *
+ * `CREATE INDEX CONCURRENTLY` refuses to run in a transaction block, and on
+ * a large table the plain form holds a lock that blocks writes for the whole
+ * build (the LA-05 lesson from 0019). Plain strings, so the test harness
+ * replays the same list against PGlite.
+ */
+export const ONLINE_SQL: readonly string[] = [
+  // Audit 08 (0026): the per-work aggregate in recompute_work_stats_for_work,
+  // a work's reads, the dedupe merge and impact scans. user_id second so the
+  // distinct-reader count is an index-only scan.
+  dropIfInvalid('reads_work_idx'),
+  `CREATE INDEX CONCURRENTLY IF NOT EXISTS reads_work_idx ON reads (work_id, user_id)`,
+  // Popularity order for search, now that log_count is virtual (0026). The
+  // expression must stay ol_log_count + reader_count, byte for byte, or the
+  // planner will not match ORDER BY log_count to it.
+  dropIfInvalid('works_log_count_idx'),
+  `CREATE INDEX CONCURRENTLY IF NOT EXISTS works_log_count_idx ON works ((ol_log_count + reader_count))`,
+  `DROP INDEX CONCURRENTLY IF EXISTS works_ol_log_count_idx`,
+];
+
+/**
+ * works.reader_count from `reads`, in batches of works (0026). Only rows that
+ * differ are written; on a healthy database this reads the index and writes
+ * nothing. Not atomic with concurrent writers: a read logged between a
+ * batch's count and its write can be overwritten, and the nightly
+ * works.reconcile repairs it.
+ */
+async function backfillReaderCounts(client: postgres.Sql): Promise<number> {
+  let after = '00000000-0000-0000-0000-000000000000';
+  let fixed = 0;
+  for (;;) {
+    const [row] = await client<{ last: string | null; fixed: number }[]>`
+      WITH batch AS (
+        SELECT work_id, count(DISTINCT user_id)::int AS n FROM reads
+        WHERE work_id > ${after}::uuid
+        GROUP BY work_id ORDER BY work_id LIMIT 2000
+      ),
+      upd AS (
+        UPDATE works w SET reader_count = b.n FROM batch b
+        WHERE w.id = b.work_id AND w.reader_count <> b.n
+        RETURNING 1
+      )
+      SELECT (SELECT work_id FROM batch ORDER BY work_id DESC LIMIT 1) AS last,
+             (SELECT count(*) FROM upd)::int AS fixed`;
+    if (!row?.last) return fixed;
+    after = row.last;
+    fixed += row.fixed;
+  }
+}
+
 export async function runMigrations(url: string = config.databaseUrl): Promise<void> {
   // max: 1 -- migrations are serial by definition, and a pool here just makes
   // advisory locking harder to reason about.
@@ -140,6 +201,11 @@ export async function runMigrations(url: string = config.databaseUrl): Promise<v
       await db.execute(sql.raw(statement));
     }
     await migrate(db, { migrationsFolder: MIGRATIONS_DIR });
+    for (const statement of ONLINE_SQL) {
+      await client.unsafe(statement);
+    }
+    const fixed = await backfillReaderCounts(client);
+    if (fixed) console.log(`reader_count backfilled on ${fixed} works`);
   } finally {
     await client.end();
   }

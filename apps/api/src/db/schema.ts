@@ -71,8 +71,17 @@ export const works = pgTable('works', {
   createdByUserId: uuid('created_by_user_id'),
   mergedIntoId: uuid('merged_into_id').references((): AnyPgColumn => works.id),
 
-  // Denormalised, drives search ranking. Trigger + nightly reconciliation.
-  logCount: integer('log_count').notNull().default(0),
+  // Popularity (audit 08, A-02-013, migration 0026). Search ranks by
+  // log_count, which is VIRTUAL: Open Library's reading-log baseline (set only
+  // by the ingest --popularity pass) plus Flyleaf's distinct readers (any
+  // status, re-reads counted once), maintained by the reads triggers and the
+  // nightly works.reconcile job.
+  olLogCount: integer('ol_log_count').notNull().default(0),
+  readerCount: integer('reader_count').notNull().default(0),
+  // VIRTUAL in the database (0026). drizzle's pg builder only spells STORED,
+  // which matters nowhere: migrations are hand-written, and here it only
+  // makes the column read-only on insert.
+  logCount: integer('log_count').generatedAlwaysAs(sql`ol_log_count + reader_count`),
 
   // GENERATED. `simple`, not `english`: stemming damages proper nouns, and
   // book search is overwhelmingly proper nouns (§14.2).
@@ -88,7 +97,8 @@ export const works = pgTable('works', {
   check('works_maturity_ck', sql`${t.maturity} IN ('general','mature','explicit','unclassified')`),
   index('works_search_idx').using('gin', t.searchVector),
   index('works_title_trgm_idx').using('gin', sql`${t.title} gin_trgm_ops`),
-  index('works_log_count_idx').on(t.logCount),
+  // Built CONCURRENTLY by migrate.ts (ONLINE_SQL); ORDER BY log_count uses it.
+  index('works_log_count_idx').on(sql`(ol_log_count + reader_count)`),
 ]);
 
 export const editions = pgTable('editions', {
@@ -242,6 +252,20 @@ export const workStats = pgTable('work_stats', {
   polarisation: real('polarisation'),   // stddev of ratings (§9.6)
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 });
+
+/**
+ * The catalog mean rating C of the weighted rating (one row, migration 0026).
+ * Refreshed nightly by works.reconcile, so the reads trigger never scans the
+ * whole table for it (audit 08, L-01).
+ */
+export const catalogRatingStats = pgTable('catalog_rating_stats', {
+  id: boolean('id').primaryKey().default(true),
+  ratingSum: numeric('rating_sum', { precision: 14, scale: 1 }).notNull().default('0'),
+  ratingCount: bigint('rating_count', { mode: 'number' }).notNull().default(0),
+  refreshedAt: timestamp('refreshed_at', { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [
+  check('catalog_rating_stats_id_check', sql`${t.id}`),
+]);
 
 // ---------------------------------------------------------------------------
 // 2. Provenance and raw payloads (architecture.md §3.2, PRD §7.9 / §41)
@@ -410,6 +434,7 @@ export const reads = pgTable('reads', {
   abandonedAt: date('abandoned_at'),
   abandonedPage: integer('abandoned_page'),
   dnfReason: text('dnf_reason'),
+  dnfNote: text('dnf_note'),   // the DNF flow's optional note (PRD §6.18, 0027)
   rating: numeric('rating', { precision: 2, scale: 1 }),   // NULLABLE by design
   hearted: boolean('hearted').notNull().default(false),
   formatOverride: text('format_override'),
@@ -429,11 +454,14 @@ export const reads = pgTable('reads', {
   // is not the only thing that will ever write here (imports, admin, backfill).
   check('reads_rating_ck',
     sql`${t.rating} IS NULL OR (${t.rating} BETWEEN 0.5 AND 5.0 AND (${t.rating} * 2) = floor(${t.rating} * 2))`),
+  check('reads_dnf_note_ck', sql`${t.dnfNote} IS NULL OR char_length(${t.dnfNote}) <= 280`),
   check('reads_dates_ck',
     sql`${t.finishedAt} IS NULL OR ${t.startedAt} IS NULL OR ${t.finishedAt} >= ${t.startedAt}`),
   index('reads_user_status_idx').on(t.userId, t.status, t.updatedAt),
   index('reads_user_visibility_idx').on(t.userId, t.visibility, t.status, t.updatedAt),
   index('reads_work_finished_idx').on(t.workId).where(sql`${t.status} = 'finished'`),
+  // Built CONCURRENTLY by migrate.ts (ONLINE_SQL, audit 08).
+  index('reads_work_idx').on(t.workId, t.userId),
 ]);
 
 /** APPEND-ONLY. Current position is always the latest row (PRD §8.3). */

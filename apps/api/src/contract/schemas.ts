@@ -275,6 +275,8 @@ export const editionSchema = {
     page_count: { type: ['integer', 'null'] },
     format: { type: 'string' },
     cover_id: { type: ['integer', 'null'] },
+    publisher: { type: ['string', 'null'], description: 'GET /works/:id only.' },
+    publish_year: { type: ['integer', 'null'], description: 'GET /works/:id only.' },
   },
   required: ['id', 'format'],
 } as const;
@@ -323,8 +325,101 @@ export const workSchema = {
     rating_count: { type: ['integer', 'null'] },
     editions: { type: 'array', items: editionSchema },
     your_read: yourReadSchema,
+    merged_into: {
+      type: 'string',
+      format: 'uuid',
+      description: 'GET /works/:id only: the requested id was merged into this work, whose body this is (PRD §40.3, D3).',
+    },
+    maturity: {
+      type: 'string',
+      enum: ['general', 'mature', 'explicit', 'unclassified'],
+      description: 'GET /works/:id only (PRD §7.8).',
+    },
+    content_warning: {
+      type: 'boolean',
+      description: 'GET /works/:id only: the work is explicit and search would hide it from this viewer; show the interstitial.',
+    },
+    description: { type: ['string', 'null'], description: 'GET /works/:id only.' },
+    authors: {
+      type: 'array',
+      description: 'GET /works/:id only: credited authors in credit order; link to GET /authors/:id.',
+      items: {
+        type: 'object',
+        properties: { id: { type: 'string', format: 'uuid' }, name: { type: 'string' } },
+        required: ['id', 'name'],
+      },
+    },
+    series: {
+      type: 'array',
+      description: 'GET /works/:id only: series this work belongs to; link to GET /series/:id.',
+      items: {
+        type: 'object',
+        properties: {
+          id: { type: 'string', format: 'uuid' },
+          name: { type: 'string' },
+          position: { type: ['number', 'null'] },
+        },
+        required: ['id', 'name', 'position'],
+      },
+    },
+    rating_distribution: {
+      type: 'object',
+      description: 'GET /works/:id only: ratings per star, a half star counted in the bucket above (0.5 -> 1, 4.5 -> 5).',
+      properties: {
+        '1': { type: 'integer' }, '2': { type: 'integer' }, '3': { type: 'integer' },
+        '4': { type: 'integer' }, '5': { type: 'integer' },
+      },
+      required: ['1', '2', '3', '4', '5'],
+    },
   },
   required: ['id', 'title', 'author_name', 'log_count'],
+} as const;
+
+export const authorQuerySchema = {
+  type: 'object',
+  properties: {
+    limit: { type: 'integer', minimum: 1, maximum: 100, default: 50 },
+    offset: { type: 'integer', minimum: 0, default: 0 },
+  },
+} as const;
+
+export const authorDetailSchema = {
+  type: 'object',
+  properties: {
+    id: { type: 'string', format: 'uuid' },
+    name: { type: 'string' },
+    alternate_names: { type: 'array', items: { type: 'string' } },
+    bio: { type: ['string', 'null'] },
+    works_count: { type: 'integer' },
+    read_count: { type: 'integer', description: 'Works by this author the viewer has finished; 0 for a guest.' },
+    works: { type: 'array', items: workSchema },
+  },
+  required: ['id', 'name', 'alternate_names', 'bio', 'works_count', 'read_count', 'works'],
+} as const;
+
+export const seriesDetailSchema = {
+  type: 'object',
+  properties: {
+    id: { type: 'string', format: 'uuid' },
+    name: { type: 'string' },
+    read_books: { type: 'integer', description: 'Entries the viewer has finished; 0 for a guest.' },
+    entries: {
+      type: 'array',
+      items: {
+        type: 'object',
+        properties: {
+          work_id: { type: 'string', format: 'uuid' },
+          position: { type: ['number', 'null'] },
+          title: { type: 'string' },
+          author_name: { type: 'string' },
+          cover_id: { type: ['integer', 'null'] },
+          your_status: { type: ['string', 'null'], enum: ['want', 'reading', 'paused', 'finished', 'dnf', null] },
+        },
+        required: ['work_id', 'position', 'title', 'author_name', 'cover_id', 'your_status'],
+      },
+    },
+  },
+  required: ['id', 'name', 'read_books', 'entries'],
 } as const;
 
 export const searchQuerySchema = {
@@ -381,6 +476,7 @@ export const readSchema = {
     abandoned_at: { type: ['string', 'null'] },
     abandoned_page: { type: ['integer', 'null'] },
     dnf_reason: { type: ['string', 'null'] },
+    dnf_note: { type: ['string', 'null'], description: 'Optional note from the DNF flow (PRD §6.18).' },
     rating: { type: ['number', 'null'] },
     hearted: { type: 'boolean' },
     format_override: { type: ['string', 'null'], enum: ['print', 'ebook', 'audiobook', null] },
@@ -393,6 +489,15 @@ export const readSchema = {
     page_count: { type: ['integer', 'null'] },
   },
   required: ['id', 'user_id', 'work_id', 'status', 'attempt_no', 'hearted', 'visibility'],
+} as const;
+
+export const deleteReadResponseSchema = {
+  type: 'object',
+  properties: {
+    deleted: { type: 'boolean', const: true },
+    id: { type: 'string', format: 'uuid' },
+  },
+  required: ['deleted', 'id'],
 } as const;
 
 export const readListResponseSchema = {
@@ -435,7 +540,7 @@ export const progressEventBodySchema = {
     page: { type: ['integer', 'null'], minimum: 0 },
     percent: { type: ['number', 'null'], minimum: 0, maximum: 100 },
     audio_seconds: { type: ['integer', 'null'], minimum: 0 },
-    minutes: { type: ['integer', 'null'], minimum: 0 },
+    minutes: { type: ['integer', 'null'], minimum: 0, maximum: 1440, description: 'Optional session length in minutes (PRD §8.4); at most one day.' },
     note: { type: ['string', 'null'], maxLength: 280 },
   },
   required: ['client_event_id'],
@@ -448,7 +553,10 @@ export const finishReadBodySchema = {
     rating: { type: ['number', 'null'], minimum: 0.5, maximum: 5.0 },
     hearted: { type: ['boolean', 'null'] },
     format_override: { type: ['string', 'null'], enum: ['print', 'ebook', 'audiobook', null] },
-    review: { type: ['string', 'null'] },
+    review: {
+      type: 'null',
+      description: 'Not accepted: any value other than null is refused with 422 invalid_finish. Publish a review with POST /reads/{id}/review (audit 08).',
+    },
     visibility: { type: 'string', enum: ['public', 'followers', 'private'], default: 'public' },
   },
 } as const;

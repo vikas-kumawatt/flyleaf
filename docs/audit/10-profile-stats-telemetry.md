@@ -47,3 +47,14 @@ AC-7 and PRD §14.7 step 1 ask for a spelling suggestion on a search with no res
 ## Deliverables
 
 `docs/audit/findings/10-profile-stats-telemetry.md`, the stats privacy test matrix, fixes, and audit lines under SL-70…74 and SL-80…82.
+
+## Decided in Part 08: D-08-3, page count for reads with no chosen edition
+
+Today the fallback is the **smallest** edition's page count. That biases toward abridged or mass-market editions and understates pages read in stats. Change it to: the work's **default edition** page count if it has one, otherwise the **median** of its editions' page counts, ignoring values under 20. Apply the same rule everywhere a read's page count is derived (progress %, stats pages read, Year in Review), in one function. Test it with a work whose editions are 96, 310, 320 and 1,200 pages (median 315) and with a work that has a default edition.
+
+## Handed over from Part 07/07b (see `findings/07-mobile-foundation.md`)
+
+- **A-07-036:** "Show explicit titles in search" has no endpoint or screen, so no adult can ever turn it on. Build the setting (server field, `/v1/me` exposure, settings screen). It is only available to accounts with a confirmed date of birth and age 18 or over; guests and unconfirmed accounts can never enable it (§7.8).
+- **D-07b-1, neutral age gate:** an under-13 date at confirmation is refused. Record the attempt on the account, refuse any later attempts (the account stays restricted until reviewed), and keep a local device flag for the same case at signup. When SO-42 suspension exists, switch the flag to a suspension. Test that a second, older date is refused after an under-13 attempt.
+- **Avatar picker** (from Part 07): uses the PV-0x presigned upload path with purpose `avatar`: image types and a size limit from the purpose policy table, magic-byte check at complete.
+- **`/users/:id/reads` is unpaginated** (from Part 08): paginate it with the same opaque cursor style as the comments endpoint.

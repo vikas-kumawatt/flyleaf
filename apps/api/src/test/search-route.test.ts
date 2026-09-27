@@ -38,7 +38,7 @@ beforeAll(async () => {
   await app.ready();
 
   await db.execute(sql`
-    INSERT INTO works (title, log_count, maturity) VALUES
+    INSERT INTO works (title, ol_log_count, maturity) VALUES
       ('Velvet Nights', 900, 'explicit'),
       ('Velvet Revolution', 10, 'mature'),
       ('Velvet Hour', 5, 'unclassified'),
@@ -102,7 +102,7 @@ describe('exact ISBN and maturity (PRD §7.8; audit 02c)', () => {
     // A shared ISBN: the explicit work is the more-logged one, so ISBN_ORDER
     // alone would pick it. A filtered viewer must get the allowed one.
     await db.execute(sql`
-      INSERT INTO works (title, log_count, maturity) VALUES
+      INSERT INTO works (title, ol_log_count, maturity) VALUES
         ('Scarlet Ledger', 5000, 'explicit'),
         ('Scarlet Ledger (Student Edition)', 1, 'general')`);
     await db.execute(sql`

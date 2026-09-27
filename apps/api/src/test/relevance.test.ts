@@ -29,34 +29,10 @@
 // bare "expected 0.94 to be at least 0.95" is useless.
 
 import { beforeAll, afterAll, describe, expect, it } from 'vitest';
-import fs from 'node:fs';
-import { fileURLToPath } from 'node:url';
 import type { PGlite } from '@electric-sql/pglite';
 import { SEARCH_SQL, searchArgs } from '../catalog/index.js';
 import { freshDb } from './pg.js';
-
-type CorpusAuthor = { name: string; alternate_names: string[] | null };
-type CorpusWork = {
-  ol_work_key: string;
-  title: string;
-  subtitle: string | null;
-  alternate_titles: string[] | null;
-  first_publish_year: number | null;
-  ol_cover_id: number | null;
-  log_count: number;
-  authors: CorpusAuthor[] | null;
-};
-
-const CORPUS_PATH = fileURLToPath(new URL('./fixtures/relevance-corpus.json', import.meta.url));
-
-/** BOM-tolerant: the export can be written by a shell that adds one. */
-function loadCorpus(): CorpusWork[] {
-  const raw = fs.readFileSync(CORPUS_PATH, 'utf8').replace(/^﻿/, '').trim();
-  const rows = JSON.parse(raw) as CorpusWork[];
-  return rows
-    .filter((w) => w.title && (w.authors?.length ?? 0) > 0)
-    .sort((a, b) => b.log_count - a.log_count);
-}
+import { loadCorpus, buildPanel } from './relevance-panel.js';
 
 const corpus = loadCorpus();
 /** work key -> row, for reporting a failure in words rather than in uuids. */
@@ -97,7 +73,7 @@ beforeAll(async () => {
       .join(',');
     const { rows } = await db.query<{ id: string; ol_work_key: string }>(
       `INSERT INTO works (ol_work_key, title, subtitle, alternate_titles,
-                          first_publish_year, ol_cover_id, log_count)
+                          first_publish_year, ol_cover_id, ol_log_count)
        VALUES ${values} RETURNING id, ol_work_key`,
       batch.flatMap((w) => [w.ol_work_key, w.title, w.subtitle, w.alternate_titles ?? [],
                             w.first_publish_year, w.ol_cover_id, w.log_count]),
@@ -133,80 +109,6 @@ async function search(q: string, limit = 10) {
     SEARCH_SQL, searchArgs(q, limit, false),
   );
   return rows;
-}
-
-/** The most-logged work whose title matches exactly — what an exact-title query means. */
-function bestByTitle(title: string): CorpusWork | undefined {
-  const wanted = title.trim().toLowerCase();
-  return corpus.find((w) => w.title.trim().toLowerCase() === wanted);
-}
-
-type Case = { q: string; expect: string; within: number; kind: string };
-
-/**
- * Queries derived from the corpus, so expectations come from the data rather
- * than from my memory of which books are popular.
- *
- * Deterministic — no sampling. A failure has to be reproducible or nobody
- * will chase it.
- */
-function buildPanel(): Case[] {
-  const cases: Case[] = [];
-  const seen = new Set<string>();
-  const add = (q: string, key: string, within: number, kind: string) => {
-    const trimmed = q.trim();
-    if (trimmed.length < 3 || seen.has(trimmed.toLowerCase())) return;
-    seen.add(trimmed.toLowerCase());
-    cases.push({ q: trimmed, expect: key, within, kind });
-  };
-
-  // The `within` values measure POSITION, not membership.
-  //
-  // At top-10 this panel scored 217/217, which sounds good and proves almost
-  // nothing: both ranking regressions this project actually shipped — the
-  // dropped author-scoring term and the unordered `by_author` LIMIT — left
-  // the right answer somewhere in the first ten and merely put the wrong one
-  // above it. A membership check passes through both. So an exact title must
-  // come FIRST, and everything else must make the top five.
-
-  // 1. Exact titles. The most-logged work with that title must rank #1 —
-  //    including "piranesi", where nine architecture monographs compete.
-  for (const w of corpus.slice(0, 90)) {
-    const best = bestByTitle(w.title);
-    if (best) add(w.title.toLowerCase(), best.ol_work_key, 1, 'exact title');
-  }
-
-  // 2. Prefixes. Every keystroke but the last is a prefix — the regression
-  //    that shipped in Phase 0 was exactly this.
-  for (const w of corpus.slice(0, 80)) {
-    if (w.title.length < 9) continue;
-    const best = bestByTitle(w.title);
-    if (best) add(w.title.slice(0, 6).toLowerCase(), best.ol_work_key, 5, 'prefix');
-  }
-
-  // 3. Author names. The author's most-logged work must surface.
-  const byAuthor = new Map<string, CorpusWork>();
-  for (const w of corpus) {
-    const name = w.authors?.[0]?.name;
-    if (name && !byAuthor.has(name)) byAuthor.set(name, w);
-  }
-  for (const [name, w] of [...byAuthor].slice(0, 40)) {
-    const surname = name.trim().split(/\s+/).at(-1) ?? '';
-    if (surname.length >= 4) add(surname.toLowerCase(), w.ol_work_key, 5, 'author');
-  }
-
-  // 4. Typos. Drop one character from the middle of the title.
-  for (const w of corpus.slice(0, 30)) {
-    if (w.title.length < 10) continue;
-    const best = bestByTitle(w.title);
-    const cut = Math.floor(w.title.length / 2);
-    if (best) {
-      add((w.title.slice(0, cut) + w.title.slice(cut + 1)).toLowerCase(),
-          best.ol_work_key, 5, 'typo');
-    }
-  }
-
-  return cases;
 }
 
 describe('the hard cases', () => {
@@ -316,7 +218,7 @@ describe('the panel', () => {
   const FLOOR = 0.98;
 
   it('holds its pass rate across ~200 queries', async () => {
-    const panel = buildPanel();
+    const panel = buildPanel(corpus);
     expect(panel.length).toBeGreaterThanOrEqual(150);
 
     const failures: string[] = [];

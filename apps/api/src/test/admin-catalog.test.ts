@@ -36,19 +36,19 @@ describe('Admin Catalog Maturity & Ingestion Telemetry (FN-92)', () => {
     `);
 
     const [workGeneral] = await db.execute<{ id: string }>(sql`
-      INSERT INTO works (title, maturity, log_count, ol_work_key)
+      INSERT INTO works (title, maturity, ol_log_count, ol_work_key)
       VALUES ('Normal Book', 'general', 100, '/works/OL101W')
       RETURNING id
     `);
 
     const [workUnclassified] = await db.execute<{ id: string }>(sql`
-      INSERT INTO works (title, maturity, log_count, ol_work_key)
+      INSERT INTO works (title, maturity, ol_log_count, ol_work_key)
       VALUES ('Unclassified Book', 'unclassified', 50, '/works/OL102W')
       RETURNING id
     `);
 
     const [workExplicit] = await db.execute<{ id: string }>(sql`
-      INSERT INTO works (title, maturity, log_count, ol_work_key)
+      INSERT INTO works (title, maturity, ol_log_count, ol_work_key)
       VALUES ('Adult Erotica Title', 'explicit', 200, '/works/OL103W')
       RETURNING id
     `);

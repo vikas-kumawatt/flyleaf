@@ -167,6 +167,13 @@ function buildScenarios(cursors: Record<string, string | null>): Scenario[] {
       body: () => ({ client_event_id: randomUUID(), page: 1 + Math.floor(Math.random() * 300), minutes: 20 }),
       notes: ['writes a progress_events row per request to a bench read (removed by --clean)'],
     },
+    {
+      name: 'rate:post', group: 'api', method: 'POST', persona: 'reviewer_of_hot_work',
+      path: () => (hotReviewRead ? `/v1/reads/${hotReviewRead}/finish` : ''),
+      // Alternating, so every request changes the rating and fires the trigger.
+      body: ((n) => () => ({ rating: (n++ % 2) ? 4 : 4.5 }))(0),
+      notes: ['finishes the hot review\'s read with a changing rating; rewrites that bench read and adds an activity row per request (removed by --clean)'],
+    },
     { name: 'stats:me', group: 'api', method: 'GET', persona: 'heavy', path: () => '/v1/me/stats' },
     { name: 'stats:user', group: 'api', method: 'GET', persona: 'typical', path: () => `/v1/users/${P.heavy!.user_id}/stats` },
   );
@@ -333,6 +340,20 @@ if (!health?.ok) {
 await refreshTokens();
 
 const runNotes = await preflightSearch();
+
+// Audit 08: a rating write on the hot work (the most reads), which is what
+// the work_stats trigger (L-01) costs most on. The hot review's read belongs
+// to the reviewer_of_hot_work persona.
+const hotReviewRead = await (async () => {
+  const db = makeDb(undefined, { max: 1, quiet: true });
+  try {
+    const [row] = await db.$client<{ read_id: string }[]>`
+      SELECT read_id FROM reviews WHERE id = ${String(ids.hot_review_id)}`;
+    return row?.read_id ?? null;
+  } finally {
+    await closeDb(db);
+  }
+})();
 
 const cursors: Record<string, string | null> = {};
 for (const persona of ['heavy', 'typical', 'new'] as const) {

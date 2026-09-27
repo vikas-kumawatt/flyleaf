@@ -38,6 +38,7 @@ function socialHandler(log: string[], net: { offline: boolean }, gate?: Promise<
     saveReview: unexpected('saveReview'),
     setLiked: (readId, liked) => send(`like:${readId}:${liked}`),
     setFollowing: (userId, following) => send(`follow:${userId}:${following}`),
+    deleteRead: async () => { throw new Error('unexpected deleteRead'); },
   };
 }
 

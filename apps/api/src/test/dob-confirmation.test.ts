@@ -26,9 +26,11 @@ describe('migration 0025: who is asked to confirm', () => {
   beforeAll(async () => {
     pg = new PGlite({ extensions: { pg_trgm, unaccent } });
     for (const statement of PREREQUISITE_SQL) await pg.exec(statement);
+    // 0025 by name, not "the last one": later migrations (0026, 0027) exist.
     const files = migrationFiles();
-    expect(files.at(-1)?.tag).toBe('0025_dob_confirmation');
-    for (const { sql: text } of files.slice(0, -1)) await pg.exec(text);
+    const at = files.findIndex((f) => f.tag === '0025_dob_confirmation');
+    expect(at).toBeGreaterThan(0);
+    for (const { sql: text } of files.slice(0, at)) await pg.exec(text);
     await pg.exec(`
       INSERT INTO users (email, password_hash, date_of_birth, role) VALUES
         ('placeholder@x.test', 'h', '2000-01-01', 'user'),
@@ -38,7 +40,7 @@ describe('migration 0025: who is asked to confirm', () => {
         ('staff@x.test', 'h', '2000-01-01', 'admin');
       UPDATE users SET deleted_at = now() WHERE email = 'deleted@x.test';
     `);
-    await pg.exec(files.at(-1)!.sql);
+    await pg.exec(files[at]!.sql);
   }, 60_000);
 
   afterAll(async () => {
@@ -89,7 +91,7 @@ describe('confirming a date of birth (D-07-3)', () => {
     });
     await app.ready();
     await db.execute(sql`
-      INSERT INTO works (title, log_count, maturity) VALUES
+      INSERT INTO works (title, ol_log_count, maturity) VALUES
         ('Velvet Nights', 900, 'explicit'),
         ('Velvet Morning', 3, 'general')`);
     await db.execute(sql`

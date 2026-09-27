@@ -17,7 +17,11 @@ export interface PredictionInput {
   recentEvents?: ProgressPoint[];
 }
 
-export function predictFinishDate(input: PredictionInput): string {
+/**
+ * `now` is injectable so a prediction can be tested against a fixed clock;
+ * callers use the default.
+ */
+export function predictFinishDate(input: PredictionInput, now: number = Date.now()): string {
   const { currentPage, pageCount, percent, startedAt, recentEvents } = input;
 
   // Case 1: Already 100% or reached page count
@@ -32,8 +36,6 @@ export function predictFinishDate(input: PredictionInput): string {
   if ((currentPage == null || currentPage <= 0) && (percent == null || percent <= 0)) {
     return 'Log progress to predict finish';
   }
-
-  const now = Date.now();
 
   // Case 3: Page-based calculation
   if (pageCount != null && pageCount > 0 && currentPage != null) {
@@ -77,7 +79,9 @@ export function predictFinishDate(input: PredictionInput): string {
 
     // Clamp pages/day to sane bounds (e.g. 5 to 500 pages/day)
     const clampedSpeed = Math.max(5, Math.min(500, pagesPerDay));
-    const daysLeft = Math.max(1, Math.ceil(pagesLeft / clampedSpeed));
+    // Rounded before ceil, like the percent path: a span a few ms over a
+    // whole number of days must not add a day (2.000001 -> 3).
+    const daysLeft = Math.max(1, Math.ceil(Math.round((pagesLeft / clampedSpeed) * 1e4) / 1e4));
 
     return formatDaysLeft(daysLeft, now);
   }

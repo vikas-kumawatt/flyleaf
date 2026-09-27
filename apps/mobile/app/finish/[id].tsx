@@ -27,6 +27,7 @@ import { OfflineRepository } from '@/offline/repository';
 import { useSession } from '@/lib/session';
 import type { LocalRead } from '@/offline/schema';
 import { budgetTracker } from '@/lib/budgetTracker';
+import { localDate } from '@/lib/readingRules';
 import { Button, Card, Cover, Heart, Screen, Stars, Txt, sheet } from '@/ui/components';
 import { radius, space, useTheme } from '@/ui/tokens';
 
@@ -45,7 +46,8 @@ export default function FinishScreen() {
   const [rating, setRating] = useState<number | null>(null);
   const [hearted, setHearted] = useState(false);
   const [format, setFormat] = useState<'print' | 'ebook' | 'audiobook'>('print');
-  const [finishedAt, setFinishedAt] = useState(() => new Date().toISOString().slice(0, 10));
+  // The reader's today, not UTC's (PRD §8.5, audit 08).
+  const [finishedAt, setFinishedAt] = useState(() => localDate());
   const [review, setReview] = useState('');
   const [hasSpoilers, setHasSpoilers] = useState(false);
   const [visibility, setVisibility] = useState<'public' | 'followers' | 'private'>('public');

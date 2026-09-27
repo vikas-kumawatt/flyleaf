@@ -86,6 +86,9 @@ async function main() {
   await boss.schedule(QUEUES.reconcileShelves, '0 3 * * *');
   await boss.schedule(QUEUES.reconcileFollows, '15 3 * * *');
   await boss.schedule(QUEUES.reconcileReads, '30 3 * * *');
+  // Catalog mean rating, work_stats and works.reader_count (audit 08, 0026).
+  // After reads.reconcile, so it counts settled reads.
+  await boss.schedule(QUEUES.reconcileWorks, '40 3 * * *');
   // Expired uploads and export files leave object storage (PV-02).
   await boss.schedule(QUEUES.storageCleanup, '45 3 * * *');
 

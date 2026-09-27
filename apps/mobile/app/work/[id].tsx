@@ -7,8 +7,15 @@
 // - Expandable description
 // - Edition metadata strip
 // - Tabs: Reviews / Editions / Reading History
+//
+// Audit 08: the description, series, histogram and metadata fallbacks were
+// fixed values shown for every book; they now come from GET /works/:id and
+// are hidden when absent. Status, rating and progress go through the offline
+// queue like every other reading write (A-07-019/020), with visible errors
+// (A-07-024). A merged id shows the survivor, and writes use its id (D3).
 
 import React, { useEffect, useState } from 'react';
+import * as SecureStore from 'expo-secure-store';
 import {
   ScrollView,
   View,
@@ -28,6 +35,10 @@ import { useActionGate } from '@/ui/ActionGate';
 import { useOfflineSync } from '@/offline/sync';
 import { AddToShelfSheet } from '@/ui/AddToShelfSheet';
 import { budgetTracker } from '@/lib/budgetTracker';
+import { useDatabase } from '@/offline/db';
+import { OfflineRepository } from '@/offline/repository';
+import { useRemote } from '@/lib/useRemote';
+import { RemoteStatus } from '@/ui/RemoteStatus';
 import {
   Button,
   Card,
@@ -62,8 +73,14 @@ export default function WorkScreen() {
   const router = useRouter();
   const c = useTheme();
 
-  const [work, setWork] = useState<Work | null>(null);
+  const db = useDatabase();
+  const remote = useRemote(id ? () => api.work(id) : null, [id, user?.id]);
+  const work: Work | null = remote.state === 'ready' ? remote.data : null;
+  const setWork = (w: Work) => remote.set(w);
   const [busy, setBusy] = useState(false);
+  // PRD §7.8: a direct link to an explicit work resolves, behind a one-time
+  // interstitial for a viewer search would hide it from. Remembered per work.
+  const [acknowledged, setAcknowledged] = useState<boolean | null>(null);
   const [isMuted, setIsMuted] = useState(false);
   const [pageInput, setPageInput] = useState('');
   const [descExpanded, setDescExpanded] = useState(false);
@@ -71,7 +88,7 @@ export default function WorkScreen() {
   const [shelfSheetVisible, setShelfSheetVisible] = useState(false);
 
   const handleMuteBook = async () => {
-    if (!id || !work) return;
+    if (!work) return;
     if (!user) {
       promptAuth({ title: `Sign up to mute ${work.title}`, subtitle: 'Muted books stay out of your feed.' });
       return;
@@ -79,11 +96,11 @@ export default function WorkScreen() {
     try {
       void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
       if (isMuted) {
-        await api.unmuteWork(id);
+        await api.unmuteWork(work.id);
         setIsMuted(false);
         Alert.alert('Unmuted', `"${work.title}" has been unmuted.`);
       } else {
-        await api.muteWork(id);
+        await api.muteWork(work.id);
         setIsMuted(true);
         Alert.alert('Muted Book', `"${work.title}" has been muted. It will no longer appear in your activity feeds.`);
       }
@@ -163,27 +180,70 @@ export default function WorkScreen() {
     setShelfSheetVisible(true);
   };
 
-  const load = async () => {
-    if (id) {
-      setWork(await api.work(id));
-    }
-  };
-
+  const ackKey = work ? `explicit_ack_${work.id}` : null;
   useEffect(() => {
-    load().catch(() => {});
-  }, [id, user?.id]);
+    if (!ackKey || !work?.content_warning) return;
+    SecureStore.getItemAsync(ackKey)
+      .then((v) => setAcknowledged(v === '1'))
+      .catch(() => setAcknowledged(false));
+  }, [ackKey, work?.content_warning]);
 
-  if (!work) {
+  if (remote.state !== 'ready' || !work) {
+    return <RemoteStatus remote={remote} noun="book" onRetry={() => void remote.reload()} />;
+  }
+
+  if (work.content_warning && acknowledged !== true) {
     return (
       <Screen>
-        <View style={sheet.pad}>
-          <Txt color="muted">Loading book…</Txt>
-        </View>
+        <EmptyState
+          title="This book is marked explicit"
+          subtitle="It is hidden from your search results. You can still open it, log it and rate it."
+          action={
+            <Button
+              label="Show the book"
+              onPress={() => {
+                setAcknowledged(true);
+                if (ackKey) void SecureStore.setItemAsync(ackKey, '1').catch(() => {});
+              }}
+            />
+          }
+        />
       </Screen>
     );
   }
 
   const edition = work.editions?.[0];
+  const author = work.authors?.[0];
+  const series = work.series?.[0];
+  const distribution = work.rating_distribution;
+  const ratedTotal = distribution ? Object.values(distribution).reduce((a, b) => a + b, 0) : 0;
+  const ratingsDistribution = [5, 4, 3, 2, 1].map((stars) => {
+    const count = distribution?.[String(stars) as '1'] ?? 0;
+    return { stars, count, pct: ratedTotal > 0 ? Math.round((count / ratedTotal) * 100) : 0 };
+  });
+
+  /** Local read state shown at once; the write itself is queued and syncs when it can. */
+  const optimistic = (patch: Partial<NonNullable<Work['your_read']>>) =>
+    setWork({
+      ...work,
+      your_read: {
+        id: work.your_read?.id ?? '',
+        status: work.your_read?.status ?? 'want',
+        rating: work.your_read?.rating ?? null,
+        hearted: work.your_read?.hearted ?? false,
+        page: work.your_read?.page ?? null,
+        percent: work.your_read?.percent ?? null,
+        ...patch,
+      },
+    });
+  const failed = () =>
+    Alert.alert('Not saved', 'That change could not be saved on this phone. Please try again.');
+  const meta = {
+    title: work.title,
+    author_name: work.author_name,
+    cover_id: work.cover_id,
+    page_count: edition?.page_count ?? null,
+  };
   const total = edition?.page_count ?? null;
   const page = work.your_read?.page ?? null;
   const percent =
@@ -235,10 +295,13 @@ export default function WorkScreen() {
       return;
     }
 
+    if (!db) return;
     setBusy(true);
     try {
-      await api.setStatus(work.id, status);
-      await load();
+      await new OfflineRepository(db, user.id).saveReadStatus(work.id, status, null, null, meta);
+      optimistic({ status });
+    } catch {
+      failed();
     } finally {
       setBusy(false);
     }
@@ -252,10 +315,14 @@ export default function WorkScreen() {
       });
       return;
     }
+    if (!db) return;
     setBusy(true);
     try {
-      await api.setStatus(work.id, work.your_read?.status ?? 'finished', rating);
-      await load();
+      const status = work.your_read?.status ?? 'finished';
+      await new OfflineRepository(db, user.id).saveReadStatus(work.id, status, rating, null, meta);
+      optimistic({ status, rating });
+    } catch {
+      failed();
     } finally {
       setBusy(false);
     }
@@ -263,28 +330,19 @@ export default function WorkScreen() {
 
   const submitProgress = async () => {
     const n = parseInt(pageInput, 10);
-    if (!work.your_read || Number.isNaN(n)) return;
+    if (!work.your_read || Number.isNaN(n) || n < 0 || !db || !user) return;
     setBusy(true);
     try {
-      await api.addProgress(work.your_read.id, n, total ? (n / total) * 100 : null);
+      const pct = total ? Math.min(100, (n / total) * 100) : null;
+      await new OfflineRepository(db, user.id).saveProgress(work.your_read.id, n, pct);
+      optimistic({ page: n, percent: pct });
       setPageInput('');
-      await load();
+    } catch {
+      failed();
     } finally {
       setBusy(false);
     }
   };
-
-  // Mock histogram ratings distribution (PRD §6.24)
-  const ratingsDistribution = [
-    { stars: 5, pct: 64, count: 912 },
-    { stars: 4, pct: 24, count: 341 },
-    { stars: 3, pct: 8, count: 114 },
-    { stars: 2, pct: 3, count: 42 },
-    { stars: 1, pct: 1, count: 14 },
-  ];
-
-  const defaultDescription =
-    'Piranesi lives in the House. Perhaps he always has. In his notebooks, day after day, he makes a clear and careful record of its wonders: the labyrinth of halls, the thousands upon thousands of statues, the tides that surge up staircases, the clouds that move in slow procession through the upper halls. A singular, spellbinding work of the imagination.';
 
   return (
     <Screen>
@@ -299,7 +357,8 @@ export default function WorkScreen() {
 
             {/* Author Link */}
             <Pressable
-              onPress={() => router.push(`/author/${encodeURIComponent(work.author_name)}` as any)}
+              onPress={() => { if (author) router.push(`/author/${author.id}` as any); }}
+              disabled={!author}
               accessibilityRole="link"
               accessibilityLabel={`Author ${work.author_name}`}
               hitSlop={8}
@@ -310,16 +369,18 @@ export default function WorkScreen() {
             </Pressable>
 
             {/* Series Link */}
-            <Pressable
-              onPress={() => router.push('/series/earthsea' as any)}
-              accessibilityRole="link"
-              accessibilityLabel="Series Earthsea Cycle Book 1"
-              hitSlop={8}
-            >
-              <Txt variant="caption" color="muted">
-                Earthsea Cycle · Book 1
-              </Txt>
-            </Pressable>
+            {series ? (
+              <Pressable
+                onPress={() => router.push(`/series/${series.id}` as any)}
+                accessibilityRole="link"
+                accessibilityLabel={`Series ${series.name}${series.position != null ? `, book ${series.position}` : ''}`}
+                hitSlop={8}
+              >
+                <Txt variant="caption" color="muted">
+                  {series.name}{series.position != null ? ` · Book ${series.position}` : ''}
+                </Txt>
+              </Pressable>
+            ) : null}
 
             {/* Metadata line */}
             <Txt variant="caption" color="muted">
@@ -489,8 +550,8 @@ export default function WorkScreen() {
               </View>
             </View>
 
-            {/* 5-Bar Distribution */}
-            {ratingsDistribution.map((item) => (
+            {/* 5-Bar Distribution (work's real ratings; hidden when there are none) */}
+            {ratedTotal > 0 && ratingsDistribution.map((item) => (
               <View key={item.stars} style={[sheet.row, { gap: space[2] }]}>
                 <Txt variant="caption" color="muted" tabular style={{ width: 22 }}>
                   {item.stars}★
@@ -564,7 +625,8 @@ export default function WorkScreen() {
           </Card>
         )}
 
-        {/* 5. Description (Expandable) */}
+        {/* 5. Description (Expandable), only when the catalog has one */}
+        {work.description ? (
         <Card style={{ gap: space[2] }}>
           <Txt variant="micro" color="muted">
             ABOUT THIS BOOK
@@ -575,7 +637,7 @@ export default function WorkScreen() {
             numberOfLines={descExpanded ? undefined : 3}
             style={{ lineHeight: 22 }}
           >
-            {defaultDescription}
+            {work.description}
           </Txt>
           <Pressable
             onPress={() => setDescExpanded(!descExpanded)}
@@ -588,6 +650,7 @@ export default function WorkScreen() {
             </Txt>
           </Pressable>
         </Card>
+        ) : null}
 
         {/* 6. Metadata Strip */}
         <Card style={{ gap: space[2] }}>
@@ -600,7 +663,7 @@ export default function WorkScreen() {
                 Format
               </Txt>
               <Txt variant="caption" color="ink" style={{ textTransform: 'capitalize' }}>
-                {edition?.format ?? 'Paperback'}
+                {formatLabel(edition?.format) ?? '—'}
               </Txt>
             </View>
             <View style={[sheet.row, { justifyContent: 'space-between' }]}>
@@ -608,7 +671,7 @@ export default function WorkScreen() {
                 Pages
               </Txt>
               <Txt variant="caption" color="ink" tabular>
-                {total ?? '245'} pages
+                {total ? `${total} pages` : '—'}
               </Txt>
             </View>
             <View style={[sheet.row, { justifyContent: 'space-between' }]}>
@@ -616,7 +679,7 @@ export default function WorkScreen() {
                 First Published
               </Txt>
               <Txt variant="caption" color="ink" tabular>
-                {work.first_publish_year ?? '2020'}
+                {work.first_publish_year ?? '—'}
               </Txt>
             </View>
             <View style={[sheet.row, { justifyContent: 'space-between' }]}>
@@ -624,7 +687,7 @@ export default function WorkScreen() {
                 ISBN-13
               </Txt>
               <Txt variant="caption" color="ink" tabular>
-                {edition?.isbn13 ?? '9780571353408'}
+                {edition?.isbn13 ?? '—'}
               </Txt>
             </View>
           </View>
@@ -884,7 +947,7 @@ export default function WorkScreen() {
               <Card style={{ gap: space[3] }}>
                 <Txt variant="title">Editions of {work.title}</Txt>
                 <Txt variant="caption" color="muted">
-                  {work.editions?.length ?? 4} editions available in catalog.
+                  {work.editions?.length ?? 0} editions in the catalog.
                 </Txt>
                 <Button
                   label="Choose your edition (The copy I own)"
@@ -899,7 +962,7 @@ export default function WorkScreen() {
             <View style={{ gap: space[3] }}>
               {work.your_read ? (
                 <Card style={{ gap: space[2] }}>
-                  <Txt variant="title">Attempt #1</Txt>
+                  <Txt variant="title">Latest attempt</Txt>
                   <Txt variant="caption" color="muted">
                     Status: {work.your_read.status.toUpperCase()}
                   </Txt>

@@ -31,6 +31,9 @@ import type {
   DedupeResolveRequest,
   DedupeResolveResponse,
   DnfReadRequest,
+  DeleteReadResponse,
+  AuthorDetail,
+  SeriesDetail,
   EditionLookupResponse,
   FinishReadRequest,
   FollowResult,
@@ -390,6 +393,25 @@ export class FlyleafClient {
       method: 'POST',
       body: JSON.stringify(data),
     });
+  }
+
+  /** An author and their works, most logged first (SL-43). */
+  async getAuthor(id: string, params?: { limit?: number; offset?: number }): Promise<AuthorDetail> {
+    const q = new URLSearchParams();
+    if (params?.limit !== undefined) q.set('limit', String(params.limit));
+    if (params?.offset !== undefined) q.set('offset', String(params.offset));
+    const qs = q.toString();
+    return this.request<AuthorDetail>(`/authors/${encodeURIComponent(id)}${qs ? `?${qs}` : ''}`);
+  }
+
+  /** A series in reading order with the viewer's status on each entry (SL-43). */
+  async getSeries(id: string): Promise<SeriesDetail> {
+    return this.request<SeriesDetail>(`/series/${encodeURIComponent(id)}`);
+  }
+
+  /** Deletes a read with its progress, review, likes, comments and activity (PRD §34.2). 404 if already gone. */
+  async deleteRead(readId: string): Promise<DeleteReadResponse> {
+    return this.request<DeleteReadResponse>(`/reads/${encodeURIComponent(readId)}`, { method: 'DELETE' });
   }
 
   async getMyStats(year?: number | string): Promise<ReadingStats> {

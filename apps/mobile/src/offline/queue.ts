@@ -85,6 +85,8 @@ export interface MutationHandler {
   setLiked: (readId: string, liked: boolean) => Promise<unknown>;
   /** POST or DELETE /users/:id/follow; both idempotent on the server (Audit 05). */
   setFollowing: (userId: string, following: boolean) => Promise<unknown>;
+  /** DELETE /reads/:id (PRD §34.2). A 404 on replay means it is already gone. */
+  deleteRead: (readId: string) => Promise<unknown>;
 }
 
 /** The desired-state social writes and the payload field each carries. */
@@ -342,6 +344,15 @@ export class MutationQueue {
           break;
         case 'set_follow':
           result = await handler.setFollowing(m.entity_id, payload.following === true);
+          break;
+        case 'delete_read':
+          try {
+            result = await handler.deleteRead(m.entity_id);
+          } catch (err) {
+            // Already deleted (a replay, or another device): the state the
+            // user asked for holds, so it is not a sync issue.
+            if (!(err instanceof FlyleafApiError && err.status === 404)) throw err;
+          }
           break;
         default:
           throw new Error(`Unknown queued action: ${String(m.action)}`);

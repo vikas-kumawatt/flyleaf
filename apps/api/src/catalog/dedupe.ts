@@ -305,8 +305,10 @@ export const STAGE1_SQL = `
  *   profiles        favourite_work_ids uuid[] — loser swapped for the survivor
  *                   in place; if both were favourites, the first slot wins.
  *   import_rows     plain repoint.
- *   works.log_count the survivor gains the loser's count (dump logs + Flyleaf
- *                   logs are both counted on the work row, never recomputed).
+ *   works.ol_log_count the survivor gains the loser's Open Library baseline.
+ *                   reader_count (the Flyleaf half of log_count) is not added:
+ *                   the reads trigger re-derives it on both works from the
+ *                   reads that moved, so a reader of both copies counts once.
  *   work_authors / work_subjects / series_entries — PK collisions, insert what
  *                   the survivor lacks; what was ADDED is recorded so undo can
  *                   take exactly that back off the survivor.
@@ -340,8 +342,8 @@ export async function mergeWorks(
 
   return db.transaction(async (tx) => {
     // Lock in id order so two merges that share a work cannot deadlock.
-    const locked = await tx.execute<{ id: string; merged_into_id: string | null; log_count: number }>(sql`
-      SELECT id, merged_into_id, log_count FROM works
+    const locked = await tx.execute<{ id: string; merged_into_id: string | null; ol_log_count: number }>(sql`
+      SELECT id, merged_into_id, ol_log_count FROM works
       WHERE id IN (${survivorId}, ${loserId}) ORDER BY id FOR UPDATE`);
     const survivor = locked.find((w) => w.id === survivorId);
     const loser = locked.find((w) => w.id === loserId);
@@ -450,7 +452,7 @@ export async function mergeWorks(
       RETURNING import_id, row_no`);
 
     await tx.execute(sql`
-      UPDATE works SET log_count = log_count + ${Number(loser.log_count)} WHERE id = ${survivorId}`);
+      UPDATE works SET ol_log_count = ol_log_count + ${Number(loser.ol_log_count)} WHERE id = ${survivorId}`);
 
     // The ON CONFLICT tables. Insert what the survivor lacks, then drop the
     // loser's rows — an UPDATE would fail on the duplicates. RETURNING gives
@@ -536,7 +538,7 @@ export async function mergeWorks(
       favourites: favourites.map((f) => ({ user_id: f.user_id, before: f.before, after: f.after })),
       import_rows: importRows.map((r) => ({ import_id: r.import_id, row_no: Number(r.row_no) })),
       external_ids: externalIds.map((e) => ({ provider: e.provider, external_id: e.external_id })),
-      log_count_added: Number(loser.log_count),
+      ol_log_count_added: Number(loser.ol_log_count),
       rechained: rechained.length,
       rechained_ids: priorRechained.map((r) => r.id),
     };
@@ -570,7 +572,7 @@ type MovedRecord = {
   favourites?: { user_id: string; before: string[]; after: string[] }[];
   import_rows?: { import_id: string; row_no: number }[];
   external_ids?: { provider: string; external_id: string }[];
-  log_count_added?: number;
+  ol_log_count_added?: number;
   rechained_ids?: string[];
 };
 
@@ -759,11 +761,13 @@ export async function undoMerge(
       UPDATE works SET merged_into_id = ${loserId}, updated_at = now()
       WHERE id = ANY (${uuids(moved.rechained_ids)})`);
 
-    // 9. Counters. log_count gave the loser's count to the survivor; work_stats
-    // is derived, so recompute both rather than trying to reverse it.
-    if (moved.log_count_added) {
+    // 9. Counters. The merge gave the loser's OL baseline to the survivor;
+    // work_stats and reader_count are derived. The reads trigger recomputed
+    // both works if reads moved back; recomputing here as well restores the
+    // loser's work_stats row, which the merge deleted, when none did.
+    if (moved.ol_log_count_added) {
       await tx.execute(sql`
-        UPDATE works SET log_count = GREATEST(log_count - ${moved.log_count_added}, 0)
+        UPDATE works SET ol_log_count = GREATEST(ol_log_count - ${moved.ol_log_count_added}, 0)
         WHERE id = ${survivorId}`);
     }
     await tx.execute(sql`SELECT recompute_work_stats_for_work(${survivorId}::uuid)`);

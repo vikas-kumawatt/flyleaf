@@ -101,14 +101,29 @@ describe('X-Request-Id is validated before it reaches logs and headers', () => {
 });
 
 describe('database constraint violations are 4xx, never 500', () => {
-  it('POST /v1/reads with a work that does not exist → 422 invalid_reference (was 500)', async () => {
+  // Audit 08: an unknown work is now resolved before the insert (D3,
+  // resolveWorkId) and answered 404 like any missing id; it no longer
+  // reaches the foreign key. The FK mapping itself is still pinned below
+  // through a reference that does reach it (edition_id).
+  it('POST /v1/reads with a work that does not exist → 404 not_found (was 500, then 422)', async () => {
     const res = await app.inject({
       method: 'POST', url: '/v1/reads', headers: user.auth, payload: { work_id: randomUUID(), status: 'reading' },
+    });
+    expect(res.statusCode).toBe(404);
+    const body = JSON.parse(res.payload);
+    expect(body.error.code).toBe('not_found');
+    expect(res.payload).not.toMatch(/fkey|constraint|reads_|work_id/i);
+  });
+
+  it('POST /v1/reads with an edition that does not exist → 422 invalid_reference, no internals', async () => {
+    const res = await app.inject({
+      method: 'POST', url: '/v1/reads', headers: user.auth,
+      payload: { work_id: await makeWork(db, 'FK probe'), status: 'reading', edition_id: randomUUID() },
     });
     expect(res.statusCode).toBe(422);
     const body = JSON.parse(res.payload);
     expect(body.error.code).toBe('invalid_reference');
-    expect(res.payload).not.toMatch(/fkey|constraint|reads_|work_id/i);
+    expect(res.payload).not.toMatch(/fkey|constraint|reads_|edition_id/i);
   });
 
   it('progress page beyond int4 → 422 (was 500)', async () => {

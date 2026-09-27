@@ -42,6 +42,9 @@ function recordingHandler(log: string[], delayMs = 0): MutationHandler {
     setFollowing: async (userId, following) => {
       log.push(`follow:${userId}:${following}`);
     },
+    deleteRead: async (readId) => {
+      log.push(`delete:${readId}`);
+    },
   };
 }
 

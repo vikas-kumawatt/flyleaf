@@ -128,7 +128,7 @@ beforeAll(async () => {
         title: params.title,
         firstPublishYear: params.year,
         isProvisional: false,
-        logCount: 1000,
+        olLogCount: 1000,
       })
       .returning();
 
@@ -370,7 +370,7 @@ beforeAll(async () => {
       title: 'Collected Poems',
       firstPublishYear: 1933,
       isProvisional: false,
-      logCount: 200,
+      olLogCount: 200,
     })
     .returning();
   workYeats1Id = w1!.id;
@@ -408,7 +408,7 @@ beforeAll(async () => {
       title: 'Collected Poems',
       firstPublishYear: 1989,
       isProvisional: false,
-      logCount: 150,
+      olLogCount: 150,
     })
     .returning();
   workYeats2Id = w2!.id;

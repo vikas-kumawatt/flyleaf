@@ -16,7 +16,7 @@ import { PGlite } from '@electric-sql/pglite';
 import { pg_trgm } from '@electric-sql/pglite/contrib/pg_trgm';
 import { unaccent } from '@electric-sql/pglite/contrib/unaccent';
 import { drizzle } from 'drizzle-orm/pglite';
-import { PREREQUISITE_SQL, TRIGRAM_THRESHOLD } from '../migrate.js';
+import { ONLINE_SQL, PREREQUISITE_SQL, TRIGRAM_THRESHOLD } from '../migrate.js';
 import * as schema from '../db/schema.js';
 import type { Db } from '../platform/index.js';
 
@@ -50,6 +50,8 @@ export async function freshDb(): Promise<PGlite> {
   // quietly exercise a different threshold than the app.
   await db.exec(`SET pg_trgm.similarity_threshold = ${TRIGRAM_THRESHOLD}`);
   for (const { sql } of migrationFiles()) await db.exec(sql);
+  // Outside any transaction, as runMigrations applies them.
+  for (const statement of ONLINE_SQL) await db.exec(statement);
   return db;
 }
 

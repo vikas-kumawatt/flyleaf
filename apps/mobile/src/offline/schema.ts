@@ -48,7 +48,7 @@ export interface LocalProgressEvent {
 }
 
 export type MutationAction =
-  | 'add_progress' | 'upsert_read' | 'finish_read' | 'dnf_read' | 'save_review'
+  | 'add_progress' | 'upsert_read' | 'finish_read' | 'dnf_read' | 'save_review' | 'delete_read'
   // Desired-state social writes (D-07-2): the payload says liked/following
   // true or false, never "toggle", so a replay cannot flip the result.
   | 'set_like' | 'set_follow';

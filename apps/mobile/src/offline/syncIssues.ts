@@ -9,6 +9,7 @@ const ACTION_LABEL: Record<MutationAction, string> = {
   finish_read: 'Finished book',
   dnf_read: 'Stopped reading',
   save_review: 'Review',
+  delete_read: 'Removed book',
   set_like: 'Like',
   set_follow: 'Follow',
 };

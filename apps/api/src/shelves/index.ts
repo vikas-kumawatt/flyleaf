@@ -12,6 +12,7 @@ import { FastifyInstance, FastifyPluginAsync } from 'fastify';
 import { and, eq, sql, inArray, or } from 'drizzle-orm';
 import { Db } from '../platform/index.js';
 import { ApiError, requireViewer } from '../http.js';
+import { resolveWorkId } from '../catalog/resolve.js';
 import { canViewSql, canViewWith, loadRelationship } from '../authorization/index.js';
 import {
   shelves,
@@ -478,16 +479,6 @@ export class ShelvesService {
       throw ApiError.notFound('Shelf not found.');
     }
 
-    const [work] = await this.db
-      .select({ id: works.id })
-      .from(works)
-      .where(eq(works.id, input.work_id))
-      .limit(1);
-
-    if (!work) {
-      throw ApiError.notFound('Work not found.');
-    }
-
     if (input.note && input.note.trim().length > 280) {
       throw new ApiError(400, 'invalid_note', 'Note cannot exceed 280 characters.', 'note');
     }
@@ -500,17 +491,27 @@ export class ShelvesService {
       nextPos = (maxPos?.max_pos ?? 0) + 1;
     }
 
+    // D3: a merged work's id shelves the survivor. Resolved under the merge's
+    // lock, in the insert's transaction, so a shelf add racing a merge cannot
+    // land on the tombstone.
+    let workId = input.work_id;
     try {
-      await this.db
-        .insert(shelfItems)
-        .values({
-          shelfId,
-          workId: input.work_id,
-          position: nextPos,
-          note: input.note?.trim() || null,
-          addedBy: viewer,
-        });
+      workId = await this.db.transaction(async (tx) => {
+        const resolved = await resolveWorkId(tx as unknown as Db, input.work_id, { lock: true });
+        if (!resolved) throw ApiError.notFound('Work not found.');
+        await tx
+          .insert(shelfItems)
+          .values({
+            shelfId,
+            workId: resolved,
+            position: nextPos,
+            note: input.note?.trim() || null,
+            addedBy: viewer,
+          });
+        return resolved;
+      });
     } catch (err: any) {
+      if (err instanceof ApiError) throw err;
       let node: any = err;
       let isDuplicate = false;
       for (let depth = 0; depth < 5 && node; depth++) {
@@ -531,7 +532,7 @@ export class ShelvesService {
     }
 
     const items = await this.getItems(viewer, shelfId, { limit: 100 });
-    const created = items.data.find((item) => item.work_id === input.work_id);
+    const created = items.data.find((item) => item.work_id === workId);
     if (!created) {
       throw new ApiError(500, 'shelf_item_create_failed', 'Failed to retrieve created shelf item.');
     }
@@ -539,7 +540,7 @@ export class ShelvesService {
     await this.activityService.recordActivity(this.db, {
       actorId: viewer,
       verb: 'shelved',
-      workId: input.work_id,
+      workId,
       objectType: 'shelf_item',
       objectId: shelfId,
       metadata: {
@@ -627,6 +628,8 @@ export class ShelvesService {
   }
 
   async removeItem(viewer: string, shelfId: string, workId: string): Promise<{ deleted: true; shelf_id: string; work_id: string }> {
+    // D3: the merge moved the item to the survivor.
+    workId = (await resolveWorkId(this.db, workId)) ?? workId;
     const [shelf] = await this.db
       .select({ id: shelves.id, userId: shelves.userId })
       .from(shelves)
@@ -655,6 +658,8 @@ export class ShelvesService {
     workId: string,
     input: UpdateShelfItemInput,
   ): Promise<ShelfItemDetail> {
+    // D3: the merge moved the item to the survivor.
+    workId = (await resolveWorkId(this.db, workId)) ?? workId;
     const [shelf] = await this.db
       .select({ id: shelves.id, userId: shelves.userId })
       .from(shelves)
@@ -711,6 +716,15 @@ export class ShelvesService {
     if (!shelf || shelf.userId !== viewer) {
       throw ApiError.notFound('Shelf not found.');
     }
+
+    // D3: an order sent with a merged work's id moves the survivor's item,
+    // which is where the merge put it. One query for the whole list.
+    const merged = workIds.length === 0 ? [] : await this.db.execute<{ id: string; survivor: string }>(sql`
+      SELECT id, merged_into_id AS survivor FROM works
+      WHERE id IN (${sql.join(workIds.map((w) => sql`${w}::uuid`), sql`, `)})
+        AND merged_into_id IS NOT NULL`);
+    const survivorOf = new Map(merged.map((m) => [m.id, m.survivor]));
+    workIds = workIds.map((w) => survivorOf.get(w) ?? w);
 
     const uniqueIds = new Set(workIds);
     if (uniqueIds.size !== workIds.length) {

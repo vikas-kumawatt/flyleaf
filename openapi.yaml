@@ -1735,6 +1735,16 @@ paths:
                                 type:
                                   - "null"
                                   - integer
+                              publisher:
+                                type:
+                                  - "null"
+                                  - string
+                                description: GET /works/:id only.
+                              publish_year:
+                                type:
+                                  - "null"
+                                  - integer
+                                description: GET /works/:id only.
                             required:
                               - id
                               - format
@@ -1764,6 +1774,84 @@ paths:
                             - id
                             - status
                             - hearted
+                        merged_into:
+                          type: string
+                          format: uuid
+                          description: "GET /works/:id only: the requested id was merged into this work,
+                            whose body this is (PRD §40.3, D3)."
+                        maturity:
+                          type: string
+                          enum:
+                            - general
+                            - mature
+                            - explicit
+                            - unclassified
+                          description: GET /works/:id only (PRD §7.8).
+                        content_warning:
+                          type: boolean
+                          description: "GET /works/:id only: the work is explicit and search would hide it
+                            from this viewer; show the interstitial."
+                        description:
+                          type:
+                            - "null"
+                            - string
+                          description: GET /works/:id only.
+                        authors:
+                          type: array
+                          description: "GET /works/:id only: credited authors in credit order; link to GET
+                            /authors/:id."
+                          items:
+                            type: object
+                            properties:
+                              id:
+                                type: string
+                                format: uuid
+                              name:
+                                type: string
+                            required:
+                              - id
+                              - name
+                        series:
+                          type: array
+                          description: "GET /works/:id only: series this work belongs to; link to GET
+                            /series/:id."
+                          items:
+                            type: object
+                            properties:
+                              id:
+                                type: string
+                                format: uuid
+                              name:
+                                type: string
+                              position:
+                                type:
+                                  - "null"
+                                  - number
+                            required:
+                              - id
+                              - name
+                              - position
+                        rating_distribution:
+                          type: object
+                          description: "GET /works/:id only: ratings per star, a half star counted in the
+                            bucket above (0.5 -> 1, 4.5 -> 5)."
+                          properties:
+                            "1":
+                              type: integer
+                            "2":
+                              type: integer
+                            "3":
+                              type: integer
+                            "4":
+                              type: integer
+                            "5":
+                              type: integer
+                          required:
+                            - "1"
+                            - "2"
+                            - "3"
+                            - "4"
+                            - "5"
                       required:
                         - id
                         - title
@@ -1845,6 +1933,16 @@ paths:
                           type:
                             - "null"
                             - integer
+                        publisher:
+                          type:
+                            - "null"
+                            - string
+                          description: GET /works/:id only.
+                        publish_year:
+                          type:
+                            - "null"
+                            - integer
+                          description: GET /works/:id only.
                       required:
                         - id
                         - format
@@ -1874,11 +1972,455 @@ paths:
                       - id
                       - status
                       - hearted
+                  merged_into:
+                    type: string
+                    format: uuid
+                    description: "GET /works/:id only: the requested id was merged into this work,
+                      whose body this is (PRD §40.3, D3)."
+                  maturity:
+                    type: string
+                    enum:
+                      - general
+                      - mature
+                      - explicit
+                      - unclassified
+                    description: GET /works/:id only (PRD §7.8).
+                  content_warning:
+                    type: boolean
+                    description: "GET /works/:id only: the work is explicit and search would hide it
+                      from this viewer; show the interstitial."
+                  description:
+                    type:
+                      - "null"
+                      - string
+                    description: GET /works/:id only.
+                  authors:
+                    type: array
+                    description: "GET /works/:id only: credited authors in credit order; link to GET
+                      /authors/:id."
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: string
+                          format: uuid
+                        name:
+                          type: string
+                      required:
+                        - id
+                        - name
+                  series:
+                    type: array
+                    description: "GET /works/:id only: series this work belongs to; link to GET
+                      /series/:id."
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: string
+                          format: uuid
+                        name:
+                          type: string
+                        position:
+                          type:
+                            - "null"
+                            - number
+                      required:
+                        - id
+                        - name
+                        - position
+                  rating_distribution:
+                    type: object
+                    description: "GET /works/:id only: ratings per star, a half star counted in the
+                      bucket above (0.5 -> 1, 4.5 -> 5)."
+                    properties:
+                      "1":
+                        type: integer
+                      "2":
+                        type: integer
+                      "3":
+                        type: integer
+                      "4":
+                        type: integer
+                      "5":
+                        type: integer
+                    required:
+                      - "1"
+                      - "2"
+                      - "3"
+                      - "4"
+                      - "5"
                 required:
                   - id
                   - title
                   - author_name
                   - log_count
+        "404":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      code:
+                        type: string
+                        description: Machine-readable error code
+                      message:
+                        type: string
+                        description: Human-readable error description
+                      field:
+                        type: string
+                        description: Invalid field name if applicable
+                    required:
+                      - code
+                      - message
+                required:
+                  - error
+  /authors/{id}:
+    get:
+      summary: Get author by ID
+      tags:
+        - Catalog
+      description: An author and their works, most logged first, through work_authors
+        (SL-43). Guest readable. Explicit works are excluded unless the viewer
+        is 18+ and has opted in (PRD §7.8).
+      parameters:
+        - schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 50
+          in: query
+          name: limit
+          required: false
+        - schema:
+            type: integer
+            minimum: 0
+            default: 0
+          in: query
+          name: offset
+          required: false
+        - schema:
+            type: string
+            format: uuid
+          in: path
+          name: id
+          required: true
+          description: Resource UUID
+      responses:
+        "200":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id:
+                    type: string
+                    format: uuid
+                  name:
+                    type: string
+                  alternate_names:
+                    type: array
+                    items:
+                      type: string
+                  bio:
+                    type:
+                      - "null"
+                      - string
+                  works_count:
+                    type: integer
+                  read_count:
+                    type: integer
+                    description: Works by this author the viewer has finished; 0 for a guest.
+                  works:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: string
+                          format: uuid
+                        title:
+                          type: string
+                        author_name:
+                          type: string
+                        first_publish_year:
+                          type:
+                            - "null"
+                            - integer
+                        cover_id:
+                          type:
+                            - "null"
+                            - integer
+                        log_count:
+                          type: integer
+                        avg_rating:
+                          type:
+                            - "null"
+                            - number
+                        weighted_rating:
+                          type:
+                            - "null"
+                            - number
+                        rating_count:
+                          type:
+                            - "null"
+                            - integer
+                        editions:
+                          type: array
+                          items:
+                            type: object
+                            properties:
+                              id:
+                                type: string
+                                format: uuid
+                              isbn13:
+                                type:
+                                  - "null"
+                                  - string
+                              page_count:
+                                type:
+                                  - "null"
+                                  - integer
+                              format:
+                                type: string
+                              cover_id:
+                                type:
+                                  - "null"
+                                  - integer
+                              publisher:
+                                type:
+                                  - "null"
+                                  - string
+                                description: GET /works/:id only.
+                              publish_year:
+                                type:
+                                  - "null"
+                                  - integer
+                                description: GET /works/:id only.
+                            required:
+                              - id
+                              - format
+                        your_read:
+                          type: object
+                          properties:
+                            id:
+                              type: string
+                              format: uuid
+                            status:
+                              type: string
+                            rating:
+                              type:
+                                - "null"
+                                - number
+                            hearted:
+                              type: boolean
+                            page:
+                              type:
+                                - "null"
+                                - integer
+                            percent:
+                              type:
+                                - "null"
+                                - number
+                          required:
+                            - id
+                            - status
+                            - hearted
+                        merged_into:
+                          type: string
+                          format: uuid
+                          description: "GET /works/:id only: the requested id was merged into this work,
+                            whose body this is (PRD §40.3, D3)."
+                        maturity:
+                          type: string
+                          enum:
+                            - general
+                            - mature
+                            - explicit
+                            - unclassified
+                          description: GET /works/:id only (PRD §7.8).
+                        content_warning:
+                          type: boolean
+                          description: "GET /works/:id only: the work is explicit and search would hide it
+                            from this viewer; show the interstitial."
+                        description:
+                          type:
+                            - "null"
+                            - string
+                          description: GET /works/:id only.
+                        authors:
+                          type: array
+                          description: "GET /works/:id only: credited authors in credit order; link to GET
+                            /authors/:id."
+                          items:
+                            type: object
+                            properties:
+                              id:
+                                type: string
+                                format: uuid
+                              name:
+                                type: string
+                            required:
+                              - id
+                              - name
+                        series:
+                          type: array
+                          description: "GET /works/:id only: series this work belongs to; link to GET
+                            /series/:id."
+                          items:
+                            type: object
+                            properties:
+                              id:
+                                type: string
+                                format: uuid
+                              name:
+                                type: string
+                              position:
+                                type:
+                                  - "null"
+                                  - number
+                            required:
+                              - id
+                              - name
+                              - position
+                        rating_distribution:
+                          type: object
+                          description: "GET /works/:id only: ratings per star, a half star counted in the
+                            bucket above (0.5 -> 1, 4.5 -> 5)."
+                          properties:
+                            "1":
+                              type: integer
+                            "2":
+                              type: integer
+                            "3":
+                              type: integer
+                            "4":
+                              type: integer
+                            "5":
+                              type: integer
+                          required:
+                            - "1"
+                            - "2"
+                            - "3"
+                            - "4"
+                            - "5"
+                      required:
+                        - id
+                        - title
+                        - author_name
+                        - log_count
+                required:
+                  - id
+                  - name
+                  - alternate_names
+                  - bio
+                  - works_count
+                  - read_count
+                  - works
+        "404":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      code:
+                        type: string
+                        description: Machine-readable error code
+                      message:
+                        type: string
+                        description: Human-readable error description
+                      field:
+                        type: string
+                        description: Invalid field name if applicable
+                    required:
+                      - code
+                      - message
+                required:
+                  - error
+  /series/{id}:
+    get:
+      summary: Get series by ID
+      tags:
+        - Catalog
+      description: A series in reading order with the viewer’s status on each entry
+        (SL-43). Guest readable. Explicit works follow the search rule (PRD
+        §7.8).
+      parameters:
+        - schema:
+            type: string
+            format: uuid
+          in: path
+          name: id
+          required: true
+          description: Resource UUID
+      responses:
+        "200":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id:
+                    type: string
+                    format: uuid
+                  name:
+                    type: string
+                  read_books:
+                    type: integer
+                    description: Entries the viewer has finished; 0 for a guest.
+                  entries:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        work_id:
+                          type: string
+                          format: uuid
+                        position:
+                          type:
+                            - "null"
+                            - number
+                        title:
+                          type: string
+                        author_name:
+                          type: string
+                        cover_id:
+                          type:
+                            - "null"
+                            - integer
+                        your_status:
+                          type:
+                            - "null"
+                            - string
+                          enum:
+                            - want
+                            - reading
+                            - paused
+                            - finished
+                            - dnf
+                            - null
+                      required:
+                        - work_id
+                        - position
+                        - title
+                        - author_name
+                        - cover_id
+                        - your_status
+                required:
+                  - id
+                  - name
+                  - read_books
+                  - entries
         "404":
           description: Default Response
           content:
@@ -1984,6 +2526,16 @@ paths:
                               type:
                                 - "null"
                                 - integer
+                            publisher:
+                              type:
+                                - "null"
+                                - string
+                              description: GET /works/:id only.
+                            publish_year:
+                              type:
+                                - "null"
+                                - integer
+                              description: GET /works/:id only.
                           required:
                             - id
                             - format
@@ -2013,6 +2565,84 @@ paths:
                           - id
                           - status
                           - hearted
+                      merged_into:
+                        type: string
+                        format: uuid
+                        description: "GET /works/:id only: the requested id was merged into this work,
+                          whose body this is (PRD §40.3, D3)."
+                      maturity:
+                        type: string
+                        enum:
+                          - general
+                          - mature
+                          - explicit
+                          - unclassified
+                        description: GET /works/:id only (PRD §7.8).
+                      content_warning:
+                        type: boolean
+                        description: "GET /works/:id only: the work is explicit and search would hide it
+                          from this viewer; show the interstitial."
+                      description:
+                        type:
+                          - "null"
+                          - string
+                        description: GET /works/:id only.
+                      authors:
+                        type: array
+                        description: "GET /works/:id only: credited authors in credit order; link to GET
+                          /authors/:id."
+                        items:
+                          type: object
+                          properties:
+                            id:
+                              type: string
+                              format: uuid
+                            name:
+                              type: string
+                          required:
+                            - id
+                            - name
+                      series:
+                        type: array
+                        description: "GET /works/:id only: series this work belongs to; link to GET
+                          /series/:id."
+                        items:
+                          type: object
+                          properties:
+                            id:
+                              type: string
+                              format: uuid
+                            name:
+                              type: string
+                            position:
+                              type:
+                                - "null"
+                                - number
+                          required:
+                            - id
+                            - name
+                            - position
+                      rating_distribution:
+                        type: object
+                        description: "GET /works/:id only: ratings per star, a half star counted in the
+                          bucket above (0.5 -> 1, 4.5 -> 5)."
+                        properties:
+                          "1":
+                            type: integer
+                          "2":
+                            type: integer
+                          "3":
+                            type: integer
+                          "4":
+                            type: integer
+                          "5":
+                            type: integer
+                        required:
+                          - "1"
+                          - "2"
+                          - "3"
+                          - "4"
+                          - "5"
                     required:
                       - id
                       - title
@@ -2591,6 +3221,11 @@ paths:
                           type:
                             - "null"
                             - string
+                        dnf_note:
+                          type:
+                            - "null"
+                            - string
+                          description: Optional note from the DNF flow (PRD §6.18).
                         rating:
                           type:
                             - "null"
@@ -2818,6 +3453,11 @@ paths:
                     type:
                       - "null"
                       - string
+                  dnf_note:
+                    type:
+                      - "null"
+                      - string
+                    description: Optional note from the DNF flow (PRD §6.18).
                   rating:
                     type:
                       - "null"
@@ -2982,6 +3622,11 @@ paths:
                     type:
                       - "null"
                       - string
+                  dnf_note:
+                    type:
+                      - "null"
+                      - string
+                    description: Optional note from the DNF flow (PRD §6.18).
                   rating:
                     type:
                       - "null"
@@ -3031,6 +3676,90 @@ paths:
                   - attempt_no
                   - hearted
                   - visibility
+        "404":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      code:
+                        type: string
+                        description: Machine-readable error code
+                      message:
+                        type: string
+                        description: Human-readable error description
+                      field:
+                        type: string
+                        description: Invalid field name if applicable
+                    required:
+                      - code
+                      - message
+                required:
+                  - error
+    delete:
+      summary: Delete a read attempt
+      tags:
+        - Reading
+      description: Deletes one of the viewer’s read attempts with its progress
+        history, review, likes, comments and activity (PRD §34.2). The client
+        confirms first, naming what will be lost. Another user’s read, or one
+        already deleted, is 404.
+      parameters:
+        - schema:
+            type: string
+            format: uuid
+          in: path
+          name: id
+          required: true
+          description: Resource UUID
+      security:
+        - BearerAuth: []
+      responses:
+        "200":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  deleted:
+                    type: boolean
+                    enum:
+                      - true
+                  id:
+                    type: string
+                    format: uuid
+                required:
+                  - deleted
+                  - id
+        "401":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      code:
+                        type: string
+                        description: Machine-readable error code
+                      message:
+                        type: string
+                        description: Human-readable error description
+                      field:
+                        type: string
+                        description: Invalid field name if applicable
+                    required:
+                      - code
+                      - message
+                required:
+                  - error
         "404":
           description: Default Response
           content:
@@ -3138,6 +3867,11 @@ paths:
                           type:
                             - "null"
                             - string
+                        dnf_note:
+                          type:
+                            - "null"
+                            - string
+                          description: Optional note from the DNF flow (PRD §6.18).
                         rating:
                           type:
                             - "null"
@@ -3253,6 +3987,8 @@ paths:
                     - integer
                     - "null"
                   minimum: 0
+                  maximum: 1440
+                  description: Optional session length in minutes (PRD §8.4); at most one day.
                 note:
                   type:
                     - string
@@ -3322,6 +4058,11 @@ paths:
                     type:
                       - "null"
                       - string
+                  dnf_note:
+                    type:
+                      - "null"
+                      - string
+                    description: Optional note from the DNF flow (PRD §6.18).
                   rating:
                     type:
                       - "null"
@@ -3505,9 +4246,10 @@ paths:
                     - audiobook
                     - null
                 review:
-                  type:
-                    - string
-                    - "null"
+                  type: "null"
+                  description: "Not accepted: any value other than null is refused with 422
+                    invalid_finish. Publish a review with POST
+                    /reads/{id}/review (audit 08)."
                 visibility:
                   type: string
                   enum:
@@ -3577,6 +4319,11 @@ paths:
                     type:
                       - "null"
                       - string
+                  dnf_note:
+                    type:
+                      - "null"
+                      - string
+                    description: Optional note from the DNF flow (PRD §6.18).
                   rating:
                     type:
                       - "null"
@@ -3801,6 +4548,11 @@ paths:
                     type:
                       - "null"
                       - string
+                  dnf_note:
+                    type:
+                      - "null"
+                      - string
+                    description: Optional note from the DNF flow (PRD §6.18).
                   rating:
                     type:
                       - "null"

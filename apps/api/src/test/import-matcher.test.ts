@@ -77,7 +77,7 @@ describe('IM-05: Import Matching Engine', () => {
       .values({
         title: 'Dune',
         firstPublishYear: 1965,
-        logCount: 50000,
+        olLogCount: 50000,
       })
       .returning({ id: works.id });
     duneWorkId = dune!.id;
@@ -111,7 +111,7 @@ describe('IM-05: Import Matching Engine', () => {
       .values({
         title: 'Dune Messiah',
         firstPublishYear: 1969,
-        logCount: 20000,
+        olLogCount: 20000,
       })
       .returning({ id: works.id });
     messiahWorkId = messiah!.id;
@@ -135,7 +135,7 @@ describe('IM-05: Import Matching Engine', () => {
       .values({
         title: 'Hyperion',
         firstPublishYear: 1989,
-        logCount: 30000,
+        olLogCount: 30000,
       })
       .returning({ id: works.id });
     hyperionWorkId = hyperion!.id;
@@ -166,7 +166,7 @@ describe('IM-05: Import Matching Engine', () => {
         title: 'Neuromancer',
         olWorkKey: 'OL82563W',
         firstPublishYear: 1984,
-        logCount: 40000,
+        olLogCount: 40000,
       })
       .returning({ id: works.id });
     neuromancerWorkId = neuromancer!.id;
@@ -198,7 +198,7 @@ describe('IM-05: Import Matching Engine', () => {
       .values({
         title: 'Collected Poems',
         firstPublishYear: 1933,
-        logCount: 1500,
+        olLogCount: 1500,
       })
       .returning({ id: works.id });
     collectedPoems1Id = poems1!.id;
@@ -214,7 +214,7 @@ describe('IM-05: Import Matching Engine', () => {
       .values({
         title: 'Collected Poems',
         firstPublishYear: 1956,
-        logCount: 1200,
+        olLogCount: 1200,
       })
       .returning({ id: works.id });
     collectedPoems2Id = poems2!.id;
@@ -231,7 +231,7 @@ describe('IM-05: Import Matching Engine', () => {
       .values({
         title: 'Tomorrow, and Tomorrow, and Tomorrow',
         firstPublishYear: 2022,
-        logCount: 25000,
+        olLogCount: 25000,
       })
       .returning({ id: works.id });
     tomorrowWorkId = tomorrow!.id;

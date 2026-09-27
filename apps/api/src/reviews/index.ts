@@ -16,9 +16,9 @@ import {
   works,
   users,
   profiles,
-  workStats,
 } from '../db/schema.js';
 import { ApiError, requireViewer } from '../http.js';
+import { resolveWorkId } from '../catalog/resolve.js';
 import {
   canViewSql,
   canViewWith,
@@ -307,67 +307,19 @@ export class ReviewService {
   }
 
   /**
-   * Recomputes work_stats in TypeScript/SQL as a fallback or reconciliation tool (SL-62).
+   * Recomputes work_stats for one work (SL-62).
+   *
+   * Delegates to recompute_work_stats_for_work(), the function the reads
+   * triggers run, so there is one definition of the aggregates and of the
+   * catalog mean C. This used to repeat them here with its own
+   * `AVG(rating) FROM reads WHERE work_id <> x`, a scan of the whole table on
+   * every review write, and a C that disagreed with the trigger's once 0026
+   * cached it (audit 08, L-01). Whether it is needed at all is Part 09's.
    */
   async recomputeWorkStats(workId: string): Promise<void> {
-    const [stats] = await this.db.execute<{
-      v_count: string;
-      r_sum: string;
-      h_count: string;
-      rd_count: string;
-      d_count: string;
-      p_stddev: number | null;
-    }>(sql`
-      SELECT
-        COUNT(rating) FILTER (WHERE rating IS NOT NULL) AS v_count,
-        COALESCE(SUM(rating), 0) AS r_sum,
-        COUNT(DISTINCT user_id) FILTER (WHERE hearted = true) AS h_count,
-        COUNT(DISTINCT user_id) FILTER (WHERE status = 'finished') AS rd_count,
-        COUNT(DISTINCT user_id) FILTER (WHERE status = 'dnf') AS d_count,
-        stddev_samp(rating) AS p_stddev
-      FROM reads
-      WHERE work_id = ${workId}
-    `);
-
-    const [globalRow] = await this.db.execute<{ c_global: string }>(sql`
-      SELECT COALESCE(AVG(rating), 3.9) AS c_global FROM reads WHERE rating IS NOT NULL AND work_id <> ${workId}
-    `);
-
-    const v = stats ? Number(stats.v_count) : 0;
-    const rSum = stats ? Number(stats.r_sum) : 0;
-    const cGlobal = globalRow ? Number(globalRow.c_global) : 3.9;
-    const rMean = v > 0 ? rSum / v : null;
-    const wRating = rMean !== null ? calculateBayesianRating(v, rMean, cGlobal, 25) : null;
-
-    await this.db
-      .insert(workStats)
-      .values({
-        workId,
-        ratingSum: String(rSum),
-        ratingCount: v,
-        avgRating: rMean !== null ? rMean.toFixed(2) : null,
-        weightedRating: wRating !== null ? wRating.toFixed(2) : null,
-        heartCount: stats ? Number(stats.h_count) : 0,
-        readCount: stats ? Number(stats.rd_count) : 0,
-        dnfCount: stats ? Number(stats.d_count) : 0,
-        polarisation: stats?.p_stddev ?? null,
-        updatedAt: new Date(),
-      })
-      .onConflictDoUpdate({
-        target: workStats.workId,
-        set: {
-          ratingSum: String(rSum),
-          ratingCount: v,
-          avgRating: rMean !== null ? rMean.toFixed(2) : null,
-          weightedRating: wRating !== null ? wRating.toFixed(2) : null,
-          heartCount: stats ? Number(stats.h_count) : 0,
-          readCount: stats ? Number(stats.rd_count) : 0,
-          dnfCount: stats ? Number(stats.d_count) : 0,
-          polarisation: stats?.p_stddev ?? null,
-          updatedAt: new Date(),
-        },
-      });
+    await this.db.execute(sql`SELECT recompute_work_stats_for_work(${workId}::uuid)`);
   }
+
 
   /**
    * Create or update a review for a read (SL-63).
@@ -710,6 +662,9 @@ export class ReviewService {
     query: WorkReviewsQuery,
     viewerId?: string | null,
   ): Promise<{ data: ReviewItem[]; total: number }> {
+    // D3: a merged work's id lists the survivor's reviews. An id that names
+    // no work keeps its old answer, an empty list.
+    workId = (await resolveWorkId(this.db, workId)) ?? workId;
     const sort = query.sort ?? 'friends';
     const limit = Math.min(100, Math.max(1, query.limit ?? 20));
     const offset = Math.max(0, query.offset ?? 0);

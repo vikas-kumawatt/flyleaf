@@ -104,8 +104,8 @@ describe('CatalogService exact edition lookup & search (FN-42)', () => {
 
     // Seed works
     await db.insert(works).values([
-      { id: WORK_DUNE_ID, title: 'Dune', firstPublishYear: 1965, logCount: 44000 },
-      { id: WORK_EARTHSEA_ID, title: 'A Wizard of Earthsea', firstPublishYear: 1968, logCount: 9000 },
+      { id: WORK_DUNE_ID, title: 'Dune', firstPublishYear: 1965, olLogCount: 44000 },
+      { id: WORK_EARTHSEA_ID, title: 'A Wizard of Earthsea', firstPublishYear: 1968, olLogCount: 9000 },
     ]);
 
     // Seed work_authors
@@ -292,8 +292,8 @@ describe('ISBN resolution against the database (audit 02)', () => {
     client = fresh.client;
     service = new CatalogService(db, new MemoryCache(100));
 
-    const [popular] = await db.insert(works).values({ title: 'Dune', logCount: 44000 }).returning();
-    const [dup] = await db.insert(works).values({ title: 'Dune (duplicate record)', logCount: 3 }).returning();
+    const [popular] = await db.insert(works).values({ title: 'Dune', olLogCount: 44000 }).returning();
+    const [dup] = await db.insert(works).values({ title: 'Dune (duplicate record)', olLogCount: 3 }).returning();
     const [prov] = await db.insert(works).values({ title: 'My Own Book', isProvisional: true }).returning();
     ids.popular = popular!.id; ids.dup = dup!.id; ids.prov = prov!.id;
 
@@ -343,8 +343,8 @@ describe('ISBN resolution against the database (audit 02)', () => {
   });
 
   it('after a merge, the loser\'s ISBN resolves to the survivor', async () => {
-    const [loser] = await db.insert(works).values({ title: 'Earthsea (old record)', logCount: 1 }).returning();
-    const [survivor] = await db.insert(works).values({ title: 'A Wizard of Earthsea', logCount: 9000 }).returning();
+    const [loser] = await db.insert(works).values({ title: 'Earthsea (old record)', olLogCount: 1 }).returning();
+    const [survivor] = await db.insert(works).values({ title: 'A Wizard of Earthsea', olLogCount: 9000 }).returning();
     await db.insert(editions).values({ workId: loser!.id, isbn13: '9780553383041', format: 'paperback' });
     await mergeWorks(db, { survivorId: survivor!.id, loserId: loser!.id, stage: 2, reason: 'audit test' } satisfies MergeCandidate);
 

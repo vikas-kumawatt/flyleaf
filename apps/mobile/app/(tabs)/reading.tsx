@@ -187,7 +187,7 @@ export default function ReadingScreen() {
     void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     budgetTracker.recordBookLogged({ tapCount: 2, source: 'reading_tab', targetStatus: 'reading' });
     const repo = new OfflineRepository(db, user.id);
-    await repo.saveReadStatus(read.work_id, 'reading', null, false, {
+    await repo.saveReadStatus(read.work_id, 'reading', null, null, {
       title: read.title ?? undefined,
       author_name: read.author_name ?? undefined,
       cover_id: read.cover_id,
@@ -232,7 +232,7 @@ export default function ReadingScreen() {
     setOverflowRead(null);
     void Haptics.selectionAsync();
     const repo = new OfflineRepository(db, user.id);
-    await repo.saveReadStatus(read.work_id, 'reading', null, false, {
+    await repo.saveReadStatus(read.work_id, 'reading', null, null, {
       title: read.title ?? undefined,
       author_name: read.author_name ?? undefined,
       cover_id: read.cover_id,
@@ -263,11 +263,13 @@ export default function ReadingScreen() {
           text: 'Remove',
           style: 'destructive',
           onPress: async () => {
+            // Removed, not paused: "remove" used to move the books to the
+            // paused section (audit 08). Each delete is queued, so this works
+            // offline and survives a failure part-way through.
             const repo = new OfflineRepository(db, user.id);
             for (const readId of selectedIds) {
-              const target = reads.find((r) => r.id === readId);
-              if (target) {
-                await repo.saveReadStatus(target.work_id, 'paused');
+              if (reads.some((r) => r.id === readId)) {
+                await repo.deleteRead(readId);
               }
             }
             setSelectedIds(new Set());

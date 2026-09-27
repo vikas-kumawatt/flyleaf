@@ -7,6 +7,7 @@ import type { OfflineDatabase } from './db';
 import { MutationQueue, type MutationHandler } from './queue';
 import type { LocalRead, LocalProgressEvent } from './schema';
 import type { Read, ReadStatus } from '@/lib/api';
+import { localDate, startsNewAttempt, type AttemptStatus } from '@/lib/readingRules';
 
 function randomUUID(): string {
   if (typeof crypto !== 'undefined' && crypto?.randomUUID) {
@@ -72,6 +73,11 @@ export class OfflineRepository {
         const { api } = require('@/lib/api');
         return following ? api.client.followUser(userId) : api.client.unfollowUser(userId);
       },
+      deleteRead: async (readId) => {
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
+        const { api } = require('@/lib/api');
+        return api.client.deleteRead(readId);
+      },
     });
   }
 
@@ -126,7 +132,7 @@ export class OfflineRepository {
           synced = 0,
           updated_at = ?
          WHERE id = ?`,
-        [page, percent, now.slice(0, 10), now, readId],
+        [page, percent, localDate(), now, readId],
       );
 
       // 3. Enqueue mutation
@@ -160,7 +166,7 @@ export class OfflineRepository {
     },
   ): Promise<void> {
     const now = new Date().toISOString();
-    const finishedAt = opts.finishedAt ?? now.slice(0, 10);
+    const finishedAt = opts.finishedAt ?? localDate();
 
     await this.db.transaction(async (tx) => {
       readId = await this.resolveReadId(readId, tx);
@@ -223,7 +229,7 @@ export class OfflineRepository {
     },
   ): Promise<void> {
     const now = new Date().toISOString();
-    const abandonedAt = now.slice(0, 10);
+    const abandonedAt = localDate();
 
     await this.db.transaction(async (tx) => {
       readId = await this.resolveReadId(readId, tx);
@@ -268,7 +274,8 @@ export class OfflineRepository {
     workId: string,
     status: string,
     rating: number | null = null,
-    hearted = false,
+    /** null keeps the heart as it is; changing status used to clear it (audit 08). */
+    hearted: boolean | null = null,
     meta?: {
       title?: string;
       author_name?: string;
@@ -279,6 +286,7 @@ export class OfflineRepository {
     },
   ): Promise<void> {
     const now = new Date().toISOString();
+    const today = localDate();
     const readId = randomUUID();
 
     await this.db.transaction(async (tx) => {
@@ -288,17 +296,17 @@ export class OfflineRepository {
         [workId, this.userId],
       );
 
-      const startsNewAttempt =
-        !existing ||
-        ((existing.status === 'finished' || existing.status === 'dnf') &&
-          (status === 'reading' || status === 'want'));
+      // The server's rule, so the attempt shown here is the one the sync
+      // writes to (a finished or DNF record is never overwritten).
+      const newAttempt = startsNewAttempt(
+        (existing?.status as AttemptStatus | undefined) ?? null, status as AttemptStatus);
 
-      if (existing && !startsNewAttempt) {
+      if (existing && !newAttempt) {
         await tx.run(
           `UPDATE reads SET
             status = ?,
             rating = COALESCE(?, rating),
-            hearted = ?,
+            hearted = COALESCE(?, hearted),
             format_override = COALESCE(?, format_override),
             edition_id = COALESCE(?, edition_id),
             started_at = CASE WHEN ? = 'reading' THEN COALESCE(started_at, ?) ELSE started_at END,
@@ -308,11 +316,11 @@ export class OfflineRepository {
           [
             status,
             rating,
-            hearted ? 1 : 0,
+            hearted == null ? null : hearted ? 1 : 0,
             meta?.format_override ?? null,
             meta?.edition_id ?? null,
             status,
-            now.slice(0, 10),
+            today,
             now,
             existing.id,
           ],
@@ -332,7 +340,7 @@ export class OfflineRepository {
             meta?.edition_id ?? null,
             status,
             nextAttempt,
-            status === 'reading' ? now.slice(0, 10) : null,
+            status === 'reading' ? today : null,
             rating,
             hearted ? 1 : 0,
             meta?.format_override ?? null,
@@ -348,7 +356,7 @@ export class OfflineRepository {
 
       // Keyed by the read, so its progress and finish replay after it; a new
       // attempt's local id is swapped for the server's on success (A-07-005).
-      await this.queue.enqueue('read', existing && !startsNewAttempt ? existing.id : readId, 'upsert_read', {
+      await this.queue.enqueue('read', existing && !newAttempt ? existing.id : readId, 'upsert_read', {
         work_id: workId,
         status,
         rating,
@@ -356,11 +364,28 @@ export class OfflineRepository {
         extra: {
           edition_id: meta?.edition_id,
           format_override: meta?.format_override,
-          started_at: status === 'reading' ? now.slice(0, 10) : null,
+          started_at: status === 'reading' ? today : null,
         },
       });
     });
 
+    void this.queue.flush();
+  }
+
+  /**
+   * Deletes a read locally and queues the delete (PRD §34.2; SL-57 "remove
+   * from want to read", which used to set the books to paused instead).
+   * Earlier queued writes for the read still replay first, in order: a read
+   * created offline is created, remapped, then deleted, so nothing is left
+   * on the server.
+   */
+  async deleteRead(readId: string): Promise<void> {
+    await this.db.transaction(async (tx) => {
+      readId = await this.resolveReadId(readId, tx);
+      await tx.run(`DELETE FROM progress_events WHERE read_id = ?`, [readId]);
+      await tx.run(`DELETE FROM reads WHERE id = ? AND user_id = ?`, [readId, this.userId]);
+      await this.queue.enqueue('read', readId, 'delete_read', {});
+    });
     void this.queue.flush();
   }
 
@@ -379,6 +404,12 @@ export class OfflineRepository {
         if (local && local.synced === 0) {
           continue;
         }
+        // Deleted here, not yet on the server: a refresh must not bring it back.
+        const deleting = await tx.getFirst<{ id: string }>(
+          `SELECT id FROM mutation_queue WHERE entity_id = ? AND action = 'delete_read' AND status <> 'dead_letter'`,
+          [r.id],
+        );
+        if (deleting) continue;
 
         await tx.run(
           `INSERT OR REPLACE INTO reads (

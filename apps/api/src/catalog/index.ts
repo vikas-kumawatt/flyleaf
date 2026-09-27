@@ -15,6 +15,7 @@ import type { GapFillService } from './gapfill.js';
 import { editions, reads, progressEvents } from '../db/schema.js';
 import { ApiError } from '../http.js';
 import { detectIsbn, type DetectedIsbn } from './isbn.js';
+import { resolveWorkId } from './resolve.js';
 
 export type Edition = {
   id: string;
@@ -22,6 +23,9 @@ export type Edition = {
   page_count: number | null;
   format: string;
   cover_id: number | null;
+  /** GET /works/:id only: the edition picker names each copy (SL-42). */
+  publisher?: string | null;
+  publish_year?: number | null;
 };
 
 export type EditionDetail = {
@@ -67,6 +71,39 @@ export type Work = {
   rating_count?: number;
   editions?: Edition[];
   your_read?: YourRead;
+  /** Set when the requested id was merged into this work (D3): the body is the survivor's. */
+  merged_into?: string;
+  /** GET /works/:id only (PRD §7.8, A-02-019). */
+  maturity?: Maturity;
+  /** GET /works/:id only: explicit, and search would hide it from this viewer. The client shows its interstitial. */
+  content_warning?: boolean;
+  /** GET /works/:id only (audit 08, SL-41 / SL-43). */
+  description?: string | null;
+  authors?: { id: string; name: string }[];
+  series?: { id: string; name: string; position: number | null }[];
+  /** Ratings per star bucket, "1" to "5"; a half star counts in the bucket above (0.5 -> 1, 4.5 -> 5). */
+  rating_distribution?: Record<'1' | '2' | '3' | '4' | '5', number>;
+};
+
+/** An author's page (SL-43): their works by popularity, through work_authors. */
+export type AuthorDetail = {
+  id: string;
+  name: string;
+  alternate_names: string[];
+  bio: string | null;
+  works_count: number;
+  /** The viewer's finished attempts among these works; 0 for a guest. */
+  read_count: number;
+  works: Work[];
+};
+
+/** A series page (SL-43) with the viewer's status on each entry. */
+export type SeriesDetail = {
+  id: string;
+  name: string;
+  entries: { work_id: string; position: number | null; title: string; author_name: string; cover_id: number | null; your_status: string | null }[];
+  /** Entries the viewer has finished; 0 for a guest. */
+  read_books: number;
 };
 
 /**
@@ -540,11 +577,15 @@ export class CatalogService {
   async getWork(viewer: string | null, id: string): Promise<Work | null> {
     // The non-viewer part of a book page is identical for everyone, so it is
     // cacheable. In-process for a single instance — no network hop, and
-    // strictly faster than Redis would be here.
+    // strictly faster than Redis would be here. Keyed by the REQUESTED id, so
+    // a merged id caches the survivor's body with its merged_into (D3).
     const cacheKey = `work:${id}`;
     let base = await this.cache.get<Work>(cacheKey);
 
     if (!base) {
+      // D3: a merged id answers with the survivor, never 404 (PRD §40.3).
+      const workId = await resolveWorkId(this.db, id);
+      if (!workId) return null;
       // author_name and cover_id are DERIVED now: authorship moved to
       // work_authors and covers live on editions (architecture.md §3.1). The
       // RESPONSE shape is unchanged on purpose — the storage change must not
@@ -552,20 +593,43 @@ export class CatalogService {
       const [w] = await this.db.execute<{
         id: string; title: string; subtitle: string | null;
         first_publish_year: number | null; log_count: number;
-        ol_cover_id: number | null; author_name: string | null;
+        ol_cover_id: number | null; author_name: string | null; maturity: Maturity;
       }>(sql`
         SELECT
-          w.id, w.title, w.subtitle, w.first_publish_year, w.log_count, w.ol_cover_id,
+          w.id, w.title, w.subtitle, w.first_publish_year, w.log_count, w.ol_cover_id, w.maturity,
           (SELECT a.name
              FROM work_authors wa JOIN authors a ON a.id = wa.author_id
             WHERE wa.work_id = w.id
             ORDER BY wa.position, a.name
             LIMIT 1) AS author_name
         FROM works w
-        WHERE w.id = ${id} AND w.merged_into_id IS NULL
+        WHERE w.id = ${workId} AND w.merged_into_id IS NULL
         LIMIT 1
       `);
       if (!w) return null;
+
+      // The book page's real content (audit 08: the screen showed one fixed
+      // description, series and rating histogram for every book). Cached
+      // with the rest of the base for 60 s. The histogram reads the work's
+      // ratings through reads_work_idx, so it costs what the work has.
+      const [extra] = await this.db.execute<{
+        description: string | null;
+        authors: { id: string; name: string }[] | null;
+        series: { id: string; name: string; position: string | number | null }[] | null;
+        buckets: Record<string, number> | null;
+      }>(sql`
+        SELECT
+          (SELECT description FROM works WHERE id = ${workId}) AS description,
+          (SELECT json_agg(json_build_object('id', a.id, 'name', a.name) ORDER BY wa.position, a.name)
+             FROM work_authors wa JOIN authors a ON a.id = wa.author_id
+            WHERE wa.work_id = ${workId}) AS authors,
+          (SELECT json_agg(json_build_object('id', s.id, 'name', s.name, 'position', se.position) ORDER BY s.name)
+             FROM series_entries se JOIN series s ON s.id = se.series_id
+            WHERE se.work_id = ${workId}) AS series,
+          (SELECT json_object_agg(b, n) FROM (
+             SELECT GREATEST(1, CEIL(rating))::int AS b, count(*)::int AS n
+             FROM reads WHERE work_id = ${workId} AND rating IS NOT NULL GROUP BY 1) d) AS buckets
+      `);
 
       const eds = await this.db
         .select({
@@ -574,9 +638,11 @@ export class CatalogService {
           pageCount: editions.pageCount,
           format: editions.format,
           olCoverId: editions.olCoverId,
+          publisher: editions.publisher,
+          publishYear: editions.publishYear,
         })
         .from(editions)
-        .where(eq(editions.workId, id))
+        .where(eq(editions.workId, workId))
         .orderBy(asc(editions.pageCount));
 
       const [stats] = await this.db.execute<{
@@ -586,7 +652,7 @@ export class CatalogService {
       }>(sql`
         SELECT avg_rating, weighted_rating, rating_count
         FROM work_stats
-        WHERE work_id = ${id}
+        WHERE work_id = ${workId}
         LIMIT 1
       `);
 
@@ -606,9 +672,29 @@ export class CatalogService {
           page_count: e.pageCount,
           format: e.format,
           cover_id: e.olCoverId,
+          publisher: e.publisher,
+          publish_year: e.publishYear,
         })),
+        maturity: w.maturity,
+        description: extra?.description ?? null,
+        authors: extra?.authors ?? [],
+        series: (extra?.series ?? []).map((x) => ({ ...x, position: x.position === null ? null : Number(x.position) })),
+        rating_distribution: {
+          '1': Number(extra?.buckets?.['1'] ?? 0), '2': Number(extra?.buckets?.['2'] ?? 0),
+          '3': Number(extra?.buckets?.['3'] ?? 0), '4': Number(extra?.buckets?.['4'] ?? 0),
+          '5': Number(extra?.buckets?.['5'] ?? 0),
+        },
+        ...(workId !== id ? { merged_into: workId } : {}),
       };
       await this.cache.set(cacheKey, base, 60);
+    }
+
+    // PRD §7.8: a direct link always resolves; the interstitial is the
+    // client's, on the same rule as a scan. Asked only for explicit works.
+    if (base.maturity === 'explicit') {
+      base = { ...base, content_warning: !(await this.#allowsExplicit(viewer)) };
+    } else {
+      base = { ...base, content_warning: false };
     }
 
     if (!viewer) return base;
@@ -621,7 +707,7 @@ export class CatalogService {
         hearted: reads.hearted,
       })
       .from(reads)
-      .where(sql`${reads.userId} = ${viewer} AND ${reads.workId} = ${id}`)
+      .where(sql`${reads.userId} = ${viewer} AND ${reads.workId} = ${base.id}`)
       .orderBy(desc(reads.attemptNo))
       .limit(1);
 
@@ -645,6 +731,97 @@ export class CatalogService {
         percent: p?.percent == null ? null : Number(p.percent),
       },
     };
+  }
+
+  /**
+   * An author's page (SL-43, audit 08). Before this the app searched for the
+   * author's NAME as a title and filled the gaps with invented books and a
+   * made-up bio. Works come from work_authors, most logged first, merged and
+   * provisional works excluded; explicit works follow search's rule
+   * (PRD §7.8: a discovery surface). null for an id that names no author.
+   */
+  async getAuthor(viewer: string | null, id: string, limit = 50, offset = 0): Promise<AuthorDetail | null> {
+    const [a] = await this.db.execute<{ id: string; name: string; alternate_names: string[]; bio: string | null }>(sql`
+      SELECT id, name, alternate_names, bio FROM authors WHERE id = ${id}`);
+    if (!a) return null;
+    const allowExplicit = await this.#allowsExplicit(viewer);
+    const live = sql`w.merged_into_id IS NULL AND NOT w.is_provisional AND (w.maturity <> 'explicit' OR ${allowExplicit})`;
+
+    const [counts, rows] = await Promise.all([
+      this.db.execute<{ works_count: number; read_count: number }>(sql`
+        SELECT count(*)::int AS works_count,
+               count(*) FILTER (WHERE EXISTS (
+                 SELECT 1 FROM reads r WHERE r.user_id = ${viewer}::uuid AND r.work_id = w.id AND r.status = 'finished'))::int AS read_count
+        FROM work_authors wa JOIN works w ON w.id = wa.work_id
+        WHERE wa.author_id = ${id} AND ${live}`),
+      this.db.execute<{ id: string; title: string; first_publish_year: number | null; log_count: number; cover_id: number | null }>(sql`
+        SELECT w.id, w.title, w.first_publish_year, w.log_count,
+               COALESCE(w.ol_cover_id, (SELECT e.ol_cover_id FROM editions e
+                  WHERE e.work_id = w.id AND e.ol_cover_id IS NOT NULL
+                  ORDER BY e.publish_year DESC NULLS LAST LIMIT 1)) AS cover_id
+        FROM work_authors wa JOIN works w ON w.id = wa.work_id
+        WHERE wa.author_id = ${id} AND ${live}
+        -- + 0, as in SEARCH_SQL's typo arms: ORDER BY log_count lets the
+        -- planner walk the popularity index over the whole catalog probing
+        -- work_authors per work (165k probes, 543k buffers, 2.3 s for a
+        -- 789-work author on flyleaf_dev). The author's works via
+        -- work_authors_author_idx, then a sort, cost what the author has.
+        ORDER BY w.log_count + 0 DESC, w.id
+        LIMIT ${limit} OFFSET ${offset}`),
+    ]);
+    const yours = await this.#yourReads(viewer, rows.map((r) => r.id));
+    return {
+      id: a.id,
+      name: a.name,
+      alternate_names: a.alternate_names ?? [],
+      bio: a.bio,
+      works_count: Number(counts[0]?.works_count ?? 0),
+      read_count: Number(counts[0]?.read_count ?? 0),
+      works: rows.map((r) => {
+        const yourRead = yours.get(r.id);
+        return {
+          id: r.id,
+          title: r.title,
+          author_name: a.name,
+          first_publish_year: r.first_publish_year,
+          cover_id: r.cover_id,
+          log_count: Number(r.log_count),
+          ...(yourRead ? { your_read: yourRead } : {}),
+        };
+      }),
+    };
+  }
+
+  /**
+   * A series page with the viewer's progress through it (SL-43, audit 08).
+   * Entries in position order; explicit works follow search's rule.
+   */
+  async getSeries(viewer: string | null, id: string): Promise<SeriesDetail | null> {
+    const [s] = await this.db.execute<{ id: string; name: string }>(sql`SELECT id, name FROM series WHERE id = ${id}`);
+    if (!s) return null;
+    const allowExplicit = await this.#allowsExplicit(viewer);
+    const rows = await this.db.execute<{
+      work_id: string; position: string | null; title: string; author_name: string | null; cover_id: number | null;
+    }>(sql`
+      SELECT w.id AS work_id, se.position, w.title,
+             (SELECT a.name FROM work_authors wa JOIN authors a ON a.id = wa.author_id
+               WHERE wa.work_id = w.id ORDER BY wa.position, a.name LIMIT 1) AS author_name,
+             w.ol_cover_id AS cover_id
+      FROM series_entries se JOIN works w ON w.id = se.work_id
+      WHERE se.series_id = ${id}
+        AND w.merged_into_id IS NULL AND NOT w.is_provisional
+        AND (w.maturity <> 'explicit' OR ${allowExplicit})
+      ORDER BY se.position NULLS LAST, w.title`);
+    const yours = await this.#yourReads(viewer, rows.map((r) => r.work_id));
+    const entries = rows.map((r) => ({
+      work_id: r.work_id,
+      position: r.position === null ? null : Number(r.position),
+      title: r.title,
+      author_name: r.author_name ?? 'Unknown',
+      cover_id: r.cover_id,
+      your_status: yours.get(r.work_id)?.status ?? null,
+    }));
+    return { id: s.id, name: s.name, entries, read_books: entries.filter((e) => e.your_status === 'finished').length };
   }
 
   /**
@@ -725,6 +902,9 @@ import {
   workSchema,
   editionLookupResponseSchema,
   isbnParamSchema,
+  authorQuerySchema,
+  authorDetailSchema,
+  seriesDetailSchema,
   errorResponseSchema,
 } from '../contract/schemas.js';
 
@@ -771,6 +951,49 @@ export function catalogRoutes(service: CatalogService) {
         const work = await service.getWork(req.viewer, req.params.id);
         if (!work) throw ApiError.notFound('No such book.');
         return work;
+      },
+    );
+
+    app.get<{ Params: { id: string }; Querystring: { limit?: number; offset?: number } }>(
+      '/authors/:id',
+      {
+        schema: {
+          tags: ['Catalog'],
+          summary: 'Get author by ID',
+          description: 'An author and their works, most logged first, through work_authors (SL-43). Guest readable. Explicit works are excluded unless the viewer is 18+ and has opted in (PRD §7.8).',
+          params: idParamSchema,
+          querystring: authorQuerySchema,
+          response: {
+            200: authorDetailSchema,
+            404: errorResponseSchema,
+          },
+        },
+      },
+      async (req) => {
+        const author = await service.getAuthor(req.viewer, req.params.id, req.query.limit ?? 50, req.query.offset ?? 0);
+        if (!author) throw ApiError.notFound('No such author.');
+        return author;
+      },
+    );
+
+    app.get<{ Params: { id: string } }>(
+      '/series/:id',
+      {
+        schema: {
+          tags: ['Catalog'],
+          summary: 'Get series by ID',
+          description: 'A series in reading order with the viewer’s status on each entry (SL-43). Guest readable. Explicit works follow the search rule (PRD §7.8).',
+          params: idParamSchema,
+          response: {
+            200: seriesDetailSchema,
+            404: errorResponseSchema,
+          },
+        },
+      },
+      async (req) => {
+        const series = await service.getSeries(req.viewer, req.params.id);
+        if (!series) throw ApiError.notFound('No such series.');
+        return series;
       },
     );
 

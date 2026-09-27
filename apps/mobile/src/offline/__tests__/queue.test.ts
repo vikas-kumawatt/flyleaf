@@ -39,6 +39,7 @@ function handlerWith(overrides: Partial<MutationHandler>): MutationHandler {
     saveReview: unexpected('saveReview'),
     setLiked: unexpected('setLiked'),
     setFollowing: unexpected('setFollowing'),
+    deleteRead: unexpected('deleteRead'),
     ...overrides,
   };
 }

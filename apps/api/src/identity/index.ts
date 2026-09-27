@@ -15,6 +15,7 @@ import { config, type Db, type RateLimiter } from '../platform/index.js';
 import { type EmailSender, ConsoleEmailSender } from '../providers/email/index.js';
 import { users, profiles, works, follows, blocks, refreshTokens, emailVerificationTokens, passwordResetTokens } from '../db/schema.js';
 import { ApiError, requireViewer } from '../http.js';
+import { resolveWorkId } from '../catalog/resolve.js';
 import { isCommonPassword } from './common-passwords.js';
 import { canViewWith, loadRelationship } from '../authorization/index.js';
 
@@ -671,6 +672,17 @@ export class IdentityService {
         if (data.favouriteWorkIds.length > 4) {
           throw ApiError.unprocessable('too_many_favourites', 'You can pick at most 4 favourite books.', 'favouriteWorkIds');
         }
+        // D3: a merged work's id is stored as the survivor; an id that names
+        // no work is refused (the column is a uuid[] with no foreign key, so
+        // nothing else would). A repeat after resolving keeps its first slot,
+        // as the merge does.
+        const resolved: string[] = [];
+        for (const id of data.favouriteWorkIds) {
+          const work = await resolveWorkId(this.db, id);
+          if (!work) throw ApiError.unprocessable('unknown_work', 'One of those books does not exist.', 'favouriteWorkIds');
+          if (!resolved.includes(work)) resolved.push(work);
+        }
+        data = { ...data, favouriteWorkIds: resolved };
       }
 
       // Check if toggling from private to public

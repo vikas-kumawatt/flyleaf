@@ -77,6 +77,7 @@ describe('Phase 1 Exit Criteria Verification', () => {
       },
       setLiked: async () => ({}),
       setFollowing: async () => ({}),
+      deleteRead: async () => ({}),
     };
 
     const repo = new OfflineRepository(db, userId, mockHandler);
@@ -286,6 +287,7 @@ describe('Phase 1 Exit Criteria Verification', () => {
       saveReview: async () => ({ success: true }),
       setLiked: async () => ({}),
       setFollowing: async () => ({}),
+      deleteRead: async () => ({}),
     };
 
     // 1. Start repository in offline state

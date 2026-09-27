@@ -57,11 +57,11 @@ beforeAll(async () => {
   ]);
 
   await db.insert(works).values([
-    { id: WORK_1, title: 'The Left Hand of Darkness', olCoverId: 1001, logCount: 50 },
-    { id: WORK_2, title: 'The Dispossessed', olCoverId: 1002, logCount: 35 },
-    { id: WORK_3, title: 'A Wizard of Earthsea', olCoverId: 1003, logCount: 40 },
-    { id: WORK_4, title: 'The Lathe of Heaven', olCoverId: 1004, logCount: 25 },
-    { id: WORK_5, title: 'The Tombs of Atuan', olCoverId: 1005, logCount: 30 },
+    { id: WORK_1, title: 'The Left Hand of Darkness', olCoverId: 1001, olLogCount: 50 },
+    { id: WORK_2, title: 'The Dispossessed', olCoverId: 1002, olLogCount: 35 },
+    { id: WORK_3, title: 'A Wizard of Earthsea', olCoverId: 1003, olLogCount: 40 },
+    { id: WORK_4, title: 'The Lathe of Heaven', olCoverId: 1004, olLogCount: 25 },
+    { id: WORK_5, title: 'The Tombs of Atuan', olCoverId: 1005, olLogCount: 30 },
   ]);
 
   await db.insert(workAuthors).values([

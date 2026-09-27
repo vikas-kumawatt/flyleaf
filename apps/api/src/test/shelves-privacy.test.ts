@@ -78,8 +78,8 @@ beforeAll(async () => {
   ]);
 
   await db.insert(works).values([
-    { id: WORK_1, title: 'The Left Hand of Darkness', olCoverId: 1001, logCount: 50 },
-    { id: WORK_2, title: 'The Dispossessed', olCoverId: 1002, logCount: 35 },
+    { id: WORK_1, title: 'The Left Hand of Darkness', olCoverId: 1001, olLogCount: 50 },
+    { id: WORK_2, title: 'The Dispossessed', olCoverId: 1002, olLogCount: 35 },
   ]);
 
   await db.insert(workAuthors).values([

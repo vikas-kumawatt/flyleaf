@@ -56,7 +56,7 @@ beforeAll(async () => {
     const authorId = rows[0]!.id;
 
     const w = await db.query<{ id: string }>(
-      `INSERT INTO works (title, first_publish_year, log_count) VALUES ($1, $2, $3) RETURNING id`,
+      `INSERT INTO works (title, first_publish_year, ol_log_count) VALUES ($1, $2, $3) RETURNING id`,
       [title, year, logs]);
     const workId = w.rows[0]!.id;
 
@@ -171,7 +171,7 @@ describe('hostile input, exhaustively', () => {
   });
 
   it('a search for "100%" matches the literal percent sign, not everything', async () => {
-    await db.exec(`INSERT INTO works (title, log_count) VALUES ('100% Real', 5)`);
+    await db.exec(`INSERT INTO works (title, ol_log_count) VALUES ('100% Real', 5)`);
     try {
       const rows = await search('100%', 20);
       expect(titles(rows)).toContain('100% Real');
@@ -193,10 +193,10 @@ describe('exclusions apply inside every arm, before its LIMIT', () => {
     ['explicit', `maturity = 'explicit'`],
   ])('320 popular %s works cannot push a live work out', async (_kind, flag) => {
     await db.exec(`
-      INSERT INTO works (title, log_count)
+      INSERT INTO works (title, ol_log_count)
       SELECT 'Quasar Chronicle ' || g, 100000 + g FROM generate_series(1, 320) g;
       UPDATE works SET ${flag} WHERE title LIKE 'Quasar Chronicle %';
-      INSERT INTO works (title, log_count) VALUES ('The Quasar Omnibus Collected Edition', 1);`);
+      INSERT INTO works (title, ol_log_count) VALUES ('The Quasar Omnibus Collected Edition', 1);`);
     try {
       const rows = await search('quasar', 20);
       expect(titles(rows)).toContain('The Quasar Omnibus Collected Edition');
@@ -212,7 +212,7 @@ describe('exclusions apply inside every arm, before its LIMIT', () => {
 describe('maturity (PRD §7.8)', () => {
   beforeAll(async () => {
     await db.exec(`
-      INSERT INTO works (title, log_count, maturity) VALUES
+      INSERT INTO works (title, ol_log_count, maturity) VALUES
         ('Velvet Nights', 900, 'explicit'),
         ('Velvet Revolution', 10, 'mature'),
         ('Velvet Hour', 5, 'unclassified')`);
@@ -337,7 +337,7 @@ describe('diacritics are stripped on both sides (PRD §14.4)', () => {
   // trigram similarity can match them; only the unaccented prefix query can.
   it.each([['łodz', 'Łódź Stories'], ['straße', 'Strasse der Sieger']])(
     '%j finds %j through the prefix arm', async (q, title) => {
-      await db.query(`INSERT INTO works (title, log_count) VALUES ($1, 5)`, [title]);
+      await db.query(`INSERT INTO works (title, ol_log_count) VALUES ($1, 5)`, [title]);
       try {
         expect(titles(await search(q, 10))).toContain(title);
       } finally {

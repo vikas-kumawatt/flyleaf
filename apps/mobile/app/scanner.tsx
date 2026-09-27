@@ -10,7 +10,9 @@
 // - Content interstitial for an explicit work the viewer's search filter
 //   hides (PRD §7.8): shown before the book opens, never blocks it
 
-import React, { useState } from 'react';
+import React, { useRef, useState } from 'react';
+import * as SecureStore from 'expo-secure-store';
+import { FlyleafApiError } from '@flyleaf/api-client';
 import {
   View,
   TextInput,
@@ -48,6 +50,9 @@ export default function ScannerScreen() {
   // Manual fallback state
   const [manualMode, setManualMode] = useState(false);
   const [manualIsbn, setManualIsbn] = useState('');
+  // A code that just missed stays in view: without this it was looked up
+  // again on every camera frame (audit 08).
+  const lastMiss = useRef<{ code: string; at: number } | null>(null);
 
   const handleLookupIsbn = async (isbn: string) => {
     const cleaned = isbn.replace(/[^0-9X]/gi, '');
@@ -69,10 +74,20 @@ export default function ScannerScreen() {
         }
       } else {
         setErrorMessage(`No edition found in catalog for ISBN ${cleaned}.`);
+        lastMiss.current = { code: isbn, at: Date.now() };
         setScanned(false);
       }
-    } catch {
-      setErrorMessage(`No edition found in catalog for ISBN ${cleaned}.`);
+    } catch (err) {
+      // Only a 404 means "not in the catalog"; offline or a server error is
+      // not the book's fault and should say so.
+      setErrorMessage(
+        err instanceof FlyleafApiError && err.status === 404
+          ? `No edition found in catalog for ISBN ${cleaned}.`
+          : err instanceof FlyleafApiError && err.status === 422
+            ? 'That barcode is not a valid ISBN.'
+            : 'Could not look that up. Check your connection and try again.',
+      );
+      lastMiss.current = { code: isbn, at: Date.now() };
       setScanned(false);
     } finally {
       setLoading(false);
@@ -81,6 +96,7 @@ export default function ScannerScreen() {
 
   const onBarcodeScanned = ({ data }: { data: string }) => {
     if (scanned || loading) return;
+    if (lastMiss.current && lastMiss.current.code === data && Date.now() - lastMiss.current.at < 3000) return;
     setScanned(true);
     void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     void handleLookupIsbn(data);
@@ -106,7 +122,11 @@ export default function ScannerScreen() {
             <Button
               label="Continue to book"
               variant="primary"
-              onPress={() => router.replace(`/work/${warning.workId}`)}
+              onPress={() => {
+                // Asked once: the book page does not ask again for this work.
+                void SecureStore.setItemAsync(`explicit_ack_${warning.workId}`, '1').catch(() => {});
+                router.replace(`/work/${warning.workId}`);
+              }}
             />
             <Button
               label="Scan another"

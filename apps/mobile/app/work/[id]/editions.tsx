@@ -4,8 +4,15 @@
 // Surface it as 'choose your cover', not just 'choose your edition',
 // and show the covers large enough to pick by sight.
 // 'This is the copy I own' affordance sets the cover for Diary and Wall."
+//
+// Audit 08: "the copy I own" was never saved (the button showed a tick and
+// went back), and every edition was given an invented publisher and year,
+// with three invented editions for a work that had none. The choice is now
+// the edition of the reader's current attempt (reads.edition_id), through
+// the offline queue; publisher and year come from the catalog.
 
 import React, { useState, useEffect } from 'react';
+import { Alert } from 'react-native';
 import {
   ScrollView,
   View,
@@ -16,6 +23,10 @@ import { useLocalSearchParams, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import { api, type Work, type Edition } from '@/lib/api';
+import { useSession } from '@/lib/session';
+import { useActionGate } from '@/ui/ActionGate';
+import { useDatabase } from '@/offline/db';
+import { OfflineRepository } from '@/offline/repository';
 import {
   Button,
   Card,
@@ -37,11 +48,17 @@ export default function EditionPickerScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
   const c = useTheme();
+  const { user } = useSession();
+  const { promptAuth } = useActionGate();
+  const db = useDatabase();
 
   const [work, setWork] = useState<Work | null>(null);
   const [selectedEditionId, setSelectedEditionId] = useState<string | null>(null);
   const [formatFilter, setFormatFilter] = useState<'all' | 'paperback' | 'hardcover' | 'ebook' | 'audiobook'>('all');
   const [savedSuccess, setSavedSuccess] = useState(false);
+  // D-08-4: choosing a copy of a book not in the library adds it to Want to
+  // read; say so rather than doing it silently.
+  const [toast, setToast] = useState<string | null>(null);
 
   useEffect(() => {
     if (id) {
@@ -65,46 +82,11 @@ export default function EditionPickerScreen() {
     );
   }
 
-  // Populate mock editions if work has few
-  const sampleEditions: DisplayEdition[] = (work.editions && work.editions.length > 0)
-    ? work.editions.map((e, idx) => ({
-        ...e,
-        publisher: idx === 0 ? 'Bloomsbury Publishing' : idx === 1 ? 'Faber & Faber' : 'Tor Books',
-        publish_year: idx === 0 ? 2020 : 2021 + idx,
-        is_canonical: idx === 0,
-      }))
-    : [
-        {
-          id: 'ed-1',
-          isbn13: '9780571353408',
-          page_count: 245,
-          format: 'hardcover',
-          cover_id: work.cover_id ?? 8231856,
-          publisher: 'Bloomsbury Publishing',
-          publish_year: 2020,
-          is_canonical: true,
-        },
-        {
-          id: 'ed-2',
-          isbn13: '9781635575637',
-          page_count: 272,
-          format: 'paperback',
-          cover_id: 8231990,
-          publisher: 'Bloomsbury USA',
-          publish_year: 2021,
-          is_canonical: false,
-        },
-        {
-          id: 'ed-3',
-          isbn13: '9781635575644',
-          page_count: 256,
-          format: 'ebook',
-          cover_id: 10521270,
-          publisher: 'Bloomsbury Digital',
-          publish_year: 2020,
-          is_canonical: false,
-        },
-      ];
+  const sampleEditions: DisplayEdition[] = (work.editions ?? []).map((e) => ({
+    ...e,
+    publisher: e.publisher ?? undefined,
+    publish_year: e.publish_year ?? undefined,
+  }));
 
   const filteredEditions = sampleEditions.filter((e) => {
     if (formatFilter === 'all') return true;
@@ -117,16 +99,60 @@ export default function EditionPickerScreen() {
     setSavedSuccess(false);
   };
 
-  const handleConfirmCopy = () => {
+  const handleConfirmCopy = async () => {
+    if (!user) {
+      promptAuth({ title: `Sign up to choose your copy of ${work.title}`, subtitle: 'Your copy sets the cover and page count in your library.' });
+      return;
+    }
+    const chosen = work.editions?.find((e) => e.id === selectedEditionId);
+    if (!chosen || !db) return;
+    try {
+      // The same status again edits the current attempt; with no read yet
+      // the book goes on the want-to-read pile with this copy.
+      await new OfflineRepository(db, user.id).saveReadStatus(
+        work.id, work.your_read?.status ?? 'want', null, null,
+        { title: work.title, author_name: work.author_name, cover_id: chosen.cover_id ?? work.cover_id, page_count: chosen.page_count, edition_id: chosen.id },
+      );
+    } catch {
+      Alert.alert('Not saved', 'Your copy could not be saved on this phone. Please try again.');
+      return;
+    }
     void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     setSavedSuccess(true);
+    const addedToWant = !work.your_read;
+    if (addedToWant) setToast(`Added ${work.title} to Want to read`);
     setTimeout(() => {
       router.back();
-    }, 600);
+    }, addedToWant ? 1800 : 600);
   };
 
   return (
     <Screen>
+      {toast ? (
+        <View
+          accessibilityLiveRegion="polite"
+          style={{
+            position: 'absolute',
+            top: space[4],
+            left: space[4],
+            right: space[4],
+            zIndex: 999,
+            backgroundColor: c.accent,
+            paddingHorizontal: space[4],
+            paddingVertical: space[3],
+            borderRadius: 12,
+            flexDirection: 'row',
+            alignItems: 'center',
+            gap: space[2],
+            elevation: 4,
+          }}
+        >
+          <Ionicons name="checkmark-circle" size={20} color="#FFFFFF" />
+          <Txt variant="body" color="ground" style={{ fontWeight: '600', flex: 1 }}>
+            {toast}
+          </Txt>
+        </View>
+      ) : null}
       {/* Top Header */}
       <View
         style={{

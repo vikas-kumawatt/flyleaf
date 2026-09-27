@@ -3,10 +3,14 @@
 // Features:
 // - Author header: Name, avatar, collapsible biography
 // - Books read by this author counter ("X of Y books read")
-// - Bibliography list of works with covers and reading statuses
-// - Series grouping
+// - Bibliography list of works with covers and reading statuses, most
+//   logged first, 50 at a time
+//
+// Audit 08: this used to search for the author's NAME as a title, and fill
+// the gaps with an invented bio, invented books and a hard-coded series. It
+// now reads GET /authors/:id, which lists the works credited to the author.
 
-import React, { useEffect, useState } from 'react';
+import React, { useState } from 'react';
 import {
   ScrollView,
   View,
@@ -16,8 +20,11 @@ import {
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
-import { api, type AuthorDetail } from '@/lib/api';
+import { api, type Work } from '@/lib/api';
+import { useRemote } from '@/lib/useRemote';
+import { RemoteStatus } from '@/ui/RemoteStatus';
 import {
+  Button,
   Card,
   Cover,
   Screen,
@@ -31,24 +38,28 @@ export default function AuthorScreen() {
   const router = useRouter();
   const c = useTheme();
 
-  const [author, setAuthor] = useState<AuthorDetail | null>(null);
   const [bioExpanded, setBioExpanded] = useState(false);
+  const [more, setMore] = useState<Work[]>([]);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const remote = useRemote(id ? () => api.author(id) : null, [id]);
 
-  useEffect(() => {
-    if (id) {
-      api.author(decodeURIComponent(id)).then(setAuthor).catch(() => {});
-    }
-  }, [id]);
-
-  if (!author) {
-    return (
-      <Screen>
-        <View style={sheet.pad}>
-          <Txt color="muted">Loading author…</Txt>
-        </View>
-      </Screen>
-    );
+  if (remote.state !== 'ready') {
+    return <RemoteStatus remote={remote} noun="author" onRetry={() => void remote.reload()} />;
   }
+  const author = remote.data;
+  const works = [...author.works, ...more];
+
+  const loadMore = async () => {
+    setLoadingMore(true);
+    try {
+      const page = await api.author(author.id, { offset: works.length });
+      setMore((prev) => [...prev, ...page.works]);
+    } catch {
+      // The button stays; the next tap tries again.
+    } finally {
+      setLoadingMore(false);
+    }
+  };
 
   return (
     <Screen>
@@ -118,7 +129,7 @@ export default function AuthorScreen() {
               }}
             >
               <Txt variant="caption" color="ink" style={{ fontWeight: '600' }}>
-                {author.read_count ?? 1} of {author.works_count ?? 6} books read
+                {author.read_count} of {author.works_count} books read
               </Txt>
             </View>
           </View>
@@ -151,28 +162,14 @@ export default function AuthorScreen() {
           </Card>
         )}
 
-        {/* Series Shortcut */}
-        <Card
-          onPress={() => router.push('/series/earthsea' as any)}
-          style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}
-        >
-          <View style={{ gap: 2 }}>
-            <Txt variant="micro" color="muted">
-              NOTABLE SERIES
-            </Txt>
-            <Txt variant="title">Earthsea Cycle</Txt>
-            <Txt variant="caption" color="muted">
-              4 books in series · 1 read
-            </Txt>
-          </View>
-          <Ionicons name="chevron-forward" size={20} color={c.muted} />
-        </Card>
-
         {/* Bibliography List */}
         <View style={{ gap: space[3] }}>
           <Txt variant="title">Bibliography</Txt>
           <View style={{ gap: space[3] }}>
-            {(author.works ?? []).map((work) => (
+            {works.length === 0 ? (
+              <Txt color="muted">No books by this author in the catalog yet.</Txt>
+            ) : null}
+            {works.map((work) => (
               <Card
                 key={work.id}
                 onPress={() => router.push(`/work/${work.id}`)}
@@ -192,9 +189,11 @@ export default function AuthorScreen() {
                       <Txt variant="title" numberOfLines={2}>
                         {work.title}
                       </Txt>
-                      <Txt variant="caption" color="muted">
-                        First published {work.first_publish_year ?? '2020'}
-                      </Txt>
+                      {work.first_publish_year ? (
+                        <Txt variant="caption" color="muted">
+                          First published {work.first_publish_year}
+                        </Txt>
+                      ) : null}
                     </View>
 
                     <View style={[sheet.row, { justifyContent: 'space-between', marginTop: 4 }]}>
@@ -220,6 +219,14 @@ export default function AuthorScreen() {
                 </View>
               </Card>
             ))}
+            {works.length < author.works_count ? (
+              <Button
+                label={`Show more (${author.works_count - works.length})`}
+                variant="secondary"
+                loading={loadingMore}
+                onPress={() => void loadMore()}
+              />
+            ) : null}
           </View>
         </View>
       </ScrollView>
