@@ -76,7 +76,9 @@ async function main() {
 
   // Monthly dedupe pass: 1st of every month at midnight (FN-52, Architecture §9).
   // It detects and queues; it merges only if this worker runs with
-  // DEDUPE_AUTO_MERGE=true (Audit 03b).
+  // DEDUPE_AUTO_MERGE=true (Audit 03b), at most 200 per run. That cap is for
+  // NEW duplicates: the catalog's existing backlog is cleared by hand with
+  // `npm run dedupe -- --backlog` batches (Audit 03c, D6; README).
   await boss.schedule(QUEUES.catalogDedupe, '0 0 1 * *', {});
 
   // Nightly counter reconciliation (Architecture §3.9: "every counter has a

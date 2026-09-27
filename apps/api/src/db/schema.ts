@@ -99,6 +99,9 @@ export const works = pgTable('works', {
   index('works_title_trgm_idx').using('gin', sql`${t.title} gin_trgm_ops`),
   // Built CONCURRENTLY by migrate.ts (ONLINE_SQL); ORDER BY log_count uses it.
   index('works_log_count_idx').on(sql`(ol_log_count + reader_count)`),
+  // Built CONCURRENTLY by migrate.ts (ONLINE_SQL, audit 03c): a merge's
+  // chain-flattening lookup, WHERE merged_into_id = loser.
+  index('works_merged_into_idx').on(t.mergedIntoId).where(sql`${t.mergedIntoId} IS NOT NULL`),
 ]);
 
 export const editions = pgTable('editions', {
@@ -217,6 +220,8 @@ export const seriesEntries = pgTable('series_entries', {
   position: numeric('position', { precision: 5, scale: 2 }),
 }, (t) => [
   primaryKey({ columns: [t.seriesId, t.workId] }),
+  // 0028: the dedupe guard and the merge look entries up by work.
+  index('series_entries_work_idx').on(t.workId),
 ]);
 
 export const subjects = pgTable('subjects', {
@@ -610,6 +615,29 @@ export const dedupeRuns = pgTable('dedupe_runs', {
   report: jsonb('report'),
 }, (t) => [
   index('dedupe_runs_finished_idx').on(t.startedAt.desc()).where(sql`${t.finishedAt} IS NOT NULL`),
+]);
+
+/**
+ * Review-bound pairs a pass detected but did not queue (Audit 03c, D7):
+ * neither work has user data or 100+ logs (`cold`), the queue already had 500
+ * open items (`queue_full`), or stage 3 had used its 20% of the pass's free
+ * queue slots (`stage3_share`). Kept per pass so they can be recomputed or
+ * promoted later. No FK to works: merges do not repoint history.
+ */
+export const dedupeCandidates = pgTable('dedupe_candidates', {
+  runId: uuid('run_id').notNull().references(() => dedupeRuns.id, { onDelete: 'cascade' }),
+  survivorId: uuid('survivor_id').notNull(),
+  loserId: uuid('loser_id').notNull(),
+  stage: smallint('stage').notNull(),
+  reason: text('reason').notNull(),
+  confidence: real('confidence'),
+  metadata: jsonb('metadata').notNull().default(sql`'{}'::jsonb`),
+  impact: integer('impact').notNull().default(0),
+  notQueued: text('not_queued').notNull(),
+}, (t) => [
+  primaryKey({ name: 'dedupe_candidates_pk', columns: [t.runId, t.survivorId, t.loserId] }),
+  check('dedupe_candidates_stage_ck', sql`${t.stage} BETWEEN 1 AND 3`),
+  check('dedupe_candidates_not_queued_ck', sql`${t.notQueued} IN ('cold', 'queue_full', 'stage3_share')`),
 ]);
 
 // ---------------------------------------------------------------------------

@@ -24,6 +24,8 @@ List every `DECISION NEEDED` from all findings files in `docs/audit/DECISIONS.md
 - Re-run the full bench with the same data set and label it `after`. Produce `docs/audit/perf/comparison.md`: every scenario's baseline vs after (p50/p95/p99, queries per request), with the budget and pass/fail.
 - Anything still over budget: its own entry with the `EXPLAIN` evidence and a concrete plan.
 - Check the planner once more on the real DB: `ANALYZE`, then look for unused indexes (`pg_stat_user_indexes.idx_scan = 0` among those added during the audit) and missing ones (`pg_stat_user_tables.seq_scan` on big tables).
+- **Batch jobs must not be able to take the server down (A-03-026, from Part 03c).** A dedupe query was OOM-killed by the kernel; Postgres then dropped every connection and ran crash recovery (an outage in production). Give every batch/maintenance job (dedupe monthly + backlog, the nightly reconciles, ingest and `--popularity`) its own `work_mem` and `statement_timeout`; size Postgres memory to a container limit (there is none today); and check that no job builds a whole-catalog intermediate set in one statement (the monthly `runDedupe` still does, via `detectStage12`; the reconciles aggregate all of `reads`). The backlog's author walk (A-03-025) is the pattern.
+- **Duplicate author credits (A-03-027, from Part 03c).** 11,112 live works are credited to two author records with the same name (e.g. *Hell Has No Limits*: José Donoso as OL4279328A and OL3074073A). Ingest should not add a second credit whose name is already on the work (or should merge the authors first); measure an author-dedupe pass for same-name records with overlapping works.
 
 ## 4. Consistency sweep
 

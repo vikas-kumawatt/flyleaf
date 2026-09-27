@@ -38,3 +38,6 @@ apps/api/src/bench/tokens.json
 
 # dev object storage (STORAGE_DRIVER=disk, the default): uploads and exports
 .uploads/
+
+# dedupe backlog batch samples (npm run dedupe -- --backlog)
+apps/api/dedupe-batches/

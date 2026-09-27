@@ -224,11 +224,41 @@ $env:DATABASE_URL = "postgres://flyleaf:flyleaf@localhost:5432/flyleaf_dev"
 After ingesting, run the duplicate detection pipeline:
 
 ```powershell
-npm run dedupe -- --dry-run      # preview what it would merge
-npm run dedupe                   # execute merges
+npm run dedupe -- --dry-run --sample 25   # what a pass would do, with 25 random pairs of each kind
+npm run dedupe                            # detect, and queue pairs for review; merges nothing
+npm run dedupe -- --auto-merge --cap 50   # also merge up to 50 unambiguous pairs
 ```
 
-Stage 1 (ISBN13 exact match) and Stage 2 (normalised title + shared author) auto-merge. Stage 3 (trigram similarity) enqueues candidates for admin review. All merges are reversible for 30 days. A monthly `catalog.dedupe` pg-boss cron job runs this automatically.
+Stages 1 (shared ISBN-13) and 2 (normalised title + shared author) auto-merge only **unambiguous** pairs, and only when merging is switched on (`--auto-merge`, or `DEDUPE_AUTO_MERGE=true` for the worker). Unambiguous means:
+- the same normalised title and a shared author, and matching subtitles (stage 2);
+- an (author, title) group of exactly two works;
+- no sign of two volumes: not in one series at different positions, no volume marker (`vol`, `volume`, `#n`, `book n`, `band`, `tome`, a trailing numeral) in any work or edition title, and page counts within 25% when both are known.
+
+Everything else, and every stage 3 (fuzzy) pair, goes to the review queue, with three limits:
+- only when either work has user data or 100+ logs;
+- stage 3 takes at most 20% of a pass's free slots;
+- never past 500 open items.
+
+The rest are kept in `dedupe_candidates`, against the pass that found them. All merges are reversible for 30 days. A monthly `catalog.dedupe` pg-boss cron job runs a pass. Its **200-merge cap is for new duplicates only**.
+
+#### Clearing the existing backlog
+
+The first pass over the full catalog finds far more duplicates than 200 a month can clear, so the backlog is merged by hand, in batches:
+
+```powershell
+npm run dedupe -- --backlog --dry-run          # what the next batch would merge, and a sample
+npm run dedupe -- --backlog                    # merge one batch (default --limit 5000)
+npm run dedupe -- --backlog --limit 1000       # a smaller batch
+```
+
+A batch detects stages 1–2 with the same rules as the monthly pass, walking authors 2,000 at a time and stopping once it has `--limit` auto-mergeable pairs (it never holds the whole catalog in one query: the first version was OOM-killed on the full database), and merges them. It queues nothing and runs no stage 3. Each batch writes `apps/api/dedupe-batches/backlog-<time>.md` with **25 random merged pairs** (titles, authors, work ids, merge ids).
+
+1. Run a batch.
+2. Read all 25 sampled pairs.
+3. **If 2 or more of the 25 are different books, stop.** Don't run another batch until the rules are tightened (`detectStage12` in `src/catalog/dedupe.ts`).
+4. Otherwise run the next batch.
+
+Every merge can be undone for 30 days, one at a time, from `/admin/merges` (or with `undoMerge` and the merge id from the sample file). A pair whose merge was undone is never auto-merged again.
 
 ### 3. API
 
@@ -285,7 +315,7 @@ make ping          # or: cd apps\api ; npm run ping
 
 The worker logs `job handled` with the job id within a couple of seconds. pg-boss owns its own `pgboss` schema and migrates it itself — a deliberate exception to "drizzle is the source of truth", because those tables are library internals and hand-managing them makes every pg-boss upgrade a migration you have to get right.
 
-The `catalog.dedupe` cron job runs monthly (`0 0 1 * *`). Counter reconciliation runs nightly (UTC): `shelves.reconcile` 03:00, `follows.reconcile` 03:15, `reads.reconcile` 03:30 — each corrects drift in trigger-maintained counters. `storage.cleanup` 03:45 deletes uploads that were never used and export files past their 48 h link. To trigger dedupe manually:
+The `catalog.dedupe` cron job runs monthly (`0 0 1 * *`), for new duplicates only (see §2d for the backlog). Counter reconciliation runs nightly (UTC): `shelves.reconcile` 03:00, `follows.reconcile` 03:15, `reads.reconcile` 03:30, `works.reconcile` 03:40 (catalog mean rating, `work_stats`, `works.reader_count`) — each corrects drift in trigger-maintained counters. `storage.cleanup` 03:45 deletes uploads that were never used and export files past their 48 h link. To trigger dedupe manually:
 
 ```powershell
 npm run worker -- --dedupe

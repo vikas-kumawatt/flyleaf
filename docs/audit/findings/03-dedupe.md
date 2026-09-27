@@ -493,3 +493,110 @@ A non-dry pass adds the queue inserts (136,692 rows, batches of 2,000, each with
 | D3 merged-id reads and writes | Part 08 | routed ("Routed from Part 03") |
 | A-03-016 per-read trigger cost during merge | Part 08 (with L-01) | same scan as L-01 |
 | `reads.work_id` has no general index (impact computation, merge, stage-3 probe set scan `reads`) | Part 08 | the L-01 rewrite owns `reads` indexing |
+
+---
+
+# Part 03c (D5, D6, D7)
+
+2026-09-27 · run on the **full** database (flyleaf), `DEDUPE_AUTO_MERGE` off, **nothing merged** (table counts before and after both dry runs: 0 | 0 | 0 | 0 | 0) · CI: owner's run (`FLYLEAF_TEST_WORKERS=2 node scripts/ci.mjs`) **green in 1,293 s, all 9 steps: API 1,354 passed (67 files), mobile 147**; after it, A-03-028 added one test (`dedupe.test.ts` **118/118** at one worker; API now 1,355) · `dedupe.test.ts` was 117/117 before A-03-028 (38 in Part 03's first count; 03c adds the D5, D6 and D7 groups below) · migrations **0028** (`dedupe_candidates`) and `works_merged_into_idx` on flyleaf_dev and flyleaf (29/29 each).
+
+## Verdict per task (after 03c)
+
+| Task | Verified | Findings |
+|---|---|---|
+| FN-50 | ✅ D5 implemented and mutation-checked; auto-merge 283,908 → 94,086 pairs; both 25-pair samples 25/25 the same book; D6 backlog batches walk authors (A-03-025) | A-03-025, A-03-026 |
+| FN-51 | ✅ D7 implemented: 500 queued (400 + 100), 325,292 recorded as candidates, nothing discarded | — |
+| FN-52 | ✅ 200 cap documented as for new duplicates; backlog procedure in README; the monthly pass still runs a whole-catalog statement | A-03-026 |
+
+## Counts, next to Part 03b (full catalog, dry runs)
+
+| | Part 03b | Part 03c |
+|---|---|---|
+| Live works | 3,203,575 | 3,203,575 |
+| Stage 1 pairs (shared ISBN-13) | 30,240 | 30,083 |
+| Stage 2 pairs (title + author) | 322,702 | 323,370 |
+| **Auto-mergeable** | **283,908** pairs (185,557 works) | **94,086** pairs |
+| Held back by D5 (a pair can count under several) | — | group ≠ 2: 170,221 · volume marker: 5,813 · page counts: 14,654 · series positions: 0 (the catalog has no series data) |
+| Stages 1–2 to review | 54,500 | 244,322 |
+| Stage 3 pairs (review only) | 82,192 | 82,192 |
+| **Would be queued** (D7) | all | **400** stages 1–2 + **100** stage 3 (queue full at 500) |
+| **Recorded as candidates** (D7) | — | **325,292**: cold (no user data, < 100 logs) 309,799 · queue full 11,650 · over stage 3's 20% share 3,843 |
+| Run time | — | 4,143 s |
+
+Stages 1–2 to review grew because D5 moves pairs from auto-merge to review.
+
+### A-03-028 · P3 · FIXED · The pass report counted 722 stage-3 pairs twice (nothing was dropped)
+- **Evidence:** review-bound 244,322 + 82,192 = 326,514 against queued + candidates 500 + 325,292 = 325,792. In `runDedupe`, `report.stage3` counts every stage-3 pair, but the plan drops pairs stages 1–2 already found (`seen`), because those are queued or recorded under stages 1–2, and pairs a reviewer dismissed. `plan()` partitions its input completely (refresh + queue + over + cold), so every review-bound pair is queued, pending or a candidate exactly once. **D7's "nothing discarded" holds; the report double-counted.** 82,192 − (325,792 − 244,322) = **722 stage-3 pairs also found by stages 1–2** (dismissed = 0: the queue was empty). The 722 is inferred from this identity; the 69-minute full-catalog pass was not re-run.
+- **Fix:** the report adds `stage3AlreadyFound`, `stage3Dismissed` and `alreadyPending` (review-bound pairs already pending: refreshed, not new), so that `toReview + stage3 − stage3AlreadyFound − stage3Dismissed = planned.stage12 + planned.stage3 + alreadyPending + notQueued.cold + notQueued.queueFull + notQueued.stage3Share`. The CLI prints them.
+- **Confirmed on flyleaf_dev** (monthly pass, dry run, 213 s): 9,151 + (3,043 − 66 − 0) = **12,128** = 400 + 100 + 0 + 8,300 + 2,389 + 939.
+- **Test:** `dedupe.test.ts` › "accounts for every review-bound pair exactly once, including one both stage 1 and stage 3 find" (a pair found by stage 1 via a shared ISBN and by stage 3 via two Tolkien author records; queued once; on the second pass pending, and the identity holds both times). Mutation-checked: not counting the overlap fails it.
+
+The monthly pass's own counts (auto-mergeable, held) are not comparable with a backlog batch's, which stops at its limit: the backlog dry run below found 5,000 after 86,000 of ~1.66M credited authors.
+
+## Samples
+
+- **Full-catalog dry run, 25 random auto-mergeable pairs:** 25/25 plausibly the same book (Part 03b's sample: 22/25). Owner-reviewed.
+- **Backlog dry run, 25 random would-merge pairs** (`dedupe-batches/backlog-2026-09-27T13-06-43-493Z-dry-run.md`): **25/25 the same book**: case and article differences, six with a shared ISBN-13, editions of one work. Owner-reviewed. One data-quality note: pair 23's loser is credited to "José Donoso, José Donoso" (A-03-027).
+- **Review-queue sample (full dry run, 25):** what D5 and the subtitle rule send to review, as intended. Examples: *Pandemonium* (Lauren Oliver, a group of 4), *Punisher* (Garth Ennis, 14), *Left Behind* (Jerry B. Jenkins, 15), *Liturgical year* (Guéranger, 24: volumes), *Business organizations* (768 / 1,033 pages), *Dog Man* / *Dog Man: The Epic Collection*.
+- **Candidate for a later rule, not implemented:** groups of more than two (e.g. *Pandemonium* ×4, *A return to love* ×5) are all reviewed. Some are true duplicates; after sampling such groups, a rule could merge the members that pass every other D5 guard.
+
+## Full-catalog dry run (owner's run, flyleaf, 4,143 s, auto-merge off)
+
+- **D5 cut auto-mergeable pairs from 283,908 (Part 03b) to 94,086.**
+- **25 fresh auto-merge samples: 25/25 plausibly the same book** (Part 03b's sample: 22/25).
+- **Candidate for a later rule, not implemented:** groups of more than two works with the same author and normalised title (e.g. *Pandemonium* ×4) are all held back for review by D5's "exactly two" rule. Some are true duplicates. After sampling such groups, a rule could merge the ones whose members pass every other D5 guard. Decide on a sample, not now.
+- Table counts before and after (queue, merges, candidates, runs, merged works): **0 | 0 | 0 | 0 | 0**, so the dry run wrote nothing. The write counter read 61,653 before and 0 after only because Postgres restarted in between (A-03-026), which resets statistics; it is not evidence either way.
+
+### A-03-025 · P1 · FIXED · `--backlog` built the whole catalog in one statement
+- **Where:** `runBacklogBatch` called `detectStage12`, i.e. `STAGE2_SQL` over every (author, work, normalised title) in the catalog, materialised (`members`, `candidates`) and paired, in a single statement.
+- **Evidence:** the backlog dry run on flyleaf failed with `CONNECTION_CLOSED` (`dedupe-batches/dedupe-backlog.log`). `docker logs flyleaf-pg`: `client backend (PID 78327) was terminated by signal 9: Killed` while running the backlog's `WITH author_works …`; Postgres terminated every connection, reinitialised and recovered cleanly. The same statement had survived the full dry run: whether it fits is luck, not design. The container has **no memory limit** (`HostConfig.Memory = 0`; the WSL VM has 3.8 GiB), `work_mem` 4 MB, `statement_timeout` 0. The statement's input is **3,791,016** author–work rows, each with a computed normalised title.
+- **Fix:** `detectBacklogPairs` walks authors in **keyset batches** (`BACKLOG_AUTHOR_BATCH` = 2,000 distinct `work_authors.author_id` after the last, through `work_authors_author_idx`), finds stage 1–2 pairs only within those authors, and **stops once it has `--limit` + 1 auto-mergeable pairs** (the +1 says whether more remain). A statement now holds one batch's works: 2.3 works per credited author on average, and the largest author (DK Publishing) has 1,930. The rules are the full pass's, exactly:
+  - D5 group size is the largest over **all** the pair's shared authors, even those in a later batch (re-counted for pairs that share several authors);
+  - stage 1's auto rule (shared ISBN-13 + same normalised title + a shared author) is a shared-ISBN check on the batch's pairs, which already share a title and an author;
+  - dismissed pairs are dropped, undone pairs never auto-merge;
+  - the series / volume / page-count guards are the same code (`applyAutoMergeGuards`, now shared by `detectStage12` and the walk, unchanged in behaviour).
+- **Proof (flyleaf_dev, `src/bench/backlog-parity.ts`):** full pass **4,679** auto pairs, author walk **4,679**, **0 differences** pair by pair (stage and reason text included); D5 holds identical (group 5,539, series 0, volume 466, pages 1,078). The walk took 50–51 s against the full pass's 41–56 s.
+- **Memory (flyleaf_dev, `docker stats`, one sample every ~2–3 s):** `--backlog --dry-run` (5,000 limit, walked all 114,390 authors, 4,679 pairs, 53 s): container **2.223 GiB idle → 2.248 GiB peak**. The old full pass on the same database peaked at 2.237 GiB. flyleaf_dev (200k works) is too small to show the OOM, so dev proves parity and a flat footprint; the bound on the full catalog is the batch size above, not a measurement.
+- **Contract change:** the batch result reports `found` (at most `limit`), `more` (at least one pair past the limit) and `authorsScanned`, instead of `autoMergeable` / `remaining`, which needed the whole-catalog count. The sample file and the CLI summary follow. D5 hold counts cover the authors scanned. The monthly pass (`runDedupe`) still uses `detectStage12`: → A-03-026.
+- **Tests:** `dedupe.test.ts` › "walking authors one at a time finds exactly the pairs the full pass would auto-merge" (a co-authored pair whose second author, later in walk order, has a third copy; a subtitle mismatch rescued by a shared ISBN-13; a dismissed pair; a volume marker), "stops walking once it has more than --limit pairs"; the three existing backlog tests assert the new contract. **Mutation-checked:** disabling the cross-author group-size re-count, or ignoring the shared ISBN, each fails the equivalence test. File: 117/117.
+
+### A-03-026 · P1 · DEFERRED → Part 15 · One batch query OOM-killed the Postgres backend, which restarts the whole server
+- **Evidence:** A-03-025. When the kernel kills one backend with SIGKILL, the postmaster must assume shared memory is corrupt: it terminates every session and runs crash recovery. In production that is an **outage for every user**, caused by one maintenance job.
+- **Needed (Part 15):**
+  - **per-job `work_mem` and `statement_timeout`** for batch and maintenance jobs: dedupe (monthly pass and backlog), the nightly reconciles (`reads.reconcile`, `works.reconcile`, shelves, follows), ingest and its `--popularity` pass. They run with the server defaults today: `work_mem` 4 MB and `statement_timeout` 0, so nothing ever stops a runaway statement;
+  - **Postgres memory settings sized to the container's limit**, and a limit on the container (today: none; the VM's OOM killer decides). `shared_buffers`, `work_mem × hash_mem_multiplier × parallel workers × concurrent jobs` must fit under it;
+  - **a check that no job builds a whole-catalog intermediate set in one statement.** Known today: the monthly `runDedupe` still runs `detectStage12` (`STAGE2_SQL` whole-catalog; it survived the 4,143 s dry run, which is not a guarantee), and `reconcile_work_counters()` / `reconcile_read_counters()` aggregate all of `reads` in one statement (small today; grows with users). The backlog's author walk (A-03-025) is the pattern to reuse.
+
+### A-03-027 · P3 · DEFERRED → Part 15 · Works credited twice to same-name author records
+- **Evidence:** backlog sample pair 23, *Hell Has No Limits* (`1570a02d-…`), is credited to **two author records** named José Donoso: `/authors/OL4279328A` and `/authors/OL3074073A`. This is not a duplicate `work_authors` row (the key `(work_id, author_id, role)` forbids one): Open Library holds duplicate author entities, and ingest copied both credits. On flyleaf, **11,112 live works** (0.35%) carry **12,524** same-name credit pairs (case-insensitive; read-only query with `work_mem` 4 MB, no parallel workers, 10-min timeout: 3 min 55 s).
+- **Effect:** the name shows twice ("José Donoso, José Donoso"); the author's works are split across two author pages; stage 2 (shared author id) misses duplicates credited to different copies of the same author. That last part is the case stage 3 matches by name.
+- **Needed (Part 15 / ingest):** do not write a second credit to a work whose author name already appears on it (or merge the author records first); an author-dedupe pass for same-name records whose works overlap. Measure before choosing.
+
+## Backlog dry run on flyleaf (after A-03-025)
+
+Owner's run, 2026-09-27: **160 s, no errors**; **5,000 auto-mergeable pairs found after 86,000 authors, more remain; 0 merged**; table counts before and after 0 | 0 | 0 | 0 | 0. Output: `dedupe-batches/dedupe-backlog-2.log`, `backlog-2026-09-27T13-06-43-493Z-dry-run.md`. The first attempt (whole-catalog statement) had crashed the server (A-03-025, A-03-026).
+
+## Tests (Part 03c)
+
+`dedupe.test.ts`, 117/117 at one worker:
+- D5: "auto-merges a group of exactly two, and reviews a group of three", "counts distinct works…", "uses the largest group over the authors the pair shares", "reviews two works in one series at different positions", "still merges two works at the same series position, or with a position unknown", "reviews a pair when any work or edition title carries a volume marker", "recognises each volume marker, and leaves ordinary titles alone", "reviews a pair whose known page counts differ by more than 25%", "merges at exactly 25%, with one count unknown…", "does not use publication year…", "applies to stage 1 too…";
+- D7: "queues a pair only when a work is popular or has user data; records the rest against the run", "stops at 500 open items…", "gives stage 3 at most 20% of the free slots…", "a dry run plans the same and writes nothing", "user reports are queued even when 500 items are open", "a pending pair is not a new entry and not a candidate…";
+- D6: the batch tests, the walk's equivalence and stop tests (A-03-025), the sample file;
+- "has the index a merge's chain lookup needs".
+
+## Behaviour changes (Part 03c)
+
+- Fewer auto-merges: only groups of exactly two, without a series-position, volume-marker or page-count difference.
+- The review queue receives at most 500 open items, stage 3 at most 20% of a run's new entries, and only pairs with user data or 100+ logs; everything else goes to `dedupe_candidates`.
+- New CLI: `npm run dedupe -- --backlog [--dry-run] [--limit N]`; batch results report `found` / `more` / `authors scanned`.
+- PRD §40.3 amended (D5, D6, D7).
+
+## Deferred (Part 03c)
+
+| Item | Owner | Reason |
+|---|---|---|
+| A-03-026 per-job memory and timeouts; whole-catalog statements in the monthly pass and reconciles | Part 15 | cross-cutting; an OOM here is an outage |
+| A-03-027 same-name double author credits (11,112 works) | Part 15 / ingest | data quality; measure before fixing |
+| Groups of more than two as a later auto-merge rule | owner, after sampling | not decided; in PENDING.md (post-audit) |
+| Series data (0 series in the catalog) makes the D5 series rule inert today | ingest | data |
+| Clearing the 94,086-pair backlog | owner | after Part 15, before launch; in PENDING.md (post-audit) |

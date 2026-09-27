@@ -28,10 +28,22 @@ import {
   normaliseSubtitle,
   runDedupe,
   DEFAULT_MERGE_CAP,
+  QUEUE_MIN_LOGS,
+  OPEN_QUEUE_LIMIT,
+  STAGE3_QUEUE_SHARE_PERCENT,
+  MAX_PAGE_RATIO,
+  VOLUME_MARKER_SQL,
+  runBacklogBatch,
+  type DedupeReport,
+  detectBacklogPairs,
+  detectStage12,
+  BACKLOG_SAMPLE_SIZE,
+  DEFAULT_BACKLOG_LIMIT,
   STAGE3_PROBE_MIN_LOGS,
   SUBTITLE_EXPR,
 } from '../catalog/dedupe.js';
 import { QUEUES, dedupeJobHandler } from '../jobs/index.js';
+import { sampleFile } from '../dedupe.js';
 import { buildApp } from '../app.js';
 import { freshDrizzle } from './pg.js';
 import { createAdminUser, loginAdmin } from '../admin/auth.js';
@@ -327,7 +339,6 @@ describe('a full pass', () => {
     const a = await author(db, 'Susanna Clarke');
     await work(db, 'Piranesi', 561, a);
     await work(db, 'Piranesi', 3, a);
-    await work(db, 'Piranesi', 1, a);
 
     const first = await runDedupe(db, { autoMerge: true });
     expect(first.merged).toBeGreaterThanOrEqual(1);
@@ -1096,7 +1107,7 @@ describe('detection rules on real catalog shapes (Audit 03)', () => {
   // go to the review queue instead of being counted and dropped.
   it('stage 2 queues two different subtitles instead of auto-merging them', async () => {
     const a = await author(db, 'J. K. Rowling');
-    const one = await work(db, 'Harry Potter: Diagon Alley', 50, a);
+    const one = await work(db, 'Harry Potter: Diagon Alley', 150, a);
     const two = await work(db, 'Harry Potter: Magical Creatures', 40, a);
 
     const report = await runDedupe(db, { autoMerge: true });
@@ -1127,7 +1138,7 @@ describe('detection rules on real catalog shapes (Audit 03)', () => {
   // pairs, publishers re-using an ISBN for unrelated books are common.
   it('stage 1 queues a shared ISBN between works whose titles differ', async () => {
     const a = await author(db, 'Anand Rao');
-    const x = await work(db, 'Bidirectional Control of DC Motor', 3, a);
+    const x = await work(db, 'Bidirectional Control of DC Motor', 300, a);
     const y = await work(db, 'Behaviour of Concrete with Groundnut Shell Ash', 2, a);
     await edition(db, x, '9788193323519');
     await edition(db, y, '9788193323519');
@@ -1328,7 +1339,7 @@ describe('auto-merge is off unless explicitly enabled (Audit 03b)', () => {
     const a = await author(db, 'Susanna Clarke');
     await work(db, 'Piranesi', 561, a);
     await work(db, 'Piranesi', 3, a);                     // unambiguous
-    await work(db, 'Jonathan Strange', 50, a);
+    await work(db, 'Jonathan Strange', 500, a);
     await work(db, 'Jonathan Strange: A Novel', 5, a);    // ambiguous
 
     const report = await runDedupe(db);
@@ -1370,7 +1381,7 @@ describe('auto-merge is off unless explicitly enabled (Audit 03b)', () => {
 
 describe('D1: only unambiguous pairs auto-merge (Audit 03b)', () => {
   it('stage 1 without a shared author goes to review, even with the same title', async () => {
-    const x = await work(db, 'Poems', 3, await author(db, 'Emily Dickinson'));
+    const x = await work(db, 'Poems', 300, await author(db, 'Emily Dickinson'));
     const y = await work(db, 'Poems', 2, await author(db, 'Rainer Maria Rilke'));
     await edition(db, x, '9780000000011');
     await edition(db, y, '9780000000011');
@@ -1454,7 +1465,7 @@ describe('D1: only unambiguous pairs auto-merge (Audit 03b)', () => {
 
   it('a later pass does not queue a pending pair again', async () => {
     const a = await author(db, 'Susanna Clarke');
-    await work(db, 'Jonathan Strange', 50, a);
+    await work(db, 'Jonathan Strange', 500, a);
     await work(db, 'Jonathan Strange: A Novel', 5, a);
 
     expect((await runDedupe(db)).queued).toBe(1);
@@ -1466,7 +1477,7 @@ describe('D1: only unambiguous pairs auto-merge (Audit 03b)', () => {
 describe('the review queue is ordered by impact (Audit 03b)', () => {
   it('pairs where either work has user data come first, most data first', async () => {
     const a = await author(db, 'Susanna Clarke');
-    await work(db, 'Alpha', 10, a);
+    await work(db, 'Alpha', QUEUE_MIN_LOGS, a);           // popular, no user data: impact 0
     const none = await work(db, 'Alpha: A Novel', 1, a);
     await work(db, 'Beta', 10, a);
     const some = await work(db, 'Beta: A Novel', 1, a);
@@ -1608,10 +1619,13 @@ describe('stage 3 covers new works once (Audit 03b, decided scope limit)', () =>
 
     const dupe = await work(db, 'Hobbit', 1, t2);   // gap-filled after that pass
     const second = await runDedupe(db);
-    expect(second).toMatchObject({ stage3: 1, stage3Queued: 1 });
+    // Found, but neither work is popular or used, so D7 (Audit 03c) records
+    // it as a candidate of this pass instead of queueing it.
+    expect(second).toMatchObject({ stage3: 1, stage3Queued: 0, notQueued: { cold: 1 } });
     expect(second.stage3Since).not.toBeNull();
-    const [q] = await getDedupeQueue(db);
-    expect(q).toMatchObject({ stage: 3, survivor: { id: keep }, loser: { id: dupe } });
+    expect(await getDedupeQueue(db)).toEqual([]);
+    expect(await db.execute(sql`SELECT stage, survivor_id, loser_id, not_queued FROM dedupe_candidates`))
+      .toMatchObject([{ stage: 3, survivor_id: keep, loser_id: dupe, not_queued: 'cold' }]);
 
     // The next pass no longer probes it (it is not new any more).
     expect(await runDedupe(db)).toMatchObject({ stage3: 0 });
@@ -1619,7 +1633,7 @@ describe('stage 3 covers new works once (Audit 03b, decided scope limit)', () =>
 
   it('a dry run records no pass, and a pass that fails does not move the window', async () => {
     const a = await author(db, 'Susanna Clarke');
-    await work(db, 'Jonathan Strange', 50, a);
+    await work(db, 'Jonathan Strange', 500, a);
     await work(db, 'Jonathan Strange: A Novel', 5, a);   // queued, so the failing trigger fires
     await runDedupe(db, { dryRun: true });
     expect(await queueCount()).toBe(0);
@@ -1638,5 +1652,469 @@ describe('stage 3 covers new works once (Audit 03b, decided scope limit)', () =>
     }
     expect(await runs()).toEqual({ total: 1, finished: 0 });
     expect((await runDedupe(db)).stage3Since).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Audit 03c: D5 (series volumes that share a title), D6 (clearing the
+// backlog in batches), D7 (review-queue volume).
+// ---------------------------------------------------------------------------
+
+const editionOf = async (workId: string, o: { title?: string; pages?: number; isbn13?: string } = {}) =>
+  (await db.execute<{ id: string }>(sql`
+    INSERT INTO editions (work_id, title, page_count, isbn_13, format, language)
+    VALUES (${workId}, ${o.title ?? null}, ${o.pages ?? null}, ${o.isbn13 ?? null}, 'paperback', 'eng')
+    RETURNING id`))[0]!.id;
+
+const mergedPairs = async () =>
+  (await db.execute<{ survivor_id: string; loser_id: string }>(sql`
+    SELECT survivor_id, loser_id FROM work_merges ORDER BY merged_at`))
+    .map((r) => [r.survivor_id, r.loser_id]);
+
+describe('D5: series volumes that share a title are reviewed, not auto-merged (Audit 03c)', () => {
+  // Audit 03b's sample: "Bleach", "Battle Angel Alita" and "Die drei ??? Kids"
+  // were auto-mergeable, and each was several volumes carrying the series title.
+  it('auto-merges a group of exactly two, and reviews a group of three', async () => {
+    const kubo = await author(db, 'Tite Kubo');
+    for (const logs of [300, 20, 10]) await work(db, 'Bleach', logs, kubo);
+    const clarke = await author(db, 'Susanna Clarke');
+    await work(db, 'Piranesi', 561, clarke);
+    await work(db, 'Piranesi', 3, clarke);
+
+    const report = await runDedupe(db, { autoMerge: true });
+    expect(report).toMatchObject({ stage2: 4, autoMergeable: 1, toReview: 3, merged: 1, held: { group: 3 } });
+    const bleach = (await getDedupeQueue(db)).filter((q) => q.survivor.title === 'Bleach');
+    expect(bleach).toHaveLength(2);   // the third pair names a cold pair of works (D7): a candidate
+    expect(bleach[0]!.reason).toContain('the author has 3 works with this title');
+  });
+
+  it('counts distinct works: a work credited twice to one author is one work', async () => {
+    const a = await author(db, 'Neil Gaiman');
+    const x = await work(db, 'Coraline', 900, a);
+    await db.execute(sql`INSERT INTO work_authors (work_id, author_id, role, position) VALUES (${x}, ${a}, 'illustrator', 1)`);
+    await work(db, 'Coraline', 4, a);
+
+    expect(await runDedupe(db, { autoMerge: true })).toMatchObject({ autoMergeable: 1, merged: 1, held: { group: 0 } });
+  });
+
+  it('uses the largest group over the authors the pair shares', async () => {
+    const writer = await author(db, 'René Goscinny');
+    const artist = await author(db, 'Albert Uderzo');
+    const x = await work(db, 'Asterix', 900, writer);
+    const y = await work(db, 'Asterix', 50, writer);
+    for (const w of [x, y]) {
+      await db.execute(sql`INSERT INTO work_authors (work_id, author_id, role, position) VALUES (${w}, ${artist}, 'illustrator', 1)`);
+    }
+    // Only the artist has a third "Asterix": the writer's group is two, the artist's three.
+    await work(db, 'Asterix', 30, artist);
+
+    const report = await runDedupe(db, { autoMerge: true });
+    expect(report.merged).toBe(0);
+    expect(report.held.group).toBeGreaterThanOrEqual(1);
+  });
+
+  it('reviews two works in one series at different positions', async () => {
+    const a = await author(db, 'Yukito Kishiro');
+    const x = await work(db, 'Battle Angel Alita', 300, a);
+    const y = await work(db, 'Battle Angel Alita', 20, a);
+    const [s] = await db.execute<{ id: string }>(sql`INSERT INTO series (name) VALUES ('Battle Angel Alita') RETURNING id`);
+    await db.execute(sql`INSERT INTO series_entries (series_id, work_id, position) VALUES (${s!.id}, ${x}, 1), (${s!.id}, ${y}, 3)`);
+
+    expect(await runDedupe(db, { autoMerge: true })).toMatchObject({ autoMergeable: 0, merged: 0, held: { series: 1 } });
+    const [q] = await getDedupeQueue(db);
+    expect(q!.reason).toContain('one series at different positions (1.00 / 3.00)');
+  });
+
+  it('still merges two works at the same series position, or with a position unknown', async () => {
+    const a = await author(db, 'Ursula K. Le Guin');
+    const [s] = await db.execute<{ id: string }>(sql`INSERT INTO series (name) VALUES ('Earthsea') RETURNING id`);
+    const x = await work(db, 'A Wizard of Earthsea', 900, a);
+    const y = await work(db, 'A Wizard of Earthsea', 20, a);
+    const p = await work(db, 'The Tombs of Atuan', 700, a);
+    const q = await work(db, 'The Tombs of Atuan', 10, a);
+    await db.execute(sql`
+      INSERT INTO series_entries (series_id, work_id, position)
+      VALUES (${s!.id}, ${x}, 1), (${s!.id}, ${y}, 1), (${s!.id}, ${p}, 2), (${s!.id}, ${q}, NULL)`);
+
+    expect(await runDedupe(db, { autoMerge: true })).toMatchObject({ autoMergeable: 2, merged: 2, held: { series: 0 } });
+  });
+
+  it('reviews a pair when any work or edition title carries a volume marker', async () => {
+    const a = await author(db, 'Ulf Blanck');
+    const x = await work(db, 'Die drei ??? Kids', 300, a);
+    const y = await work(db, 'Die drei ??? Kids', 20, a);
+    await editionOf(x, { title: 'Die drei ??? Kids' });
+    await editionOf(y, { title: 'Die drei ??? Kids, Band 12' });
+    const b = await author(db, 'Frank Herbert');
+    const d1 = await work(db, 'Dune', 44000, b);
+    const d2 = await work(db, 'Dune', 12, b);
+    await db.execute(sql`UPDATE works SET subtitle = 'Book 1 of the Dune Chronicles' WHERE id = ${d2}`);
+    void d1;
+
+    const report = await runDedupe(db, { autoMerge: true });
+    expect(report).toMatchObject({ autoMergeable: 0, merged: 0, held: { volume: 2 } });
+    const reasons = (await getDedupeQueue(db)).map((q) => q.reason);
+    expect(reasons.find((r) => r.includes('"dune"'))).toContain('a title carries a volume marker ("Book 1 of the Dune Chronicles")');
+    expect(reasons.find((r) => r.includes('"die drei kids"'))).toContain('a title carries a volume marker ("Die drei ??? Kids, Band 12")');
+  });
+
+  it('recognises each volume marker, and leaves ordinary titles alone', async () => {
+    // Each marker also appears on its own (no trailing numeral to catch it instead).
+    const marked = [
+      'Bleach, Vol. 3', 'Bleach vol three', 'Forbidden Worlds: Volume 15', 'Volume Fifteen of Forbidden Worlds',
+      'Harry Potter #1', 'Harry Potter # 2 and the Chamber', 'The Wheel of Time, Book 4', 'Book 4 of the Wheel of Time',
+      'The Belgariad Book IV', 'Die drei ??? Kids Band 12', 'Die drei ??? Kids, Band zwölf', 'Astérix, Tome 5',
+      'Astérix, tome premier', 'Foundation 2', 'Rocky III', 'Star Wars: Episode IV.', 'Dune (Dune Chronicles, Book 1)',
+    ];
+    const plain = [
+      'Bookends', 'Volcano', 'Tomes and Tombs', 'Bandwagon', 'The Book Thief', 'Mild Fever', 'Civil War',
+      'Vivid Dreams', 'Dune', 'Number 9 Dream Machine', 'Hashtag Poems', 'Books of Blood',
+    ];
+    const hits = async (titles: string[]) => (await db.execute<{ t: string; hit: boolean }>(sql`
+      SELECT t, lower(t COLLATE pg_c_utf8) ~ ${VOLUME_MARKER_SQL} AS hit
+      FROM unnest(${`{${titles.map((t) => JSON.stringify(t)).join(',')}}`}::text[]) AS t`))
+      .map((r) => [r.t, r.hit === true || String(r.hit) === 'true']);
+    expect(await hits(marked)).toEqual(marked.map((t) => [t, true]));
+    expect(await hits(plain)).toEqual(plain.map((t) => [t, false]));
+  });
+
+  it('reviews a pair whose known page counts differ by more than 25%', async () => {
+    const a = await author(db, 'Kazuo Ishiguro');
+    const x = await work(db, 'Nocturnes', 300, a);
+    const y = await work(db, 'Nocturnes', 20, a);
+    await editionOf(x, { pages: 200 });
+    await editionOf(y, { pages: 251 });
+
+    expect(await runDedupe(db, { autoMerge: true })).toMatchObject({ autoMergeable: 0, merged: 0, held: { pages: 1 } });
+    const [q] = await getDedupeQueue(db);
+    expect(q!.reason).toContain('the page counts differ by more than 25% (200 / 251)');
+  });
+
+  it('merges at exactly 25%, with one count unknown, and compares each work\'s median edition', async () => {
+    const a = await author(db, 'Kazuo Ishiguro');
+    const x = await work(db, 'Nocturnes', 300, a);
+    const y = await work(db, 'Nocturnes', 20, a);
+    await editionOf(x, { pages: 200 });
+    await editionOf(y, { pages: 250 });                 // exactly 1.25: not MORE than 25%
+    const p = await work(db, 'Klara and the Sun', 900, a);
+    const q = await work(db, 'Klara and the Sun', 10, a);
+    for (const pages of [96, 303, 320]) await editionOf(p, { pages });   // median 303, not the 96-page sampler
+    await editionOf(q, { pages: 307 });
+    const m = await work(db, 'Never Let Me Go', 900, a);
+    const n = await work(db, 'Never Let Me Go', 10, a);
+    await editionOf(m, { pages: 288 });
+    await editionOf(n, { pages: 0 });                    // 0 means unknown
+
+    expect(await runDedupe(db, { autoMerge: true })).toMatchObject({ autoMergeable: 3, merged: 3, held: { pages: 0 } });
+    expect(MAX_PAGE_RATIO).toBe(1.25);
+  });
+
+  it('does not use publication year: a textbook\'s editions still merge', async () => {
+    const a = await author(db, 'M. Morris Mano');
+    const x = await work(db, 'Computer system architecture', 300, a);
+    const y = await work(db, 'Computer system architecture', 20, a);
+    await db.execute(sql`UPDATE works SET first_publish_year = 1976 WHERE id = ${x}`);
+    await db.execute(sql`UPDATE works SET first_publish_year = 1993 WHERE id = ${y}`);
+
+    expect(await runDedupe(db, { autoMerge: true })).toMatchObject({ merged: 1 });
+    expect(await mergedPairs()).toEqual([[x, y]]);
+  });
+
+  it('applies to stage 1 too, and a title that normalises to nothing is reviewed', async () => {
+    const a = await author(db, 'Frank Herbert');
+    const x = await work(db, 'Dune', 44000, a);
+    const y = await work(db, 'Dune', 12, a);
+    await editionOf(x, { isbn13: '9780441013593', title: 'Dune' });
+    await editionOf(y, { isbn13: '9780441013593', title: 'Dune (Dune Chronicles, Book 1)' });
+    const b = await author(db, 'Anonymous');
+    const p = await work(db, '???', 500, b);
+    const q = await work(db, '!!!', 5, b);
+    await editionOf(p, { isbn13: '9780000000028' });
+    await editionOf(q, { isbn13: '9780000000028' });
+
+    const report = await runDedupe(db, { autoMerge: true });
+    expect(report).toMatchObject({ stage1: 2, autoMergeable: 0, merged: 0, held: { volume: 1, group: 1 } });
+    const reasons = (await getDedupeQueue(db)).map((r) => r.reason);
+    expect(reasons.some((r) => r.includes('the normalised title is empty'))).toBe(true);
+  });
+});
+
+describe('D7: review-queue volume (Audit 03c)', () => {
+  const candidates = async () => db.execute<{ survivor_id: string; loser_id: string; stage: number; not_queued: string; impact: number; run_id: string }>(sql`
+    SELECT survivor_id, loser_id, stage, not_queued, impact, run_id FROM dedupe_candidates ORDER BY stage, survivor_id`);
+  // Pending stage-4 rows between filler works, so a test can start near the limit.
+  const fillQueue = async (n: number) => {
+    await db.execute(sql`INSERT INTO works (title) SELECT 'filler ' || g FROM generate_series(1, 40) g`);
+    await db.execute(sql`
+      INSERT INTO dedupe_queue (survivor_id, loser_id, stage, reason)
+      SELECT a.id, b.id, 4, 'filler'
+      FROM works a JOIN works b ON a.id < b.id
+      WHERE a.title LIKE 'filler %' AND b.title LIKE 'filler %'
+      LIMIT ${n}`);
+  };
+
+  it('queues a pair only when a work is popular or has user data; records the rest against the run', async () => {
+    const a = await author(db, 'Frank Herbert');
+    await work(db, 'Dune', QUEUE_MIN_LOGS, a);
+    const popular = await work(db, 'Dune: A Novel', 1, a);
+    await work(db, 'Children of Dune', QUEUE_MIN_LOGS - 1, a);
+    const cold = await work(db, 'Children of Dune: A Novel', 1, a);
+    await work(db, 'Dune Messiah', 5, a);                 // > the reader the read below adds, so the survivor is fixed
+    const used = await work(db, 'Dune Messiah: A Novel', 1, a);
+    await read(db, await user(db, 'r@example.com'), used, 1);
+
+    const report = await runDedupe(db);
+    expect(report).toMatchObject({ toReview: 3, queued: 2, planned: { stage12: 2 }, notQueued: { cold: 1, queueFull: 0 } });
+    expect((await getDedupeQueue(db)).map((q) => q.loser.id).sort()).toEqual([popular, used].sort());
+    const [run] = await db.execute<{ id: string }>(sql`SELECT id FROM dedupe_runs`);
+    expect(await candidates()).toMatchObject([{ loser_id: cold, stage: 2, not_queued: 'cold', impact: 0, run_id: run!.id }]);
+  });
+
+  it('stops at 500 open items and keeps the overflow as candidates, highest impact queued first', async () => {
+    await fillQueue(OPEN_QUEUE_LIMIT - 2);
+    const a = await author(db, 'Frank Herbert');
+    const losers: string[] = [];
+    for (const [i, t] of ['Alpha', 'Beta', 'Gamma'].entries()) {
+      await work(db, t, 200 + i * 100, a);                 // Gamma is the most popular
+      losers.push(await work(db, `${t}: A Novel`, 1, a));
+    }
+    const u = await user(db, 'r@example.com');
+    await read(db, u, losers[0]!, 1);                       // Alpha has user data: impact 1
+
+    const report = await runDedupe(db);
+    expect(report).toMatchObject({ queueOpen: OPEN_QUEUE_LIMIT - 2, queued: 2, notQueued: { queueFull: 1 } });
+    // Impact first (Alpha), then popularity (Gamma); Beta waits.
+    expect(await candidates()).toMatchObject([{ loser_id: losers[1], not_queued: 'queue_full' }]);
+
+    // Full: the next pass queues nothing new, and records its pairs again.
+    const next = await runDedupe(db);
+    expect(next).toMatchObject({ queueOpen: OPEN_QUEUE_LIMIT, queued: 0, notQueued: { queueFull: 1 } });
+    expect(await queueCount()).toBe(OPEN_QUEUE_LIMIT);
+  });
+
+  it('gives stage 3 at most 20% of the free slots, and stages 1-2 the rest', async () => {
+    await fillQueue(OPEN_QUEUE_LIMIT - 10);                // 10 free: 8 for stages 1-2, 2 for stage 3
+    for (const name of ['Ann Aardvark', 'Bob Bittern', 'Cyd Cormorant', 'Dee Dunlin', 'Eve Egret',
+      'Fay Finch', 'Gus Gannet', 'Hal Heron', 'Ivy Ibis']) {
+      const a = await author(db, name);
+      await work(db, `The ${name.split(' ')[1]} Diaries`, 500, a);
+      await work(db, `The ${name.split(' ')[1]} Diaries: A Novel`, 1, a);
+    }
+    for (const name of ['Jo Jacana', 'Kit Kestrel', 'Lu Lapwing']) {
+      const a = await author(db, name);
+      await work(db, `${name.split(' ')[1]} Strange & Mr Norrell`, 500, a);
+      await work(db, `${name.split(' ')[1]} Strange and Mr Norrell`, 10, a);
+    }
+
+    const report = await runDedupe(db);
+    expect(report).toMatchObject({
+      toReview: 9, stage3: 3, queued: 8, stage3Queued: 2,
+      planned: { stage12: 8, stage3: 2 }, notQueued: { cold: 0, queueFull: 1, stage3Share: 1 },
+    });
+    expect(STAGE3_QUEUE_SHARE_PERCENT).toBe(20);
+  });
+
+  it('a dry run plans the same and writes nothing', async () => {
+    const a = await author(db, 'Frank Herbert');
+    await work(db, 'Dune', 500, a);
+    await work(db, 'Dune: A Novel', 1, a);
+    await work(db, 'Children of Dune', 5, a);
+    await work(db, 'Children of Dune: A Novel', 1, a);
+
+    expect(await runDedupe(db, { dryRun: true }))
+      .toMatchObject({ queued: 0, planned: { stage12: 1 }, notQueued: { cold: 1 } });
+    expect(await queueCount()).toBe(0);
+    expect(await candidates()).toEqual([]);
+  });
+
+  // Audit 03c: the full-catalog report looked 722 pairs short. They were
+  // stage-3 pairs that stages 1-2 had already found (accounted for there),
+  // counted again in `stage3`. Nothing was dropped; now the report says so.
+  it('accounts for every review-bound pair exactly once, including one both stage 1 and stage 3 find', async () => {
+    const t1 = await author(db, 'J.R.R. Tolkien');
+    const t2 = await author(db, 'J. R. R. Tolkien');
+    const keep = await work(db, 'The Hobbit: or There and Back Again', 500, t1);
+    const dupe = await work(db, 'Hobbit', 3, t2);
+    await edition(db, keep, '9780000000024');
+    await edition(db, dupe, '9780000000024');
+    const accounted = (r: DedupeReport) => r.planned.stage12 + r.planned.stage3 + r.alreadyPending
+      + r.notQueued.cold + r.notQueued.queueFull + r.notQueued.stage3Share;
+    const reviewBound = (r: DedupeReport) => r.toReview + r.stage3 - r.stage3AlreadyFound - r.stage3Dismissed;
+
+    const first = await runDedupe(db);
+    expect(first).toMatchObject({ stage1: 1, toReview: 1, stage3: 1, stage3AlreadyFound: 1, planned: { stage12: 1, stage3: 0 } });
+    expect(reviewBound(first)).toBe(accounted(first));
+    expect(await queueCount()).toBe(1);   // queued once, not twice
+
+    const second = await runDedupe(db);    // now pending: refreshed, not new
+    expect(second).toMatchObject({ alreadyPending: 1, planned: { stage12: 0, stage3: 0 } });
+    expect(reviewBound(second)).toBe(accounted(second));
+  });
+
+  it('user reports are queued even when 500 items are open', async () => {
+    await fillQueue(OPEN_QUEUE_LIMIT);
+    const a = await author(db, 'Ted Chiang');
+    const x = await work(db, 'Exhalation', 2, a);
+    const y = await work(db, 'Exhalation (UK)', 1, a);
+
+    await queueReportedDuplicate(db, { survivorId: x, loserId: y, reason: 'same book' });
+    expect(await queueCount()).toBe(OPEN_QUEUE_LIMIT + 1);
+  });
+
+  it('a pending pair is not a new entry and not a candidate; a dismissed stage-3 pair is neither', async () => {
+    const a = await author(db, 'Susanna Clarke');
+    await work(db, 'Jonathan Strange', 500, a);
+    await work(db, 'Jonathan Strange: A Novel', 5, a);
+    const s = await work(db, 'The Ladies of Grace Adieu & Other Stories', 5, a);
+    const l = await work(db, 'The Ladies of Grace Adieu and Other Stories', 1, a);
+    const { id } = await queueReportedDuplicate(db, { survivorId: s, loserId: l, reason: 'r' });
+    await resolveQueueItem(db, id, 'dismiss', { reason: 'different books' });
+
+    expect((await runDedupe(db)).queued).toBe(1);
+    const again = await runDedupe(db);
+    expect(again).toMatchObject({ queueOpen: 1, queued: 0, planned: { stage12: 0, stage3: 0 },
+      notQueued: { cold: 0, queueFull: 0, stage3Share: 0 } });
+    expect(await candidates()).toEqual([]);
+  });
+});
+
+describe('D6: the backlog is cleared in batches (Audit 03c)', () => {
+  // Distinct titles per pair. Not "x", "xx": those are roman numerals, and a
+  // title ending in one is held back as a possible volume (D5).
+  const pairsOf = async (n: number) => {
+    const out: { keep: string; gone: string }[] = [];
+    for (let i = 0; i < n; i++) {
+      const a = await author(db, `Author ${i}`);
+      out.push({ keep: await work(db, `Book title number ${'z'.repeat(i + 1)}`, 500, a),
+        gone: await work(db, `Book title number ${'z'.repeat(i + 1)}`, 1, a) });
+    }
+    return out;
+  };
+
+  it('merges at most --limit pairs, and only merges: no queue, no stage 3, no run row', async () => {
+    await pairsOf(4);
+    const a = await author(db, 'Frank Herbert');
+    await work(db, 'Dune', 500, a);
+    await work(db, 'Dune: A Novel', 1, a);                // review-bound
+
+    const first = await runBacklogBatch(db, { limit: 3 });
+    expect(first).toMatchObject({ found: 3, attempted: 3, merged: 3, skipped: 0, more: true });
+    expect(await queueCount()).toBe(0);
+    expect(await db.execute(sql`SELECT id FROM dedupe_runs`)).toEqual([]);
+
+    expect(await runBacklogBatch(db, { limit: 3 })).toMatchObject({ found: 1, merged: 1, more: false });
+    expect(await runBacklogBatch(db)).toMatchObject({ found: 0, merged: 0, more: false });
+  });
+
+  it('a dry run merges nothing and samples the pairs it would merge', async () => {
+    const pairs = await pairsOf(3);
+
+    const r = await runBacklogBatch(db, { dryRun: true, limit: 2 });
+    expect(r).toMatchObject({ found: 2, attempted: 2, merged: 0, more: true });
+    expect(r.sample).toHaveLength(2);
+    expect(r.sample.every((p) => p.mergeId === null)).toBe(true);
+    expect(await liveCount()).toBe(6);
+    expect(await mergedPairs()).toEqual([]);
+    void pairs;
+  });
+
+  it('samples 25 merged pairs with the titles and authors they had before the merge', async () => {
+    await pairsOf(BACKLOG_SAMPLE_SIZE + 3);
+
+    const r = await runBacklogBatch(db, { limit: 5000 });
+    expect(r.merged).toBe(BACKLOG_SAMPLE_SIZE + 3);
+    expect(r.sample).toHaveLength(BACKLOG_SAMPLE_SIZE);
+    const merges = new Map((await db.execute<{ id: string; loser_id: string }>(sql`SELECT id, loser_id FROM work_merges`))
+      .map((m) => [m.loser_id, m.id]));
+    for (const p of r.sample) {
+      expect(p.mergeId).toBe(merges.get(p.loserId));
+      // The merge moved the loser's authors to the survivor; the sample still names them.
+      expect(p.loser).toMatchObject({ id: p.loserId, title: p.survivor!.title });
+      expect(p.loser!.authors).toMatch(/^Author \d+$/);
+    }
+    expect(DEFAULT_BACKLOG_LIMIT).toBe(5000);
+  });
+
+  it('refuses a limit below one', async () => {
+    await expect(runBacklogBatch(db, { limit: 0 })).rejects.toThrow(/backlog limit/);
+  });
+
+  // The walk replaced one whole-catalog statement that the OOM killer took on
+  // the full database (Audit 03c). It must find exactly what the full pass
+  // would auto-merge, one author at a time.
+  it('walking authors one at a time finds exactly the pairs the full pass would auto-merge', async () => {
+    const fixed = async (id: string, name: string) => {
+      await db.execute(sql`INSERT INTO authors (id, name) VALUES (${id}::uuid, ${name})`);
+      return id;
+    };
+    const credit = (w: string, a: string) =>
+      db.execute(sql`INSERT INTO work_authors (work_id, author_id, role, position) VALUES (${w}, ${a}, 'author', 1)`);
+
+    // Plain pair: auto.
+    const lem = await author(db, 'Stanislaw Lem');
+    await work(db, 'Solaris', 500, lem);
+    await work(db, 'Solaris', 1, lem);
+    // Co-authored pair. The FIRST author in walk order has only these two;
+    // the second also has a third "Good Omens", so D5 must hold the pair even
+    // though the first batch alone sees a group of two.
+    const pratchett = await fixed('00000000-0000-4000-8000-000000000001', 'Terry Pratchett');
+    const gaiman = await fixed('00000000-0000-4000-8000-000000000002', 'Neil Gaiman');
+    const go1 = await work(db, 'Good Omens', 500, pratchett);
+    const go2 = await work(db, 'Good Omens', 1, pratchett);
+    await credit(go1, gaiman);
+    await credit(go2, gaiman);
+    await work(db, 'Good Omens', 3, gaiman);
+    // Subtitles differ, but a shared ISBN-13 makes it stage-1 auto.
+    const herbert = await author(db, 'Frank Herbert');
+    const d1 = await work(db, 'Dune: A Novel', 500, herbert);
+    const d2 = await work(db, 'Dune: Deluxe Edition', 1, herbert);
+    await edition(db, d1, '9780000000017');
+    await edition(db, d2, '9780000000017');
+    // Dismissed by a reviewer: never.
+    const le = await author(db, 'Ursula K. Le Guin');
+    const e1 = await work(db, 'The Dispossessed', 500, le);
+    const e2 = await work(db, 'The Dispossessed', 1, le);
+    const { id } = await queueReportedDuplicate(db, { survivorId: e1, loserId: e2, reason: 'r' });
+    await resolveQueueItem(db, id, 'dismiss', { reason: 'different books' });
+    // Volume marker: held.
+    const asimov = await author(db, 'Isaac Asimov');
+    await work(db, 'Foundation 2', 500, asimov);
+    await work(db, 'Foundation 2', 1, asimov);
+
+    const shape = (p: { survivorId: string; loserId: string; stage: number; reason: string }) =>
+      `${p.survivorId}>${p.loserId} ${p.stage} ${p.reason}`;
+    const full = (await detectStage12(db)).pairs.filter((p) => p.auto).map(shape).sort();
+    const walked = (await detectBacklogPairs(db, { limit: 100, authorBatch: 1 })).pairs.map(shape).sort();
+    expect(full).toHaveLength(2);   // Solaris, Dune
+    expect(walked).toEqual(full);
+  });
+
+  it('stops walking once it has more than --limit pairs', async () => {
+    await pairsOf(6);
+    const r = await detectBacklogPairs(db, { limit: 2, authorBatch: 1 });
+    expect(r.pairs).toHaveLength(2);
+    expect(r.more).toBe(true);
+    // Two pairs plus one to know that more remain: three authors, not six.
+    expect(r.authorsScanned).toBe(3);
+  });
+
+  it('writes a sample file a person can read, with the stop rule', async () => {
+    await pairsOf(2);
+    await db.execute(sql`UPDATE works SET title = 'Pipes | and | bars' WHERE title = 'Book title number z'`);
+    const r = await runBacklogBatch(db, { limit: 10 });
+
+    const md = sampleFile(new Date('2026-09-27T00:00:00Z'), 'postgres://x', false, r);
+    expect(md).toContain('If 2 or more of these 2 are different books, stop');
+    expect(md).toContain('Pipes \\| and \\| bars');
+    expect(md.split('\n').filter((l) => /`[0-9a-f-]{36}`/.test(l))).toHaveLength(2);
+  });
+});
+
+describe('merge cost on the full catalog (Audit 03c)', () => {
+  it('has the index a merge\'s chain lookup needs', async () => {
+    const rows = await db.execute<{ indexdef: string }>(sql`
+      SELECT indexdef FROM pg_indexes WHERE indexname = 'works_merged_into_idx'`);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]!.indexdef).toMatch(/\(merged_into_id\) WHERE \(merged_into_id IS NOT NULL\)/);
   });
 });

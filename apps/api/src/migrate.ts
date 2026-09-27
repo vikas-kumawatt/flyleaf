@@ -156,6 +156,12 @@ export const ONLINE_SQL: readonly string[] = [
   dropIfInvalid('works_log_count_idx'),
   `CREATE INDEX CONCURRENTLY IF NOT EXISTS works_log_count_idx ON works ((ol_log_count + reader_count))`,
   `DROP INDEX CONCURRENTLY IF EXISTS works_ol_log_count_idx`,
+  // Audit 03c: every merge looks up the works already merged into the loser
+  // (chain flattening) and undo re-chains them. Without this, each lookup was
+  // a parallel seq scan of all 3.4M works (204k buffers, 2.5-53 s on the full
+  // catalog), twice per merge. Partial: only tombstones have the column set.
+  dropIfInvalid('works_merged_into_idx'),
+  `CREATE INDEX CONCURRENTLY IF NOT EXISTS works_merged_into_idx ON works (merged_into_id) WHERE merged_into_id IS NOT NULL`,
 ];
 
 /**

@@ -177,6 +177,10 @@ export async function pingHandler(jobs: Job<PingRequest>[]): Promise<PingResult>
  * (Audit 03b). Off, the monthly pass detects and queues only. The switch is
  * deliberately not in the job payload, so nothing that can enqueue a job can
  * turn merging on.
+ *
+ * On, it merges at most DEFAULT_MERGE_CAP (200) pairs per run: enough for the
+ * duplicates a month's ingest adds, not for the catalog's existing backlog,
+ * which is cleared with `npm run dedupe -- --backlog` batches (Audit 03c, D6).
  */
 export async function dedupeJobHandler(
   jobs: Job<DedupeJobRequest>[],
