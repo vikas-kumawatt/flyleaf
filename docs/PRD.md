@@ -2431,9 +2431,11 @@ score = 0.30 * title_starts_with_query
       + 0.20 * title_equals_query            (case-insensitive)
       + 0.20 * an_author_name_matches_query  (name or alias, same pattern as the author arm)
       + 0.10 * trigram_similarity(title, query)
-      + 0.35 * min(ln(1 + log_count) / 10, 1)
+      + 0.60 * min(ln(1 + log_count) / 10, 1)
 ties: log_count, then title
 ```
+
+**Changed 2026-09-29 (audit 02d, A-02d-003): popularity 0.35 → 0.60.** At 0.35 the popularity term's whole range was smaller than the 0.40 an exact title earns over an author match, so on the real catalog a little-read book titled "Orwell" outranked every Orwell novel (relevance panel 198/214 on the full catalog, 14 misses author surnames). Every weight from 0.55 to 1.0 scored 214/214 on both real catalogs and 217/217 on the corpus; 0.60 keeps an obscure book searched by its exact multi-word title first (150/150 sampled).
 
 **Decided 2026-09-25 (audit 02b, decision 3; FN-41).** The earlier formula (`0.45 text_relevance + 0.25 log(1 + times_logged) + 0.15 has_cover_and_metadata + 0.10 your_library_boost + 0.05 recency`) was never built. The weights above are what `SEARCH_SQL` (`apps/api/src/catalog/index.ts`) runs, and the FN-43 relevance panel validates them (216/217 top-position hits). Setting the popularity weight to 0 drops the panel to 94.5%. A cover, library-boost or recency term is added only if the panel shows a gain. `log_count` is the Open Library popularity baseline plus Flyleaf logs (see A-02-013).
 

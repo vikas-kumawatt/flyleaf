@@ -28,6 +28,8 @@
     "bench:seed": "tsx src/bench/seed.ts",
     "bench": "tsx src/bench/run.ts",
     "bench:routes": "tsx src/bench/routes.ts",
+    "bench:relevance": "tsx src/bench/relevance-panel.ts",
+    "bench:search-latency": "tsx src/bench/search-latency.ts",
     "passwords:generate": "node scripts/generate-common-passwords.mjs"
   },
   "dependencies": {

@@ -193,29 +193,30 @@ describe('the hard cases', () => {
 
 describe('the panel', () => {
   /**
-   * The floor: 0.98, against a measured 216/217 (99.5%).
+   * The floor: 0.99, against a measured 217/217 (audit 02d; was 0.98
+   * against 216/217).
    *
    * Set from the measurement, not from a number that sounded respectable.
    * The corpus is committed and the queries are generated deterministically,
    * so there is no run-to-run noise to absorb — identical results on Windows
-   * and Linux. The gap to 0.98 exists only to tolerate tie-break differences
-   * between engines, and it means any regression costing five queries or more
-   * turns this red.
+   * and Linux. The gap to 0.99 exists only to tolerate tie-break differences
+   * between engines, and it means any regression costing three queries or
+   * more turns this red.
    *
    * Raise it if the rate rises. Never lower it to make a red build green:
    * that is the single change that turns this file into decoration.
    *
-   * THE ONE MISS IS REAL, AND IS NOT FIXED HERE. `king` returns King of
-   * Wrath / Pride / Greed ahead of Stephen King's It (12,372 logs), because a
-   * title beginning with the query scores 0.30 while an author match scores
-   * 0.20, and the popularity term does not close the gap. Whether an author
-   * surname should outrank a title prefix is a product decision, and tuning
-   * the weights to fix one query is exactly the overfitting this panel exists
-   * to prevent. Recorded in tasks.md FN-43; the panel is the instrument for
-   * deciding it, not a reason to change ranking as a side effect of writing a
-   * test.
+   * The one former miss, `king` (King of Wrath / Pride / Greed ahead of
+   * Stephen King's It), was kept deliberately: tuning weights for one query
+   * is the overfitting this panel exists to prevent. Audit 02d changed the
+   * popularity weight 0.35 -> 0.60 for a different, measured reason: on the
+   * real catalog 14 author-surname cases missed the same way (198/214), and
+   * every weight from 0.55 to 1.0 fixed all of them on both real catalogs
+   * (findings/02d). `king` now passes as a side effect: It is in the top 5,
+   * while the title prefixes still rank first. 217/217, so the floor rose
+   * from 0.98 as this comment always said it should.
    */
-  const FLOOR = 0.98;
+  const FLOOR = 0.99;
 
   it('holds its pass rate across ~200 queries', async () => {
     const panel = buildPanel(corpus);
@@ -225,7 +226,10 @@ describe('the panel', () => {
     const byKind = new Map<string, { pass: number; total: number }>();
 
     for (const c of panel) {
-      const rows = await search(c.q, c.within);
+      // The page the API serves (20), judged by position. Passing `within` as
+      // the limit also moved the typo arms' gate (count(exact) < $5), so the
+      // panel scored candidate sets no user ever got (audit 02d).
+      const rows = (await search(c.q, 20)).slice(0, c.within);
       const hit = rows.some((r) => r.id === ids.get(c.expect));
 
       const tally = byKind.get(c.kind) ?? { pass: 0, total: 0 };

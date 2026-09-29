@@ -362,7 +362,15 @@ export const SEARCH_SQL = `
     -- stops one runaway title dominating every query it happens to match.
     -- This is the term that puts Susanna Clarke's Piranesi above a 1910
     -- monograph on the architect.
-    + LEAST(ln(1 + w.log_count) / 10.0, 1.0) * 0.35 DESC,
+    --
+    -- 0.60, not 0.35 (audit 02d). At 0.35 the whole range of this term was
+    -- smaller than the 0.40 an exact title earns over an author match, so on
+    -- the real catalog a 12-log book titled "Orwell" outranked every Orwell
+    -- novel: the relevance panel scored 198/214 there, 14 of the misses
+    -- author surnames. 0.55 to 1.0 all score 214/214; 0.60 is one step
+    -- inside that, and an obscure book searched by its exact title stays
+    -- first (147 of 150 multi-word titles at 1.0, 150 at 0.60).
+    + LEAST(ln(1 + w.log_count) / 10.0, 1.0) * 0.60 DESC,
     w.log_count DESC,
     w.title
   LIMIT $5
@@ -561,7 +569,7 @@ export class CatalogService {
   // to prepare: false), so Postgres plans each search with its actual
   // parameters. Keep it that way. As a named prepared statement, Postgres
   // may switch to a generic plan after five executions, and SEARCH_SQL's
-  // generic plan walks works_log_count_idx in every arm, filtering row by row:
+  // generic plan walks works_popularity_idx in every arm, filtering row by row:
   // the 3.2M-row scan this query was rebuilt to avoid (audit 02, A-02-004).
   async #localSearch(query: string, limit: number, allowExplicit: boolean): Promise<SearchRow[]> {
     return (await this.db.$client.unsafe(

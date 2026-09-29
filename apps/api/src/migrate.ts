@@ -153,8 +153,18 @@ export const ONLINE_SQL: readonly string[] = [
   // Popularity order for search, now that log_count is virtual (0026). The
   // expression must stay ol_log_count + reader_count, byte for byte, or the
   // planner will not match ORDER BY log_count to it.
-  dropIfInvalid('works_log_count_idx'),
-  `CREATE INDEX CONCURRENTLY IF NOT EXISTS works_log_count_idx ON works ((ol_log_count + reader_count))`,
+  //
+  // Audit 02d: works_popularity_idx replaces works_log_count_idx (same key)
+  // and INCLUDEs every column SEARCH_SQL's arms read, so walking works by
+  // popularity never touches the heap. Search's plan for a short query flips
+  // between that walk and collecting every match with each ANALYZE; the walk
+  // read one heap page per row ("harry": 403k rows filtered, 356k buffers)
+  // and now reads one index page per ~100. Built before the old index is
+  // dropped, so search always has one.
+  dropIfInvalid('works_popularity_idx'),
+  `CREATE INDEX CONCURRENTLY IF NOT EXISTS works_popularity_idx ON works ((ol_log_count + reader_count))
+     INCLUDE (id, title, search_vector, merged_into_id, is_provisional, maturity, ol_log_count, reader_count)`,
+  `DROP INDEX CONCURRENTLY IF EXISTS works_log_count_idx`,
   `DROP INDEX CONCURRENTLY IF EXISTS works_ol_log_count_idx`,
   // Audit 03c: every merge looks up the works already merged into the loser
   // (chain flattening) and undo re-chains them. Without this, each lookup was

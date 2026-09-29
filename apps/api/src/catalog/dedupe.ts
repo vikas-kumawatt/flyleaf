@@ -1577,7 +1577,7 @@ type ReviewPair = QueueItem & { impact: number; logs: number };
  * Works that make a pair worth a reviewer's time: those with user data, with
  * how many rows of it (the queue's `impact`), and those with QUEUE_MIN_LOGS+
  * logs. About 27k works on the full catalog, so one query per pass instead of
- * one lookup per pair. The log expression matches works_log_count_idx.
+ * one lookup per pair. The log expression matches works_popularity_idx.
  */
 async function hotWorks(db: Db): Promise<Map<string, { impact: number; logs: number }>> {
   const rows = await db.execute<{ id: string; impact: number; logs: number }>(sql`

@@ -98,7 +98,12 @@ export const works = pgTable('works', {
   index('works_search_idx').using('gin', t.searchVector),
   index('works_title_trgm_idx').using('gin', sql`${t.title} gin_trgm_ops`),
   // Built CONCURRENTLY by migrate.ts (ONLINE_SQL); ORDER BY log_count uses it.
-  index('works_log_count_idx').on(sql`(ol_log_count + reader_count)`),
+  // Audit 02d: it also INCLUDEs every column search's arms read (id, title,
+  // search_vector, merged_into_id, is_provisional, maturity, ol_log_count,
+  // reader_count), so a popularity walk is index-only. drizzle cannot spell
+  // INCLUDE; the DDL in migrate.ts is the definition. Dropping search_vector
+  // drops this index too, like works_search_idx.
+  index('works_popularity_idx').on(sql`(ol_log_count + reader_count)`),
   // Built CONCURRENTLY by migrate.ts (ONLINE_SQL, audit 03c): a merge's
   // chain-flattening lookup, WHERE merged_into_id = loser.
   index('works_merged_into_idx').on(t.mergedIntoId).where(sql`${t.mergedIntoId} IS NOT NULL`),

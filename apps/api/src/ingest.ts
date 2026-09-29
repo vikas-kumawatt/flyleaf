@@ -568,8 +568,9 @@ async function main() {
 const WORKS_INDEXES: [name: string, ddl: string][] = [
   ['works_search_idx', 'CREATE INDEX IF NOT EXISTS works_search_idx ON works USING gin (search_vector)'],
   ['works_title_trgm_idx', 'CREATE INDEX IF NOT EXISTS works_title_trgm_idx ON works USING gin (title gin_trgm_ops)'],
-  // Same expression as ONLINE_SQL in migrate.ts: log_count is virtual (0026).
-  ['works_log_count_idx', 'CREATE INDEX IF NOT EXISTS works_log_count_idx ON works ((ol_log_count + reader_count))'],
+  // Same DDL as ONLINE_SQL in migrate.ts: log_count is virtual (0026), and the
+  // INCLUDE list makes search's popularity walks index-only (audit 02d).
+  ['works_popularity_idx', 'CREATE INDEX IF NOT EXISTS works_popularity_idx ON works ((ol_log_count + reader_count)) INCLUDE (id, title, search_vector, merged_into_id, is_provisional, maturity, ol_log_count, reader_count)'],
 ];
 
 /**
@@ -582,7 +583,7 @@ const WORKS_INDEXES: [name: string, ddl: string][] = [
  * GIN indexes is not slow, it is effectively unbounded. Postgres can skip
  * index maintenance on an UPDATE only via a HOT update, which requires that
  * no INDEXED column changed -- and `ol_log_count` is indexed (inside the
- * works_log_count_idx expression) -- and that the
+ * works_popularity_idx expression) -- and that the
  * page has room, which after a bulk load it does not. So every row change
  * re-inserts into both GIN indexes: roughly five lexemes per title in
  * `works_search_idx` and twenty-odd trigrams in `works_title_trgm_idx`, so

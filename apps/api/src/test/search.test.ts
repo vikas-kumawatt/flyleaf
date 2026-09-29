@@ -207,6 +207,27 @@ describe('exclusions apply inside every arm, before its LIMIT', () => {
   });
 });
 
+// Audit 02d: on the real catalog a surname query ("orwell", "murphy",
+// "grace") returned a page of obscure books TITLED with the surname, ahead of
+// every book BY the author. An exact title earns 0.60 over an author match's
+// 0.20, and at a popularity weight of 0.35 no amount of popularity closed
+// that 0.40 gap. The corpus never showed it: it holds only popular works.
+describe('an author surname against obscure books titled with it', () => {
+  it('ranks the popular novel above five little-read books called "Orwell" (the full catalog has one with 12 logs, one with 5)', async () => {
+    await db.exec(`
+      INSERT INTO works (title, ol_log_count)
+      SELECT 'Orwell', g FROM unnest(ARRAY[2, 5, 5, 8, 12]) g`);
+    try {
+      const rows = await search('orwell', 5);
+      expect(['Nineteen Eighty-Four', 'Animal Farm']).toContain(rows[0]?.title);
+      // The obscure exact titles are still on the page, just below it.
+      expect(titles(rows)).toContain('Orwell');
+    } finally {
+      await db.exec(`DELETE FROM works WHERE title = 'Orwell'`);
+    }
+  });
+});
+
 // PRD §7.8 [LOCKED]: explicit works are excluded from search unless the
 // viewer is 18+ AND opted in. The SQL takes that decision as a parameter.
 describe('maturity (PRD §7.8)', () => {
