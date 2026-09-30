@@ -99,6 +99,9 @@ export interface MostReadAuthor {
   count: number;
 }
 
+/** The keys of Work.rating_distribution: the ten half-star ratings. */
+export type RatingBucket = '0.5' | '1.0' | '1.5' | '2.0' | '2.5' | '3.0' | '3.5' | '4.0' | '4.5' | '5.0';
+
 export interface ReadingStats {
   year: string;
   books_count: number;
@@ -263,8 +266,8 @@ export interface Work {
   authors?: { id: string; name: string }[];
   /** GET /works/:id only. */
   series?: { id: string; name: string; position: number | null }[];
-  /** GET /works/:id only: ratings per star; a half star counts in the bucket above. */
-  rating_distribution?: Record<'1' | '2' | '3' | '4' | '5', number>;
+  /** GET /works/:id only: readers per half-star rating, "0.5" to "5.0" (PRD §9.6); each reader once, at their latest rated attempt. Sums to rating_count. */
+  rating_distribution?: Record<RatingBucket, number>;
 }
 
 /** GET /authors/:id (SL-43). */
@@ -435,7 +438,7 @@ export interface UpdateReviewRequest {
 
 export interface WorkReviewsQuery {
   sort?: 'friends' | 'likes' | 'newest' | 'highest' | 'lowest';
-  /** Star bucket 1–5, as in rating_distribution: 4 lists 3.5 and 4.0. */
+  /** Star bucket 1–5: 4 lists reviews rated 3.5 and 4.0 (rating_distribution's "3.5" and "4.0"). */
   rating?: number;
   limit?: number;
   offset?: number;

@@ -36,7 +36,7 @@ import { exportsPlugin } from './exports/index.js';
 import { socialPlugin } from './social/index.js';
 import { activityPlugin } from './activity/index.js';
 import { interactionsPlugin } from './interactions/index.js';
-import type { RateLimiter } from './platform/index.js';
+import type { Cache, RateLimiter } from './platform/index.js';
 import type { EmailSender } from './providers/email/index.js';
 import { queryCountingEnabled, registerQueryCounter } from './bench/query-counter.js';
 import { registerSwagger } from './contract/index.js';
@@ -319,6 +319,8 @@ export interface BuildAppOptions {
   storage?: ObjectStorage;
   mailer?: EmailSender;
   errorReporter?: ErrorReporter;
+  /** Shared cache for route-level caching (the guest friends-sort ranking, audit 09b). None: nothing cached there. */
+  cache?: Cache;
   /** Shared limiter for write throttles (comments). Defaults to Postgres-backed. */
   limiter?: RateLimiter;
   logger?: FastifyServerOptions['logger'];
@@ -423,7 +425,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
     await app.register(readingRoutes(options.reading), { prefix: '/v1' });
   }
   if (options.db) {
-    await app.register(reviewsPlugin, { db: options.db });
+    await app.register(reviewsPlugin, { db: options.db, cache: options.cache });
     await app.register(interactionsPlugin, {
       prefix: '/v1',
       db: options.db,

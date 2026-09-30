@@ -372,12 +372,16 @@ export const workSchema = {
     },
     rating_distribution: {
       type: 'object',
-      description: 'GET /works/:id only: ratings per star, a half star counted in the bucket above (0.5 -> 1, 4.5 -> 5).',
+      description:
+        'GET /works/:id only: readers per half-star rating, "0.5" to "5.0" (PRD §9.6). Each reader counts once, ' +
+        'at their latest rated attempt, as in rating_count, so the ten buckets sum to rating_count.',
       properties: {
-        '1': { type: 'integer' }, '2': { type: 'integer' }, '3': { type: 'integer' },
-        '4': { type: 'integer' }, '5': { type: 'integer' },
+        '0.5': { type: 'integer' }, '1.0': { type: 'integer' }, '1.5': { type: 'integer' },
+        '2.0': { type: 'integer' }, '2.5': { type: 'integer' }, '3.0': { type: 'integer' },
+        '3.5': { type: 'integer' }, '4.0': { type: 'integer' }, '4.5': { type: 'integer' },
+        '5.0': { type: 'integer' },
       },
-      required: ['1', '2', '3', '4', '5'],
+      required: ['0.5', '1.0', '1.5', '2.0', '2.5', '3.0', '3.5', '4.0', '4.5', '5.0'],
     },
   },
   required: ['id', 'title', 'author_name', 'log_count'],
@@ -784,7 +788,7 @@ export const workReviewsQuerySchema = {
     sort: { type: 'string', enum: ['friends', 'likes', 'newest', 'highest', 'lowest'], default: 'friends' },
     rating: {
       type: 'integer', minimum: 1, maximum: 5,
-      description: 'Star bucket, as in rating_distribution: 4 lists ratings above 3 up to 4 (3.5 and 4.0).',
+      description: 'Star bucket: 4 lists reviews whose attempt is rated above 3 up to 4 (3.5 and 4.0), the "4★" bar the app groups from rating_distribution "3.5" and "4.0".',
     },
     limit: { type: 'integer', minimum: 1, maximum: 100, default: 20 },
     offset: { type: 'integer', minimum: 0, default: 0 },

@@ -1844,25 +1844,42 @@ paths:
                               - position
                         rating_distribution:
                           type: object
-                          description: "GET /works/:id only: ratings per star, a half star counted in the
-                            bucket above (0.5 -> 1, 4.5 -> 5)."
+                          description: 'GET /works/:id only: readers per half-star rating, "0.5" to "5.0"
+                            (PRD §9.6). Each reader counts once, at their latest
+                            rated attempt, as in rating_count, so the ten
+                            buckets sum to rating_count.'
                           properties:
-                            "1":
+                            "0.5":
                               type: integer
-                            "2":
+                            "1.0":
                               type: integer
-                            "3":
+                            "1.5":
                               type: integer
-                            "4":
+                            "2.0":
                               type: integer
-                            "5":
+                            "2.5":
+                              type: integer
+                            "3.0":
+                              type: integer
+                            "3.5":
+                              type: integer
+                            "4.0":
+                              type: integer
+                            "4.5":
+                              type: integer
+                            "5.0":
                               type: integer
                           required:
-                            - "1"
-                            - "2"
-                            - "3"
-                            - "4"
-                            - "5"
+                            - "0.5"
+                            - "1.0"
+                            - "1.5"
+                            - "2.0"
+                            - "2.5"
+                            - "3.0"
+                            - "3.5"
+                            - "4.0"
+                            - "4.5"
+                            - "5.0"
                       required:
                         - id
                         - title
@@ -2053,25 +2070,42 @@ paths:
                         - position
                   rating_distribution:
                     type: object
-                    description: "GET /works/:id only: ratings per star, a half star counted in the
-                      bucket above (0.5 -> 1, 4.5 -> 5)."
+                    description: 'GET /works/:id only: readers per half-star rating, "0.5" to "5.0"
+                      (PRD §9.6). Each reader counts once, at their latest rated
+                      attempt, as in rating_count, so the ten buckets sum to
+                      rating_count.'
                     properties:
-                      "1":
+                      "0.5":
                         type: integer
-                      "2":
+                      "1.0":
                         type: integer
-                      "3":
+                      "1.5":
                         type: integer
-                      "4":
+                      "2.0":
                         type: integer
-                      "5":
+                      "2.5":
+                        type: integer
+                      "3.0":
+                        type: integer
+                      "3.5":
+                        type: integer
+                      "4.0":
+                        type: integer
+                      "4.5":
+                        type: integer
+                      "5.0":
                         type: integer
                     required:
-                      - "1"
-                      - "2"
-                      - "3"
-                      - "4"
-                      - "5"
+                      - "0.5"
+                      - "1.0"
+                      - "1.5"
+                      - "2.0"
+                      - "2.5"
+                      - "3.0"
+                      - "3.5"
+                      - "4.0"
+                      - "4.5"
+                      - "5.0"
                 required:
                   - id
                   - title
@@ -2323,25 +2357,42 @@ paths:
                               - position
                         rating_distribution:
                           type: object
-                          description: "GET /works/:id only: ratings per star, a half star counted in the
-                            bucket above (0.5 -> 1, 4.5 -> 5)."
+                          description: 'GET /works/:id only: readers per half-star rating, "0.5" to "5.0"
+                            (PRD §9.6). Each reader counts once, at their latest
+                            rated attempt, as in rating_count, so the ten
+                            buckets sum to rating_count.'
                           properties:
-                            "1":
+                            "0.5":
                               type: integer
-                            "2":
+                            "1.0":
                               type: integer
-                            "3":
+                            "1.5":
                               type: integer
-                            "4":
+                            "2.0":
                               type: integer
-                            "5":
+                            "2.5":
+                              type: integer
+                            "3.0":
+                              type: integer
+                            "3.5":
+                              type: integer
+                            "4.0":
+                              type: integer
+                            "4.5":
+                              type: integer
+                            "5.0":
                               type: integer
                           required:
-                            - "1"
-                            - "2"
-                            - "3"
-                            - "4"
-                            - "5"
+                            - "0.5"
+                            - "1.0"
+                            - "1.5"
+                            - "2.0"
+                            - "2.5"
+                            - "3.0"
+                            - "3.5"
+                            - "4.0"
+                            - "4.5"
+                            - "5.0"
                       required:
                         - id
                         - title
@@ -2668,25 +2719,42 @@ paths:
                             - position
                       rating_distribution:
                         type: object
-                        description: "GET /works/:id only: ratings per star, a half star counted in the
-                          bucket above (0.5 -> 1, 4.5 -> 5)."
+                        description: 'GET /works/:id only: readers per half-star rating, "0.5" to "5.0"
+                          (PRD §9.6). Each reader counts once, at their latest
+                          rated attempt, as in rating_count, so the ten buckets
+                          sum to rating_count.'
                         properties:
-                          "1":
+                          "0.5":
                             type: integer
-                          "2":
+                          "1.0":
                             type: integer
-                          "3":
+                          "1.5":
                             type: integer
-                          "4":
+                          "2.0":
                             type: integer
-                          "5":
+                          "2.5":
+                            type: integer
+                          "3.0":
+                            type: integer
+                          "3.5":
+                            type: integer
+                          "4.0":
+                            type: integer
+                          "4.5":
+                            type: integer
+                          "5.0":
                             type: integer
                         required:
-                          - "1"
-                          - "2"
-                          - "3"
-                          - "4"
-                          - "5"
+                          - "0.5"
+                          - "1.0"
+                          - "1.5"
+                          - "2.0"
+                          - "2.5"
+                          - "3.0"
+                          - "3.5"
+                          - "4.0"
+                          - "4.5"
+                          - "5.0"
                     required:
                       - id
                       - title
@@ -5279,8 +5347,9 @@ paths:
           in: query
           name: rating
           required: false
-          description: "Star bucket, as in rating_distribution: 4 lists ratings above 3 up
-            to 4 (3.5 and 4.0)."
+          description: 'Star bucket: 4 lists reviews whose attempt is rated above 3 up to
+            4 (3.5 and 4.0), the "4★" bar the app groups from
+            rating_distribution "3.5" and "4.0".'
         - schema:
             type: integer
             minimum: 1

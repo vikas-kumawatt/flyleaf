@@ -961,8 +961,11 @@ describe('merge coverage: every table that references a work (Audit 03)', () => 
 
     const rows = await db.execute<{ work_id: string; rating_count: number; avg_rating: string; read_count: number }>(sql`
       SELECT work_id, rating_count, avg_rating, read_count FROM work_stats`);
+    // Audit 09b (A-09-027): u1 rated both records, which are now two attempts
+    // of one reader, counted once at the latest rated one (the loser's 5.0,
+    // renumbered after the survivor's): 5.0 and u2's 3.0. It was 3 ratings.
     expect(rows.map((r) => [r.work_id, Number(r.rating_count), Number(r.avg_rating), Number(r.read_count)]))
-      .toEqual([[p.survivor, 3, 4, 2]]);
+      .toEqual([[p.survivor, 2, 4, 2]]);
   });
 
   it('likes and comments stay on their read, counters intact', async () => {

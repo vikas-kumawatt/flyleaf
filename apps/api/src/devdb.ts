@@ -440,6 +440,13 @@ async function copyAll(sql: Sql, slice: Slice, opts: Options) {
         case 'pending_work_authors':
           n = 0; // ingest bookkeeping only; --finalise rebuilds it from the dumps if ever needed
           break;
+        case 'catalog_rating_stats':
+          // Derived (C, one row). The target's migrations already inserted it
+          // (0026 refreshes it), so copying the source's row was a primary key
+          // violation that failed every build since 0026 (audit 09b). finish()
+          // recomputes it from the copied reads through reconcile_work_counters().
+          n = 0;
+          break;
         default:
           n = (await tx.unsafe(insert)).count; // user data: everything
       }
@@ -480,10 +487,20 @@ async function verifyForeignKeys(sql: Sql) {
 async function finish(sql: Sql) {
   // Counters were copied from a consistent source, but reconcile anyway —
   // it is cheap at this size and proves the triggers' view matches the data.
-  for (const fn of ['reconcile_read_counters', 'reconcile_follow_counters', 'reconcile_shelf_counters']) {
+  //
+  // reconcile_work_counters too (audit 09b, A-09-035): the copy runs with
+  // triggers off, so work_stats arrives exactly as the source has it, and the
+  // source can lack rows (reads written before 0011 created the trigger were
+  // never backfilled, and no worker runs the nightly job locally). It also
+  // refreshes the catalog mean C.
+  for (const fn of ['reconcile_read_counters', 'reconcile_follow_counters', 'reconcile_shelf_counters', 'reconcile_work_counters']) {
     const [exists] = await sql`SELECT 1 FROM pg_proc WHERE proname = ${fn}`;
     if (exists) await sql.unsafe(`SELECT ${fn}()`);
   }
+  const [missing] = await sql<{ n: number }[]>`
+    SELECT count(DISTINCT r.work_id)::int AS n FROM reads r
+    WHERE NOT EXISTS (SELECT 1 FROM work_stats ws WHERE ws.work_id = r.work_id)`;
+  if ((missing?.n ?? 0) > 0) throw new Error(`${missing!.n} work(s) have reads but no work_stats row after the reconcile.`);
   log('analyzing');
   await sql.unsafe('ANALYZE');
 }

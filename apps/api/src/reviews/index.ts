@@ -5,9 +5,9 @@
 //   - PRD §10.1–§10.7 (Review ranking algorithm, content requirements, likes)
 //   - Architecture §3.1, §3.5, §3.7 (reviews, read_likes, follows tables)
 
-import { sql, eq, and, desc, asc, isNull, inArray } from 'drizzle-orm';
+import { sql, eq, and, desc, asc, isNull, inArray, type SQL } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
-import type { Db } from '../platform/index.js';
+import type { Cache, Db } from '../platform/index.js';
 import {
   reviews,
   reads,
@@ -230,23 +230,7 @@ export function rankReviews<T extends RankableReview>(
   // recency from instants microseconds apart, so ties fell in a different
   // order on each request and pages repeated or skipped reviews (audit 09).
   const ctx: ReviewRankingContext = { ...rankingCtx, now: rankingCtx.now ?? new Date() };
-  // Tier first, then score. The additive score alone cannot make proximity
-  // dominant: the other five terms sum to 0.65, while following someone adds
-  // only 0.35 × (1.0 − 0.2) = 0.28 over a stranger. Measured, not assumed —
-  // see review-ranking.test.ts. So people you follow form the top tier, and
-  // everyone else (followers-of-followers included) competes on the score,
-  // where the 0.6-vs-0.2 proximity weight still counts.
-  const tier = (item: T) => (socialProximity(item.user_id, ctx) === SOCIAL_PROXIMITY.following ? 1 : 0);
-  const scored = items
-    .map((item) => ({ item, tier: tier(item), score: calculateReviewRankingScore(item, ctx) }))
-    .sort(
-      (a, b) =>
-        b.tier - a.tier ||
-        b.score - a.score ||
-        new Date(b.item.published_at).getTime() - new Date(a.item.published_at).getTime() ||
-        a.item.id.localeCompare(b.item.id),
-    )
-    .map((s) => s.item);
+  const scored = scoreAndSort(items, ctx).map((s) => s.item);
 
   const key = ctx.explorationKey;
   if (!key) return { items: scored, exploredId: null };
@@ -279,6 +263,72 @@ export function rankReviews<T extends RankableReview>(
   const reordered = scored.filter((i) => i !== pick);
   reordered.splice(slot, 0, pick);
   return { items: reordered, exploredId: pick.id };
+}
+
+/**
+ * The order before the exploration slot, with each review's tier and exact
+ * score. `ctx.now` must be set: one clock per ranking.
+ *
+ * Tier first, then score. The additive score alone cannot make proximity
+ * dominant: the other five terms sum to 0.65, while following someone adds
+ * only 0.35 × (1.0 − 0.2) = 0.28 over a stranger. Measured, not assumed —
+ * see review-ranking.test.ts. So people you follow form the top tier, and
+ * everyone else (followers-of-followers included) competes on the score,
+ * where the 0.6-vs-0.2 proximity weight still counts.
+ */
+export function scoreAndSort<T extends RankableReview>(
+  items: T[],
+  ctx: ReviewRankingContext,
+): { item: T; tier: number; score: number }[] {
+  const tier = (item: T) => (socialProximity(item.user_id, ctx) === SOCIAL_PROXIMITY.following ? 1 : 0);
+  return items
+    .map((item) => ({ item, tier: tier(item), score: calculateReviewRankingScore(item, ctx) }))
+    .sort(
+      (a, b) =>
+        b.tier - a.tier ||
+        b.score - a.score ||
+        new Date(b.item.published_at).getTime() - new Date(a.item.published_at).getTime() ||
+        a.item.id.localeCompare(b.item.id),
+    );
+}
+
+/**
+ * The most the terms a SQL lower bound leaves out can add (audit 09b): the
+ * lower bound scores credibility as 0 and a non-friend as a stranger (0.2).
+ * A friend's proximity is exact (1.0), so only credibility is missing.
+ */
+export const LOWER_BOUND_SLACK = {
+  friend: REVIEW_RANKING_WEIGHTS.credibility,
+  other:
+    REVIEW_RANKING_WEIGHTS.credibility +
+    REVIEW_RANKING_WEIGHTS.proximity * (SOCIAL_PROXIMITY.secondDegree - SOCIAL_PROXIMITY.stranger),
+} as const;
+
+/** SQL and JS compute the same bound in different floating-point orders. */
+const BOUND_EPSILON = 1e-9;
+
+/**
+ * Whether the first `k` of a ranking of CAPPED candidates are the first `k`
+ * of the ranking of every review. The candidates are every review above
+ * `boundary` in (friend tier, lower bound) order, plus extras; `boundary` is
+ * the last one the SQL returned, or null when it returned them all.
+ *
+ * A review left out scores at most boundary.lb + slack. If the k-th ranked
+ * candidate scores more (or is a friend while the boundary is not), nothing
+ * left out can rank above it. Ties are not enough: a tie is broken by date
+ * and id, which the bound says nothing about. The exploration slot only
+ * moves a review within the first page, so an exact prefix stays exact.
+ */
+export function cappedPrefixIsExact(
+  sorted: { tier: number; score: number }[],
+  k: number,
+  boundary: { friend: boolean; lb: number } | null,
+): boolean {
+  if (!boundary) return true;
+  const x = sorted[k - 1];
+  if (!x) return false;
+  if (boundary.friend) return x.tier === 1 && x.score > boundary.lb + LOWER_BOUND_SLACK.friend + BOUND_EPSILON;
+  return x.tier === 1 || x.score > boundary.lb + LOWER_BOUND_SLACK.other + BOUND_EPSILON;
 }
 
 /** Guests have no id; a key that rotates daily still gives each day a fresh sample. */
@@ -380,8 +430,50 @@ export async function syncReviewActivity(tx: Db, reviewId: string): Promise<void
   });
 }
 
+/**
+ * FROM … WHERE for the reviews of a work `viewer` may see. canView() as SQL
+ * over the stricter of the review's and the read's visibility, so blocks,
+ * private accounts and deleted owners are filtered exactly as GET
+ * /v1/reviews/:id filters them (Audit 05). `rating` is the star bucket:
+ * above rating − 1, up to rating.
+ */
+function visibleReviews(workId: string, viewer: string | null, rating: number | undefined): SQL {
+  return sql`
+      FROM reviews rv
+      JOIN reads r ON r.id = rv.read_id
+      LEFT JOIN profiles p ON p.user_id = rv.user_id
+      WHERE rv.work_id = ${workId}::uuid
+        AND rv.deleted_at IS NULL
+        ${rating !== undefined ? sql`AND r.rating > ${rating - 1} AND r.rating <= ${rating}` : sql``}
+        AND ${canViewSql(viewer, {
+          ownerId: sql`rv.user_id`,
+          visibility: mostRestrictiveSql(sql`rv.visibility`, sql`r.visibility`),
+          ownerIsPrivate: sql`COALESCE(p.is_private, true)`,
+        })}`;
+}
+
+/** What the friends sort reads per review: narrow, no body (audit 09). */
+type RankRow = {
+  id: string; user_id: string; published_at: string | Date;
+  like_count: number; comment_count: number; body_length: number;
+};
+const RANK_COLUMNS = sql`rv.id, rv.user_id, rv.published_at, r.like_count, r.comment_count,
+  char_length(rv.body) AS body_length`;
+const toRankable = (r: RankRow) => ({
+  id: r.id,
+  user_id: r.user_id,
+  published_at: new Date(r.published_at).toISOString(),
+  like_count: Number(r.like_count),
+  comment_count: Number(r.comment_count),
+  body_length: Number(r.body_length),
+});
+
 export class ReviewService {
-  constructor(private readonly db: Db) {}
+  /** `cache`: the guest friends-sort ranking (audit 09b). Without one, nothing is cached. */
+  constructor(
+    private readonly db: Db,
+    private readonly cache?: Cache,
+  ) {}
 
   /**
    * Create or update the review of a read (SL-63). One transaction: the
@@ -641,10 +733,14 @@ export class ReviewService {
     viewerId: string | null,
     followedIds: Set<string>,
     workId: string,
+    /** Only these authors (the capped candidates, audit 09b); default: every author of the work. */
+    authorIds?: string[],
   ): Promise<ReviewRankingContext> {
     const secondDegreeIds = new Set<string>();
     const credibility = new Map<string, number>();
-    const authors = sql`(SELECT a.user_id FROM reviews a WHERE a.work_id = ${workId}::uuid AND a.deleted_at IS NULL)`;
+    const authors = authorIds
+      ? sql`(${authorIds.length ? sql.join(authorIds.map((id) => sql`${id}::uuid`), sql`, `) : sql`NULL::uuid`})`
+      : sql`(SELECT a.user_id FROM reviews a WHERE a.work_id = ${workId}::uuid AND a.deleted_at IS NULL)`;
 
     // Follower-of-follower: authors followed by someone the viewer follows.
     if (viewerId && followedIds.size > 0) {
@@ -706,57 +802,14 @@ export class ReviewService {
     const limit = Math.min(100, Math.max(1, query.limit ?? 20));
     const offset = Math.max(0, query.offset ?? 0);
     const viewer = viewerId ?? null;
-
-    // Visibility: canView() as SQL over the stricter of the review's and the
-    // read's visibility, so blocks, private accounts and deleted owners are
-    // filtered exactly as GET /v1/reviews/:id filters them (Audit 05).
-    const visible = sql`
-      FROM reviews rv
-      JOIN reads r ON r.id = rv.read_id
-      LEFT JOIN profiles p ON p.user_id = rv.user_id
-      WHERE rv.work_id = ${workId}::uuid
-        AND rv.deleted_at IS NULL
-        ${query.rating !== undefined ? sql`AND r.rating > ${query.rating - 1} AND r.rating <= ${query.rating}` : sql``}
-        AND ${canViewSql(viewer, {
-          ownerId: sql`rv.user_id`,
-          visibility: mostRestrictiveSql(sql`rv.visibility`, sql`r.visibility`),
-          ownerIsPrivate: sql`COALESCE(p.is_private, true)`,
-        })}`;
+    const visible = visibleReviews(workId, viewer, query.rating);
 
     let pageIds: string[];
     let total: number;
-    if (sort === 'friends') {
-      const followedIds = new Set<string>();
-      if (viewer) {
-        const followRows = await this.db
-          .select({ followeeId: follows.followeeId })
-          .from(follows)
-          .where(and(eq(follows.followerId, viewer), eq(follows.state, 'accepted')));
-        for (const f of followRows) followedIds.add(f.followeeId);
-      }
-      const [rows, ctx] = await Promise.all([
-        this.db.execute<{
-          id: string; user_id: string; published_at: string | Date;
-          like_count: number; comment_count: number; body_length: number;
-        }>(sql`
-          SELECT rv.id, rv.user_id, rv.published_at, r.like_count, r.comment_count,
-                 char_length(rv.body) AS body_length
-          ${visible}`),
-        this.rankingContext(viewer, followedIds, workId),
-      ]);
-      const ranked = rankReviews(
-        rows.map((r) => ({
-          id: r.id,
-          user_id: r.user_id,
-          published_at: new Date(r.published_at).toISOString(),
-          like_count: Number(r.like_count),
-          comment_count: Number(r.comment_count),
-          body_length: Number(r.body_length),
-        })),
-        ctx,
-      );
-      total = rows.length;
-      pageIds = ranked.items.slice(offset, offset + limit).map((r) => r.id);
+    if (sort === 'friends' && !viewer) {
+      ({ ids: pageIds, total } = await this.#guestFriendsPage(workId, query.rating, visible, offset, limit));
+    } else if (sort === 'friends') {
+      ({ ids: pageIds, total } = await this.#friendsPage(workId, viewer!, visible, offset, limit));
     } else {
       const order = {
         likes: sql`r.like_count DESC, rv.published_at DESC, rv.id DESC`,
@@ -773,6 +826,148 @@ export class ReviewService {
     }
 
     return { data: await this.#hydrate(pageIds, viewer), total };
+  }
+
+  /**
+   * Every visible review's id in friends-first order, uncapped: narrow rows
+   * (no body), ranked in JS. The guest path caches it; the capped path must
+   * agree with it (reviews-audit.test.ts parity).
+   */
+  async rankAll(workId: string, viewer: string | null, rating?: number): Promise<string[]> {
+    const visible = visibleReviews(workId, viewer, rating);
+    const followedIds = new Set<string>();
+    if (viewer) {
+      const followRows = await this.db
+        .select({ followeeId: follows.followeeId })
+        .from(follows)
+        .where(and(eq(follows.followerId, viewer), eq(follows.state, 'accepted')));
+      for (const f of followRows) followedIds.add(f.followeeId);
+    }
+    const [rows, ctx] = await Promise.all([
+      this.db.execute<RankRow>(sql`SELECT ${RANK_COLUMNS} ${visible}`),
+      this.rankingContext(viewer, followedIds, workId),
+    ]);
+    return rankReviews(rows.map(toRankable), ctx).items.map((r) => r.id);
+  }
+
+  /**
+   * Guests (audit 09b, A-09-009): the ranking is the same for every guest
+   * within a day (the exploration key is daily), so the ranked id list is
+   * cached per work, rating filter and day for 60 s, like GET /works/:id.
+   * The page is re-checked against the live visibility before it is
+   * hydrated: a review deleted or made private within the 60 s drops out
+   * (the page is one short and the total one high until the entry expires).
+   * Signed-in viewers never reach this path.
+   */
+  async #guestFriendsPage(
+    workId: string,
+    rating: number | undefined,
+    visible: SQL,
+    offset: number,
+    limit: number,
+  ): Promise<{ ids: string[]; total: number }> {
+    const key = `reviews:friends:guest:${workId}:${rating ?? 'all'}:${guestExplorationKey()}`;
+    let ranked = await this.cache?.get<string[]>(key);
+    if (!ranked) {
+      ranked = await this.rankAll(workId, null, rating);
+      await this.cache?.set(key, ranked, 60);
+    }
+    const page = ranked.slice(offset, offset + limit);
+    if (page.length === 0) return { ids: [], total: ranked.length };
+    const live = await this.db.execute<{ id: string }>(sql`
+      SELECT rv.id ${visible} AND rv.id IN (${sql.join(page.map((id) => sql`${id}::uuid`), sql`, `)})`);
+    const liveIds = new Set(live.map((r) => r.id));
+    return { ids: page.filter((id) => liveIds.has(id)), total: ranked.length };
+  }
+
+  /**
+   * Signed-in friends-first page from a capped, exact candidate set (audit
+   * 09b, A-09-009). SO-23's order is unchanged; fewer reviews are ranked.
+   * Candidates:
+   *   - the top N visible reviews in (friend tier, lower bound) order. The
+   *     lower bound is the score with credibility 0 and every non-friend a
+   *     stranger, in SQL with the same weights, at the same instant;
+   *   - the exploration pick, chosen from the whole pool (non-friend,
+   *     <= 14 days, < 5 likes) as rankReviews would choose it.
+   * Ranked exactly in JS with the ranking context of the candidates' authors
+   * only. While a review left out could still reach the page
+   * (cappedPrefixIsExact), N doubles. N starts at max(200, 2 × (offset + limit)).
+   *
+   * One deviation from the approved plan, which loaded every friend review:
+   * the friend tier is capped by the same bound (slack: credibility only).
+   * The heavy bench viewer follows 1,158 accounts, and 2,007 of the hot
+   * work's reviews are theirs; loading them all would keep most of the cost.
+   */
+  async #friendsPage(
+    workId: string,
+    viewer: string,
+    visible: SQL,
+    offset: number,
+    limit: number,
+  ): Promise<{ ids: string[]; total: number }> {
+    const now = new Date();
+    const k = offset + limit;
+    const w = REVIEW_RANKING_WEIGHTS;
+    const friend = sql`(rv.user_id = ${viewer}::uuid OR rv.user_id IN (
+      SELECT f.followee_id FROM follows f WHERE f.follower_id = ${viewer}::uuid AND f.state = 'accepted'))`;
+    // calculateReviewRankingScore without credibility, report penalty and
+    // second-degree proximity: the same inputs and weights, at `now`.
+    const lowerBound = sql`(
+      ${w.proximity}::float8 * CASE WHEN c.friend THEN ${SOCIAL_PROXIMITY.following}::float8 ELSE ${SOCIAL_PROXIMITY.stranger}::float8 END
+      + ${w.likes}::float8 * LEAST(1, log(1 + GREATEST(0, c.like_count)::float8) / 2)
+      + ${w.comments}::float8 * LEAST(1, log(1 + GREATEST(0, c.comment_count)::float8) / 1.5)
+      + ${w.recency}::float8 * exp(-GREATEST(0, extract(epoch FROM (${now.toISOString()}::timestamptz - c.published_at))::float8) / 86400 / 45)
+      + ${w.length}::float8 * CASE WHEN c.body_length BETWEEN 80 AND 600 THEN 1
+          ELSE GREATEST(0.1, 1 - abs(c.body_length - 340)::float8 / 1200) END)`;
+    const candidates = sql`(SELECT ${RANK_COLUMNS}, ${friend} AS friend ${visible}) c`;
+    // A minute wider than 14 days: an extra row is harmless, a missing one is not.
+    const poolSince = new Date(now.getTime() - (EXPLORATION.maxAgeDays * 86_400 + 60) * 1000).toISOString();
+
+    const top = (n: number) => this.db.execute<RankRow & { friend: boolean; lb: number }>(sql`
+      SELECT c.*, ${lowerBound} AS lb FROM ${candidates}
+      ORDER BY c.friend DESC, lb DESC, c.id LIMIT ${n}`);
+    const firstN = Math.max(200, 2 * k);
+
+    // The first candidate read runs with the others: it needs none of them.
+    const [followRows, [count], pool, firstRows] = await Promise.all([
+      this.db
+        .select({ followeeId: follows.followeeId })
+        .from(follows)
+        .where(and(eq(follows.followerId, viewer), eq(follows.state, 'accepted'))),
+      this.db.execute<{ n: number }>(sql`SELECT count(*)::int AS n ${visible}`),
+      this.db.execute<RankRow>(sql`
+        SELECT c.* FROM ${candidates}
+        WHERE NOT c.friend AND c.like_count < ${EXPLORATION.maxLikes} AND c.published_at >= ${poolSince}::timestamptz`),
+      top(firstN),
+    ]);
+    const followedIds = new Set(followRows.map((f) => f.followeeId));
+
+    // The pick, as rankReviews picks it: the eligible review with the lowest
+    // roll under the sample rate.
+    const base: ReviewRankingContext = { viewerId: viewer, followedIds, now };
+    let pick: ReturnType<typeof toRankable> | null = null;
+    let best = Infinity;
+    for (const row of pool.map(toRankable)) {
+      if (!isExplorationEligible(row, base)) continue;
+      const roll = explorationRoll(viewer, row.id);
+      if (roll < EXPLORATION.sampleRate && roll < best) [pick, best] = [row, roll];
+    }
+
+    for (let n = firstN; ; n *= 2) {
+      const rows = n === firstN ? firstRows : await top(n);
+      const items = rows.map(toRankable);
+      if (pick && !items.some((i) => i.id === pick!.id)) items.push(pick);
+      const ctx: ReviewRankingContext = {
+        ...(await this.rankingContext(viewer, followedIds, workId, [...new Set(items.map((i) => i.user_id))])),
+        now,
+      };
+      const last = rows.length === n ? rows[n - 1]! : null;
+      const boundary = last ? { friend: Boolean(last.friend), lb: Number(last.lb) } : null;
+      if (cappedPrefixIsExact(scoreAndSort(items, ctx), k, boundary)) {
+        const ranked = rankReviews(items, ctx);
+        return { ids: ranked.items.slice(offset, offset + limit).map((r) => r.id), total: Number(count?.n ?? 0) };
+      }
+    }
   }
 
   /** Full items for one page of already-authorised review ids, in that order. */
@@ -847,8 +1042,8 @@ export class ReviewService {
 /**
  * Fastify routes plugin for ratings and reviews.
  */
-export async function reviewsPlugin(app: FastifyInstance, opts: { db: Db }) {
-  const service = new ReviewService(opts.db);
+export async function reviewsPlugin(app: FastifyInstance, opts: { db: Db; cache?: Cache }) {
+  const service = new ReviewService(opts.db, opts.cache);
 
   // POST /v1/reads/:id/review — write or edit a review for a read
   app.post<{

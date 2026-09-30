@@ -65,7 +65,9 @@ describe('migration 0025: who is asked to confirm', () => {
 
   it('a re-run does not un-confirm someone who has since confirmed 2000-01-01', async () => {
     await pg.exec(`UPDATE users SET dob_confirmed = true WHERE email = 'placeholder@x.test'`);
-    await pg.exec(migrationFiles().at(-1)!.sql);
+    // 0025 again, by name. This ran migrationFiles().at(-1), which was 0028
+    // (it never touches users) until 0029 needed 0026's tables (audit 09b).
+    await pg.exec(migrationFiles().find((f) => f.tag === '0025_dob_confirmation')!.sql);
     expect((await confirmed())['placeholder@x.test']).toBe(true);
   });
 

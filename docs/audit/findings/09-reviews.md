@@ -274,10 +274,10 @@ No decisions are outstanding for Part 09.
 
 | Item | Owner | Reason |
 |---|---|---|
-| A-09-009 remaining friends-sort cost (guest cache, capped exact candidates) | **Part 09b** | approved design change |
-| A-09-027 latest rating per user in aggregates | **Part 09b** | approved; migration + reconcile |
-| A-09-029 ten half-star histogram buckets | **Part 09b** | approved; contract + app grouping |
-| A-09-035 root cause of the missing stats rows | **Part 09b** | devdb:build or trigger |
+| A-09-009 remaining friends-sort cost (guest cache, capped exact candidates) | **Done in Part 09b** (A-09-039, A-09-040) | approved design change |
+| A-09-027 latest rating per user in aggregates | **Done in Part 09b** (A-09-036) | approved; migration + reconcile |
+| A-09-029 ten half-star histogram buckets | **Done in Part 09b** (A-09-037) | approved; contract + app grouping |
+| A-09-035 root cause of the missing stats rows | **Done in Part 09b** (A-09-038) | devdb:build or trigger |
 | A-09-020 feed metadata keys | Part 14 | feed contract; renderer untestable here |
 | A-09-021 §9.7 exclusion | fast-follow (tasks.md) | owner decision |
 | A-09-022 review rate limits | Part 15 | RL |
@@ -295,3 +295,133 @@ No decisions are outstanding for Part 09.
 6. Composer: turn spoilers on, type a page, turn spoilers off, post → the review has no page.
 7. Book page with ≥ 5 ratings and some hearts: "N ratings · M hearts". With 1–4 ratings: the count, no average stars.
 8. A 10,000-character draft (non-Latin text) survives killing the app (SecureStore, A-09-030).
+
+---
+
+# Part 09b — Reviews follow-up (2026-09-30)
+
+2026-09-30 · **CI:** owner's run (`FLYLEAF_TEST_WORKERS=2 node scripts/ci.mjs`) **failed at `api · tests`** after 1,275 s: **1 of 1,406** failed (`dob-confirmation.test.ts` › "a re-run does not un-confirm…", A-09-045); 67 of 68 files and 1,405 tests passed, and api-client build, api typecheck and spec check were green. **After the fix**, run here: the failing file at one worker (14/14), then every step CI had not reached, as `scripts/ci.mjs` defines it: `api · build` (`npm run build`) ✅, `api · audit` (`npm audit --audit-level=high`) ✅, `mobile · typecheck` ✅, `mobile · offline tests` **162/162** ✅, `api · migrations on a real Postgres` (`npm run migrate`, on `flyleaf_dev` and `flyleaf`) ✅. API tests **1,395 → 1,406** (+11 in 09b; the Part 09 CI tail showed no total, and 1,395 is 1,406 − 11); mobile **159 → 162**.
+
+The owner's answers to Part 09's decisions (`docs/audit/09b-reviews-followup.md`), implemented. Day-to-day work and all perf numbers on **`flyleaf_dev`** (8 GB machine: **indicative only**, judged by ratios and plans). Migration **0029** applied to **both** `flyleaf_dev` and `flyleaf`.
+
+**Tests.** API **+11** (`work-counters` +6, `catalog-pages` +1, `reviews-audit` +4); three existing expectations changed because the owner's decisions superseded them (A-09-036, A-09-037). Mobile **159 → 162** (`rating-bars` 3, added to `npm test`). No test weakened, skipped or deleted.
+
+**What was run here** (one worker, a few files at a time, all green at the end): API `tsc --noEmit`; `work-counters`, `catalog-pages`, `reviews-audit`, `reviews`, `review-ranking`, `authorization-matrix`, `authorization-equivalence`, `social-block`, `social-block-equivalence`, `server-wiring`, `dedupe`, `schema`, `contract`, `reading`, `reading-lifecycle`, `profile-stats`, `feed-query`, `jobs`, `shelves-privacy`, `read-likes`, `read-comments`, `activity`; `spec:generate` + `spec:check` (**drift 0**); api-client build (CI's command); mobile `tsc --noEmit` and `npm test` (162/162); `npm run migrate` on both databases. **Not run by me:** the full API suite and `scripts/ci.mjs` (the owner ran CI, above). `devdb:build` was run into a throwaway `flyleaf_verify_dev`, never `flyleaf_dev` (A-09-038, A-09-044).
+
+`secure-design` was not triggered: this run was autonomous by instruction. The one privacy-relevant change (a cached guest list) re-checks visibility per page and is tested and mutation-checked (A-09-039).
+
+## Verdict (09b items)
+
+| Item | Result | Findings |
+|---|---|---|
+| 1. Latest rating per user | ✅ trigger, reconcile, C and histogram share one definition; parity proven on both databases | A-09-036 |
+| 2. Ten half-star buckets | ✅ API, client, app grouping by the filter's rule | A-09-037 |
+| 3. Friends-sort cost | ✅ guest cache; capped exact candidates (one deviation, flagged); ~1.9× under load for heavy, ≥ 12× for guests | A-09-039, A-09-040, A-09-041 |
+| 4. Missing stats rows | ✅ a missing backfill copied by `devdb:build` with triggers off; not a trigger bug | A-09-038 |
+
+## Findings
+
+### A-09-036 · P3 → FIXED · Rating aggregates count each reader once, at their latest rated attempt (A-09-027)
+- **Rule:** per (user, work), the rating of the highest `attempt_no` with `rating IS NOT NULL`. An unrated newer attempt keeps the reader; clearing the newest rating falls back to the previous one. Nothing in the PRD points at "latest attempt, rated or not" (§34.2 gives each attempt its own rating and is silent on aggregates), so no DECISION NEEDED was raised.
+- **Where:** `drizzle/0029_latest_rating_per_user.sql`: a view `latest_ratings` (`DISTINCT ON (work_id, user_id) … ORDER BY attempt_no DESC`) read by `recompute_work_stats_for_work()` (the triggers), `reconcile_work_counters()`, `refresh_catalog_rating_mean()` (C) and the histogram in `CatalogService.getWork`. One definition, so the four cannot drift. Functions and a view only; the migration rewrites no data.
+- **Plan:** the per-work predicate is pushed into the view: `Bitmap Index Scan on reads_work_idx`, then a 328 kB in-memory sort of the work's rated reads: hot work **3.7–6.0 ms**, 595–601 buffers (cost grows with the work's reads, not the table). Whole-table form on `flyleaf`: 32 ms, 1,785 buffers, 793 kB hash (`reads` is 62k rows on both databases), so no batching was needed for the reconcile itself.
+- **Recompute (both databases):** C refreshed, then every work with reads recomputed through `refresh_work_read_stats()` (the trigger's own path) in **26 batches of 500**, each statement with `statement_timeout = 60s` and `work_mem = 32MB` (12,576 works, 13 s per database). Then parity:
+  - `reconcile_work_counters()` → `{"work_stats": 0, "reader_count": 0}` on **both**;
+  - an independent oracle (`row_number()` window, not the view) against every stored row: **0 mismatches of 12,576** on both;
+  - C = Σ over works of `(rating_sum, rating_count)`: equal on both (`flyleaf_dev` 91,330.5 / 25,283; `flyleaf` 91,326.5 / 25,282).
+- **Effect:** `flyleaf_dev` 27,164 attempt ratings → **25,283 reader ratings** (1,833 (user, work) pairs had several rated attempts); C 3.6133 → 3.6123; hot work 3,698 → **2,570** ratings (avg 3.61 unchanged, polarisation 1.1416 → 1.1313). `flyleaf` likewise, plus its three missing rows created (A-09-038).
+- **Tests** (`work-counters.test.ts` › *ratings count each reader once…*):
+  - "a re-reader who rated 5 then 3 counts once, as 3": **seen failing: yes**;
+  - "the nightly reconcile computes exactly what the trigger stored" (three readers, re-reads, a cleared newest rating, two works; the reconcile must fix 0): **seen failing: yes**; **mutation-checked**: the reconcile back on the per-attempt rule fails it;
+  - "the catalog mean C is taken over the same population": **seen failing: yes**;
+  - "clearing the newest rating falls back…; an unrated newer attempt changes nothing" and "two users count twice": **passed before** (the old rule gives the same numbers there). They pin the rule against the alternative "latest attempt, rated or not": a view without `rating IS NOT NULL` **fails** the clearing test (mutation-checked).
+- **Inherited expectation changed:** `dedupe.test.ts` › "work_stats is recomputed for the survivor…" expected 3 ratings where one user had rated both merged records; now 2 (that reader's latest, 5.0, plus 3.0; average still 4). Commented in the test.
+
+### A-09-037 · P2 → FIXED · `rating_distribution` is ten half-star buckets (A-09-029, PRD §9.6)
+- **API:** keys `"0.5"`, `"1.0"` … `"5.0"` (numeric(2,1) as text), zero-filled, from `latest_ratings`, so the buckets sum to `rating_count`. The field's shape is replaced; no second field (`contract/schemas.ts`; `catalog/index.ts` `RATING_BUCKETS`; `packages/api-client` `RatingBucket`). Spec regenerated, drift 0. **Breaking contract change**, pre-launch, by decision.
+- **App:** `src/lib/ratingBars.ts` groups the ten into five bars, bar n = `"n−0.5"` + `"n.0"`. That is the reviews filter's rule (`rating > n−1 AND rating ≤ n`, A-09-015), so the 4★ bar and the 4★ chip both mean 3.5 and 4.0. The book page uses it.
+- **Rating filter: meaning unchanged, by choice.** It filters reviews, which are per attempt; the histogram counts readers. The rule matches, but the populations differ where a re-reader reviewed several attempts: the chip lists each review under its own attempt's rating, while the bar counts the reader once at their latest rating. Documented in the filter's contract description.
+- **Tests:** `catalog-pages.test.ts` "has ten zero-filled half-star buckets over the same readers as rating_count…" (**seen failing: yes**); the two existing histogram assertions were rewritten from the five-bucket shape to the ten (seen failing, then passing). Mobile `rating-bars.test.ts`: every bucket lands in the bar whose chip lists it (checked against the server's predicate, written independently), sums, empty. **Mutation-checked:** grouping 4.5 with 4★ fails two of three. The screen itself: phone checklist.
+
+### A-09-038 · P3 → ROOT CAUSE + FIX · Why three works had reads but no `work_stats` row (A-09-035)
+- **Evidence:** the same three works also lacked a row on **`flyleaf`** (count query, `statement_timeout` 120 s). Their reads were written **2026-09-03 09:59–10:01**. Migration 0011, which created `work_stats` and its trigger, was committed **2026-09-17** (`e421b1d`). Neither 0011 nor 0026 backfilled `work_stats` (0026 backfills only `reader_count`), and no worker runs the nightly `works.reconcile` locally. `devdb:build` copies with `SET LOCAL session_replication_role = replica` (triggers off) and takes `work_stats` as the source has it. Its `finish()` reconciled read, follow and shelf counters but **not** work counters. So the gap started on `flyleaf` and was copied to `flyleaf_dev`.
+- **Verdict:** a missing backfill carried over by `devdb:build`, **not a trigger bug**.
+- **Fix:** `devdb.ts` `finish()` runs `reconcile_work_counters()` (which also refreshes C), then fails the build if any work has reads but no stats row. `flyleaf`'s three rows were created by the 09b recompute (works with stats 12,573 → 12,576; missing: 0 on both databases).
+- **Test:** `work-counters.test.ts` "creates the row for a work whose reads arrived with triggers off (A-09-035: devdb:build)". It inserts a read under `session_replication_role = replica`, asserts no row exists (the reproduction), then the reconcile creates it. - **Build verified (owner's request, `flyleaf_dev` untouched):** `npm run devdb:build -- --works 20000 --target flyleaf_verify_dev` in the foreground from `flyleaf`. The first attempt failed on a pre-existing bug (A-09-044); after that fix it completed in **411 s** (457 MB database; 20,024 works, 540,006 editions, every user table; 52 foreign keys verified). In the target, the work reconcile had run: C was refreshed at the end of the build from the copied reads (25,282 ratings, the latest-rating population; the row is no longer copied). The no-gaps check passed (0 works with reads and no stats row), and a second `reconcile_work_counters()` fixed 0 rows. **Peak memory:** the build's node process 261 MB; the `flyleaf-pg` container +532 MB (1,835 → 2,367 MB); lowest free host RAM 266 MB, 23 s in, while dropping the previous target and computing the slice. The failed first attempt reached +1,688 MB from a cold 174 MB and briefly left **23 MB** free on the host, which the sampler saw for under 6 s. Heavy for this machine, but it completed; run it with other apps closed. `flyleaf_verify_dev` was then dropped (the only database dropped).
+
+### A-09-039 · P1 → FIXED · Guest friends sort: a 60 s cached ranking per work, rating filter and day
+- **Where:** `ReviewService.#guestFriendsPage`. The ranked id list (the uncapped `rankAll`) is cached through the injected `Cache`: `serverDependencies`' `MemoryCache`, now also passed to `reviewsPlugin` via `BuildAppOptions.cache`. Key `reviews:friends:guest:<work>:<rating|all>:<guest day key>`, TTL 60 s. Signed-in viewers never reach this path. Without an injected cache (most test apps), nothing is cached.
+- **Privacy:** the page's ids are re-checked against live visibility (one indexed query on ≤ `limit` ids) before hydration, so a review deleted or made private within the 60 s drops out at once. Cost: that page is one short and `total` one high until the entry expires. A new review reaches guests within 60 s, as on `GET /works/:id`.
+- **Test:** `reviews-audit.test.ts` "caches the guest ranking for 60 s, re-checks visibility, and never serves it to a signed-in viewer". **Seen failing before:** the caching assertion fails on HEAD's code (a new review shows at once). **Mutation-checked:** without the re-check, the private review is served.
+
+### A-09-040 · P1 → FIXED · The signed-in friends sort ranks a capped, exact candidate set
+- **Where:** `ReviewService.#friendsPage`, `cappedPrefixIsExact`, `LOWER_BOUND_SLACK` and `scoreAndSort`. `scoreAndSort` is the sort `rankReviews` already did, split out so the exact scores are visible; the formula and the exploration step are unchanged.
+- **Candidates:**
+  - the top N visible reviews in (friend tier, SQL lower bound) order. The lower bound is the SO-23 score with credibility 0 and every non-friend a stranger, using the same weights (passed from `REVIEW_RANKING_WEIGHTS`) at the same instant;
+  - plus the exploration pick, chosen as `rankReviews` chooses it, from the whole pool (non-friend, ≤ 14 days, < 5 likes; read one minute wider).
+  N starts at `max(200, 2 × (offset + limit))` and doubles until the page is exact. The ranking context (second degree, credibility) is read for the candidates' authors only.
+- **Exactness:** a review left out scores at most the boundary's lower bound + 0.24 (non-friend: credibility 0.10 + second degree 0.35 × 0.4) or + 0.10 (friend: credibility only). The prefix of length `offset + limit` is exact when any of these holds:
+  - its last item beats that bound strictly (ties break by date and id, which the bound says nothing about);
+  - its last item is a friend while the boundary is not;
+  - the candidates are exhausted.
+  The exploration slot moves a review only within page one, so an exact prefix stays exact. An epsilon of 1e-9 absorbs the difference in SQL and JS float order.
+- **Deviation from the approved plan, CONFIRMED by the owner (2026-09-30):** the plan loaded **every** friend review. The heavy persona follows 1,158 accounts, and 2,007 of the hot work's reviews are theirs, so the friend tier is capped by the same bound (slack 0.10). The order is still exact, and this is tested.
+- **Tests** (`reviews-audit.test.ts` › *friends sort: capped candidates…*), all compared with the uncapped `rankAll`, with `Date` frozen:
+  - "a signed-in viewer gets exactly the uncapped order, page by page…": 423 reviews; 15 second-degree and credible authors whose lower bounds fall outside the first 200 rank in the first two pages; offsets 0, 20, 40 and 220;
+  - "extends by exactly the slack credibility and second-degree proximity can add (0.24)": a fixture where the 20th candidate lies between boundary + 0.14 and + 0.24;
+  - "caps the friend tier too, extending by the credibility a friend can add (0.10)";
+  - "sort=friends pages through every review exactly once" (Part 09) still passes.
+- **Mutation checks:** never extending fails; a non-friend slack of 0.10 fails; 0.14 fails; a friend slack of 0 fails; removing the guest re-check fails. One **equivalent mutant**: dropping `x.tier === 1` in the friend-boundary branch cannot change the result, because with N ≥ 2K the first K candidates are then all friends (kept as the argument written out).
+- **Not seen failing before the fix:** the cap is new (HEAD ranked everything, which is the parity oracle).
+
+### A-09-041 · P3 · Recorded · What the friends sort still costs
+- Heavy persona, one pass (no extension), `EXPLAIN (ANALYZE, BUFFERS)` warm on `flyleaf_dev`:
+  - candidate top-N: 60 ms, 2,787 buffers, `top-N heapsort` 69 kB;
+  - `count(*)`: 22 ms, 2,579 buffers;
+  - pool: 3.6 ms, 1,838 buffers (`reviews_work_idx` on `published_at`);
+  - second degree: **16 ms**, 2,183 buffers (was ~110 ms over all authors);
+  - credibility: **15.6 ms**, 2,025 buffers (was 75 ms).
+  Queries per request 6 → **8**; one extension adds 3, and the sequential pass saw 8–11.
+- The candidate and count queries still evaluate visibility over **all** of the work's reviews (the `visible` predicate hash-joins `reads`, 62k rows, on this data), so their cost grows with the work's review count. The first candidate read now runs in parallel with the others. A `count(*) OVER ()` in place of the count query was tried, **measured slower** (candidate query 161 ms) and reverted.
+- Unloaded p50 for heavy is **unchanged** (198 → 207 ms in the final pair): the cap adds a dependent round (candidates → context). The win is under load, from less DB work per request.
+
+### A-09-042 · RL → Part 15 · The book reviews list and book page have only the Global tier
+- `GET /works/:id/reviews` (the friends sort is its most expensive read) and `GET /works/:id` fall under PRD §24.4 **Global** (1,000/h signed in, 200/h anonymous), which is not enforced anywhere (A-05-RL6). No limit was added here; Part 15 builds the limiter layer.
+
+### A-09-043 · P2 · Open → Part 10 · The year-stats histogram is still five buckets
+- The user's year stats (`reading/index.ts`, `rating_distribution`) bucket that user's own ratings into five with `Math.round`. PRD line 2708 (the stats screen) also asks for "the 10 half-star buckets". This is outside 09b's scope (the owner's decision named the book page); Part 10 owns stats.
+
+### A-09-044 · P2 → FIXED · `devdb:build` has failed on every run since migration 0026
+- **Evidence:** the verification build stopped at `copied blocks` with `duplicate key value violates unique constraint "catalog_rating_stats_pkey"`. 0026 ends with `SELECT refresh_catalog_rating_mean()`, which inserts the singleton row into the fresh target during `runMigrations`. `copyAll` then treats `catalog_rating_stats` as user data and copies the source's row in full. `flyleaf_dev` predates 0026, so nobody had hit it.
+- **Fix:** `devdb.ts` skips `catalog_rating_stats` (derived: C); `finish()` recomputes it through `reconcile_work_counters()` (A-09-038). **Seen failing before the fix: yes** (the first verification build); passing after (the second).
+
+### A-09-045 · P2 → FIXED · A migration test re-ran "the last migration" instead of 0025
+- **Where:** `dob-confirmation.test.ts` › "a re-run does not un-confirm someone who has since confirmed 2000-01-01" ran `migrationFiles().at(-1)` against a database migrated only up to 0025, although the same file's setup says to pick 0025 by name because later migrations exist. Since 0026 it re-ran a migration that never touches `users` (0027, then 0028), so it **passed without testing 0025's re-run**. 0029 needs 0026's `catalog_rating_stats`, which exposed it (the CI failure).
+- **Fix:** the test re-runs `0025_dob_confirmation` by tag. **Seen failing before the fix: yes** (CI, and locally). **Mutation-checked:** moving 0025's `UPDATE` outside its `IF NOT EXISTS` guard (so a re-run un-confirms) now fails it; 0025 was restored byte-for-byte and matches HEAD. No other test replays "the last migration".
+
+## Performance (Part 09b, `flyleaf_dev`, indicative only)
+
+Bench runner, 10 connections × 10 s, with warm-up, **back to back**: HEAD's `reviews/index.ts` against 09b's, with the same server build otherwise. The machine's state changed during the session (588 MB of free RAM at one point), so absolute numbers moved about 2× between pairs; the ratios did not. Files: `docs/audit/perf/09b-before*.md` and `09b-after*.md`. `09b-after-5` is the final code; `09b-after-3` and `-4` are the code before the first candidate read ran in parallel.
+
+| Pair | Scenario | Before p50/p95/p99 | After p50/p95/p99 | Unloaded p50 | Queries |
+|---|---|---|---|---|---|
+| 1 | friends heavy | 416 / 571 / 595 | 226 / 258 / 327 | 96 → 123 | 6 → 8 |
+| 1 | friends guest | 285 / 310 / 373 | 20 / 25 / 28 | 68 → 8.7 | 4 → 3 |
+| 2 | friends heavy | 414 / 522 / 1,542 | 223 / 253 / 275 | 97 → 119 | 6 → 8 |
+| 2 | friends guest | 575 / 671 / 789 | 21 / 25 / 30 | 143 → 9.0 | 4 → 3 |
+| 3 | friends heavy | 791 / 925 / 1,085 | 420 / 495 / 595 | 203 → 263 | 6 → 8 |
+| 4 (final code) | friends heavy | 793 / 939 / 1,111 | 413 / 475 / 601 | 198 → 207 | 6 → 8 |
+| 4 (final code) | friends guest | 585 / 653 / 729 | 44 / 54 / 60 | 137 → 23 | 4 → 3 |
+
+- Heavy: **~1.9× at p50 and 1.9–2.2× at p95** under load in every pair. p95 < 300 ms was met only in the machine's quieter state. Guest: **12–28×** on cache hits; a miss costs what it did before.
+
+## Behaviour changes (Part 09b, client-observable)
+
+1. `work_stats` and `GET /works/:id` (`rating_count`, `avg_rating`, `weighted_rating`), and everything that reads them (search, shelves, feeds), count each reader once, at their latest rated attempt; C changes accordingly.
+2. `GET /works/:id` `rating_distribution` has ten keys, `"0.5"` … `"5.0"` (was `"1"` … `"5"`), and counts readers, not attempts, summing to `rating_count`.
+3. `GET /works/:id/reviews?sort=friends` for guests: the order can be up to 60 s old. New reviews appear within 60 s; removed ones disappear at once, with the page one short and `total` one high in the meantime.
+4. App: the book page's five bars group the ten buckets the way the filter chips do (3.5 counts as 4★, 4.5 as 5★, the same as before for half stars).
+
+## Decisions needed (09b)
+
+None. The one flagged deviation (the friend tier is capped too, A-09-040) was **confirmed by the owner** on 2026-09-30.

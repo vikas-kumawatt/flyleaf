@@ -37,6 +37,8 @@ beforeEach(async () => {
 });
 afterAll(async () => { await app?.close(); await client?.close(); });
 
+const ZERO_BUCKETS = { '0.5': 0, '1.0': 0, '1.5': 0, '2.0': 0, '2.5': 0, '3.0': 0, '3.5': 0, '4.0': 0, '4.5': 0, '5.0': 0 };
+
 const get = (url: string, who?: TestUser) =>
   app.inject({ method: 'GET', url: `/v1${url}`, headers: who ? who.auth : {} });
 
@@ -68,7 +70,8 @@ describe('GET /works/:id carries the page’s real content', () => {
     expect(body.description).toBe('Ged, a boy with power.');
     expect(body.authors).toEqual([{ id: le, name: 'Ursula K. Le Guin' }]);
     expect(body.series).toEqual([{ id: s!.id, name: 'Earthsea Cycle', position: 1 }]);
-    expect(body.rating_distribution).toEqual({ 1: 1, 2: 0, 3: 0, 4: 0, 5: 2 });
+    // Ten half-star buckets (PRD §9.6, audit 09b A-09-029): 4.5 and 5.0 are two bars.
+    expect(body.rating_distribution).toEqual({ ...ZERO_BUCKETS, '0.5': 1, '4.5': 1, '5.0': 1 });
   });
 
   it('a book with none of that says so rather than borrowing another book’s', async () => {
@@ -77,7 +80,23 @@ describe('GET /works/:id carries the page’s real content', () => {
     expect(body.description).toBeNull();
     expect(body.authors).toEqual([]);
     expect(body.series).toEqual([]);
-    expect(body.rating_distribution).toEqual({ 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 });
+    expect(body.rating_distribution).toEqual(ZERO_BUCKETS);
+  });
+});
+
+describe('the rating histogram (PRD §9.6, audit 09b)', () => {
+  it('has ten zero-filled half-star buckets over the same readers as rating_count: a re-reader once, at their latest rating', async () => {
+    const work = await makeWork(db, 'The Left Hand of Darkness');
+    const [a, b, c] = [await makeUser(db, 'ha'), await makeUser(db, 'hb'), await makeUser(db, 'hc')];
+    await makeRead(db, a.id, work, { attemptNo: 1, rating: '5.0' });
+    await makeRead(db, a.id, work, { attemptNo: 2, rating: '3.0' });
+    await makeRead(db, b.id, work, { rating: '3.5' });
+    await makeRead(db, c.id, work, { rating: '3.5' });
+
+    const body = (await get(`/works/${work}`)).json();
+    expect(body.rating_distribution).toEqual({ ...ZERO_BUCKETS, '3.0': 1, '3.5': 2 });
+    const total = Object.values(body.rating_distribution as Record<string, number>).reduce((x, y) => x + y, 0);
+    expect(total).toBe(body.rating_count);
   });
 });
 

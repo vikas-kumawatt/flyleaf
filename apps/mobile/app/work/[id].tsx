@@ -29,6 +29,7 @@ import { useLocalSearchParams, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import { api, type Work, type Review } from '@/lib/api';
+import { starBars } from '@/lib/ratingBars';
 import { useSession } from '@/lib/session';
 import { useGuestShelf } from '@/lib/guest';
 import { useActionGate } from '@/ui/ActionGate';
@@ -218,12 +219,8 @@ export default function WorkScreen() {
   const edition = work.editions?.[0];
   const author = work.authors?.[0];
   const series = work.series?.[0];
-  const distribution = work.rating_distribution;
-  const ratedTotal = distribution ? Object.values(distribution).reduce((a, b) => a + b, 0) : 0;
-  const ratingsDistribution = [5, 4, 3, 2, 1].map((stars) => {
-    const count = distribution?.[String(stars) as '1'] ?? 0;
-    return { stars, count, pct: ratedTotal > 0 ? Math.round((count / ratedTotal) * 100) : 0 };
-  });
+  const ratingsDistribution = starBars(work.rating_distribution);
+  const ratedTotal = ratingsDistribution.reduce((a, b) => a + b.count, 0);
 
   /** Local read state shown at once; the write itself is queued and syncs when it can. */
   const optimistic = (patch: Partial<NonNullable<Work['your_read']>>) =>

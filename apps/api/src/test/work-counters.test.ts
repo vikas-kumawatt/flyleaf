@@ -193,9 +193,109 @@ describe('works.reconcile', () => {
     expect(second.workStats).toBe(0);
   });
 
+  it('creates the row for a work whose reads arrived with triggers off (A-09-035: devdb:build)', async () => {
+    const work = await makeWork(db, 'Piranesi');
+    const a = await makeUser(db, 'a');
+    // What devdb:build's copy does, and what reads written before 0011 look like.
+    await db.transaction(async (tx) => {
+      await tx.execute(sql`SET LOCAL session_replication_role = replica`);
+      await tx.execute(sql`INSERT INTO reads (user_id, work_id, status, rating) VALUES (${a.id}, ${work}, 'finished', 4.0)`);
+    });
+    expect(await stats(work)).toBeUndefined();
+
+    await reconcile();
+    expect(Number((await stats(work))!.rating_count)).toBe(1);
+    expect((await counts(work)).readers).toBe(1);
+  });
+
   it('is scheduled nightly by the worker', async () => {
     const fs = await import('node:fs');
     const worker = fs.readFileSync(new URL('../worker.ts', import.meta.url), 'utf8');
     expect(worker).toMatch(/boss\.schedule\(QUEUES\.reconcileWorks,/);
+  });
+});
+
+// Audit 09b (A-09-027, owner decision 2026-09-30): each reader counts once in
+// the rating aggregates, with the rating of their most recent RATED attempt.
+// heart_count, read_count and dnf_count already counted distinct readers.
+describe('ratings count each reader once, at their latest rated attempt (A-09-027)', () => {
+  async function ratingRow(workId: string) {
+    const [s] = await db.execute<{ rating_count: number; rating_sum: string; avg_rating: string | null }>(sql`
+      SELECT rating_count, rating_sum::text AS rating_sum, avg_rating FROM work_stats WHERE work_id = ${workId}`);
+    return { count: Number(s!.rating_count), sum: s!.rating_sum, avg: s!.avg_rating };
+  }
+
+  it('a re-reader who rated 5 then 3 counts once, as 3', async () => {
+    const work = await makeWork(db, 'Piranesi');
+    const a = await makeUser(db, 'a');
+    await makeRead(db, a.id, work, { attemptNo: 1, rating: '5.0' });
+    await makeRead(db, a.id, work, { attemptNo: 2, rating: '3.0' });
+
+    expect(await ratingRow(work)).toEqual({ count: 1, sum: '3.0', avg: '3.00' });
+  });
+
+  it('clearing the newest rating falls back to the earlier rated attempt; an unrated newer attempt changes nothing', async () => {
+    const work = await makeWork(db, 'Piranesi');
+    const a = await makeUser(db, 'a');
+    await makeRead(db, a.id, work, { attemptNo: 1, rating: '5.0' });
+    const second = await makeRead(db, a.id, work, { attemptNo: 2, rating: '3.0' });
+
+    await db.execute(sql`UPDATE reads SET rating = NULL WHERE id = ${second}`);
+    expect(await ratingRow(work)).toEqual({ count: 1, sum: '5.0', avg: '5.00' });
+
+    await makeRead(db, a.id, work, { attemptNo: 3, status: 'reading' });
+    expect(await ratingRow(work)).toEqual({ count: 1, sum: '5.0', avg: '5.00' });
+  });
+
+  it('two users count twice', async () => {
+    const work = await makeWork(db, 'Piranesi');
+    const a = await makeUser(db, 'a');
+    const b = await makeUser(db, 'b');
+    await makeRead(db, a.id, work, { rating: '4.0' });
+    await makeRead(db, b.id, work, { rating: '2.0' });
+
+    expect(await ratingRow(work)).toEqual({ count: 2, sum: '6.0', avg: '3.00' });
+  });
+
+  it('the nightly reconcile computes exactly what the trigger stored', async () => {
+    const [w1, w2] = [await makeWork(db, 'Piranesi'), await makeWork(db, 'Jonathan Strange')];
+    const [a, b, c] = [await makeUser(db, 'a'), await makeUser(db, 'b'), await makeUser(db, 'c')];
+    await makeRead(db, a.id, w1, { attemptNo: 1, rating: '5.0' });
+    await makeRead(db, a.id, w1, { attemptNo: 2, rating: '1.5' });
+    await makeRead(db, a.id, w1, { attemptNo: 3, status: 'reading' });
+    await makeRead(db, b.id, w1, { attemptNo: 1, rating: '4.5' });
+    const cleared = await makeRead(db, b.id, w1, { attemptNo: 2, rating: '2.0' });
+    await db.execute(sql`UPDATE reads SET rating = NULL WHERE id = ${cleared}`);
+    await makeRead(db, c.id, w1, { rating: null, status: 'dnf' });
+    await makeRead(db, a.id, w2, { attemptNo: 1, rating: '3.5' });
+    await makeRead(db, a.id, w2, { attemptNo: 2, rating: '0.5' });
+    await makeRead(db, c.id, w2, { rating: '5.0' });
+
+    // Same C for both paths: refresh it, then recompute through the trigger's
+    // own function, as a write would have.
+    await db.execute(sql`SELECT refresh_catalog_rating_mean()`);
+    await db.execute(sql`SELECT recompute_work_stats_for_work(w) FROM unnest(${sql.raw(`ARRAY['${w1}','${w2}']::uuid[]`)}) AS w`);
+    expect(await ratingRow(w1)).toEqual({ count: 2, sum: '6.0', avg: '3.00' });
+    expect(await ratingRow(w2)).toEqual({ count: 2, sum: '5.5', avg: '2.75' });
+
+    const result = await reconcile();
+    expect(result.workStats).toBe(0);
+    expect(result.readerCount).toBe(0);
+  });
+
+  it('the catalog mean C is taken over the same population', async () => {
+    const work = await makeWork(db, 'Piranesi');
+    const a = await makeUser(db, 'a');
+    const b = await makeUser(db, 'b');
+    await makeRead(db, a.id, work, { attemptNo: 1, rating: '5.0' });
+    await makeRead(db, a.id, work, { attemptNo: 2, rating: '1.0' });
+    await makeRead(db, b.id, work, { rating: '4.0' });
+
+    await db.execute(sql`SELECT refresh_catalog_rating_mean()`);
+    const [row] = await db.execute<{ c: string; ws: string }>(sql`
+      SELECT (SELECT row(rating_sum, rating_count)::text FROM catalog_rating_stats) AS c,
+             (SELECT row(SUM(rating_sum)::numeric(14, 1), SUM(rating_count))::text FROM work_stats) AS ws`);
+    expect(row!.c).toBe('(5.0,2)');
+    expect(row!.c).toBe(row!.ws);
   });
 });

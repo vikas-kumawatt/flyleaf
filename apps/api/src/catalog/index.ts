@@ -83,9 +83,13 @@ export type Work = {
   description?: string | null;
   authors?: { id: string; name: string }[];
   series?: { id: string; name: string; position: number | null }[];
-  /** Ratings per star bucket, "1" to "5"; a half star counts in the bucket above (0.5 -> 1, 4.5 -> 5). */
-  rating_distribution?: Record<'1' | '2' | '3' | '4' | '5', number>;
+  /** Readers per half-star rating, "0.5" to "5.0", each reader once at their latest rated attempt (PRD §9.6, audit 09b). */
+  rating_distribution?: Record<RatingBucket, number>;
 };
+
+/** The ten half-star values a rating can take, as the histogram's keys (numeric(2,1) as text). */
+export const RATING_BUCKETS = ['0.5', '1.0', '1.5', '2.0', '2.5', '3.0', '3.5', '4.0', '4.5', '5.0'] as const;
+export type RatingBucket = (typeof RATING_BUCKETS)[number];
 
 /** An author's page (SL-43): their works by popularity, through work_authors. */
 export type AuthorDetail = {
@@ -621,7 +625,8 @@ export class CatalogService {
       // The book page's real content (audit 08: the screen showed one fixed
       // description, series and rating histogram for every book). Cached
       // with the rest of the base for 60 s. The histogram reads the work's
-      // ratings through reads_work_idx, so it costs what the work has.
+      // ratings through reads_work_idx, so it costs what the work has. It
+      // counts the readers rating_count counts: latest_ratings (0029).
       const [extra] = await this.db.execute<{
         description: string | null;
         authors: { id: string; name: string }[] | null;
@@ -637,8 +642,8 @@ export class CatalogService {
              FROM series_entries se JOIN series s ON s.id = se.series_id
             WHERE se.work_id = ${workId}) AS series,
           (SELECT json_object_agg(b, n) FROM (
-             SELECT GREATEST(1, CEIL(rating))::int AS b, count(*)::int AS n
-             FROM reads WHERE work_id = ${workId} AND rating IS NOT NULL GROUP BY 1) d) AS buckets
+             SELECT rating::text AS b, count(*)::int AS n
+             FROM latest_ratings WHERE work_id = ${workId} GROUP BY 1) d) AS buckets
       `);
 
       const eds = await this.db
@@ -691,11 +696,9 @@ export class CatalogService {
         description: extra?.description ?? null,
         authors: extra?.authors ?? [],
         series: (extra?.series ?? []).map((x) => ({ ...x, position: x.position === null ? null : Number(x.position) })),
-        rating_distribution: {
-          '1': Number(extra?.buckets?.['1'] ?? 0), '2': Number(extra?.buckets?.['2'] ?? 0),
-          '3': Number(extra?.buckets?.['3'] ?? 0), '4': Number(extra?.buckets?.['4'] ?? 0),
-          '5': Number(extra?.buckets?.['5'] ?? 0),
-        },
+        rating_distribution: Object.fromEntries(
+          RATING_BUCKETS.map((b) => [b, Number(extra?.buckets?.[b] ?? 0)]),
+        ) as Record<RatingBucket, number>,
         ...(workId !== id ? { merged_into: workId } : {}),
       };
       await this.cache.set(cacheKey, base, 60);

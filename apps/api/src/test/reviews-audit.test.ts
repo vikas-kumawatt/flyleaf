@@ -6,7 +6,7 @@
 // rating and body validation, the book reviews list's order, pagination and
 // filter, and the work counters the write path leaves behind.
 
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import type { FastifyInstance } from 'fastify';
 import { eq, sql } from 'drizzle-orm';
 import { MemoryCache, PgRateLimiter, type Db } from '../platform/index.js';
@@ -14,6 +14,7 @@ import { buildApp } from '../app.js';
 import { CatalogService } from '../catalog/index.js';
 import { ReadingService } from '../reading/index.js';
 import { IdentityService } from '../identity/index.js';
+import { ReviewService } from '../reviews/index.js';
 import { activity, editions, reads, reviews } from '../db/schema.js';
 import { follow, interactionHarness, makeRead, makeUser, makeWork, type TestUser } from './interaction-fixtures.js';
 
@@ -475,5 +476,209 @@ describe('work page aggregates', () => {
     const created = (await postReview(a, read, { body: 'Draft one.' })).json();
     const res = await catalogApp.inject({ method: 'GET', url: `/v1/works/${work}`, headers: a.auth });
     expect(res.json().your_read).toMatchObject({ id: read, review_id: created.id });
+  });
+});
+
+// Audit 09b (A-09-009): the friends sort ranks a capped candidate set for a
+// signed-in viewer, and caches the ranked ids for guests. Both must give
+// exactly SO-23's order.
+describe('friends sort: capped candidates and the guest cache (09b)', () => {
+  // Real time, frozen: the access tokens are signed on the real clock and expire.
+  const NOW = new Date();
+  const daysAgo = (d: number) => new Date(NOW.getTime() - d * 86_400_000).toISOString();
+  let work: string;
+  let viewer: TestUser;
+  let hidden: string[];
+
+  beforeAll(async () => {
+    work = await makeWork(db, 'Capped');
+    const elsewhere = await makeWork(db, 'Elsewhere');
+    viewer = await makeUser(db, uniq('cv'));
+    const friends = [];
+    for (let i = 0; i < 8; i++) friends.push(await makeUser(db, uniq('cf')));
+    for (const f of friends) await follow(db, viewer.id, f.id);
+
+    // 415 strangers. Likes 0-3 by g % 4 cluster the lower bounds; g 381-400
+    // are recent (the exploration pool). g 401-410 are followed by a friend
+    // (second degree, +0.14) and g 411-415 have 99-like reviews elsewhere
+    // (credibility, +0.10): all ten with no likes here, so their lower bound
+    // is among the lowest, but their exact score beats every 3-like review.
+    const rows = await db.execute<{ id: string; g: number }>(sql`
+      WITH u AS (
+        INSERT INTO users (email, password_hash, date_of_birth, email_verified_at)
+        SELECT 'cap' || g || '@example.com', 'x', '1990-01-01', now() FROM generate_series(1, 415) g
+        RETURNING id, email)
+      SELECT id, split_part(substr(email, 4), '@', 1)::int AS g FROM u`);
+    await db.execute(sql`INSERT INTO profiles (user_id, username, is_private)
+      SELECT u.id, 'cap_' || replace(u.id::text, '-', ''), false FROM users u WHERE u.email LIKE 'cap%@example.com'`);
+    const author = (g: number) => rows.find((r) => Number(r.g) === g)!.id;
+    const likes = (g: number) => (g <= 400 ? g % 4 : 0);
+    const age = (g: number) => (g > 380 && g <= 400 ? 2 : 30);
+    const values = rows.map((r) => sql`(${r.id}::uuid, ${likes(Number(r.g))}::int, ${daysAgo(age(Number(r.g)))}::timestamptz)`);
+    for (const f of friends) values.push(sql`(${f.id}::uuid, 0, ${daysAgo(30)}::timestamptz)`);
+    await db.execute(sql`
+      WITH spec (user_id, likes, at) AS (VALUES ${sql.join(values, sql`, `)}),
+      rd AS (
+        INSERT INTO reads (user_id, work_id, status, visibility, like_count)
+        SELECT user_id, ${work}::uuid, 'finished', 'public', likes FROM spec
+        RETURNING id, user_id)
+      INSERT INTO reviews (read_id, user_id, work_id, body, published_at)
+      SELECT rd.id, rd.user_id, ${work}::uuid, repeat('w', 200), spec.at FROM rd JOIN spec USING (user_id)`);
+    for (let g = 401; g <= 410; g++) await follow(db, friends[0]!.id, author(g));
+    for (let g = 411; g <= 415; g++) {
+      for (const attempt of [1, 2]) {
+        const read = await makeRead(db, author(g), elsewhere, { attemptNo: attempt });
+        await db.execute(sql`UPDATE reads SET like_count = 99 WHERE id = ${read}`);
+        await db.execute(sql`INSERT INTO reviews (read_id, user_id, work_id, body) VALUES (${read}, ${author(g)}, ${elsewhere}, 'Loved.')`);
+      }
+    }
+    const ids = await db.execute<{ id: string }>(sql`
+      SELECT rv.id FROM reviews rv JOIN users u ON u.id = rv.user_id
+      WHERE rv.work_id = ${work} AND split_part(substr(u.email, 4), '@', 1) ~ '^(40[1-9]|41[0-5]|410)$'
+      ORDER BY split_part(substr(u.email, 4), '@', 1)::int`);
+    hidden = ids.map((r) => r.id);
+    expect(hidden).toHaveLength(15);
+  }, 120_000);
+
+  afterEach(() => vi.useRealTimers());
+
+  const listPage = async (who: TestUser | undefined, offset: number, limit = 20, on = app) =>
+    (await on.inject({ method: 'GET', url: `/v1/works/${work}/reviews?sort=friends&limit=${limit}&offset=${offset}`, headers: who?.auth ?? {} })).json();
+
+  it('a signed-in viewer gets exactly the uncapped order, page by page, with authors beyond the first N lower bounds', async () => {
+    vi.useFakeTimers({ toFake: ['Date'], now: NOW });
+    const uncapped = await new ReviewService(db).rankAll(work, viewer.id);
+    expect(uncapped).toHaveLength(423);
+    // All fifteen rank in the first two pages on their exact score, although
+    // their lower bounds are outside the first N = 200: a cap that never
+    // extends misses them (mutation-checked).
+    for (const h of hidden) expect(uncapped.indexOf(h)).toBeLessThan(40);
+    expect((await listPage(viewer, 0)).total).toBe(423);
+    for (const offset of [0, 20, 40, 220]) {
+      const p = await listPage(viewer, offset);
+      expect(p.data.map((r: { id: string }) => r.id), `offset ${offset}`).toEqual(uncapped.slice(offset, offset + 20));
+    }
+  });
+
+  /**
+   * One review per new author on a new work, `likes` likes, `age` days old,
+   * 200 characters. `elsewhere` >= 0 adds two reviews with that many likes on
+   * other works: credibility is the median of the author's likes, this
+   * review included, so 0 keeps a liked author at 0 and 99 makes one fully
+   * credible. The reader follows `friend`, and `friend` or the reader
+   * follows the authors their spec says.
+   */
+  async function slackFixture(prefix: string, specs: { likes: number; age: number; elsewhere: number; followedBy?: 'reader' | 'friend' }[]) {
+    const work = await makeWork(db, `${prefix} work`);
+    const [e1, e2] = [await makeWork(db, `${prefix} e1`), await makeWork(db, `${prefix} e2`)];
+    const reader = await makeUser(db, uniq(`${prefix}v`));
+    const friend = await makeUser(db, uniq(`${prefix}f`));
+    await follow(db, reader.id, friend.id);
+    const made = await db.execute<{ id: string; i: number }>(sql`
+      WITH u AS (
+        INSERT INTO users (email, password_hash, date_of_birth, email_verified_at)
+        SELECT ${prefix} || '.' || i || '@example.com', 'x', '1990-01-01', now() FROM generate_series(1, ${specs.length}) i
+        RETURNING id, email)
+      SELECT id, split_part(split_part(email, '@', 1), '.', 2)::int AS i FROM u`);
+    await db.execute(sql`INSERT INTO profiles (user_id, username, is_private)
+      SELECT u.id, 's_' || replace(u.id::text, '-', ''), false FROM users u WHERE u.email LIKE ${`${prefix}.%@example.com`}`);
+    const specOf = (m: { i: number }) => specs[Number(m.i) - 1]!;
+    const row = (m: { id: string }, workId: string, likes: number, age: number) =>
+      sql`(${m.id}::uuid, ${workId}::uuid, ${likes}::int, ${daysAgo(age)}::timestamptz)`;
+    const values = made.flatMap((m) => {
+      const x = specOf(m);
+      return [row(m, work, x.likes, x.age), ...(x.elsewhere >= 0 ? [row(m, e1, x.elsewhere, 60), row(m, e2, x.elsewhere, 60)] : [])];
+    });
+    await db.execute(sql`
+      WITH spec (user_id, work_id, likes, at) AS (VALUES ${sql.join(values, sql`, `)}),
+      rd AS (
+        INSERT INTO reads (user_id, work_id, status, visibility, like_count)
+        SELECT user_id, work_id, 'finished', 'public', likes FROM spec
+        RETURNING id, user_id, work_id)
+      INSERT INTO reviews (read_id, user_id, work_id, body, published_at)
+      SELECT rd.id, rd.user_id, rd.work_id, repeat('w', 200), spec.at FROM rd JOIN spec USING (user_id, work_id)`);
+    const follows = made.filter((m) => specOf(m).followedBy);
+    if (follows.length) {
+      await db.execute(sql`INSERT INTO follows (follower_id, followee_id, state) VALUES ${sql.join(
+        follows.map((m) => sql`(${specOf(m).followedBy === 'reader' ? reader.id : friend.id}::uuid, ${m.id}::uuid, 'accepted')`),
+        sql`, `)}`);
+    }
+    const authorsWhere = (pred: (x: (typeof specs)[number]) => boolean) => made.filter((m) => pred(specOf(m))).map((m) => m.id);
+    return { work, reader, authorsWhere };
+  }
+
+  async function firstPageAgainstUncapped(work: string, reader: TestUser) {
+    vi.useFakeTimers({ toFake: ['Date'], now: NOW });
+    const uncapped = await new ReviewService(db).rankAll(work, reader.id);
+    const page = (await app.inject({ method: 'GET', url: `/v1/works/${work}/reviews?sort=friends&limit=20&offset=0`, headers: reader.auth })).json();
+    expect(page.data.map((r: { id: string }) => r.id)).toEqual(uncapped.slice(0, 20));
+    return page.data.map((r: { user_id: string }) => r.user_id) as string[];
+  }
+
+  it('extends by exactly the slack credibility and second-degree proximity can add (0.24)', async () => {
+    // Lower bounds: 20 reviews with 53 likes (0.420, also their exact score),
+    // 200 with none (0.247), and 3 by authors who are second degree AND
+    // credible, a day older (0.245: outside N = 200, exact 0.485). With
+    // N = 200 the 20th candidate scores 0.420, above the boundary + 0.10 or
+    // + 0.14 but not + 0.24: only the full slack extends and finds the three.
+    const { work, reader, authorsWhere } = await slackFixture('slack', [
+      ...Array.from({ length: 20 }, () => ({ likes: 53, age: 30, elsewhere: 0 })),
+      ...Array.from({ length: 200 }, () => ({ likes: 0, age: 30, elsewhere: -1 })),
+      ...Array.from({ length: 3 }, () => ({ likes: 0, age: 31, elsewhere: 99, followedBy: 'friend' as const })),
+    ]);
+    const onPage = await firstPageAgainstUncapped(work, reader);
+    expect(onPage.slice(0, 3).sort()).toEqual(authorsWhere((x) => x.elsewhere === 99).sort());
+  }, 120_000);
+
+  it('caps the friend tier too, extending by the credibility a friend can add (0.10)', async () => {
+    // All friends. Lower bounds: 20 with 4 likes (0.597), 197 with none
+    // (0.527), 3 credible and a day older (0.525: outside N = 200, exact
+    // 0.625). The 20th candidate, 0.597, is above the boundary but not
+    // above it + 0.10.
+    const { work, reader, authorsWhere } = await slackFixture('fslack', [
+      ...Array.from({ length: 20 }, () => ({ likes: 4, age: 30, elsewhere: 0, followedBy: 'reader' as const })),
+      ...Array.from({ length: 197 }, () => ({ likes: 0, age: 30, elsewhere: -1, followedBy: 'reader' as const })),
+      ...Array.from({ length: 3 }, () => ({ likes: 0, age: 31, elsewhere: 99, followedBy: 'reader' as const })),
+    ]);
+    const onPage = await firstPageAgainstUncapped(work, reader);
+    expect(onPage.slice(0, 3).sort()).toEqual(authorsWhere((x) => x.elsewhere === 99).sort());
+  }, 120_000);
+
+  /** Every page of 100, in order. */
+  const allIds = async (who: TestUser | undefined, on: FastifyInstance) => {
+    const out: string[] = [];
+    for (let offset = 0; ; offset += 100) {
+      const p = await listPage(who, offset, 100, on);
+      out.push(...p.data.map((r: { id: string }) => r.id));
+      if (offset + 100 >= p.total) return out;
+    }
+  };
+
+  it('caches the guest ranking for 60 s, re-checks visibility, and never serves it to a signed-in viewer', async () => {
+    const cached = await buildApp({ db, identity: new IdentityService(db, new PgRateLimiter(db)), cache: new MemoryCache() });
+    await cached.ready();
+    try {
+      const before = await allIds(undefined, cached);
+      expect(before).toHaveLength(423);
+
+      // A new public review: the cached guest list does not know it yet; a signed-in viewer sees it.
+      const late = await makeUser(db, uniq('cl'));
+      const lateRead = await makeRead(db, late.id, work);
+      const lateReview = (await postReview(late, lateRead, { body: 'Late to the party.' })).json();
+      const guestIds = await allIds(undefined, cached);
+      expect(guestIds).not.toContain(lateReview.id);
+      const signedIn = await allIds(viewer, cached);
+      expect(signedIn).toContain(lateReview.id);
+
+      // A review made private inside the 60 s is gone from the cached page at once.
+      const target = before[0]!;
+      await db.update(reviews).set({ visibility: 'private' }).where(eq(reviews.id, target));
+      const after = await allIds(undefined, cached);
+      expect(after).not.toContain(target);
+      expect(after).toEqual(before.slice(1));
+      await db.update(reviews).set({ visibility: 'public' }).where(eq(reviews.id, target));
+    } finally {
+      await cached.close();
+    }
   });
 });

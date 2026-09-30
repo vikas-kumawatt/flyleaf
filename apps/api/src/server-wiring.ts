@@ -36,6 +36,7 @@ export function serverDependencies(db: Db, boss: PgBoss, providers: Providers) {
     mailer,
     errorReporter: errors,
     limiter,
+    cache,
     identity: new IdentityService(db, limiter, mailer),
     // Gap-fill turns a search miss into a permanent catalog entry (FN-32).
     catalog: new CatalogService(db, cache, new GapFillService(db, providers.catalog)),
