@@ -64,6 +64,9 @@ const STATUSES: { key: string; label: string }[] = [
 const formatLabel = (f?: string | null) =>
   f ? f.charAt(0).toUpperCase() + f.slice(1) : null;
 
+/** PRD §9.4: the heart count sits next to the rating count ("2,847 ratings · 1,203 hearts"). */
+const heartsLabel = (n: number) => `${n.toLocaleString()} ${n === 1 ? 'heart' : 'hearts'}`;
+
 export default function WorkScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const { user } = useSession();
@@ -307,7 +310,7 @@ export default function WorkScreen() {
     }
   };
 
-  const rate = async (rating: number) => {
+  const rate = async (rating: number | null) => {
     if (!user) {
       promptAuth({
         title: `Sign up to rate ${work.title}`,
@@ -318,8 +321,16 @@ export default function WorkScreen() {
     if (!db) return;
     setBusy(true);
     try {
+      const repo = new OfflineRepository(db, user.id);
+      if (rating === null) {
+        // Clearing needs a rating to clear; with no read there is nothing to do.
+        if (!work.your_read) return;
+        await repo.clearRating(work.id);
+        optimistic({ rating: null });
+        return;
+      }
       const status = work.your_read?.status ?? 'finished';
-      await new OfflineRepository(db, user.id).saveReadStatus(work.id, status, rating, null, meta);
+      await repo.saveReadStatus(work.id, status, rating, null, meta);
       optimistic({ status, rating });
     } catch {
       failed();
@@ -526,16 +537,20 @@ export default function WorkScreen() {
                     <View>
                       <Stars value={work.avg_rating ? Number(work.avg_rating) : null} size={14} />
                       <Txt variant="micro" color="muted">
-                        {work.rating_count.toLocaleString()} ratings
+                        {work.rating_count.toLocaleString()} ratings{work.heart_count ? ` · ${heartsLabel(work.heart_count)}` : ''}
                       </Txt>
                     </View>
                   </>
                 ) : work.rating_count && work.rating_count > 0 ? (
+                  // PRD §9.5: below 5 ratings, the count instead of an average
+                  // (the stars drew the average here; audit 09).
                   <View>
                     <Txt variant="body" style={{ fontWeight: '600' }}>
                       {work.rating_count} {work.rating_count === 1 ? 'rating' : 'ratings'}
                     </Txt>
-                    <Stars value={work.avg_rating ? Number(work.avg_rating) : null} size={14} />
+                    {work.heart_count ? (
+                      <Txt variant="micro" color="muted">{heartsLabel(work.heart_count)}</Txt>
+                    ) : null}
                   </View>
                 ) : (
                   <View>

@@ -85,6 +85,23 @@ describe('offline reading writes (audit 08)', () => {
     assert.ok(log.some((l) => l === 'upsert:work-1:reading:keep'), log.join(' | '));
   });
 
+  test('clearing a rating (audit 09, PRD §9.3) empties it locally and sends clear_rating with the status', async () => {
+    const sent: { status: string; rating: unknown; extra: unknown }[] = [];
+    const repo = new OfflineRepository(db, USER, handler([], {
+      upsertRead: async (workId, status, rating, _h, extra) => {
+        sent.push({ status, rating, extra });
+        return { id: `server-${workId}` };
+      },
+    }));
+    await repo.saveReadStatus('work-1', 'finished', 4);
+    await drain(repo);
+    await repo.clearRating('work-1');
+    const [row] = await db.getAll<{ rating: number | null; status: string }>(`SELECT rating, status FROM reads`);
+    assert.deepEqual({ ...row }, { rating: null, status: 'finished' });
+    await drain(repo);
+    assert.deepEqual(sent.at(-1), { status: 'finished', rating: null, extra: { clear_rating: true } });
+  });
+
   test('removing a want-to-read book deletes it, after the create it depends on', async () => {
     const log: string[] = [];
     const repo = new OfflineRepository(db, USER, handler(log));

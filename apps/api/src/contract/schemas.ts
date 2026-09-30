@@ -307,6 +307,10 @@ export const yourReadSchema = {
     hearted: { type: 'boolean' },
     page: { type: ['integer', 'null'] },
     percent: { type: ['number', 'null'] },
+    review_id: {
+      type: ['string', 'null'], format: 'uuid',
+      description: 'GET /works/:id only: your live review of this read, so the composer edits it instead of starting blank.',
+    },
   },
   required: ['id', 'status', 'hearted'],
 } as const;
@@ -323,6 +327,10 @@ export const workSchema = {
     avg_rating: { type: ['number', 'null'] },
     weighted_rating: { type: ['number', 'null'] },
     rating_count: { type: ['integer', 'null'] },
+    heart_count: {
+      type: 'integer',
+      description: 'GET /works/:id only: readers who hearted the book, shown next to the rating count (PRD §9.4).',
+    },
     editions: { type: 'array', items: editionSchema },
     your_read: yourReadSchema,
     merged_into: {
@@ -525,10 +533,15 @@ export const upsertReadBodySchema = {
     finished_at: { type: ['string', 'null'] },
     abandoned_page: { type: ['integer', 'null'] },
     dnf_reason: { type: ['string', 'null'] },
-    rating: { type: ['number', 'null'], minimum: 0.5, maximum: 5.0 },
+    rating: { type: ['number', 'null'], minimum: 0.5, maximum: 5.0, description: 'Half steps. null or omitted leaves the rating unchanged; use clear_rating to remove it.' },
+    clear_rating: {
+      type: ['boolean', 'null'],
+      description: 'true removes the rating (PRD §9.3). Refused (422) together with a rating.',
+    },
     hearted: { type: ['boolean', 'null'] },
     format_override: { type: ['string', 'null'], enum: ['print', 'ebook', 'audiobook', null] },
-    visibility: { type: 'string', enum: ['public', 'followers', 'private'], default: 'public' },
+    // No default (audit 09): Fastify fills defaults, so 'public' made every write that omitted it publish a private read.
+    visibility: { type: 'string', enum: ['public', 'followers', 'private'], description: 'Omitted: unchanged (public for a new read).' },
   },
   required: ['work_id', 'status'],
 } as const;
@@ -557,7 +570,7 @@ export const finishReadBodySchema = {
       type: 'null',
       description: 'Not accepted: any value other than null is refused with 422 invalid_finish. Publish a review with POST /reads/{id}/review (audit 08).',
     },
-    visibility: { type: 'string', enum: ['public', 'followers', 'private'], default: 'public' },
+    visibility: { type: 'string', enum: ['public', 'followers', 'private'], description: 'Omitted: unchanged.' },
   },
 } as const;
 
@@ -568,7 +581,7 @@ export const dnfReadBodySchema = {
     dnf_reason: { type: ['string', 'null'] },
     note: { type: ['string', 'null'], maxLength: 280 },
     rating: { type: ['number', 'null'], minimum: 0.5, maximum: 5.0 },
-    visibility: { type: 'string', enum: ['public', 'followers', 'private'], default: 'public' },
+    visibility: { type: 'string', enum: ['public', 'followers', 'private'], description: 'Omitted: unchanged.' },
   },
 } as const;
 
@@ -727,14 +740,27 @@ export const reviewSchema = {
   ],
 } as const;
 
+// Half steps, 0.5–5.0 (PRD §9.2); null clears the rating (§9.3). Without
+// multipleOf, numeric(2,1) rounded 4.04 to 4.0 and stored it (audit 09).
+const reviewRatingSchema = {
+  type: ['number', 'null'], minimum: 0.5, maximum: 5.0, multipleOf: 0.5,
+  description: 'Half steps, 0.5–5.0. null clears the rating; omit it to leave the rating as it is.',
+} as const;
+
+// No defaults on the spoiler and visibility fields: an omitted field keeps
+// the review's current value on an edit (an offline replay sends only the
+// body); a new review starts with no spoilers, public (audit 09).
 export const createReviewBodySchema = {
   type: 'object',
   properties: {
     body: { type: 'string', minLength: 1, maxLength: 10000 },
-    has_spoilers: { type: 'boolean', default: false },
-    spoiler_after_page: { type: ['integer', 'null'], minimum: 0 },
-    visibility: { type: 'string', enum: ['public', 'followers', 'private'], default: 'public' },
-    rating: { type: ['number', 'null'], minimum: 0.5, maximum: 5.0 },
+    has_spoilers: { type: 'boolean', description: 'Omitted: unchanged on an edit, false on a new review.' },
+    spoiler_after_page: {
+      type: ['integer', 'null'], minimum: 0,
+      description: 'At most the page count of the read’s edition (422 spoiler_page_out_of_range). Stored only with has_spoilers.',
+    },
+    visibility: { type: 'string', enum: ['public', 'followers', 'private'], description: 'Omitted: unchanged on an edit, public on a new review.' },
+    rating: reviewRatingSchema,
     hearted: { type: ['boolean', 'null'] },
   },
   required: ['body'],
@@ -747,7 +773,7 @@ export const updateReviewBodySchema = {
     has_spoilers: { type: 'boolean' },
     spoiler_after_page: { type: ['integer', 'null'], minimum: 0 },
     visibility: { type: 'string', enum: ['public', 'followers', 'private'] },
-    rating: { type: ['number', 'null'], minimum: 0.5, maximum: 5.0 },
+    rating: reviewRatingSchema,
     hearted: { type: ['boolean', 'null'] },
   },
 } as const;
@@ -756,7 +782,10 @@ export const workReviewsQuerySchema = {
   type: 'object',
   properties: {
     sort: { type: 'string', enum: ['friends', 'likes', 'newest', 'highest', 'lowest'], default: 'friends' },
-    rating: { type: 'number', minimum: 0.5, maximum: 5.0 },
+    rating: {
+      type: 'integer', minimum: 1, maximum: 5,
+      description: 'Star bucket, as in rating_distribution: 4 lists ratings above 3 up to 4 (3.5 and 4.0).',
+    },
     limit: { type: 'integer', minimum: 1, maximum: 100, default: 20 },
     offset: { type: 'integer', minimum: 0, default: 0 },
   },

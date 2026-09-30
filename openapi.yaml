@@ -1713,6 +1713,10 @@ paths:
                           type:
                             - "null"
                             - integer
+                        heart_count:
+                          type: integer
+                          description: "GET /works/:id only: readers who hearted the book, shown next to
+                            the rating count (PRD §9.4)."
                         editions:
                           type: array
                           items:
@@ -1770,6 +1774,13 @@ paths:
                               type:
                                 - "null"
                                 - number
+                            review_id:
+                              type:
+                                - "null"
+                                - string
+                              format: uuid
+                              description: "GET /works/:id only: your live review of this read, so the
+                                composer edits it instead of starting blank."
                           required:
                             - id
                             - status
@@ -1911,6 +1922,10 @@ paths:
                     type:
                       - "null"
                       - integer
+                  heart_count:
+                    type: integer
+                    description: "GET /works/:id only: readers who hearted the book, shown next to
+                      the rating count (PRD §9.4)."
                   editions:
                     type: array
                     items:
@@ -1968,6 +1983,13 @@ paths:
                         type:
                           - "null"
                           - number
+                      review_id:
+                        type:
+                          - "null"
+                          - string
+                        format: uuid
+                        description: "GET /works/:id only: your live review of this read, so the
+                          composer edits it instead of starting blank."
                     required:
                       - id
                       - status
@@ -2170,6 +2192,10 @@ paths:
                           type:
                             - "null"
                             - integer
+                        heart_count:
+                          type: integer
+                          description: "GET /works/:id only: readers who hearted the book, shown next to
+                            the rating count (PRD §9.4)."
                         editions:
                           type: array
                           items:
@@ -2227,6 +2253,13 @@ paths:
                               type:
                                 - "null"
                                 - number
+                            review_id:
+                              type:
+                                - "null"
+                                - string
+                              format: uuid
+                              description: "GET /works/:id only: your live review of this read, so the
+                                composer edits it instead of starting blank."
                           required:
                             - id
                             - status
@@ -2504,6 +2537,10 @@ paths:
                         type:
                           - "null"
                           - integer
+                      heart_count:
+                        type: integer
+                        description: "GET /works/:id only: readers who hearted the book, shown next to
+                          the rating count (PRD §9.4)."
                       editions:
                         type: array
                         items:
@@ -2561,6 +2598,13 @@ paths:
                             type:
                               - "null"
                               - number
+                          review_id:
+                            type:
+                              - "null"
+                              - string
+                            format: uuid
+                            description: "GET /works/:id only: your live review of this read, so the
+                              composer edits it instead of starting blank."
                         required:
                           - id
                           - status
@@ -3376,6 +3420,14 @@ paths:
                     - "null"
                   minimum: 0.5
                   maximum: 5
+                  description: Half steps. null or omitted leaves the rating unchanged; use
+                    clear_rating to remove it.
+                clear_rating:
+                  type:
+                    - boolean
+                    - "null"
+                  description: true removes the rating (PRD §9.3). Refused (422) together with a
+                    rating.
                 hearted:
                   type:
                     - boolean
@@ -3395,7 +3447,7 @@ paths:
                     - public
                     - followers
                     - private
-                  default: public
+                  description: "Omitted: unchanged (public for a new read)."
               required:
                 - work_id
                 - status
@@ -4256,7 +4308,7 @@ paths:
                     - public
                     - followers
                     - private
-                  default: public
+                  description: "Omitted: unchanged."
       parameters:
         - schema:
             type: string
@@ -4485,7 +4537,7 @@ paths:
                     - public
                     - followers
                     - private
-                  default: public
+                  description: "Omitted: unchanged."
       parameters:
         - schema:
             type: string
@@ -4692,25 +4744,30 @@ paths:
                   maxLength: 10000
                 has_spoilers:
                   type: boolean
-                  default: false
+                  description: "Omitted: unchanged on an edit, false on a new review."
                 spoiler_after_page:
                   type:
                     - integer
                     - "null"
                   minimum: 0
+                  description: At most the page count of the read’s edition (422
+                    spoiler_page_out_of_range). Stored only with has_spoilers.
                 visibility:
                   type: string
                   enum:
                     - public
                     - followers
                     - private
-                  default: public
+                  description: "Omitted: unchanged on an edit, public on a new review."
                 rating:
                   type:
                     - number
                     - "null"
                   minimum: 0.5
                   maximum: 5
+                  multipleOf: 0.5
+                  description: Half steps, 0.5–5.0. null clears the rating; omit it to leave the
+                    rating as it is.
                 hearted:
                   type:
                     - boolean
@@ -5069,6 +5126,9 @@ paths:
                     - "null"
                   minimum: 0.5
                   maximum: 5
+                  multipleOf: 0.5
+                  description: Half steps, 0.5–5.0. null clears the rating; omit it to leave the
+                    rating as it is.
                 hearted:
                   type:
                     - boolean
@@ -5213,12 +5273,14 @@ paths:
           name: sort
           required: false
         - schema:
-            type: number
-            minimum: 0.5
+            type: integer
+            minimum: 1
             maximum: 5
           in: query
           name: rating
           required: false
+          description: "Star bucket, as in rating_distribution: 4 lists ratings above 3 up
+            to 4 (3.5 and 4.0)."
         - schema:
             type: integer
             minimum: 1

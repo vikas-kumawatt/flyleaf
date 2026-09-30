@@ -218,10 +218,14 @@ export function canViewSql(
   return sql`(${ownerAlive} AND (
     ${ownerId} = ${viewer}::uuid
     OR (
-      NOT EXISTS (
-        SELECT 1 FROM blocks cb
-        WHERE (cb.blocker_id = ${viewer}::uuid AND cb.blocked_id = ${ownerId})
-           OR (cb.blocker_id = ${ownerId} AND cb.blocked_id = ${viewer}::uuid)
+      -- The viewer's blocks either way, as one uncorrelated set the planner
+      -- hashes once. The correlated form scanned blocks once per candidate
+      -- row: 10,364 scans on the 5,300-review bench work (audit 09). Block
+      -- ids are NOT NULL primary-key columns, so NOT IN is exact here.
+      ${ownerId} NOT IN (
+        SELECT cb.blocked_id FROM blocks cb WHERE cb.blocker_id = ${viewer}::uuid
+        UNION ALL
+        SELECT cb.blocker_id FROM blocks cb WHERE cb.blocked_id = ${viewer}::uuid
       )
       AND ${visibility} <> 'private'
       AND (

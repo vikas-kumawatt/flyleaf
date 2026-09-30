@@ -373,6 +373,34 @@ export class OfflineRepository {
   }
 
   /**
+   * Removes the rating from the latest attempt at this work (PRD §9.3: a
+   * rating is optional, so it must be possible to take one back). Queued like
+   * any status write; the server needs clear_rating because rating: null
+   * there means "unchanged" (audit 09).
+   */
+  async clearRating(workId: string): Promise<void> {
+    await this.db.transaction(async (tx) => {
+      const existing = await tx.getFirst<LocalRead>(
+        `SELECT id, status FROM reads WHERE work_id = ? AND user_id = ? ORDER BY attempt_no DESC LIMIT 1`,
+        [workId, this.userId],
+      );
+      if (!existing) return;
+      await tx.run(`UPDATE reads SET rating = NULL, synced = 0, updated_at = ? WHERE id = ?`, [
+        new Date().toISOString(),
+        existing.id,
+      ]);
+      await this.queue.enqueue('read', existing.id, 'upsert_read', {
+        work_id: workId,
+        status: existing.status,
+        rating: null,
+        hearted: null,
+        extra: { clear_rating: true },
+      });
+    });
+    void this.queue.flush();
+  }
+
+  /**
    * Deletes a read locally and queues the delete (PRD §34.2; SL-57 "remove
    * from want to read", which used to set the books to paused instead).
    * Earlier queued writes for the read still replay first, in order: a read

@@ -16,8 +16,6 @@ import { sql } from 'drizzle-orm';
 
 import { registerCoreHooks } from '../app.js';
 import {
-  calculateBayesianRating,
-  calculateReviewRankingScore,
   reviewsPlugin,
   ReviewService,
 } from '../reviews/index.js';
@@ -114,27 +112,10 @@ describe('Ratings & Reviews (SL-6x)', () => {
   // --------------------------------------------------------------------------
   // SL-62: Bayesian Weighted Rating Math
   // --------------------------------------------------------------------------
-  describe('SL-62: Bayesian Weighted Rating Calculation (PRD §9.5)', () => {
-    it('calculates weighted rating pulling low counts towards catalog mean', () => {
-      // 1 rating of 5.0 with C=3.9, m=25
-      // (1 / 26) * 5.0 + (25 / 26) * 3.9 = 0.1923 + 3.75 = 3.94
-      const singleFive = calculateBayesianRating(1, 5.0, 3.9, 25);
-      expect(singleFive).toBe(3.94);
-
-      // 500 ratings of 4.3 with C=3.9, m=25
-      // (500 / 525) * 4.3 + (25 / 525) * 3.9 = 4.0952 + 0.1857 = 4.28
-      const belovedClassic = calculateBayesianRating(500, 4.3, 3.9, 25);
-      expect(belovedClassic).toBe(4.28);
-
-      // Crucial PRD invariant: A single 5-star book CANNOT outrank the 4.3 beloved classic!
-      expect(belovedClassic!).toBeGreaterThan(singleFive!);
-    });
-
-    it('returns null for zero or non-existent ratings', () => {
-      expect(calculateBayesianRating(0, null)).toBeNull();
-      expect(calculateBayesianRating(0, 4.5)).toBeNull();
-    });
-  });
+  // SL-62's TypeScript calculateBayesianRating was never on a production path
+  // (the trigger uses the SQL flyleaf_weighted_rating). Audit 09 removed it;
+  // the same cases now run against the SQL function in reviews-audit.test.ts
+  // ("the Bayesian rating has one implementation (SQL)").
 
   // --------------------------------------------------------------------------
   // SL-62: Database Trigger for work_stats

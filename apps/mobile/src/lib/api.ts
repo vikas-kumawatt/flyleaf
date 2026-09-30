@@ -369,7 +369,7 @@ export const api = {
     status: string,
     rating?: number | null,
     hearted?: boolean,
-    extra?: { edition_id?: string; format_override?: string; started_at?: string },
+    extra?: { edition_id?: string; format_override?: string; started_at?: string; clear_rating?: boolean },
   ) =>
     client.createRead({
       work_id: workId,
@@ -379,6 +379,8 @@ export const api = {
       edition_id: extra?.edition_id ?? null,
       format_override: extra?.format_override ?? null,
       started_at: extra?.started_at ?? null,
+      // rating: null means "unchanged"; removing a rating is explicit (PRD §9.3).
+      ...(extra?.clear_rating ? { clear_rating: true } : {}),
     }),
 
   addProgress: (

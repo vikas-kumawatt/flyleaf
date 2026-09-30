@@ -274,11 +274,8 @@ describe('SO-23: through the API', () => {
       'stranger',
     ]);
 
-    const ctx = await svc.rankingContext(viewer.id, new Set([friend.id]), [
-      { user_id: friend.id },
-      { user_id: fof.id },
-      { user_id: stranger.id },
-    ]);
+    // Scoped to the authors of this work's reviews (audit 09: by work id, not an id list).
+    const ctx = await svc.rankingContext(viewer.id, new Set([friend.id]), workId);
     expect([...(ctx.secondDegreeIds ?? [])]).toEqual([fof.id]);
     expect(ctx.explorationKey).toBe(viewer.id);
 
@@ -287,7 +284,7 @@ describe('SO-23: through the API', () => {
     for (const u of [viewer, friend, fof]) {
       await app.inject({ method: 'POST', url: `/v1/reads/${sRead!.id}/like`, headers: u.auth });
     }
-    const ctx2 = await svc.rankingContext(viewer.id, new Set([friend.id]), [{ user_id: stranger.id }]);
+    const ctx2 = await svc.rankingContext(viewer.id, new Set([friend.id]), workId);
     expect(ctx2.credibility?.get(stranger.id)).toBeCloseTo(normaliseCredibility(3));
   });
 });

@@ -233,6 +233,8 @@ export interface YourRead {
   hearted: boolean;
   page: number | null;
   percent: number | null;
+  /** GET /works/:id only: your live review of this read (the composer edits it). */
+  review_id?: string | null;
 }
 
 export interface Work {
@@ -245,6 +247,8 @@ export interface Work {
   avg_rating?: number | null;
   weighted_rating?: number | null;
   rating_count?: number;
+  /** GET /works/:id only: readers who hearted the book (PRD §9.4). */
+  heart_count?: number;
   editions?: Edition[];
   your_read?: YourRead;
   /** GET /works/:id only: the requested id was merged into this work; this is the survivor (D3). */
@@ -343,7 +347,10 @@ export interface UpsertReadRequest {
   finished_at?: string | null;
   abandoned_page?: number | null;
   dnf_reason?: string | null;
+  /** Half steps. null or omitted leaves the rating unchanged; use clear_rating to remove it. */
   rating?: number | null;
+  /** true removes the rating (PRD §9.3). 422 together with a rating. */
+  clear_rating?: boolean | null;
   hearted?: boolean | null;
   format_override?: string | null;
   visibility?: ReadVisibility | null;
@@ -428,6 +435,7 @@ export interface UpdateReviewRequest {
 
 export interface WorkReviewsQuery {
   sort?: 'friends' | 'likes' | 'newest' | 'highest' | 'lowest';
+  /** Star bucket 1–5, as in rating_distribution: 4 lists 3.5 and 4.0. */
   rating?: number;
   limit?: number;
   offset?: number;

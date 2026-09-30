@@ -26,6 +26,7 @@ import {
   mostRestrictive,
   mostRestrictiveSql,
   requireVerified,
+  type Visibility,
 } from '../authorization/index.js';
 import {
   createReviewBodySchema,
@@ -70,31 +71,6 @@ export interface WorkReviewsQuery {
   rating?: number;
   limit?: number;
   offset?: number;
-}
-
-/**
- * Bayesian weighted rating formula (PRD §9.5, LOCKED).
- *
- * weighted_rating = (v / (v + m)) * R  +  (m / (v + m)) * C
- *
- * R = this work's mean rating
- * v = this work's rating count
- * m = minimum ratings for full confidence (25)
- * C = catalog mean rating (~3.90)
- */
-export function calculateBayesianRating(
-  ratingCount: number,
-  meanRating: number | null,
-  catalogMean = 3.9,
-  confidenceThreshold = 25,
-): number | null {
-  if (!ratingCount || meanRating === null || meanRating <= 0) return null;
-  const v = ratingCount;
-  const m = confidenceThreshold;
-  const R = meanRating;
-  const C = catalogMean;
-  const weighted = (v / (v + m)) * R + (m / (v + m)) * C;
-  return Math.round(weighted * 100) / 100;
 }
 
 /**
@@ -169,8 +145,17 @@ export function lengthQuality(length: number): number {
   return Math.max(0.1, 1 - Math.abs(length - 340) / 1200);
 }
 
+/**
+ * What the ranking reads from a review. The list ranks these narrow rows
+ * (body_length from SQL, no body) and loads only the page in full (audit 09).
+ */
+export type RankableReview = Pick<ReviewItem, 'id' | 'user_id' | 'like_count' | 'comment_count' | 'published_at'> &
+  ({ body: string } | { body_length: number });
+
+const bodyLength = (item: RankableReview) => ('body_length' in item ? item.body_length : [...item.body].length);
+
 export function calculateReviewRankingScore(
-  item: Pick<ReviewItem, 'id' | 'user_id' | 'like_count' | 'comment_count' | 'published_at' | 'body'>,
+  item: RankableReview,
   ctxOrViewer: ReviewRankingContext | string | null = {},
   legacyFollowedIds?: Set<string>,
 ): number {
@@ -188,7 +173,7 @@ export function calculateReviewRankingScore(
   const ageDays = Math.max(0, (now - new Date(item.published_at).getTime()) / 86_400_000);
   const recency = Math.exp(-ageDays / 45);
   const credibility = ctx.credibility?.get(item.user_id) ?? 0;
-  const length = lengthQuality(item.body.length);
+  const length = lengthQuality(bodyLength(item));
   const report = ctx.reportPenalty?.get(item.id) ?? 0;
 
   return (
@@ -237,10 +222,14 @@ export function isExplorationEligible(
  * slot is placed BELOW every friend review on the first page, so exploring a
  * stranger never costs you a friend's take.
  */
-export function rankReviews<T extends ReviewItem>(
+export function rankReviews<T extends RankableReview>(
   items: T[],
-  ctx: ReviewRankingContext,
+  rankingCtx: ReviewRankingContext,
 ): { items: T[]; exploredId: string | null } {
+  // One clock for the whole ranking. Read per item, reviews that tie drew
+  // recency from instants microseconds apart, so ties fell in a different
+  // order on each request and pages repeated or skipped reviews (audit 09).
+  const ctx: ReviewRankingContext = { ...rankingCtx, now: rankingCtx.now ?? new Date() };
   // Tier first, then score. The additive score alone cannot make proximity
   // dominant: the other five terms sum to 0.65, while following someone adds
   // only 0.35 × (1.0 − 0.2) = 0.28 over a stranger. Measured, not assumed —
@@ -299,30 +288,112 @@ export function guestExplorationKey(now = new Date()): string {
 
 import { ActivityService } from '../activity/index.js';
 
+/** PRD §10.6: no minimum, 10,000 characters. Counted in code points, as char_length() and the schema's maxLength count. */
+function checkBody(body: string): string {
+  const trimmed = body.trim();
+  if (!trimmed) throw ApiError.badRequest('empty_body', 'Review body cannot be empty');
+  if ([...trimmed].length > 10000) throw ApiError.badRequest('body_too_long', 'Review body exceeds 10,000 characters');
+  return trimmed;
+}
+
+/**
+ * The spoiler fields to store. A page without the spoiler flag means nothing
+ * and is dropped (the app keeps the page field after the switch goes off); a
+ * page past the end of the read's edition is refused. Omitted fields keep
+ * `current` (a live review) or the defaults.
+ */
+function resolveSpoilers(
+  input: { has_spoilers?: boolean; spoiler_after_page?: number | null },
+  current: { hasSpoilers: boolean; spoilerAfterPage: number | null } | null,
+  pageCount: number | null,
+): { hasSpoilers: boolean; spoilerAfterPage: number | null } {
+  const hasSpoilers = input.has_spoilers ?? current?.hasSpoilers ?? false;
+  const page = input.spoiler_after_page !== undefined ? input.spoiler_after_page : (current?.spoilerAfterPage ?? null);
+  if (!hasSpoilers) return { hasSpoilers, spoilerAfterPage: null };
+  if (page !== null && pageCount !== null && page > pageCount) {
+    throw ApiError.unprocessable(
+      'spoiler_page_out_of_range',
+      `Spoilers after page ${page}, but this edition has ${pageCount} pages.`,
+      'spoiler_after_page',
+    );
+  }
+  return { hasSpoilers, spoilerAfterPage: page };
+}
+
+/** rating: null clears the rating (PRD §9.3); the heart is independent of it (§9.4). */
+async function writeRatingAndHeart(
+  tx: Db,
+  readId: string,
+  input: { rating?: number | null; hearted?: boolean | null },
+): Promise<void> {
+  const set: { rating?: string | null; hearted?: boolean; updatedAt?: Date } = {};
+  if (input.rating !== undefined) set.rating = input.rating === null ? null : input.rating.toFixed(1);
+  if (input.hearted !== undefined && input.hearted !== null) set.hearted = input.hearted;
+  if (Object.keys(set).length === 0) return;
+  set.updatedAt = new Date();
+  await tx.update(reads).set(set).where(eq(reads.id, readId));
+}
+
+/**
+ * Make a review's feed activity match the review, from its current state
+ * (audit 09). The feed trusts activity.visibility, so this is the privacy
+ * control for review cards: none for a deleted, imported (IM-07) or
+ * effectively private review; otherwise the stricter of the review's and the
+ * read's visibility, followers-only for a private account (PRD §26.2), with
+ * the current text and spoiler flag. An existing row is updated in place
+ * (its created_at keeps its place in feeds); a missing one is created now.
+ * Call it in the transaction of every write that changes any of those.
+ */
+export async function syncReviewActivity(tx: Db, reviewId: string): Promise<void> {
+  const [rv] = await tx.execute<{
+    user_id: string; work_id: string; read_id: string; body: string; has_spoilers: boolean;
+    visibility: string; read_visibility: string; deleted: boolean; source: string; is_private: boolean;
+  }>(sql`
+    SELECT rv.user_id, rv.work_id, rv.read_id, rv.body, rv.has_spoilers, rv.visibility,
+           r.visibility AS read_visibility, rv.deleted_at IS NOT NULL AS deleted, r.source,
+           COALESCE(p.is_private, false) AS is_private
+    FROM reviews rv
+    JOIN reads r ON r.id = rv.read_id
+    LEFT JOIN profiles p ON p.user_id = rv.user_id
+    WHERE rv.id = ${reviewId}::uuid`);
+  const effective = rv ? mostRestrictive(rv.visibility, rv.read_visibility) : 'private';
+  if (!rv || rv.deleted || rv.source === 'import' || effective === 'private') {
+    await tx.execute(sql`DELETE FROM activity WHERE object_type = 'review' AND object_id = ${reviewId}::uuid`);
+    return;
+  }
+  const visibility: Visibility = rv.is_private ? 'followers' : effective;
+  const metadata = { readId: rv.read_id, hasSpoilers: rv.has_spoilers, snippet: rv.body.slice(0, 200) };
+  const updated = await tx.execute<{ id: string }>(sql`
+    UPDATE activity SET visibility = ${visibility}, metadata = ${JSON.stringify(metadata)}::jsonb
+    WHERE object_type = 'review' AND object_id = ${reviewId}::uuid
+    RETURNING id`);
+  if (updated.length > 0) return;
+  await new ActivityService(tx).recordActivity(tx, {
+    actorId: rv.user_id,
+    verb: 'reviewed',
+    workId: rv.work_id,
+    objectType: 'review',
+    objectId: reviewId,
+    metadata,
+    visibility,
+    source: rv.source,
+  });
+}
+
 export class ReviewService {
-  private activityService: ActivityService;
-
-  constructor(private readonly db: Db) {
-    this.activityService = new ActivityService(db);
-  }
+  constructor(private readonly db: Db) {}
 
   /**
-   * Recomputes work_stats for one work (SL-62).
+   * Create or update the review of a read (SL-63). One transaction: the
+   * read's rating and heart, the review and its feed activity are written
+   * together or not at all (audit 09). work_stats follows the rating and
+   * heart through the reads trigger, the one implementation of the
+   * aggregates (0026); nothing here recomputes them.
    *
-   * Delegates to recompute_work_stats_for_work(), the function the reads
-   * triggers run, so there is one definition of the aggregates and of the
-   * catalog mean C. This used to repeat them here with its own
-   * `AVG(rating) FROM reads WHERE work_id <> x`, a scan of the whole table on
-   * every review write, and a C that disagreed with the trigger's once 0026
-   * cached it (audit 08, L-01). Whether it is needed at all is Part 09's.
-   */
-  async recomputeWorkStats(workId: string): Promise<void> {
-    await this.db.execute(sql`SELECT recompute_work_stats_for_work(${workId}::uuid)`);
-  }
-
-
-  /**
-   * Create or update a review for a read (SL-63).
+   * Fields the request omits keep the review's current values, so an offline
+   * replay that carries only the body cannot reset its visibility or
+   * spoilers. Writing over a deleted review publishes it again: a new
+   * publication (published now, not "edited"), public unless told otherwise.
    */
   async upsertReview(
     userId: string,
@@ -336,120 +407,75 @@ export class ReviewService {
       hearted?: boolean | null;
     },
   ): Promise<ReviewItem> {
-    const trimmed = input.body.trim();
-    if (!trimmed) {
-      throw ApiError.badRequest('empty_body', 'Review body cannot be empty');
-    }
-    if (trimmed.length > 10000) {
-      throw ApiError.badRequest('body_too_long', 'Review body exceeds 10,000 characters');
-    }
+    const trimmed = checkBody(input.body);
 
-    // Verify read exists and belongs to user
-    const [read] = await this.db
-      .select({
-        id: reads.id,
-        userId: reads.userId,
-        workId: reads.workId,
-        rating: reads.rating,
-        hearted: reads.hearted,
-        formatOverride: reads.formatOverride,
-        likeCount: reads.likeCount,
-        commentCount: reads.commentCount,
-        source: reads.source,
-      })
-      .from(reads)
-      .where(and(eq(reads.id, readId), eq(reads.userId, userId)));
-
-    if (!read) {
-      throw ApiError.notFound('Read not found');
-    }
-
-    // Check if review already exists for this read
-    const [existing] = await this.db
-      .select({ id: reviews.id, deletedAt: reviews.deletedAt })
-      .from(reviews)
-      .where(eq(reviews.readId, readId));
-
-    // Publishing a review (new, or reviving a deleted one) needs a verified
-    // email (D-04-1); editing a live review does not. Checked before any write.
-    if (!existing || existing.deletedAt) await requireVerified(this.db, userId);
-
-    // Update read rating or heart if provided
-    const readUpdates: Record<string, any> = {};
-    if (input.rating !== undefined) {
-      readUpdates.rating = input.rating === null ? null : String(input.rating);
-    }
-    if (input.hearted !== undefined && input.hearted !== null) {
-      readUpdates.hearted = input.hearted;
-    }
-    if (Object.keys(readUpdates).length > 0) {
-      readUpdates.updatedAt = new Date();
-      await this.db.update(reads).set(readUpdates).where(eq(reads.id, readId));
-      // Recompute work_stats
-      await this.recomputeWorkStats(read.workId);
-    }
-
-    let reviewId: string;
-    if (existing) {
-      reviewId = existing.id;
-      await this.db
-        .update(reviews)
-        .set({
-          body: trimmed,
-          hasSpoilers: input.has_spoilers ?? false,
-          spoilerAfterPage: input.spoiler_after_page ?? null,
-          visibility: input.visibility ?? 'public',
-          editedAt: new Date(),
-          deletedAt: null,
-        })
-        .where(eq(reviews.id, existing.id));
-
-      if (input.visibility) {
-        await this.activityService.updateActivityVisibility(
-          this.db,
-          'review',
-          reviewId,
-          input.visibility,
+    const reviewId = await this.db.transaction(async (t) => {
+      const tx = t as unknown as Db;
+      // The row lock serialises two writes of one read (a double submit, an
+      // offline replay racing the original): the second sees the first's review.
+      const [read] = await tx.execute<{ id: string; work_id: string; status: string; page_count: number | null }>(sql`
+        SELECT r.id, r.work_id, r.status, e.page_count
+        FROM reads r LEFT JOIN editions e ON e.id = r.edition_id
+        WHERE r.id = ${readId}::uuid AND r.user_id = ${userId}::uuid
+        FOR UPDATE OF r`);
+      if (!read) throw ApiError.notFound('Read not found');
+      // Decided 2026-09-30 (A-09-026): a book on the want list has not been
+      // read, so it cannot be reviewed. Reading, paused, finished and DNF can.
+      if (read.status === 'want') {
+        throw ApiError.unprocessable(
+          'review_needs_reading',
+          'Start or finish this book before reviewing it.',
+          'status',
         );
       }
-    } else {
-      const [inserted] = await this.db
-        .insert(reviews)
-        .values({
-          readId,
-          userId,
-          workId: read.workId,
-          body: trimmed,
-          hasSpoilers: input.has_spoilers ?? false,
-          spoilerAfterPage: input.spoiler_after_page ?? null,
-          visibility: input.visibility ?? 'public',
-          publishedAt: new Date(),
+
+      const [existing] = await tx
+        .select({
+          id: reviews.id,
+          deletedAt: reviews.deletedAt,
+          hasSpoilers: reviews.hasSpoilers,
+          spoilerAfterPage: reviews.spoilerAfterPage,
+          visibility: reviews.visibility,
         })
-        .returning({ id: reviews.id });
-      reviewId = inserted!.id;
+        .from(reviews)
+        .where(eq(reviews.readId, readId));
+      const live = existing && !existing.deletedAt ? existing : null;
 
-      if (read.source !== 'import') {
-        await this.activityService.recordActivity(this.db, {
-          actorId: userId,
-          verb: 'reviewed',
-          workId: read.workId,
-          objectType: 'review',
-          objectId: reviewId,
-          metadata: {
-            readId,
-            hasSpoilers: input.has_spoilers ?? false,
-            snippet: trimmed.slice(0, 200),
-          },
-          visibility: input.visibility ?? 'public',
-          source: read.source,
-        });
+      // Publishing a review (new, or reviving a deleted one) needs a verified
+      // email (D-04-1); editing a live review does not. Checked before any write.
+      if (!live) await requireVerified(tx, userId);
+
+      const spoilers = resolveSpoilers(input, live, read.page_count);
+      const visibility = input.visibility ?? (live?.visibility as Visibility | undefined) ?? 'public';
+
+      await writeRatingAndHeart(tx, readId, input);
+
+      let id: string;
+      if (existing) {
+        id = existing.id;
+        const now = new Date();
+        await tx
+          .update(reviews)
+          .set({
+            body: trimmed,
+            ...spoilers,
+            visibility,
+            ...(live ? { editedAt: now } : { publishedAt: now, editedAt: null, deletedAt: null }),
+          })
+          .where(eq(reviews.id, existing.id));
+      } else {
+        const [inserted] = await tx
+          .insert(reviews)
+          .values({ readId, userId, workId: read.work_id, body: trimmed, ...spoilers, visibility, publishedAt: new Date() })
+          .returning({ id: reviews.id });
+        id = inserted!.id;
       }
-    }
+      await syncReviewActivity(tx, id);
+      return id;
+    });
 
-    const fetched = await this.getReview(reviewId, userId);
-    return fetched;
+    return this.getReview(reviewId, userId);
   }
-
   /**
    * Get single review by reviewId (SL-64).
    */
@@ -531,7 +557,8 @@ export class ReviewService {
   }
 
   /**
-   * Update an existing review (SL-63).
+   * Update an existing review (SL-63). Same transaction and activity rules
+   * as upsertReview; only the fields sent change.
    */
   async updateReview(
     reviewId: string,
@@ -545,79 +572,79 @@ export class ReviewService {
       hearted?: boolean | null;
     },
   ): Promise<ReviewItem> {
-    const [rev] = await this.db
-      .select({ id: reviews.id, userId: reviews.userId, readId: reviews.readId, workId: reviews.workId })
-      .from(reviews)
-      .where(and(eq(reviews.id, reviewId), isNull(reviews.deletedAt)));
+    const body = input.body === undefined ? undefined : checkBody(input.body);
 
-    // Someone else's review is the same 404 as a missing one (PRD §25.3).
-    if (!rev || rev.userId !== userId) throw ApiError.notFound('Review not found');
+    await this.db.transaction(async (t) => {
+      const tx = t as unknown as Db;
+      const [rev] = await tx.execute<{
+        id: string; user_id: string; read_id: string; has_spoilers: boolean;
+        spoiler_after_page: number | null; page_count: number | null;
+      }>(sql`
+        SELECT rv.id, rv.user_id, rv.read_id, rv.has_spoilers, rv.spoiler_after_page, e.page_count
+        FROM reviews rv
+        JOIN reads r ON r.id = rv.read_id
+        LEFT JOIN editions e ON e.id = r.edition_id
+        WHERE rv.id = ${reviewId}::uuid AND rv.deleted_at IS NULL
+        FOR UPDATE OF r, rv`);
 
-    const updateFields: Record<string, any> = { editedAt: new Date() };
-    if (input.body !== undefined) {
-      const trimmed = input.body.trim();
-      if (!trimmed) throw ApiError.badRequest('empty_body', 'Review body cannot be empty');
-      if (trimmed.length > 10000) throw ApiError.badRequest('body_too_long', 'Review body exceeds 10,000 characters');
-      updateFields.body = trimmed;
-    }
-    if (input.has_spoilers !== undefined) updateFields.hasSpoilers = input.has_spoilers;
-    if (input.spoiler_after_page !== undefined) updateFields.spoilerAfterPage = input.spoiler_after_page;
-    if (input.visibility !== undefined) updateFields.visibility = input.visibility;
+      // Someone else's review is the same 404 as a missing one (PRD §25.3).
+      if (!rev || rev.user_id !== userId) throw ApiError.notFound('Review not found');
 
-    await this.db.update(reviews).set(updateFields).where(eq(reviews.id, reviewId));
+      const spoilers = resolveSpoilers(
+        input,
+        { hasSpoilers: rev.has_spoilers, spoilerAfterPage: rev.spoiler_after_page },
+        rev.page_count,
+      );
+      await tx
+        .update(reviews)
+        .set({
+          editedAt: new Date(),
+          ...(body !== undefined ? { body } : {}),
+          ...spoilers,
+          ...(input.visibility !== undefined ? { visibility: input.visibility } : {}),
+        })
+        .where(eq(reviews.id, reviewId));
 
-    // Update read rating or heart if specified
-    const readUpdates: Record<string, any> = {};
-    if (input.rating !== undefined) {
-      readUpdates.rating = input.rating === null ? null : String(input.rating);
-    }
-    if (input.hearted !== undefined && input.hearted !== null) {
-      readUpdates.hearted = input.hearted;
-    }
-    if (Object.keys(readUpdates).length > 0) {
-      readUpdates.updatedAt = new Date();
-      await this.db.update(reads).set(readUpdates).where(eq(reads.id, rev.readId));
-      await this.recomputeWorkStats(rev.workId);
-    }
+      await writeRatingAndHeart(tx, rev.read_id, input);
+      await syncReviewActivity(tx, reviewId);
+    });
 
     return this.getReview(reviewId, userId);
   }
 
   /**
-   * Delete a review (SL-63).
+   * Delete a review (SL-63): soft delete, and its activity goes with it.
    */
   async deleteReview(reviewId: string, userId: string): Promise<void> {
-    const [rev] = await this.db
-      .select({ id: reviews.id, userId: reviews.userId })
-      .from(reviews)
-      .where(and(eq(reviews.id, reviewId), isNull(reviews.deletedAt)));
+    await this.db.transaction(async (t) => {
+      const tx = t as unknown as Db;
+      const [rev] = await tx
+        .select({ id: reviews.id, userId: reviews.userId })
+        .from(reviews)
+        .where(and(eq(reviews.id, reviewId), isNull(reviews.deletedAt)))
+        .for('update');
 
-    if (!rev || rev.userId !== userId) throw ApiError.notFound('Review not found');
+      if (!rev || rev.userId !== userId) throw ApiError.notFound('Review not found');
 
-    await this.db
-      .update(reviews)
-      .set({ deletedAt: new Date() })
-      .where(eq(reviews.id, reviewId));
-
-    await this.activityService.deleteActivity(this.db, 'review', reviewId);
+      await tx.update(reviews).set({ deletedAt: new Date() }).where(eq(reviews.id, reviewId));
+      await syncReviewActivity(tx, reviewId);
+    });
   }
 
   /**
    * Everything the SO-23 ranking needs beyond the reviews themselves, in two
-   * queries scoped to this list's authors — never a whole-graph walk.
+   * queries scoped to the authors of this work's reviews: never a whole-graph
+   * walk, and never a parameter list of every author (audit 09: a ~3,000-uuid
+   * IN list per query on the hot work).
    */
   async rankingContext(
     viewerId: string | null,
     followedIds: Set<string>,
-    items: Pick<ReviewItem, 'user_id'>[],
+    workId: string,
   ): Promise<ReviewRankingContext> {
-    const authorIds = [...new Set(items.map((i) => i.user_id))];
     const secondDegreeIds = new Set<string>();
     const credibility = new Map<string, number>();
-    if (authorIds.length === 0) {
-      return { viewerId, followedIds, secondDegreeIds, credibility, explorationKey: viewerId ?? guestExplorationKey() };
-    }
-    const authorList = sql.join(authorIds.map((id) => sql`${id}::uuid`), sql`, `);
+    const authors = sql`(SELECT a.user_id FROM reviews a WHERE a.work_id = ${workId}::uuid AND a.deleted_at IS NULL)`;
 
     // Follower-of-follower: authors followed by someone the viewer follows.
     if (viewerId && followedIds.size > 0) {
@@ -627,7 +654,7 @@ export class ReviewService {
         JOIN follows f2 ON f2.follower_id = f1.followee_id AND f2.state = 'accepted'
         WHERE f1.follower_id = ${viewerId}::uuid
           AND f1.state = 'accepted'
-          AND f2.followee_id IN (${authorList})
+          AND f2.followee_id IN ${authors}
       `);
       for (const r of rows) if (!followedIds.has(r.id)) secondDegreeIds.add(r.id);
     }
@@ -640,7 +667,7 @@ export class ReviewService {
         percentile_cont(0.5) WITHIN GROUP (ORDER BY r.like_count) AS median
       FROM reviews rv
       JOIN reads r ON r.id = rv.read_id
-      WHERE rv.user_id IN (${authorList}) AND rv.deleted_at IS NULL
+      WHERE rv.user_id IN ${authors} AND rv.deleted_at IS NULL
       GROUP BY rv.user_id
     `);
     for (const r of cred) credibility.set(r.user_id, normaliseCredibility(Number(r.median ?? 0)));
@@ -656,6 +683,16 @@ export class ReviewService {
 
   /**
    * List reviews for a work with friends-first or other sorts (SL-64).
+   *
+   * Audit 09: this loaded every review of the work in full (bodies up to
+   * 10,000 characters), mapped and sorted them in JS and sliced a page:
+   * 2.4 s p50 on the 5,300-review bench work. Now:
+   *   - likes / newest / highest / lowest sort and page in SQL, id last so
+   *     ties never repeat or skip across pages;
+   *   - friends ranks narrow rows (no body) exactly as before (SO-23), then
+   *     loads only the page.
+   * The rating filter is the star bucket of rating_distribution: 4 means
+   * above 3 up to 4, so half stars are reachable.
    */
   async listWorkReviews(
     workId: string,
@@ -668,38 +705,79 @@ export class ReviewService {
     const sort = query.sort ?? 'friends';
     const limit = Math.min(100, Math.max(1, query.limit ?? 20));
     const offset = Math.max(0, query.offset ?? 0);
-
-    // Fetch followed accounts if viewer is logged in
-    const followedIds = new Set<string>();
-    if (viewerId) {
-      const followRows = await this.db
-        .select({ followeeId: follows.followeeId })
-        .from(follows)
-        .where(and(eq(follows.followerId, viewerId), eq(follows.state, 'accepted')));
-      for (const f of followRows) {
-        followedIds.add(f.followeeId);
-      }
-    }
-
-    // Base query conditions
-    const whereConditions = [eq(reviews.workId, workId), isNull(reviews.deletedAt)];
-
-    // Rating filter if present
-    if (query.rating !== undefined) {
-      whereConditions.push(eq(reads.rating, String(query.rating)));
-    }
+    const viewer = viewerId ?? null;
 
     // Visibility: canView() as SQL over the stricter of the review's and the
     // read's visibility, so blocks, private accounts and deleted owners are
     // filtered exactly as GET /v1/reviews/:id filters them (Audit 05).
-    whereConditions.push(
-      canViewSql(viewerId ?? null, {
-        ownerId: reviews.userId,
-        visibility: mostRestrictiveSql(reviews.visibility, reads.visibility),
-        ownerIsPrivate: sql`COALESCE(${profiles.isPrivate}, true)`,
-      }),
-    );
+    const visible = sql`
+      FROM reviews rv
+      JOIN reads r ON r.id = rv.read_id
+      LEFT JOIN profiles p ON p.user_id = rv.user_id
+      WHERE rv.work_id = ${workId}::uuid
+        AND rv.deleted_at IS NULL
+        ${query.rating !== undefined ? sql`AND r.rating > ${query.rating - 1} AND r.rating <= ${query.rating}` : sql``}
+        AND ${canViewSql(viewer, {
+          ownerId: sql`rv.user_id`,
+          visibility: mostRestrictiveSql(sql`rv.visibility`, sql`r.visibility`),
+          ownerIsPrivate: sql`COALESCE(p.is_private, true)`,
+        })}`;
 
+    let pageIds: string[];
+    let total: number;
+    if (sort === 'friends') {
+      const followedIds = new Set<string>();
+      if (viewer) {
+        const followRows = await this.db
+          .select({ followeeId: follows.followeeId })
+          .from(follows)
+          .where(and(eq(follows.followerId, viewer), eq(follows.state, 'accepted')));
+        for (const f of followRows) followedIds.add(f.followeeId);
+      }
+      const [rows, ctx] = await Promise.all([
+        this.db.execute<{
+          id: string; user_id: string; published_at: string | Date;
+          like_count: number; comment_count: number; body_length: number;
+        }>(sql`
+          SELECT rv.id, rv.user_id, rv.published_at, r.like_count, r.comment_count,
+                 char_length(rv.body) AS body_length
+          ${visible}`),
+        this.rankingContext(viewer, followedIds, workId),
+      ]);
+      const ranked = rankReviews(
+        rows.map((r) => ({
+          id: r.id,
+          user_id: r.user_id,
+          published_at: new Date(r.published_at).toISOString(),
+          like_count: Number(r.like_count),
+          comment_count: Number(r.comment_count),
+          body_length: Number(r.body_length),
+        })),
+        ctx,
+      );
+      total = rows.length;
+      pageIds = ranked.items.slice(offset, offset + limit).map((r) => r.id);
+    } else {
+      const order = {
+        likes: sql`r.like_count DESC, rv.published_at DESC, rv.id DESC`,
+        newest: sql`rv.published_at DESC, rv.id DESC`,
+        highest: sql`r.rating DESC NULLS LAST, rv.published_at DESC, rv.id DESC`,
+        lowest: sql`r.rating ASC NULLS LAST, rv.published_at DESC, rv.id DESC`,
+      }[sort];
+      const [rows, [count]] = await Promise.all([
+        this.db.execute<{ id: string }>(sql`SELECT rv.id ${visible} ORDER BY ${order} LIMIT ${limit} OFFSET ${offset}`),
+        this.db.execute<{ n: number }>(sql`SELECT count(*)::int AS n ${visible}`),
+      ]);
+      total = Number(count?.n ?? 0);
+      pageIds = rows.map((r) => r.id);
+    }
+
+    return { data: await this.#hydrate(pageIds, viewer), total };
+  }
+
+  /** Full items for one page of already-authorised review ids, in that order. */
+  async #hydrate(ids: string[], viewer: string | null): Promise<ReviewItem[]> {
+    if (ids.length === 0) return [];
     const rows = await this.db
       .select({
         id: reviews.id,
@@ -712,7 +790,6 @@ export class ReviewService {
         visibility: reviews.visibility,
         publishedAt: reviews.publishedAt,
         editedAt: reviews.editedAt,
-        deletedAt: reviews.deletedAt,
         readRating: reads.rating,
         readHearted: reads.hearted,
         readFormat: reads.formatOverride,
@@ -723,73 +800,47 @@ export class ReviewService {
         username: profiles.username,
         displayName: profiles.displayName,
         avatarKey: profiles.avatarKey,
+        viewerHasLiked: viewer
+          ? sql<boolean>`EXISTS (SELECT 1 FROM read_likes l WHERE l.read_id = ${reviews.readId} AND l.user_id = ${viewer}::uuid)`
+          : sql<boolean>`false`,
       })
       .from(reviews)
       .innerJoin(reads, eq(reads.id, reviews.readId))
       .innerJoin(works, eq(works.id, reviews.workId))
-      .innerJoin(users, eq(users.id, reviews.userId))
       .leftJoin(profiles, eq(profiles.userId, reviews.userId))
-      .where(and(...whereConditions));
+      .where(inArray(reviews.id, ids));
 
-    // Viewer likes set
-    const viewerLikedReadIds = new Set<string>();
-    if (viewerId && rows.length > 0) {
-      const readIds = rows.map((r) => r.readId);
-      const likes = await this.db
-        .select({ readId: readLikes.readId })
-        .from(readLikes)
-        .where(and(eq(readLikes.userId, viewerId), inArray(readLikes.readId, readIds)));
-      for (const l of likes) {
-        viewerLikedReadIds.add(l.readId);
-      }
-    }
-
-    const allItems: ReviewItem[] = rows.map((r) => ({
-      id: r.id,
-      read_id: r.readId,
-      user_id: r.userId,
-      work_id: r.workId,
-      body: r.body,
-      has_spoilers: r.hasSpoilers,
-      spoiler_after_page: r.spoilerAfterPage,
-      visibility: r.visibility as any,
-      published_at: r.publishedAt.toISOString(),
-      edited_at: r.editedAt ? r.editedAt.toISOString() : null,
-      rating: r.readRating === null ? null : Number(r.readRating),
-      hearted: r.readHearted,
-      format_override: r.readFormat,
-      like_count: r.readLikeCount,
-      comment_count: r.readCommentCount,
-      viewer_has_liked: viewerLikedReadIds.has(r.readId),
-      author: {
-        id: r.userId,
-        username: r.username ?? 'reader',
-        display_name: r.displayName,
-        avatar_url: r.avatarKey ? `/avatars/${r.avatarKey}` : null,
-      },
-      work_title: r.workTitle,
-      work_cover_id: r.workCoverId,
-    }));
-
-    // Sort items
-    if (sort === 'friends') {
-      const ctx = await this.rankingContext(viewerId ?? null, followedIds, allItems);
-      const ranked = rankReviews(allItems, ctx);
-      allItems.splice(0, allItems.length, ...ranked.items);
-    } else if (sort === 'likes') {
-      allItems.sort((a, b) => b.like_count - a.like_count || new Date(b.published_at).getTime() - new Date(a.published_at).getTime());
-    } else if (sort === 'newest') {
-      allItems.sort((a, b) => new Date(b.published_at).getTime() - new Date(a.published_at).getTime());
-    } else if (sort === 'highest') {
-      allItems.sort((a, b) => (b.rating ?? 0) - (a.rating ?? 0) || new Date(b.published_at).getTime() - new Date(a.published_at).getTime());
-    } else if (sort === 'lowest') {
-      allItems.sort((a, b) => (a.rating ?? 99) - (b.rating ?? 99) || new Date(b.published_at).getTime() - new Date(a.published_at).getTime());
-    }
-
-    const total = allItems.length;
-    const paged = allItems.slice(offset, offset + limit);
-
-    return { data: paged, total };
+    const byId = new Map(rows.map((r) => [r.id, r]));
+    return ids.flatMap((id) => {
+      const r = byId.get(id);
+      if (!r) return [];
+      return [{
+        id: r.id,
+        read_id: r.readId,
+        user_id: r.userId,
+        work_id: r.workId,
+        body: r.body,
+        has_spoilers: r.hasSpoilers,
+        spoiler_after_page: r.spoilerAfterPage,
+        visibility: r.visibility as ReviewItem['visibility'],
+        published_at: r.publishedAt.toISOString(),
+        edited_at: r.editedAt ? r.editedAt.toISOString() : null,
+        rating: r.readRating === null ? null : Number(r.readRating),
+        hearted: r.readHearted,
+        format_override: r.readFormat,
+        like_count: r.readLikeCount,
+        comment_count: r.readCommentCount,
+        viewer_has_liked: Boolean(r.viewerHasLiked),
+        author: {
+          id: r.userId,
+          username: r.username ?? 'reader',
+          display_name: r.displayName,
+          avatar_url: r.avatarKey ? `/avatars/${r.avatarKey}` : null,
+        },
+        work_title: r.workTitle,
+        work_cover_id: r.workCoverId,
+      }];
+    });
   }
 }
 

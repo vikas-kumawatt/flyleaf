@@ -156,6 +156,15 @@ function buildScenarios(cursors: Record<string, string | null>): Scenario[] {
     { name: 'work-reviews:friends:heavy', group: 'api', method: 'GET', persona: 'heavy', path: () => `/v1/works/${ids.hot_work_id}/reviews?sort=friends` },
     { name: 'work-reviews:friends:guest', group: 'api', method: 'GET', persona: null, path: () => `/v1/works/${ids.hot_work_id}/reviews?sort=friends` },
     { name: 'review:get', group: 'api', method: 'GET', persona: 'typical', path: () => `/v1/reviews/${ids.hot_review_id}` },
+    // Part 09: the SQL-paged sorts, and the review write (one transaction, trigger-maintained work_stats).
+    { name: 'work-reviews:newest:guest', group: 'api', method: 'GET', persona: null, path: () => `/v1/works/${ids.hot_work_id}/reviews?sort=newest` },
+    {
+      name: 'review:post', group: 'api', method: 'POST', persona: 'reviewer_of_hot_work',
+      path: () => (hotReviewRead ? `/v1/reads/${hotReviewRead}/review` : ''),
+      // Alternating rating, so every request also fires the work_stats trigger on the hot work.
+      body: ((n) => () => ({ body: 'Bench review, edited by the Part 09 runner.', rating: (n++ % 2) ? 4 : 4.5 }))(0),
+      notes: ['edits the hot review (bench data) and its read\'s rating; writes no new rows'],
+    },
     // Part 05: single-resource authorization paths (profile, read, review).
     { name: 'read:get', group: 'api', method: 'GET', persona: 'typical', path: () => `/v1/reads/${ids.thread_read_id}` },
     { name: 'user:get', group: 'api', method: 'GET', persona: 'typical', path: () => `/v1/users/${P.heavy!.user_id}` },

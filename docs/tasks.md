@@ -422,27 +422,33 @@
 
 ### Ratings, reviews — `SL-6x` · 5d
 - [x] **SL-60** Half-star control, extra hit area, haptic, `adjustable` trait — 1d
-  - Delivered interactive `Stars` component in `apps/mobile/src/ui/components.tsx` with continuous dragging (`Gesture.Pan()`), 0.5-star resolution (0.5 to 5.0), and hit-slop-extended 44x44 minimum touch targets.
+  - Delivered interactive `Stars` component in `apps/mobile/src/ui/components.tsx` with continuous dragging (`Gesture.Pan()`), 0.5-star resolution (0.5 to 5.0), and ~~hit-slop-extended 44x44 minimum touch targets~~ 44-tall targets; each half-star tap target is `size/2` (~16 pt) wide plus 4 pt slop, and the drag is the wide target (audit 09, A-09-031).
   - Haptic feedback tick (`Haptics.selectionAsync()`) on every 0.5 step boundary crossed during drag or tap.
   - Spring-scale pop animation (`withSequence`) on rating commit.
   - Fully accessible with `accessibilityRole="adjustable"` and custom `increment` / `decrement` accessibility actions announcing half-star steps to screen readers.
+  - **Audit (2026-09-30):** ❌ — the drag's gesture callbacks ran on the UI thread and called JS there (fixed with `.runOnJS(true)`, device check pending), and a rating could not be cleared (tap the current value / step below ½ now clears; `POST /reads` `clear_rating`); see A-09-006, A-09-007, A-09-031.
 - [x] **SL-61** Heart, independent of rating — 0.25d
   - Built standalone `Heart` component in `apps/mobile/src/ui/components.tsx` with 44x44 touch target, independent of star rating (a reader can heart a 3-star or 5-star book alike, or heart without rating).
   - Spring scale bounce feedback (`withSequence`) and `Haptics.impactAsync` on toggle.
+  - **Audit (2026-09-30):** ⚠️ — independent of the rating in API and UI (tested); the per-work heart count (§9.4 [LOCKED]) was never shown, now on `GET /works/:id` and the book page; see A-09-011.
 - [x] **SL-62** ⚠️ Bayesian weighted rating + trigger-maintained `work_stats` — 1d
-  - Migration `0011_ratings_reviews.sql` introduces PostgreSQL trigger function `recompute_work_stats_for_work` and trigger `reads_work_stats_trigger` maintaining `work_stats` (`rating_count`, `rating_sum`, `avg_rating`, `weighted_rating`, `review_count`) automatically on every read insert/update/delete.
-  - Bayesian arithmetic formula `(v / (v + m)) * R + (m / (v + m)) * C` implemented in `apps/api/src/reviews/index.ts` with `m = 25` threshold and catalog benchmark `C = 3.90` (dynamically derived from catalog average excluding target work).
+  - Migration `0011_ratings_reviews.sql` introduces PostgreSQL trigger function `recompute_work_stats_for_work` and trigger `reads_work_stats_trigger` maintaining `work_stats` (`rating_count`, `rating_sum`, `avg_rating`, `weighted_rating`, ~~`review_count`~~ — no such column; `heart_count`, `read_count`, `dnf_count`, `polarisation` (audit 09)) automatically on every read insert/update/delete.
+  - ~~Bayesian arithmetic formula `(v / (v + m)) * R + (m / (v + m)) * C` implemented in `apps/api/src/reviews/index.ts` with `m = 25` threshold and catalog benchmark `C = 3.90` (dynamically derived from catalog average excluding target work).~~ The formula's only production implementation is SQL (`flyleaf_weighted_rating`, 0026) with C cached nightly over all ratings (Part 08); the TS copy had no caller and was removed (audit 09, A-09-018).
   - Catalog query integration in `apps/api/src/catalog/index.ts` projecting `avg_rating`, `weighted_rating`, and `rating_count` on all work lookups.
-  - 12 comprehensive unit tests in `apps/api/src/test/reviews.test.ts` verifying Bayesian shrinkage and trigger consistency.
+  - ~~12 comprehensive unit tests~~ 3 tests in `apps/api/src/test/reviews.test.ts` (two on the unused TS formula; moved to the SQL function in `reviews-audit.test.ts`).
+  - **Audit (2026-09-30):** ⚠️ — the SQL aggregates are right (Part 08); the duplicate TS recompute and formula were dead weight and are gone; §9.7 exclusion not built (fast-follow, tracked below); re-reads count per attempt in the rating aggregates (decided: each user's latest rating → Part 09b, with ten half-star histogram buckets); see A-09-018, A-09-021, A-09-027, A-09-028.
+  - [ ] **SL-62b** §9.7 manipulation prevention: ratings from accounts under 7 days old or with fewer than 5 ratings excluded from every aggregate (trigger, histogram, reconcile), with a daily job for accounts crossing 7 days and a recompute when a user crosses 5 ratings. PRD P1 (first fast-follow); deferred by the owner on 2026-09-30. Plan in A-09-021; the launch-week effect needs a product answer first.
 - [x] **SL-63** Review composer: autosave every 3s, spoiler, visibility — 1.5d
   - Review composer modal screen at `apps/mobile/app/review/compose/[id].tsx` with 3-second debounce autosave to `expo-secure-store`.
   - Spoiler toggle switch with optional starting page threshold (`spoiler_after_page`), visibility selector (`public`, `followers`, `private`), and live character counter with soft warning at 5,000 and hard cap at 10,000 characters.
   - Offline mutation queue integration (`save_review`) in `apps/mobile/src/offline/queue.ts` and `repository.ts` with optimistic local storage and background replay.
+  - **Audit (2026-09-30):** ❌ — review feed cards kept stale visibility, so private reviews stayed in the public feed (P0), and status changes made private reads public (P0); the write was not atomic; edits reset visibility and spoilers; the composer could not edit and posted the book's id for unlogged books; all fixed; a want-list read can no longer be reviewed (decided 2026-09-30); review rate limit → Part 15; see A-09-001 … A-09-005, A-09-008, A-09-012 … A-09-017, A-09-022.
 - [x] **SL-64** Review detail + book reviews list, friends-first sort — 1.25d
   - Book Reviews tab on `apps/mobile/app/work/[id].tsx` with Bayesian stats headline, rating filter chips (`All`, `5★`..`1★`), and 5 sort modes: `friends` (friends-first algorithm from PRD §10.7), `likes`, `newest`, `highest`, `lowest`.
   - Review cards with author avatar, rating, spoiler gate with tap-to-reveal, and instant like toggle.
   - First-class Review Detail screen at `apps/mobile/app/review/[id].tsx` with book context strip, full text, like button, native share sheet, and delete action for author.
   - Social review ranking algorithm in `apps/api/src/reviews/index.ts` balancing social proximity (0.35 weight), engagement (0.20), comments (0.10), recency decay (0.15), and quality length (0.10). Zero contract drift in OpenAPI specification.
+  - **Audit (2026-09-30):** ⚠️ — the list loaded every review and ranked ties nondeterministically (pages repeated and skipped); now SQL-paged sorts, narrow-row ranking with one clock, bucketed rating filter; 3.7× faster unloaded but still over budget under load (plan in A-09-009); no tombstone, no "load more"; see A-09-009, A-09-010, A-09-015, A-09-019, A-09-024, A-09-033.
 
 ### Diary, Wall, Profile, Stats — `SL-7x` · 7d
 - [x] **SL-70** Diary — **list · grid · calendar**, year jump, filters — 2.5d

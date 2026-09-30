@@ -57,6 +57,7 @@ export type YourRead = {
   hearted: boolean;
   page: number | null;
   percent: number | null;
+  review_id?: string | null;
 };
 
 export type Work = {
@@ -69,6 +70,7 @@ export type Work = {
   avg_rating?: number | null;
   weighted_rating?: number | null;
   rating_count?: number;
+  heart_count?: number;
   editions?: Edition[];
   your_read?: YourRead;
   /** Set when the requested id was merged into this work (D3): the body is the survivor's. */
@@ -657,8 +659,9 @@ export class CatalogService {
         avg_rating: string | null;
         weighted_rating: string | null;
         rating_count: string | null;
+        heart_count: string | null;
       }>(sql`
-        SELECT avg_rating, weighted_rating, rating_count
+        SELECT avg_rating, weighted_rating, rating_count, heart_count
         FROM work_stats
         WHERE work_id = ${workId}
         LIMIT 1
@@ -674,6 +677,7 @@ export class CatalogService {
         avg_rating: stats?.avg_rating ? Number(stats.avg_rating) : null,
         weighted_rating: stats?.weighted_rating ? Number(stats.weighted_rating) : null,
         rating_count: stats?.rating_count ? Number(stats.rating_count) : 0,
+        heart_count: stats?.heart_count ? Number(stats.heart_count) : 0,
         editions: eds.map((e) => ({
           id: e.id,
           isbn13: e.isbn13,
@@ -713,6 +717,8 @@ export class CatalogService {
         status: reads.status,
         rating: reads.rating,
         hearted: reads.hearted,
+        // Qualified by hand: inside a select list drizzle renders ${reads.id} as a bare "id", which is rv.id here.
+        reviewId: sql<string | null>`(SELECT rv.id FROM reviews rv WHERE rv.read_id = "reads"."id" AND rv.deleted_at IS NULL)`,
       })
       .from(reads)
       .where(sql`${reads.userId} = ${viewer} AND ${reads.workId} = ${base.id}`)
@@ -737,6 +743,7 @@ export class CatalogService {
         hearted: r.hearted,
         page: p?.page ?? null,
         percent: p?.percent == null ? null : Number(p.percent),
+        review_id: r.reviewId ?? null,
       },
     };
   }

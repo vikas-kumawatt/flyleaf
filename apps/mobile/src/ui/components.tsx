@@ -31,6 +31,7 @@ import Animated, {
   runOnJS,
 } from 'react-native-reanimated';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
+import { decrementRating, incrementRating, starTarget, tapRating } from '../lib/stars';
 import {
   ColorName,
   cover,
@@ -316,7 +317,8 @@ export function Stars({
   size = 32,
 }: {
   value: number | null;
-  onChange?: (v: number) => void;
+  /** null clears the rating (PRD §9.3): tap the current value again, or step below half a star. */
+  onChange?: (v: number | null) => void;
   size?: number;
 }) {
   const c = useTheme();
@@ -331,46 +333,43 @@ export function Stars({
     transform: [{ scale: starScale.value }],
   }));
 
-  const handleRate = (target: number) => {
+  const handleRate = (target: number | null) => {
     void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     starScale.value = withSequence(
       withTiming(1.15, { duration: motion.star / 2 }),
       withTiming(1, { duration: motion.star / 2 }),
     );
     setHoverValue(null);
+    lastStep.current = Math.round((target ?? 0) * 2);
     onChange?.(target);
   };
 
-  const calculateTarget = (x: number): number => {
-    const clamped = Math.max(0, Math.min(rowWidth, x));
-    const bucket = Math.ceil((clamped / rowWidth) * 10);
-    return Math.max(0.5, Math.min(5.0, bucket * 0.5));
+  // A tap on the current value takes the rating away (Letterboxd's gesture).
+  const tapRate = (target: number) => handleRate(tapRating(target, value));
+
+  const calculateTarget = (x: number): number => starTarget(x, rowWidth);
+
+  const track = (x: number) => {
+    const target = calculateTarget(x);
+    setHoverValue(target);
+    const step = Math.round(target * 2);
+    if (step !== lastStep.current) {
+      lastStep.current = step;
+      void Haptics.selectionAsync();
+    }
   };
 
+  // runOnJS(true): with Reanimated installed, the worklets Babel plugin
+  // workletizes gesture callbacks and they run on the UI thread, where a
+  // synchronous call to a plain JS function (calculateTarget, Haptics) is an
+  // error (audit 09, from the plugin source; not yet seen on a device, see
+  // the phone checklist). Everything here is JS state, so run on the JS thread.
   const panGesture = Gesture.Pan()
+    .runOnJS(true)
     .enabled(!readOnly)
-    .onStart((e) => {
-      const target = calculateTarget(e.x);
-      runOnJS(setHoverValue)(target);
-      const step = Math.round(target * 2);
-      if (step !== lastStep.current) {
-        lastStep.current = step;
-        void Haptics.selectionAsync();
-      }
-    })
-    .onUpdate((e) => {
-      const target = calculateTarget(e.x);
-      runOnJS(setHoverValue)(target);
-      const step = Math.round(target * 2);
-      if (step !== lastStep.current) {
-        lastStep.current = step;
-        void Haptics.selectionAsync();
-      }
-    })
-    .onEnd((e) => {
-      const target = calculateTarget(e.x);
-      runOnJS(handleRate)(target);
-    });
+    .onStart((e) => track(e.x))
+    .onUpdate((e) => track(e.x))
+    .onEnd((e) => handleRate(calculateTarget(e.x)));
 
   const starsContent = (
     <Animated.View
@@ -430,7 +429,7 @@ export function Stars({
             {!readOnly && (
               <>
                 <Pressable
-                  onPress={() => handleRate(n - 0.5)}
+                  onPress={() => tapRate(n - 0.5)}
                   hitSlop={{ top: 8, bottom: 8, left: 4, right: 0 }}
                   accessibilityLabel={`Rate ${n - 0.5} stars`}
                   style={{
@@ -442,7 +441,7 @@ export function Stars({
                   }}
                 />
                 <Pressable
-                  onPress={() => handleRate(n)}
+                  onPress={() => tapRate(n)}
                   hitSlop={{ top: 8, bottom: 8, left: 0, right: 4 }}
                   accessibilityLabel={`Rate ${n} stars`}
                   style={{
@@ -479,9 +478,9 @@ export function Stars({
       onAccessibilityAction={(e) => {
         if (readOnly) return;
         if (e.nativeEvent.actionName === 'increment') {
-          handleRate(Math.min(5, (value ?? 0) + 0.5));
+          handleRate(incrementRating(value));
         } else if (e.nativeEvent.actionName === 'decrement') {
-          handleRate(Math.max(0.5, (value ?? 0) - 0.5));
+          handleRate(decrementRating(value));
         }
       }}
     >
@@ -825,7 +824,8 @@ export function BottomSheet({
     .onEnd((e) => {
       if (e.translationY > 120 || e.velocityY > 600) {
         translateY.value = withTiming(600, { duration: 200 });
-        onClose();
+        // This callback is a worklet on the UI thread; onClose is JS (audit 09).
+        runOnJS(onClose)();
       } else {
         translateY.value = withSpring(0, { damping: motion.sheet.damping });
       }

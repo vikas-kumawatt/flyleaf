@@ -15,6 +15,7 @@ import type { Db } from '../platform/index.js';
 import { reads, works, progressEvents, profiles, editions } from '../db/schema.js';
 import { ApiError, requireViewer } from '../http.js';
 import { resolveWorkId } from '../catalog/resolve.js';
+import { syncReviewActivity } from '../reviews/index.js';
 import { type Visibility, VISIBILITIES, canViewWith, loadRelationship, visibleLevels } from '../authorization/index.js';
 import {
   readSchema,
@@ -66,9 +67,15 @@ const upsertBody = z.object({
   abandoned_page: z.number().int().min(0).nullish(),
   dnf_reason: z.string().nullish(),
   rating: ratingSchema.nullish(),
+  // rating: null means "unchanged" here (the offline queue sends it with
+  // every status change), so clearing a rating (PRD §9.3) is its own flag.
+  clear_rating: z.boolean().nullish(),
   hearted: z.boolean().nullish(),
   format_override: z.enum(['print', 'ebook', 'audiobook']).nullish(),
   visibility: z.enum(VISIBILITIES).nullish(),
+}).refine((b) => !(b.clear_rating && b.rating != null), {
+  message: 'Send a rating or clear_rating, not both.',
+  path: ['clear_rating'],
 });
 
 const progressBody = z
@@ -199,6 +206,7 @@ export class ReadingService {
     hearted?: boolean | null,
     visibility?: Visibility | null,
     extra?: {
+      clearRating?: boolean;
       editionId?: string | null;
       startedAt?: string | null;
       finishedAt?: string | null;
@@ -236,7 +244,7 @@ export class ReadingService {
             abandoned_at    = CASE WHEN ${status} = 'dnf' THEN COALESCE(abandoned_at, CURRENT_DATE) ELSE abandoned_at END,
             abandoned_page  = COALESCE(${extra?.abandonedPage ?? null}, abandoned_page),
             dnf_reason      = COALESCE(${extra?.dnfReason ?? null}, dnf_reason),
-            rating          = COALESCE(${rating ?? null}, rating),
+            rating          = CASE WHEN ${extra?.clearRating === true} THEN NULL ELSE COALESCE(${rating ?? null}, rating) END,
             hearted         = COALESCE(${hearted ?? null}, hearted),
             format_override = COALESCE(${extra?.formatOverride ?? null}, format_override),
             visibility      = COALESCE(${visibility ?? null}, visibility),
@@ -466,6 +474,10 @@ export class ReadingService {
     if (change.visibilityChanged) {
       await this.activityService.updateActivityVisibility(
         db, 'read', read.id, await this.#activityVisibility(db, viewer, read.visibility));
+      // A review is shown at the stricter of its own and its read's
+      // visibility, so its feed card follows the read too (audit 09).
+      const [rv] = await db.execute<{ id: string }>(sql`SELECT id FROM reviews WHERE read_id = ${read.id}`);
+      if (rv) await syncReviewActivity(db, rv.id);
     }
     const verb = change.statusChanged ? verbFor(read.status as Status) : null;
     if (verb) {
@@ -1108,11 +1120,13 @@ export function readingRoutes(service: ReadingService) {
           abandoned_page,
           dnf_reason,
           rating,
+          clear_rating,
           hearted,
           format_override,
           visibility,
         } = parsed.data;
         return service.upsert(viewer, work_id, status, rating, hearted, visibility, {
+          clearRating: clear_rating === true,
           editionId: edition_id,
           startedAt: started_at,
           finishedAt: finished_at,

@@ -29,6 +29,7 @@ import { OfflineRepository } from '@/offline/repository';
 import { useSession } from '@/lib/session';
 import type { LocalRead } from '@/offline/schema';
 import { budgetTracker } from '@/lib/budgetTracker';
+import { buildReviewPayload, canReview } from '@/lib/reviewPayload';
 import { Button, Card, Cover, Heart, Screen, SegmentedControl, Stars, Txt, sheet } from '@/ui/components';
 import { radius, space, useTheme } from '@/ui/tokens';
 
@@ -53,6 +54,15 @@ export default function ReviewComposerScreen() {
   const [visibility, setVisibility] = useState<'public' | 'followers' | 'private'>('public');
   const [submitting, setSubmitting] = useState(false);
   const [draftSavedToast, setDraftSavedToast] = useState(false);
+  // The read the review belongs to (local or from the book page), and whether
+  // it already has a live review this screen is editing (audit 09).
+  const [readId, setReadId] = useState<string | null>(null);
+  const [readStatus, setReadStatus] = useState<string | null>(null);
+  const [editing, setEditing] = useState(false);
+  // Rating and heart are sent only when touched here, so a screen that could
+  // not load them never overwrites the read's values with blanks.
+  const [ratingTouched, setRatingTouched] = useState(false);
+  const [heartTouched, setHeartTouched] = useState(false);
   const submittingRef = useRef(false);
   const bodyRef = useRef(body);
   bodyRef.current = body;
@@ -79,30 +89,52 @@ export default function ReviewComposerScreen() {
     let mounted = true;
     async function loadData() {
       try {
+        let found: LocalRead | undefined;
         if (db && id && user) {
           const repo = new OfflineRepository(db, user.id);
           const reads = await repo.getLocalReads();
-          const found = reads.find((r) => r.id === id || r.work_id === id);
+          found = reads.find((r) => r.id === id || r.work_id === id);
           if (found && mounted) {
             setRead(found);
+            setReadId(found.id);
+            setReadStatus(found.status);
             if (found.rating) setRating(found.rating);
             if (found.hearted) setHearted(true);
           }
         }
 
-        // Fetch work metadata for cover & title if not in local read
+        // Book metadata, and the read and live review the server knows. `id`
+        // may be a read id, so ask for the read's work, not for `id`.
+        let existingReviewId: string | null = null;
         if (id) {
-          const w = await api.work(read?.work_id ?? id).catch(() => null);
+          const w = await api.work(found?.work_id ?? id).catch(() => null);
           if (w && mounted) {
             setWork(w);
-            if (!read && w.your_read) {
+            if (!found && w.your_read) {
+              setReadId(w.your_read.id);
+              setReadStatus(w.your_read.status);
               if (w.your_read.rating) setRating(w.your_read.rating);
               if (w.your_read.hearted) setHearted(true);
             }
+            if (w.your_read && (!found || w.your_read.id === found.id)) existingReviewId = w.your_read.review_id ?? null;
           }
         }
 
-        // Restore draft from secure store (PRD §6.27, §10.6)
+        // Editing: start from the published review, so its visibility and
+        // spoiler settings are kept rather than reset to the defaults.
+        if (existingReviewId) {
+          const existing = await api.client.getReview(existingReviewId).catch(() => null);
+          if (existing && mounted) {
+            setEditing(true);
+            setBody(existing.body);
+            setHasSpoilers(existing.has_spoilers);
+            setSpoilerAfterPage(existing.spoiler_after_page != null ? String(existing.spoiler_after_page) : '');
+            setVisibility(existing.visibility);
+          }
+        }
+
+        // Restore draft from secure store (PRD §6.27, §10.6). A draft is newer
+        // than the published text, so it wins.
         try {
           const savedDraft = await SecureStore.getItemAsync(draftKey);
           if (savedDraft && mounted) {
@@ -114,8 +146,16 @@ export default function ReviewComposerScreen() {
               if (parsed.hasSpoilers !== undefined) setHasSpoilers(parsed.hasSpoilers);
               if (parsed.spoilerAfterPage) setSpoilerAfterPage(String(parsed.spoilerAfterPage));
               if (parsed.visibility) setVisibility(parsed.visibility);
-              if (parsed.rating !== undefined) setRating(parsed.rating);
-              if (parsed.hearted !== undefined) setHearted(parsed.hearted);
+              // Only what the writer changed: an untouched blank rating in a
+              // draft must not clear the read's rating when it is posted.
+              if (parsed.ratingTouched) {
+                setRating(parsed.rating ?? null);
+                setRatingTouched(true);
+              }
+              if (parsed.heartTouched) {
+                setHearted(parsed.hearted === true);
+                setHeartTouched(true);
+              }
             }
           }
         } catch {
@@ -145,6 +185,8 @@ export default function ReviewComposerScreen() {
           visibility,
           rating,
           hearted,
+          ratingTouched,
+          heartTouched,
         });
         await SecureStore.setItemAsync(draftKey, payload);
         setDraftSavedToast(true);
@@ -157,7 +199,7 @@ export default function ReviewComposerScreen() {
     return () => {
       if (autosaveTimer.current) clearTimeout(autosaveTimer.current);
     };
-  }, [body, hasSpoilers, spoilerAfterPage, visibility, rating, hearted, draftKey]);
+  }, [body, hasSpoilers, spoilerAfterPage, visibility, rating, hearted, ratingTouched, heartTouched, draftKey]);
 
   // 3. Post review handler
   const handlePost = async () => {
@@ -166,8 +208,15 @@ export default function ReviewComposerScreen() {
       Alert.alert('Review needed', 'Please write a few thoughts before posting.');
       return;
     }
-    if (trimmed.length > 10000) {
+    if ([...trimmed].length > 10000) {
       Alert.alert('Too long', 'Reviews are capped at 10,000 characters.');
+      return;
+    }
+    // A review belongs to a started read (PRD §10.2; A-09-026). With none,
+    // posting used to send the book's id as a read id: queued, refused (404)
+    // on replay, draft gone. A want-list read is refused by the server (422).
+    if (!readId || !canReview(readStatus)) {
+      Alert.alert('Log this book first', 'Reviews belong to a reading of the book. Mark it as reading or read, then write your review. Your draft is kept.');
       return;
     }
 
@@ -175,15 +224,10 @@ export default function ReviewComposerScreen() {
     try {
       void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
 
-      const targetReadId = read?.id ?? id;
-      const reviewPayload = {
-        body: trimmed,
-        has_spoilers: hasSpoilers,
-        spoiler_after_page: spoilerAfterPage ? parseInt(spoilerAfterPage, 10) : null,
-        visibility,
-        rating,
-        hearted,
-      };
+      const targetReadId = readId;
+      const reviewPayload = buildReviewPayload({
+        body, hasSpoilers, spoilerAfterPage, visibility, rating, ratingTouched, hearted, heartTouched,
+      });
 
       if (db && user) {
         // Save via offline repository with persistent mutation queue replay
@@ -232,7 +276,7 @@ export default function ReviewComposerScreen() {
     }
   };
 
-  const charCount = body.length;
+  const charCount = [...body].length;
   const isWarning = charCount >= 5000;
   const isOver = charCount > 10000;
 
@@ -273,7 +317,7 @@ export default function ReviewComposerScreen() {
 
           <View style={{ alignItems: 'center' }}>
             <Txt variant="body" style={{ fontWeight: '600' }}>
-              Write Review
+              {editing ? 'Edit Review' : 'Write Review'}
             </Txt>
             {draftSavedToast && (
               <Txt variant="micro" color="accent">
@@ -319,6 +363,12 @@ export default function ReviewComposerScreen() {
             </View>
           </Card>
 
+          {!loading && (!readId || !canReview(readStatus)) && (
+            <Txt variant="caption" color="critical">
+              Log this book as reading or read before posting: reviews belong to a reading. Your draft is kept.
+            </Txt>
+          )}
+
           {/* 2. Rating & Heart Row (SL-60, SL-61) */}
           <Card style={{ gap: space[2] }}>
             <Txt variant="caption" color="muted" style={{ fontWeight: '600' }}>
@@ -329,12 +379,16 @@ export default function ReviewComposerScreen() {
                 value={rating}
                 onChange={(val) => {
                   setRating(val);
+                  setRatingTouched(true);
                 }}
                 size={34}
               />
               <Heart
                 hearted={hearted}
-                onToggle={() => setHearted((h) => !h)}
+                onToggle={() => {
+                  setHearted((h) => !h);
+                  setHeartTouched(true);
+                }}
                 size={32}
               />
             </View>
