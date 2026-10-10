@@ -607,6 +607,10 @@ export const upsertReadBodySchema = {
     format_override: { type: ['string', 'null'], enum: ['print', 'ebook', 'audiobook', null] },
     // No default (audit 09): Fastify fills defaults, so 'public' made every write that omitted it publish a private read.
     visibility: { type: 'string', enum: ['public', 'followers', 'private'], description: 'Omitted: unchanged (public for a new read).' },
+    if_absent: {
+      type: ['boolean', 'null'],
+      description: 'true writes only when the viewer has no read of this work; otherwise 409 already_in_library and nothing changes (the feed\'s want-to-read swipe, audit D-11-1).',
+    },
   },
   required: ['work_id', 'status'],
 } as const;
@@ -2504,7 +2508,7 @@ export const feedQuerySchema = {
   type: 'object',
   properties: {
     tab: { type: 'string', enum: ['friends', 'popular'], default: 'friends' },
-    cursor: { type: 'string', description: 'ISO timestamp cursor for pagination' },
+    cursor: { type: 'string', description: 'Opaque cursor: next_cursor of the previous page. A malformed one is 400 invalid_cursor.' },
     limit: { type: 'integer', minimum: 1, maximum: 50, default: 20 },
   },
 } as const;

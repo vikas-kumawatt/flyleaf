@@ -93,6 +93,8 @@ async function main() {
   await boss.schedule(QUEUES.reconcileWorks, '40 3 * * *');
   // Expired uploads and export files leave object storage (PV-02).
   await boss.schedule(QUEUES.storageCleanup, '45 3 * * *');
+  // Activity older than 180 days leaves the feed's table (PRD §23.5, audit 14).
+  await boss.schedule(QUEUES.pruneActivity, '55 3 * * *');
   // "Did you mean …?" vocabulary (audit 10): Sundays, after works.reconcile
   // has settled log counts.
   await boss.schedule(QUEUES.refreshSearchSuggestions, '0 4 * * 0');

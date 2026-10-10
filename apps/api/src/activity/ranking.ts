@@ -18,6 +18,11 @@
 //     - Max 3 cards about the same book (work_id) per 20-item page window.
 //     - Max 1 "started" card per 10-item block.
 //     - Min 1 low-affinity / rarely engaged actor card per 10-item block (if available in candidate set).
+//  5. A page is ranked from one window a little larger than the page (audit
+//     14, A-14-001): nothing is dropped. A card that does not make the page
+//     (outranked, or no slot it can take without breaking a rule) is DEFERRED:
+//     its ids ride in the cursor and the next page keeps it a slot. So each
+//     activity is served exactly once.
 
 import type { ActivityVerb, FeedActivityItem } from './index.js';
 
@@ -145,6 +150,39 @@ export function violatesHardConstraints(
   return false;
 }
 
+/** Newest first, then by id: the order the SQL returns, so ranking ties break the same way every time. */
+function byRecency(a: FeedActivityItem, b: FeedActivityItem): number {
+  if (a.created_at !== b.created_at) return a.created_at < b.created_at ? 1 : -1;
+  return a.id < b.id ? 1 : a.id > b.id ? -1 : 0;
+}
+
+/** The activity ids a card stands for: an aggregate's members, else its own. */
+export function memberIds(item: FeedActivityItem): string[] {
+  const ids = item.metadata?.activity_ids;
+  return Array.isArray(ids) ? ids : [item.id];
+}
+
+/**
+ * Which aggregate card an activity joins (SO-13), or its own id when it is
+ * never aggregated. The feed's window is cut on these, so a page holds whole cards.
+ */
+export function aggregationKey(item: FeedActivityItem): string {
+  if (item.verb === 'shelved') {
+    const shelfId =
+      item.metadata?.shelfId ??
+      item.metadata?.shelf_id ??
+      item.metadata?.shelfName ??
+      item.metadata?.shelf_name ??
+      item.metadata?.shelf_slug ??
+      (item.object_type === 'shelf' ? item.object_id : 'default');
+    return `${item.actor_id}:shelved:${shelfId}`;
+  }
+  if (item.verb === 'followed') return `${item.actor_id}:followed`;
+  // "Per user per day" (§12.2), as a UTC day: profiles carry no time zone.
+  if (item.verb === 'started') return `${item.actor_id}:started:${item.created_at.slice(0, 10)}`;
+  return `id:${item.id}`;
+}
+
 /**
  * SO-13: Feed Aggregation engine (PRD §12.2, AC-11).
  * Aggregates repetitive low-weight activities by the same actor (shelved, followed, started) into single summary cards.
@@ -162,36 +200,23 @@ export function aggregateFeedItems(items: FeedActivityItem[]): FeedActivityItem[
   const nonAggregatedItems: FeedActivityItem[] = [];
 
   for (const item of items) {
-    if (item.verb === 'shelved') {
-      const shelfId =
-        item.metadata?.shelfId ??
-        item.metadata?.shelf_id ??
-        item.metadata?.shelf_name ??
-        item.metadata?.shelf_slug ??
-        (item.object_type === 'shelf' ? item.object_id : 'default');
-      const key = `${item.actor_id}:shelved:${shelfId}`;
-      const group = shelvedGroups.get(key) ?? [];
-      group.push(item);
-      shelvedGroups.set(key, group);
-    } else if (item.verb === 'followed') {
-      const key = `${item.actor_id}:followed`;
-      const group = followedGroups.get(key) ?? [];
-      group.push(item);
-      followedGroups.set(key, group);
-    } else if (item.verb === 'started') {
-      const day = item.created_at.slice(0, 10);
-      const key = `${item.actor_id}:started:${day}`;
-      const group = startedGroups.get(key) ?? [];
-      group.push(item);
-      startedGroups.set(key, group);
-    } else {
+    const key = aggregationKey(item);
+    const groups = item.verb === 'shelved' ? shelvedGroups
+      : item.verb === 'followed' ? followedGroups
+      : item.verb === 'started' ? startedGroups
+      : null;
+    if (!groups) {
       nonAggregatedItems.push(item);
+      continue;
     }
+    const group = groups.get(key) ?? [];
+    group.push(item);
+    groups.set(key, group);
   }
 
   const buildAggregatedShelvedItem = (group: FeedActivityItem[]): FeedActivityItem => {
     if (group.length === 1) return group[0]!;
-    group.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+    group.sort(byRecency);
     const primary = group[0]!;
 
     const worksMap = new Map<string, any>();
@@ -201,7 +226,8 @@ export function aggregateFeedItems(items: FeedActivityItem[]): FeedActivityItem[
       }
     }
 
-    const shelfName = primary.metadata?.shelf_name ?? primary.metadata?.name ?? null;
+    // The shelves service writes shelfName (camelCase); the card reads shelf_name.
+    const shelfName = primary.metadata?.shelfName ?? primary.metadata?.shelf_name ?? primary.metadata?.name ?? null;
 
     return {
       ...primary,
@@ -211,6 +237,7 @@ export function aggregateFeedItems(items: FeedActivityItem[]): FeedActivityItem[
         ...primary.metadata,
         is_aggregated: true,
         count: group.length,
+        activity_ids: group.map((i) => i.id),
         shelf_name: shelfName,
         works: Array.from(worksMap.values()),
       },
@@ -219,7 +246,7 @@ export function aggregateFeedItems(items: FeedActivityItem[]): FeedActivityItem[
 
   const buildAggregatedFollowedItem = (group: FeedActivityItem[]): FeedActivityItem => {
     if (group.length === 1) return group[0]!;
-    group.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+    group.sort(byRecency);
     const primary = group[0]!;
 
     const targetsMap = new Map<string, any>();
@@ -240,6 +267,7 @@ export function aggregateFeedItems(items: FeedActivityItem[]): FeedActivityItem[
         ...primary.metadata,
         is_aggregated: true,
         count: group.length,
+        activity_ids: group.map((i) => i.id),
         targets: Array.from(targetsMap.values()),
       },
     };
@@ -247,7 +275,7 @@ export function aggregateFeedItems(items: FeedActivityItem[]): FeedActivityItem[
 
   const buildAggregatedStartedItem = (group: FeedActivityItem[]): FeedActivityItem => {
     if (group.length === 1) return group[0]!;
-    group.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+    group.sort(byRecency);
     const primary = group[0]!;
 
     const worksMap = new Map<string, any>();
@@ -263,6 +291,7 @@ export function aggregateFeedItems(items: FeedActivityItem[]): FeedActivityItem[
         ...primary.metadata,
         is_aggregated: true,
         count: group.length,
+        activity_ids: group.map((i) => i.id),
         works: Array.from(worksMap.values()),
       },
     };
@@ -281,34 +310,54 @@ export function aggregateFeedItems(items: FeedActivityItem[]): FeedActivityItem[
   }
 
   result.push(...nonAggregatedItems);
-  result.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+  result.sort(byRecency);
 
   return result;
 }
 
+export interface RankedWindow {
+  /** The page, in order. */
+  items: FeedActivityItem[];
+  /** Cards no slot could take without breaking a rule: the next page places them first. */
+  deferred: FeedActivityItem[];
+}
+
 /**
- * Re-ranks candidates and applies hard diversity rules (PRD §12.3, §12.4, AC-11).
+ * Ranks one window of candidates into a page (PRD §12.3, §12.4, AC-11).
+ *
+ * Greedy: each slot takes the highest-scoring card that breaks no hard rule
+ * (ties: newer, then higher id, so the order never depends on input order or
+ * on `now`, which scales every score alike). Cards in `forcedIds` were
+ * deferred by the previous page: they compete on score but are kept a slot,
+ * relaxing a rule for them if nothing else fits; they are never deferred
+ * twice. Every other card the page has no room or no valid slot for is
+ * returned in `deferred`, never dropped.
  */
-export function rankAndDiversifyFeed(
+export function rankWindow(
   candidates: FeedActivityItem[],
   limit: number = 20,
-  options: RankingOptions = {},
-): FeedActivityItem[] {
+  options: RankingOptions & { forcedIds?: ReadonlySet<string> } = {},
+): RankedWindow {
   if (candidates.length === 0) {
-    return [];
+    return { items: [], deferred: [] };
   }
 
   // SO-13: Aggregate shelf adds, follows, and started books prior to ranking
   const aggregatedCandidates = aggregateFeedItems(candidates);
+  const forced = options.forcedIds ?? new Set<string>();
+  const isForced = (i: FeedActivityItem) => memberIds(i).some((id) => forced.has(id));
 
   const hasOtherVerbs = aggregatedCandidates.some((c) => c.verb !== 'started');
   const effectiveOpts: RankingOptions = {
     ...options,
     allowMultipleStarted: options.allowMultipleStarted ?? !hasOtherVerbs,
   };
+  const affinityOf = (item: FeedActivityItem) =>
+    (effectiveOpts.affinities && effectiveOpts.affinities[item.actor_id]) ?? 1.0;
 
   const selected: FeedActivityItem[] = [];
   let remaining = [...aggregatedCandidates];
+  const forcedLeft = () => remaining.filter(isForced).length;
 
   while (selected.length < limit && remaining.length > 0) {
     // 1. Calculate current rank score for each remaining candidate relative to selected so far
@@ -317,26 +366,25 @@ export function rankAndDiversifyFeed(
       score: computeItemRankScore(item, selected, effectiveOpts),
     }));
 
-    // Sort descending by score
-    scoredCandidates.sort((a, b) => b.score - a.score);
+    // Sort descending by score; ties by recency then id.
+    scoredCandidates.sort((a, b) => b.score - a.score || byRecency(a.item, b.item));
+
+    // Slots still free must hold every forced card that is left.
+    const mustTakeForced = limit - selected.length <= forcedLeft();
 
     // 2. Check for low-affinity requirement: At least 1 low-affinity card per 10 items block if at slot 9 (9th in block)
     const currentBlockIndex = selected.length % 10;
     const currentBlockStart = Math.floor(selected.length / 10) * 10;
     const currentBlock = selected.slice(currentBlockStart);
-    const hasLowAffinityInBlock = currentBlock.some((item) => {
-      const aff = (effectiveOpts.affinities && effectiveOpts.affinities[item.actor_id]) ?? 1.0;
-      return aff < 0.8;
-    });
+    const hasLowAffinityInBlock = currentBlock.some((item) => affinityOf(item) < LOW_AFFINITY);
 
     let picked: FeedActivityItem | null = null;
 
     // If at 9th item of a 10-block and no low-affinity actor selected yet, try finding a low-affinity candidate
-    if (currentBlockIndex === 9 && !hasLowAffinityInBlock && effectiveOpts.affinities) {
-      const lowAffinityCandidate = scoredCandidates.find(({ item }) => {
-        const aff = effectiveOpts.affinities![item.actor_id] ?? 1.0;
-        return aff < 0.8 && !violatesHardConstraints(item, selected, effectiveOpts);
-      });
+    if (!mustTakeForced && currentBlockIndex === 9 && !hasLowAffinityInBlock && effectiveOpts.affinities) {
+      const lowAffinityCandidate = scoredCandidates.find(({ item }) =>
+        affinityOf(item) < LOW_AFFINITY && !violatesHardConstraints(item, selected, effectiveOpts),
+      );
       if (lowAffinityCandidate) {
         picked = lowAffinityCandidate.item;
       }
@@ -345,27 +393,34 @@ export function rankAndDiversifyFeed(
     // Otherwise, pick highest scoring candidate that satisfies hard constraints
     if (!picked) {
       const validCandidate = scoredCandidates.find(({ item }) =>
-        !violatesHardConstraints(item, selected, effectiveOpts),
+        (!mustTakeForced || isForced(item)) && !violatesHardConstraints(item, selected, effectiveOpts),
       );
       if (validCandidate) {
         picked = validCandidate.item;
       }
     }
 
-    // Secondary pass: If no candidate passed strict constraints, but remaining items are 'started' and we need items, allow started cards
+    // Secondary pass: a deferred card may take a second 'started' slot rather
+    // than break a stronger rule. Other cards wait for the next page instead
+    // (a feed of nothing but starts is thin, and allowMultipleStarted holds).
     if (!picked && !effectiveOpts.allowMultipleStarted) {
       const relaxedOpts = { ...effectiveOpts, allowMultipleStarted: true };
       const relaxedCandidate = scoredCandidates.find(({ item }) =>
-        !violatesHardConstraints(item, selected, relaxedOpts),
+        isForced(item) && !violatesHardConstraints(item, selected, relaxedOpts),
       );
       if (relaxedCandidate) {
         picked = relaxedCandidate.item;
       }
     }
 
-    // Fallback: If no candidate satisfies hard constraints, pick top candidate ONLY if selected is empty (never empty feed, PRD §12.5)
-    if (!picked && selected.length === 0 && scoredCandidates.length > 0) {
-      picked = scoredCandidates[0]!.item;
+    // Nothing fits: a deferred card is placed anyway (it waited one page
+    // already); so is the first card of an empty page (never empty, §12.5).
+    if (!picked) {
+      const fallback = scoredCandidates.find(({ item }) => isForced(item))
+        ?? (selected.length === 0 ? scoredCandidates[0] : undefined);
+      if (fallback) {
+        picked = fallback.item;
+      }
     }
 
     if (picked) {
@@ -376,5 +431,20 @@ export function rankAndDiversifyFeed(
     }
   }
 
-  return selected;
+  return { items: selected, deferred: remaining.sort(byRecency) };
+}
+
+/** Below this, a reader is someone the viewer engages with rarely (§12.4 rule 3). */
+export const LOW_AFFINITY = 0.8;
+
+/**
+ * Re-ranks candidates and applies hard diversity rules (PRD §12.3, §12.4, AC-11).
+ * The page only; see rankWindow for the cards it defers.
+ */
+export function rankAndDiversifyFeed(
+  candidates: FeedActivityItem[],
+  limit: number = 20,
+  options: RankingOptions = {},
+): FeedActivityItem[] {
+  return rankWindow(candidates, limit, options).items;
 }

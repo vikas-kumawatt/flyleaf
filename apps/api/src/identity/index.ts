@@ -809,6 +809,8 @@ export class IdentityService {
 
           if (data.isPrivate === true) {
             await this.activityService.setAccountPrivacy(tx as unknown as Db, userId, true);
+          } else if (goingPublic) {
+            await this.activityService.setAccountPrivacy(tx as unknown as Db, userId, false);
           }
         }
 

@@ -4114,6 +4114,13 @@ paths:
                     - followers
                     - private
                   description: "Omitted: unchanged (public for a new read)."
+                if_absent:
+                  type:
+                    - boolean
+                    - "null"
+                  description: true writes only when the viewer has no read of this work;
+                    otherwise 409 already_in_library and nothing changes (the
+                    feed's want-to-read swipe, audit D-11-1).
               required:
                 - work_id
                 - status
@@ -4226,6 +4233,30 @@ paths:
                   - hearted
                   - visibility
         "401":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      code:
+                        type: string
+                        description: Machine-readable error code
+                      message:
+                        type: string
+                        description: Human-readable error description
+                      field:
+                        type: string
+                        description: Invalid field name if applicable
+                    required:
+                      - code
+                      - message
+                required:
+                  - error
+        "409":
           description: Default Response
           content:
             application/json:
@@ -15941,7 +15972,8 @@ paths:
           in: query
           name: cursor
           required: false
-          description: ISO timestamp cursor for pagination
+          description: "Opaque cursor: next_cursor of the previous page. A malformed one
+            is 400 invalid_cursor."
         - schema:
             type: integer
             minimum: 1

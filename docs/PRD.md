@@ -2103,7 +2103,7 @@ Reasoning:
 1. **Taste is a broadcast, not a conversation.** You want to follow a reviewer whose taste you trust without needing their permission, and without implying they should care about yours.
 2. **Symmetric friendship caps the graph** at people you already know, which kills discovery — the entire value of following a stranger with excellent taste.
 3. **Letterboxd's model is asymmetric** and this audience already understands it.
-4. **Private accounts recover the safety benefit** without imposing symmetry on everyone: setting an account private converts follows into requests requiring approval.
+4. **Private accounts recover the safety benefit** without imposing symmetry on everyone: setting an account private turns new follows into requests requiring approval; people who already follow the account stay followers. Amended 10 Oct 2026, audit D-13-2.
 
 The `follows` table carries a `state` of `accepted` or `pending`, which supports both modes without a second table.
 

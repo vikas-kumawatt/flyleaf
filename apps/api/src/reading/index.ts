@@ -75,6 +75,7 @@ const upsertBody = z.object({
   hearted: z.boolean().nullish(),
   format_override: z.enum(['print', 'ebook', 'audiobook']).nullish(),
   visibility: z.enum(VISIBILITIES).nullish(),
+  if_absent: z.boolean().nullish(),
 }).refine((b) => !(b.clear_rating && b.rating != null), {
   message: 'Send a rating or clear_rating, not both.',
   path: ['clear_rating'],
@@ -208,6 +209,8 @@ export class ReadingService {
     hearted?: boolean | null,
     visibility?: Visibility | null,
     extra?: {
+      /** Write only if the viewer has no read of the work (D-11-1); else 409 already_in_library. */
+      ifAbsent?: boolean;
       clearRating?: boolean;
       editionId?: string | null;
       startedAt?: string | null;
@@ -228,6 +231,11 @@ export class ReadingService {
           SELECT id, status, attempt_no FROM reads
           WHERE user_id = ${viewer} AND work_id = ${resolved}
           ORDER BY attempt_no DESC LIMIT 1`);
+
+        // Under the attempts lock, so a replayed swipe cannot race a start.
+        if (extra?.ifAbsent && existing) {
+          throw ApiError.conflict('already_in_library', 'This book is already in your library.');
+        }
 
         if (startsNewAttempt(existing?.status ?? null, status)) {
           const id = await this.#insertAttempt(db, viewer, resolved, status, Number(existing?.attempt_no ?? 0) + 1, {
@@ -1199,6 +1207,7 @@ export function readingRoutes(service: ReadingService) {
           response: {
             200: readSchema,
             401: errorResponseSchema,
+            409: errorResponseSchema,
             422: errorResponseSchema,
           },
         },
@@ -1227,8 +1236,10 @@ export function readingRoutes(service: ReadingService) {
           hearted,
           format_override,
           visibility,
+          if_absent,
         } = parsed.data;
         return service.upsert(viewer, work_id, status, rating, hearted, visibility, {
+          ifAbsent: if_absent === true,
           clearRating: clear_rating === true,
           editionId: edition_id,
           startedAt: started_at,

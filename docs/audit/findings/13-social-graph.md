@@ -185,13 +185,19 @@ PRD budgets (p95 < 300 ms) are met with a wide margin; indicative only (sandbox,
 
 ## Decisions
 
-### D-13-3 · Taken: old usernames are reserved for the account's lifetime
-- Options: (a) lifetime of the account (built); (b) N days, then freed; (c) never reserved. (b) and (c) let a freed name open someone else's links, which D-11-2 rules out. Released only when the account is hard-deleted (its claims cascade). Owner may shorten it; nothing else depends on the period.
+### D-13-1 · Taken (owner, 2026-10-10, recorded in Part 14): option (b)
+- A single accepted follow request writes a `followed` card, dated at the acceptance and owned by the requester (visibility as `recordActivity` decides: followers-only if the requester's account is private). The bulk accept when an account goes public writes **none** (a settings change; N cards at once would be a burst).
+- **Built in Part 14:** `social/index.ts` `acceptFollowRequest` records the card in the accept's transaction. Tests: `feed-audit.test.ts` › *D-13-1: accepting one request writes one followed card; going public writes none*; the Part 13 assertion that pinned "no card on accept" is updated with a comment (`social-graph-audit.test.ts`). See `findings/14-feed.md` A-14-016.
+
+### D-13-2 · Taken (owner, 2026-10-10, recorded in Part 14): keep existing followers when an account goes private
+- Code unchanged (existing followers stay accepted; new follows become requests). **PRD §11.1 amended** to say so ("setting an account private makes new follows requests requiring approval; existing followers are kept").
+
+### D-13-3 · Taken: old usernames are reserved for the account's lifetime (confirmed by the owner, 2026-10-10)
+- Options: (a) lifetime of the account (built); (b) N days, then freed; (c) never reserved. (b) and (c) let a freed name open someone else's links, which D-11-2 rules out. Released only when the account is hard-deleted (its claims cascade). **Owner confirmed (a)** at the start of Part 14; nothing to change.
 
 ## Decisions needed
 
-- **D-13-1 · Does a follow accepted from a request write a `followed` card?** Today: no card for a single accept, none for the bulk accept on going public; a follow of a public account writes one. Options: (a) as is (cards only for instant follows); (b) a card on each single accept (dated at acceptance), none for the bulk accept on going public (recommended: a single accept is the moment the follow starts; the bulk accept is a settings change, and N cards at once would be a burst); (c) cards for both. SO-13's aggregation reads whatever is written. Left as is.
-- **D-13-2 · Going private: keep existing followers?** PRD §11.1 says private mode "converts follows into requests requiring approval". Built and kept: existing followers stay accepted; new follows become requests (Instagram, Letterboxd). The other reading (demote every follower to pending) would silently cut everyone off. Recommendation: keep, and amend §11.1 to "new follows become requests". No change made.
+None open (D-13-1 and D-13-2 decided above).
 
 ## Deferred (with reason and owner)
 
@@ -202,7 +208,7 @@ PRD budgets (p95 < 300 ms) are met with a wide margin; indicative only (sandbox,
 | §11.7 follow limits, refollow cycles, new-account cap, re-request after reject, username change limit (A-13-007, A-13-008, A-13-021) | One limiter layer | Part 15 |
 | Remove the 15 alias routes (A-13-009) | Recommendation; route inventory refresh | Part 15 |
 | Counters vs deleted accounts; orphan mutes after hard delete (A-13-015, A-13-016) | Account deletion flow not built | Part 15 |
-| D-13-1, D-13-2 | Owner decisions | Owner |
+| ~~D-13-1, D-13-2~~ decided 2026-10-10 (above); D-13-1 built in Part 14 | Owner decisions | Owner |
 | Username field in the app's Account settings (calls `changeUsername()`) | UI; the API and links are done | Post-audit |
 | Keyset paging for followers at 10× (offset 19,000 walks 19,000 index entries; ~10 ms) and the `total` count (O(followers) per page) | Not needed at today's sizes; plan: cursor `(created_at, id)` alongside `offset`, total from the counter minus the viewer's few blocked | Post-audit |
 | Owner `avatar_url` on shelves (A-11-029) | Consistency, no screen affected | Part 15 |

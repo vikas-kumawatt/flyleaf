@@ -41,6 +41,7 @@ import { processImport } from '../imports/processor.js';
 import type { ObjectStorage } from '../providers/storage/index.js';
 import { ExportService } from '../exports/index.js';
 import { cleanupStorage, type CleanupResult } from '../uploads/index.js';
+import { FEED_HORIZON_DAYS } from '../activity/index.js';
 
 /**
  * Every queue, named once.
@@ -101,6 +102,12 @@ export const QUEUES = {
    * titles and authors of works with 20+ logs move slowly.
    */
   refreshSearchSuggestions: 'search.suggestions.refresh',
+  /**
+   * Daily activity retention (PRD §23.5, audit 14): rows older than 180 days
+   * are deleted in small batches. Likes and comments live on reads, so a
+   * pruned card loses nothing but the card.
+   */
+  pruneActivity: 'activity.prune',
 } as const;
 
 export type QueueName = (typeof QUEUES)[keyof typeof QUEUES];
@@ -261,6 +268,40 @@ export async function reconcileWorksJobHandler(
     catalogMean: Number(row?.r.catalog_mean ?? 0),
     workedAt: new Date().toISOString(),
   };
+}
+
+export type PruneActivityResult = { deleted: number; batches: number; workedAt: string };
+
+/**
+ * PRD §23.5: `activity` rows are kept 180 days, then pruned. Deletes in
+ * batches of `batchSize`, each its own short statement, so the table is never
+ * locked for long and the feed keeps reading while it runs. The batch picks
+ * through activity_visibility_idx (visibility, created_at), which every row
+ * is in. Nothing references an activity id: dedupe's undo log may name
+ * pruned ids, and its UPDATE then matches nothing.
+ */
+export async function pruneActivityJobHandler(
+  _jobs: Job<void>[],
+  db: Db,
+  opts: { batchSize?: number; maxBatches?: number } = {},
+): Promise<PruneActivityResult> {
+  const batchSize = opts.batchSize ?? 5_000;
+  const maxBatches = opts.maxBatches ?? 1_000;
+  let deleted = 0;
+  let batches = 0;
+  while (batches < maxBatches) {
+    const rows = await db.execute<{ id: string }>(sql`
+      DELETE FROM activity WHERE id IN (
+        SELECT id FROM activity
+        WHERE visibility IN ('public', 'followers', 'private')
+          AND created_at < now() - make_interval(days => ${FEED_HORIZON_DAYS})
+        LIMIT ${batchSize})
+      RETURNING id`);
+    batches++;
+    deleted += rows.length;
+    if (rows.length < batchSize) break;
+  }
+  return { deleted, batches, workedAt: new Date().toISOString() };
 }
 
 /** Rebuilds search_suggestions (0032); returns the number of terms. */
@@ -476,6 +517,15 @@ export async function registerQueues(boss: PgBoss, log: JobLog, deps?: WorkerDep
           readerCount: result.readerCount,
           catalogMean: result.catalogMean,
         },
+        'job handled',
+      );
+      return result;
+    });
+
+    await boss.work<void, PruneActivityResult>(QUEUES.pruneActivity, async (jobs) => {
+      const result = await pruneActivityJobHandler(jobs, db);
+      log.info(
+        { queue: QUEUES.pruneActivity, ids: jobs.map((j) => j.id), deleted: result.deleted, batches: result.batches },
         'job handled',
       );
       return result;
