@@ -540,3 +540,19 @@ describe('SH-10 · share pages', () => {
     expect(asFan.headers['cache-control']).toBe('private, no-store');
   });
 });
+
+describe('SH-10 · the owner on a shelf carries its avatar URL (A-11-029)', () => {
+  it('every shelf response gives owner.avatarUrl, as person objects elsewhere do', async () => {
+    const owner = await makeUser(db, 'avatarowner');
+    await db.execute(sql`UPDATE profiles SET avatar_key = 'avatars/a11029.webp' WHERE user_id = ${owner.id}`);
+    const id = (await createShelf(owner, { name: 'Avatar URL check' })).json().shelf.id;
+    const shelf = (await app.inject({ method: 'GET', url: `/v1/shelves/${id}`, headers: owner.auth })).json().shelf;
+    const want = '/v1/avatars/avatars/a11029.webp';
+    expect(shelf.owner.avatarUrl).toBe(want);
+    const slug = (await app.inject({ method: 'GET', url: `/v1/shelves/by-slug/avatarowner/${shelf.slug}` })).json().shelf;
+    expect(slug.owner.avatarUrl).toBe(want);
+    const browse = (await app.inject({ method: 'GET', url: '/v1/shelves/browse?query=Avatar%20URL%20check&limit=50', headers: owner.auth })).json();
+    const card = (browse.shelves ?? browse.data ?? browse.items).find((s: any) => s.id === id);
+    expect(card.owner.avatarUrl).toBe(want);
+  });
+});

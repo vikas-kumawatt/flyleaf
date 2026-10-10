@@ -724,13 +724,13 @@ export const socialPlugin: FastifyPluginAsync<SocialPluginOptions> = async (app,
   // Follow / request to follow
   const followHandler = async (req: any) => {
     const viewer = requireViewer(req);
-    const targetId = req.params.id || req.params.userId;
+    const targetId = req.params.id;
     return service.followUser(viewer, targetId);
   };
 
   const unfollowHandler = async (req: any) => {
     const viewer = requireViewer(req);
-    const targetId = req.params.id || req.params.userId;
+    const targetId = req.params.id;
     return service.unfollowUser(viewer, targetId);
   };
 
@@ -751,23 +751,6 @@ export const socialPlugin: FastifyPluginAsync<SocialPluginOptions> = async (app,
     followHandler,
   );
 
-  app.post(
-    '/follows/:userId',
-    {
-      schema: {
-        tags: ['Social'],
-        summary: 'Follow or request to follow a user (alias)',
-        params: {
-          type: 'object',
-          properties: { userId: { type: 'string', format: 'uuid' } },
-          required: ['userId'],
-        },
-        response: { 200: followResponseSchema },
-      },
-    },
-    followHandler,
-  );
-
   app.delete(
     '/users/:id/follow',
     {
@@ -778,23 +761,6 @@ export const socialPlugin: FastifyPluginAsync<SocialPluginOptions> = async (app,
           type: 'object',
           properties: { id: { type: 'string', format: 'uuid' } },
           required: ['id'],
-        },
-        response: { 200: followResponseSchema },
-      },
-    },
-    unfollowHandler,
-  );
-
-  app.delete(
-    '/follows/:userId',
-    {
-      schema: {
-        tags: ['Social'],
-        summary: 'Unfollow user or cancel pending request (alias)',
-        params: {
-          type: 'object',
-          properties: { userId: { type: 'string', format: 'uuid' } },
-          required: ['userId'],
         },
         response: { 200: followResponseSchema },
       },
@@ -821,18 +787,6 @@ export const socialPlugin: FastifyPluginAsync<SocialPluginOptions> = async (app,
     getRequestsHandler,
   );
 
-  app.get(
-    '/follows/requests',
-    {
-      schema: {
-        tags: ['Social'],
-        summary: 'List incoming pending follow requests (alias)',
-        response: { 200: pendingFollowRequestsResponseSchema },
-      },
-    },
-    getRequestsHandler,
-  );
-
   const acceptHandler = async (req: any) => {
     const viewer = requireViewer(req);
     const requesterId = req.params.requesterId;
@@ -845,23 +799,6 @@ export const socialPlugin: FastifyPluginAsync<SocialPluginOptions> = async (app,
       schema: {
         tags: ['Social'],
         summary: 'Accept an incoming pending follow request',
-        params: {
-          type: 'object',
-          properties: { requesterId: { type: 'string', format: 'uuid' } },
-          required: ['requesterId'],
-        },
-        response: { 200: followResponseSchema },
-      },
-    },
-    acceptHandler,
-  );
-
-  app.post(
-    '/follows/requests/:requesterId/accept',
-    {
-      schema: {
-        tags: ['Social'],
-        summary: 'Accept an incoming pending follow request (alias)',
         params: {
           type: 'object',
           properties: { requesterId: { type: 'string', format: 'uuid' } },
@@ -896,33 +833,16 @@ export const socialPlugin: FastifyPluginAsync<SocialPluginOptions> = async (app,
     rejectHandler,
   );
 
-  app.post(
-    '/follows/requests/:requesterId/reject',
-    {
-      schema: {
-        tags: ['Social'],
-        summary: 'Reject an incoming pending follow request (alias)',
-        params: {
-          type: 'object',
-          properties: { requesterId: { type: 'string', format: 'uuid' } },
-          required: ['requesterId'],
-        },
-        response: { 200: followResponseSchema },
-      },
-    },
-    rejectHandler,
-  );
-
   // Block / Unblock / List Blocked Users (SO-03)
   const blockHandler = async (req: any) => {
     const viewer = requireViewer(req);
-    const targetId = req.params.id || req.params.userId;
+    const targetId = req.params.id;
     return service.blockUser(viewer, targetId);
   };
 
   const unblockHandler = async (req: any) => {
     const viewer = requireViewer(req);
-    const targetId = req.params.id || req.params.userId;
+    const targetId = req.params.id;
     return service.unblockUser(viewer, targetId);
   };
 
@@ -949,23 +869,6 @@ export const socialPlugin: FastifyPluginAsync<SocialPluginOptions> = async (app,
     blockHandler,
   );
 
-  app.post(
-    '/blocks/:userId',
-    {
-      schema: {
-        tags: ['Social'],
-        summary: 'Block a user (alias)',
-        params: {
-          type: 'object',
-          properties: { userId: { type: 'string', format: 'uuid' } },
-          required: ['userId'],
-        },
-        response: { 200: blockUserResponseSchema },
-      },
-    },
-    blockHandler,
-  );
-
   app.delete(
     '/users/:id/block',
     {
@@ -976,23 +879,6 @@ export const socialPlugin: FastifyPluginAsync<SocialPluginOptions> = async (app,
           type: 'object',
           properties: { id: { type: 'string', format: 'uuid' } },
           required: ['id'],
-        },
-        response: { 200: blockUserResponseSchema },
-      },
-    },
-    unblockHandler,
-  );
-
-  app.delete(
-    '/blocks/:userId',
-    {
-      schema: {
-        tags: ['Social'],
-        summary: 'Unblock a user (alias)',
-        params: {
-          type: 'object',
-          properties: { userId: { type: 'string', format: 'uuid' } },
-          required: ['userId'],
         },
         response: { 200: blockUserResponseSchema },
       },
@@ -1012,40 +898,28 @@ export const socialPlugin: FastifyPluginAsync<SocialPluginOptions> = async (app,
     getBlocksHandler,
   );
 
-  app.get(
-    '/blocks',
-    {
-      schema: {
-        tags: ['Social'],
-        summary: 'List users blocked by viewer (alias)',
-        response: { 200: blockedUsersResponseSchema },
-      },
-    },
-    getBlocksHandler,
-  );
-
   // Mute / Unmute / List Muted Items (SO-04)
   const muteUserHandler = async (req: any) => {
     const viewer = requireViewer(req);
-    const targetId = req.params.id || req.params.userId;
+    const targetId = req.params.id;
     return service.muteUser(viewer, targetId);
   };
 
   const unmuteUserHandler = async (req: any) => {
     const viewer = requireViewer(req);
-    const targetId = req.params.id || req.params.userId;
+    const targetId = req.params.id;
     return service.unmuteUser(viewer, targetId);
   };
 
   const muteWorkHandler = async (req: any) => {
     const viewer = requireViewer(req);
-    const targetId = req.params.id || req.params.workId;
+    const targetId = req.params.id;
     return service.muteWork(viewer, targetId);
   };
 
   const unmuteWorkHandler = async (req: any) => {
     const viewer = requireViewer(req);
-    const targetId = req.params.id || req.params.workId;
+    const targetId = req.params.id;
     return service.unmuteWork(viewer, targetId);
   };
 
@@ -1071,23 +945,6 @@ export const socialPlugin: FastifyPluginAsync<SocialPluginOptions> = async (app,
     muteUserHandler,
   );
 
-  app.post(
-    '/mutes/users/:userId',
-    {
-      schema: {
-        tags: ['Social'],
-        summary: 'Mute a user (alias)',
-        params: {
-          type: 'object',
-          properties: { userId: { type: 'string', format: 'uuid' } },
-          required: ['userId'],
-        },
-        response: { 200: muteResponseSchema },
-      },
-    },
-    muteUserHandler,
-  );
-
   app.delete(
     '/users/:id/mute',
     {
@@ -1098,23 +955,6 @@ export const socialPlugin: FastifyPluginAsync<SocialPluginOptions> = async (app,
           type: 'object',
           properties: { id: { type: 'string', format: 'uuid' } },
           required: ['id'],
-        },
-        response: { 200: muteResponseSchema },
-      },
-    },
-    unmuteUserHandler,
-  );
-
-  app.delete(
-    '/mutes/users/:userId',
-    {
-      schema: {
-        tags: ['Social'],
-        summary: 'Unmute a user (alias)',
-        params: {
-          type: 'object',
-          properties: { userId: { type: 'string', format: 'uuid' } },
-          required: ['userId'],
         },
         response: { 200: muteResponseSchema },
       },
@@ -1139,23 +979,6 @@ export const socialPlugin: FastifyPluginAsync<SocialPluginOptions> = async (app,
     muteWorkHandler,
   );
 
-  app.post(
-    '/mutes/works/:workId',
-    {
-      schema: {
-        tags: ['Social'],
-        summary: 'Mute a book (alias)',
-        params: {
-          type: 'object',
-          properties: { workId: { type: 'string', format: 'uuid' } },
-          required: ['workId'],
-        },
-        response: { 200: muteResponseSchema },
-      },
-    },
-    muteWorkHandler,
-  );
-
   app.delete(
     '/works/:id/mute',
     {
@@ -1166,23 +989,6 @@ export const socialPlugin: FastifyPluginAsync<SocialPluginOptions> = async (app,
           type: 'object',
           properties: { id: { type: 'string', format: 'uuid' } },
           required: ['id'],
-        },
-        response: { 200: muteResponseSchema },
-      },
-    },
-    unmuteWorkHandler,
-  );
-
-  app.delete(
-    '/mutes/works/:workId',
-    {
-      schema: {
-        tags: ['Social'],
-        summary: 'Unmute a book (alias)',
-        params: {
-          type: 'object',
-          properties: { workId: { type: 'string', format: 'uuid' } },
-          required: ['workId'],
         },
         response: { 200: muteResponseSchema },
       },
@@ -1202,28 +1008,16 @@ export const socialPlugin: FastifyPluginAsync<SocialPluginOptions> = async (app,
     getMutesHandler,
   );
 
-  app.get(
-    '/mutes',
-    {
-      schema: {
-        tags: ['Social'],
-        summary: 'List muted users and muted books (alias)',
-        response: { 200: mutesResponseSchema },
-      },
-    },
-    getMutesHandler,
-  );
-
   // Followers & Following Lists (SO-05)
   const getFollowersHandler = async (req: any) => {
-    const targetId = req.params.id || req.params.userId;
+    const targetId = req.params.id;
     const limit = req.query?.limit ? Number(req.query.limit) : undefined;
     const offset = req.query?.offset ? Number(req.query.offset) : undefined;
     return service.getFollowers(req.viewer, targetId, { limit, offset });
   };
 
   const getFollowingHandler = async (req: any) => {
-    const targetId = req.params.id || req.params.userId;
+    const targetId = req.params.id;
     const limit = req.query?.limit ? Number(req.query.limit) : undefined;
     const offset = req.query?.offset ? Number(req.query.offset) : undefined;
     return service.getFollowing(req.viewer, targetId, { limit, offset });
@@ -1256,24 +1050,6 @@ export const socialPlugin: FastifyPluginAsync<SocialPluginOptions> = async (app,
   );
 
   app.get(
-    '/followers/:userId',
-    {
-      schema: {
-        tags: ['Social'],
-        summary: 'List followers of a user (alias)',
-        params: {
-          type: 'object',
-          properties: { userId: { type: 'string', format: 'uuid' } },
-          required: ['userId'],
-        },
-        querystring: listQuerySchema,
-        response: { 200: followUserListResponseSchema },
-      },
-    },
-    getFollowersHandler,
-  );
-
-  app.get(
     '/users/:id/following',
     {
       schema: {
@@ -1291,21 +1067,4 @@ export const socialPlugin: FastifyPluginAsync<SocialPluginOptions> = async (app,
     getFollowingHandler,
   );
 
-  app.get(
-    '/following/:userId',
-    {
-      schema: {
-        tags: ['Social'],
-        summary: 'List users followed by a user (alias)',
-        params: {
-          type: 'object',
-          properties: { userId: { type: 'string', format: 'uuid' } },
-          required: ['userId'],
-        },
-        querystring: listQuerySchema,
-        response: { 200: followUserListResponseSchema },
-      },
-    },
-    getFollowingHandler,
-  );
 };

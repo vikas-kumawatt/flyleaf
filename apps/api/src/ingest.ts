@@ -22,6 +22,7 @@
 //                     ability to reprocess without re-downloading.
 //   --restart         ignore any checkpoint and start from line 1.
 
+import { AUTHOR_REPAIR_BATCH, walkRanges } from './jobs/ranges.js';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -34,7 +35,7 @@ import {
 } from './catalog/ingest/normalise.js';
 import {
   createStaging, dropStaging, writeAuthors, writeWorks, writeEditions, writeRawPayloads,
-  RESOLVE_PENDING_WORK_AUTHORS, MARK_CREDITED_AUTHORS,
+  RESOLVE_PENDING_WORK_AUTHORS,
 } from './catalog/ingest/writer.js';
 
 // architecture.md §5.1 says 5,000. That is right for the COPY itself, but
@@ -786,10 +787,11 @@ async function printStatus(db: ReturnType<typeof makeDb>) {
  * works_title_trgm_idx first and recreating them here is worth the trouble.
  */
 async function finalise(db: ReturnType<typeof makeDb>) {
-  // Pool of one, so these stick. The resolve below skips the has_works
-  // trigger like the load did; MARK_CREDITED_AUTHORS covers both at once.
+  // Pool of one, so this sticks. The resolve below skips the has_works
+  // trigger like the load did; the author repair below covers both at once.
+  // work_mem stays the ingest profile's (JOB_DB_SETTINGS.ingest, Audit 15):
+  // it used to be raised to 256 MB here for one whole-catalog UPDATE.
   await db.$client.unsafe(`SET flyleaf.bulk_load = 'on'`);
-  await db.$client.unsafe(`SET work_mem = '256MB'`);
 
   console.log('resolving parked authorship links…');
   const [pendingBefore] = await db.execute<{ n: number }>(
@@ -801,9 +803,18 @@ async function finalise(db: ReturnType<typeof makeDb>) {
     `  ${commas(pendingBefore!.n - pendingAfter!.n)} resolved, ` +
     `${commas(pendingAfter!.n)} still waiting on an author`);
 
+  // The nightly repair's statement, range by range over authors (Audit 15,
+  // A-03-026): 15.4M rows on the full catalog are never one UPDATE.
   console.log('flagging credited authors…');
-  const credited = await db.$client.unsafe(MARK_CREDITED_AUTHORS);
-  console.log(`  ${commas(credited.count ?? 0)} authors newly credited`);
+  let credited = 0;
+  let uncredited = 0;
+  await walkRanges(db, { table: 'authors', column: 'id' }, AUTHOR_REPAIR_BATCH, async (lo, hi) => {
+    const [row] = await db.execute<{ r: { set: number; cleared: number } }>(
+      sql`SELECT repair_author_has_works(${lo}::uuid, ${hi}::uuid) AS r`);
+    credited += Number(row?.r.set ?? 0);
+    uncredited += Number(row?.r.cleared ?? 0);
+  });
+  console.log(`  ${commas(credited)} authors newly credited, ${commas(uncredited)} no longer credited`);
 
   console.log('backfilling work covers from editions…');
   // A work with no cover of its own borrows its newest edition's.

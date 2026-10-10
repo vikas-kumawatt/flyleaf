@@ -41,6 +41,10 @@ import {
   DEFAULT_BACKLOG_LIMIT,
   STAGE3_PROBE_MIN_LOGS,
   SUBTITLE_EXPR,
+  STAGE1_SQL,
+  STAGE2_SQL,
+  stage1Pairs,
+  stage2Pairs,
 } from '../catalog/dedupe.js';
 import { QUEUES, dedupeJobHandler } from '../jobs/index.js';
 import { sampleFile } from '../dedupe.js';
@@ -2090,6 +2094,53 @@ describe('D6: the backlog is cleared in batches (Audit 03c)', () => {
     const walked = (await detectBacklogPairs(db, { limit: 100, authorBatch: 1 })).pairs.map(shape).sort();
     expect(full).toHaveLength(2);   // Solaris, Dune
     expect(walked).toEqual(full);
+  });
+
+  // Audit 15 (A-03-026): the MONTHLY pass no longer runs STAGE1_SQL and
+  // STAGE2_SQL (or stage 3's pair statement) over the whole catalog in one
+  // statement; it runs them over slices and merges. The slices must add up to
+  // exactly what the whole statements return.
+  it('the monthly pass in slices finds exactly what the whole-catalog statements find (stages 1, 2 and 3)', async () => {
+    const tolkien = await author(db, 'J.R.R. Tolkien');
+    const tolkien2 = await author(db, 'J. R. R. Tolkien');
+    const lem = await author(db, 'Stanislaw Lem');
+    const gaiman = await author(db, 'Neil Gaiman');
+    await work(db, 'Solaris', 500, lem);
+    await work(db, 'Solaris: A Novel', 2, lem);              // one-sided subtitle: review
+    const s3 = await work(db, 'Solaris', 1, lem);            // a group of three
+    const h1 = await work(db, 'The Hobbit: or There and Back Again', 900, tolkien);
+    const h2 = await work(db, 'Hobbit', 3, tolkien2);         // stage 3 across author records
+    await work(db, 'The Fellowship of the Ring', 400, tolkien);
+    await work(db, 'The Fellowship of the Rings', 2, tolkien); // stage 3, same author
+    const a = await work(db, 'American Gods', 300, gaiman);
+    const b = await work(db, 'Anansi Boys', 5, gaiman);
+    for (const isbn of ['9780000000017', '9780000000024']) {   // two shared ISBNs, different titles
+      await edition(db, a, isbn);
+      await edition(db, b, isbn);
+    }
+    await edition(db, h1, '9780000000031');
+    await edition(db, h2, '9780000000031');
+    await edition(db, s3, null);
+
+    const key = (r: Record<string, unknown>) => JSON.stringify(Object.keys(r).sort().map((k) => [k, String(r[k])]));
+    const whole1 = (await db.execute<Record<string, unknown>>(sql.raw(STAGE1_SQL))).map(key).sort();
+    const whole2 = (await db.execute<Record<string, unknown>>(sql.raw(STAGE2_SQL))).map(key).sort();
+    expect(whole1.length).toBeGreaterThan(0);
+    expect(whole2.length).toBeGreaterThan(1);
+    for (const n of [1, 2, 1000]) {
+      expect((await stage1Pairs(db, n)).map(key).sort(), `isbn batch ${n}`).toEqual(whole1);
+      expect((await stage2Pairs(db, n)).map((r) => key({ ...r })).sort(), `author batch ${n}`).toEqual(whole2);
+    }
+    const shape = (p: { survivorId: string; loserId: string; stage: number; auto: boolean; reason: string }) =>
+      `${p.survivorId}>${p.loserId} ${p.stage} ${p.auto} ${p.reason}`;
+    const one = (await detectStage12(db)).pairs.map(shape);
+    const sliced = (await detectStage12(db, { isbnBatch: 1, authorBatch: 1 })).pairs.map(shape);
+    expect(sliced).toEqual(one);
+
+    const s3whole = await findStage3Candidates(db);
+    const s3sliced = await findStage3Candidates(db, undefined, undefined, null, { authorBatch: 1, peerChunk: 1 });
+    expect(s3whole.length).toBeGreaterThan(0);
+    expect(s3sliced).toEqual(s3whole);
   });
 
   it('stops walking once it has more than --limit pairs', async () => {

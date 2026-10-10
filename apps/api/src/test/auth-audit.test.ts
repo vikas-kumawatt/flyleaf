@@ -17,6 +17,7 @@ import {
   isAtLeast13,
   RESERVED_USERNAMES,
   verifyAccessToken,
+  passwordWork,
 } from '../identity/index.js';
 import { signAdminToken } from '../admin/auth.js';
 import { buildApp, registerCoreHooks } from '../app.js';
@@ -255,15 +256,26 @@ describe('IdentityService edge cases (Part 04)', () => {
       return performance.now() - t;
     };
     await time('timing@example.com'); // warm-up
-    let known = 0;
-    let unknown = 0;
-    for (let i = 0; i < 3; i++) {
-      await client.exec('TRUNCATE rate_limits');
-      known += await time('timing@example.com');
-      unknown += await time(`nobody${i}@example.com`);
+    // The work: each path runs exactly one argon2 verify (before the fix the
+    // unknown email ran none). Deterministic, so it cannot flake (Audit 15).
+    for (const email of ['timing@example.com', 'nobody-count@example.com']) {
+      const before = passwordWork.verifies;
+      await service.login(email, 'wrongpassword99').catch(() => undefined);
+      expect(passwordWork.verifies - before, email).toBe(1);
     }
+    // The time: medians of 7 alternating samples, not sums of 3, so one slow
+    // sample on a loaded CI worker no longer decides it (it failed 2 of 6 runs
+    // on main in Part 13's sandbox). Same threshold as before.
+    const known: number[] = [];
+    const unknown: number[] = [];
+    for (let i = 0; i < 7; i++) {
+      await client.exec('TRUNCATE rate_limits');
+      known.push(await time('timing@example.com'));
+      unknown.push(await time(`nobody${i}@example.com`));
+    }
+    const median = (xs: number[]) => [...xs].sort((a, b) => a - b)[Math.floor(xs.length / 2)]!;
     // Before the fix `unknown` was one indexed query (~1 ms) against ~20 ms of argon2.
-    expect(unknown).toBeGreaterThan(known * 0.5);
+    expect(median(unknown)).toBeGreaterThan(median(known) * 0.5);
   });
 
   it('a password over 1,024 characters is rejected with 422 (A-04-009)', async () => {

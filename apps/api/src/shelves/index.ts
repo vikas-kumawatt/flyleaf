@@ -13,6 +13,7 @@ import { and, eq, getTableColumns, sql, inArray, type SQL } from 'drizzle-orm';
 import { config, Db } from '../platform/index.js';
 import { ApiError, requireViewer } from '../http.js';
 import { resolveWorkId } from '../catalog/resolve.js';
+import { avatarUrl } from '../uploads/index.js';
 import { canViewSql, canViewWith, loadRelationship, type Visibility } from '../authorization/index.js';
 import {
   shelves,
@@ -71,6 +72,8 @@ export interface ShelfOwner {
   username: string;
   displayName: string | null;
   avatarKey: string | null;
+  /** A-11-029: the URL to load the avatar from, as on every other person object. */
+  avatarUrl: string | null;
 }
 
 export interface ShelfDetail {
@@ -303,6 +306,7 @@ function cardFromRow(r: ShelfCardRow): ShelfDetail {
       username: r.username,
       displayName: r.display_name,
       avatarKey: r.avatar_key,
+      avatarUrl: avatarUrl(r.avatar_key),
     },
   };
 }
@@ -1343,6 +1347,7 @@ export class ShelvesService {
       username: profile.username,
       displayName: profile.displayName,
       avatarKey: profile.avatarKey,
+      avatarUrl: avatarUrl(profile.avatarKey),
     };
 
     return { shelf: this.formatShelf(shelf, owner, isSaved, coverIds) };
@@ -1364,15 +1369,16 @@ export class ShelvesService {
       .where(eq(users.id, userId))
       .limit(1);
 
-    return (
-      row ?? {
-        id: userId,
-        username: 'reader',
-        displayName: null,
-        avatarKey: null,
-        isPrivate: false,
-      }
-    );
+    return row
+      ? { ...row, avatarUrl: avatarUrl(row.avatarKey) }
+      : {
+          id: userId,
+          username: 'reader',
+          displayName: null,
+          avatarKey: null,
+          avatarUrl: null,
+          isPrivate: false,
+        };
   }
 
   private formatShelf(

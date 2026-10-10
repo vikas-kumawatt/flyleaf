@@ -90,7 +90,19 @@ let dummyPasswordHash: Promise<string> | undefined;
  * login both use it.
  */
 export async function verifyAgainstDummy(password: string): Promise<void> {
-  await argonVerify(await (dummyPasswordHash ??= argonHash('flyleaf-login-timing-equaliser')), normalisePassword(password));
+  await verifyPassword(await (dummyPasswordHash ??= argonHash('flyleaf-login-timing-equaliser')), password);
+}
+
+/**
+ * argon2 verifications so far in this process. The login-timing test counts
+ * this work instead of timing it alone, which flaked on a loaded machine
+ * (A-04-006, Audit 15): equal work is the property; equal time follows.
+ */
+export const passwordWork = { verifies: 0 };
+
+async function verifyPassword(hash: string, password: string): Promise<boolean> {
+  passwordWork.verifies++;
+  return argonVerify(hash, normalisePassword(password));
 }
 
 /** Session label from User-Agent: control characters removed, at most 200 characters (A-04-012). */
@@ -416,7 +428,7 @@ export class IdentityService {
     // Staff accounts are for the admin console only (D-06-2, PRD §27.5): the
     // same generic 401 after the same argon2 cost, right password or not, so
     // this endpoint says nothing about which emails belong to staff.
-    const passwordOk = await argonVerify(row.passwordHash, normalisePassword(password));
+    const passwordOk = await verifyPassword(row.passwordHash, password);
     if (!passwordOk || row.role !== 'user') throw generic;
 
     const familyId = randomUUID();

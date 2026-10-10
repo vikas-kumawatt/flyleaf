@@ -418,6 +418,33 @@ describe('merge statements', () => {
       WHERE a.ol_author_key = '/authors/OLLATEA'`)).rows[0]!.n).toBe(1);
   });
 
+  // Audit 15 (A-03-027): Open Library has duplicate author records, and both
+  // were credited ("José Donoso, José Donoso" on 11,112 live works).
+  it('credits one author record per name on a work, in a batch, on a re-run and when resolving parked links', async () => {
+    await db.exec(`TRUNCATE stage_work_authors`);
+    await db.query(`INSERT INTO works (ol_work_key, title) VALUES ('/works/OLHELLW', 'Hell Has No Limits')`);
+    await db.query(`INSERT INTO authors (ol_author_key, name) VALUES
+      ('/authors/OL4279328A', 'José Donoso'), ('/authors/OL3074073A', ' josé donoso '),
+      ('/authors/OLCOAUTHA', 'Someone Else'), ('/authors/OLLATEDUPA', 'JOSÉ DONOSO')`);
+    await db.query(`INSERT INTO stage_work_authors VALUES
+      ('/works/OLHELLW', '/authors/OL3074073A', 1), ('/works/OLHELLW', '/authors/OL4279328A', 0),
+      ('/works/OLHELLW', '/authors/OLCOAUTHA', 2)`);
+    await db.exec(MERGE_WORK_AUTHORS);
+    const credits = async () => (await db.query<{ k: string }>(`
+      SELECT a.ol_author_key AS k FROM work_authors wa JOIN authors a ON a.id = wa.author_id
+      JOIN works w ON w.id = wa.work_id WHERE w.ol_work_key = '/works/OLHELLW' ORDER BY wa.position`)).rows.map((r) => r.k);
+    // The first by position of the two same-name records, and the co-author.
+    expect(await credits()).toEqual(['/authors/OL4279328A', '/authors/OLCOAUTHA']);
+    // The monthly re-run offers the other record again: still one.
+    await db.exec(MERGE_WORK_AUTHORS);
+    expect(await credits()).toEqual(['/authors/OL4279328A', '/authors/OLCOAUTHA']);
+    // A parked link to a third same-name record resolves without a credit.
+    await db.query(`INSERT INTO pending_work_authors (work_key, author_key, position) VALUES ('/works/OLHELLW', '/authors/OLLATEDUPA', 3)`);
+    await db.exec(RESOLVE_PENDING_WORK_AUTHORS);
+    expect(await credits()).toEqual(['/authors/OL4279328A', '/authors/OLCOAUTHA']);
+    expect((await db.query<{ n: number }>(`SELECT count(*)::int AS n FROM pending_work_authors WHERE author_key = '/authors/OLLATEDUPA'`)).rows[0]!.n).toBe(0);
+  });
+
   it('does not blank a filled field when a sparser record arrives later', async () => {
     // The monthly re-ingest sees thinner records all the time. COALESCE on
     // the update side is what stops it eroding the catalog.

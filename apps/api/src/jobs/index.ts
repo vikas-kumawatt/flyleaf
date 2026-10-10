@@ -13,7 +13,7 @@
 // the real handlers against a real Postgres without starting a process.
 
 import { retentionSweep, summariseZeroResults, type RetentionResult, type ZeroSummaryResult } from './retention.js';
-import { walkRanges } from './ranges.js';
+import { AUTHOR_REPAIR_BATCH, walkRanges } from './ranges.js';
 import { PgBoss, fromDrizzle, type Db as BossDb, type Job, type ConstructorOptions } from 'pg-boss';
 export type { PgBoss } from 'pg-boss';
 import { sql } from 'drizzle-orm';
@@ -232,8 +232,7 @@ export async function dedupeJobHandler(
 
 /** Rows per range for the nightly reconciles (Audit 15, A-03-026). */
 export const RECONCILE_BATCH = 5_000;
-/** Authors per range for the has_works repair: the table is 15.4M rows on the full catalog. */
-export const AUTHOR_REPAIR_BATCH = 20_000;
+export { AUTHOR_REPAIR_BATCH } from './ranges.js';
 
 type RangeOpts = { batch?: number };
 

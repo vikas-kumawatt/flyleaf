@@ -1000,20 +1000,31 @@ const STAGE3_PEERS_SQL = (probe: { id: string; name: string }) => sql`
   WHERE b.name % ${probe.name} AND b.id <> ${probe.id} AND b.has_works
     AND similarity(${probe.name}, b.name) > 0.9`;
 
-/** Parts A and B → survivor-first pairs. $1: the author pairs from STAGE3_PEERS_SQL. */
-const STAGE3_PAIRS_SQL = (peers: { a1: string; a2: string; author_sim: number }[]) => sql`
+/**
+ * Parts A and B → survivor-first pairs, for one slice (Audit 15, A-03-026):
+ * `authors` bounds the author-work set the statement builds (it used to be
+ * every credit in the catalog, 3.79M rows, materialised); part A runs only
+ * when `sameAuthor`; `peers` are the author pairs from STAGE3_PEERS_SQL whose
+ * both authors are in `authors`.
+ */
+const STAGE3_PAIRS_SQL = (
+  peers: { a1: string; a2: string; author_sim: number }[],
+  scope: { authors: string[]; sameAuthor: boolean },
+) => sql`
   WITH aw AS MATERIALIZED (
     SELECT wa.author_id, w.id, w.first_publish_year AS y,
            ${sql.raw(onColumn(NORMALISED_TITLE_EXPR, 'w.title'))} AS norm
     FROM work_authors wa
     JOIN works w ON w.id = wa.work_id
     WHERE w.merged_into_id IS NULL AND NOT w.is_provisional
+      AND wa.author_id = ANY (${`{${scope.authors.join(',')}}`}::uuid[])
   ),
   same_author AS (
     SELECT a.id AS x, b.id AS y, similarity(a.norm, b.norm) AS title_sim, 1.0::real AS author_sim
     FROM aw a
     JOIN aw b ON b.author_id = a.author_id AND b.id > a.id
-    WHERE a.norm <> '' AND b.norm <> '' AND a.norm <> b.norm
+    WHERE ${scope.sameAuthor ? sql`true` : sql`false`}
+      AND a.norm <> '' AND b.norm <> '' AND a.norm <> b.norm
       AND (a.y IS NULL OR b.y IS NULL OR abs(a.y - b.y) <= 2)
       AND similarity(a.norm, b.norm) > 0.85
   ),
@@ -1056,12 +1067,16 @@ const STAGE3_PAIRS_SQL = (peers: { a1: string; a2: string; author_sim: number }[
 
 export type Stage3Timings = { probeAuthors: number; authorPairs: number; probeMs: number; peersMs: number; pairsMs: number };
 
+/** Author pairs per stage-3 part-B statement (Audit 15). */
+export const STAGE3_PEER_CHUNK = 500;
+
 export async function findStage3Candidates(
   db: Db,
   limit?: number,
   onTimings?: (t: Stage3Timings) => void,
   /** Also probe works created after this instant (the previous finished run's start). */
   since: string | null = null,
+  opts: { authorBatch?: number; peerChunk?: number } = {},
 ): Promise<{ survivorId: string; loserId: string; titleSimilarity: number; authorSimilarity: number }[]> {
   const t0 = Date.now();
   const probes = await db.execute<{ id: string; name: string }>(stage3ProbeSql(since));
@@ -1082,8 +1097,43 @@ export async function findStage3Candidates(
   });
   const t2 = Date.now();
 
-  const rows = await db.execute<{ survivor_id: string; loser_id: string; title_sim: number; author_sim: number }>(
-    limit == null ? STAGE3_PAIRS_SQL(peers) : sql`${STAGE3_PAIRS_SQL(peers)} LIMIT ${Math.trunc(limit)}`);
+  // Part A by batches of authors, part B by chunks of author pairs: each
+  // statement holds one slice's works, never the catalog's (Audit 15). A pair
+  // found in two slices keeps its highest similarities, as the whole
+  // statement's GROUP BY did; the order and the limit are applied at the end.
+  type Row = { survivor_id: string; loser_id: string; title_sim: number; author_sim: number };
+  const found = new Map<string, Row>();
+  const keep = (rows: Row[]) => {
+    for (const r of rows) {
+      const k = `${r.survivor_id}:${r.loser_id}`;
+      const prev = found.get(k);
+      if (!prev) found.set(k, { ...r, title_sim: Number(r.title_sim), author_sim: Number(r.author_sim) });
+      else {
+        prev.title_sim = Math.max(prev.title_sim, Number(r.title_sim));
+        prev.author_sim = Math.max(prev.author_sim, Number(r.author_sim));
+      }
+    }
+  };
+  let after = '00000000-0000-0000-0000-000000000000';
+  for (;;) {
+    const authors = (await db.execute<{ author_id: string }>(sql`
+      SELECT DISTINCT author_id FROM work_authors WHERE author_id > ${after}::uuid
+      ORDER BY author_id LIMIT ${opts.authorBatch ?? BACKLOG_AUTHOR_BATCH}`)).map((r) => r.author_id);
+    if (authors.length === 0) break;
+    after = authors[authors.length - 1]!;
+    keep(await db.execute<Row>(STAGE3_PAIRS_SQL([], { authors, sameAuthor: true })));
+  }
+  const chunk = opts.peerChunk ?? STAGE3_PEER_CHUNK;
+  for (let at = 0; at < peers.length; at += chunk) {
+    const part = peers.slice(at, at + chunk);
+    const authors = [...new Set(part.flatMap((p) => [p.a1, p.a2]))];
+    keep(await db.execute<Row>(STAGE3_PAIRS_SQL(part, { authors, sameAuthor: false })));
+  }
+  const ordered = [...found.values()].sort((a, b) =>
+    b.title_sim - a.title_sim
+    || (a.survivor_id < b.survivor_id ? -1 : a.survivor_id > b.survivor_id ? 1 : 0)
+    || (a.loser_id < b.loser_id ? -1 : a.loser_id > b.loser_id ? 1 : 0));
+  const rows = limit == null ? ordered : ordered.slice(0, Math.trunc(limit));
   onTimings?.({
     probeAuthors: probes.length, authorPairs: peers.length,
     probeMs: t1 - t0, peersMs: t2 - t1, pairsMs: Date.now() - t2,
@@ -1757,15 +1807,14 @@ async function applyAutoMergeGuards(
  * merge it. A pair whose merge was undone is never auto-merged again; it goes
  * to review, because an undo is a human saying the rule got it wrong.
  */
-export async function detectStage12(db: Db): Promise<{
+export async function detectStage12(db: Db, opts: { isbnBatch?: number; authorBatch?: number } = {}): Promise<{
   stage1: number; stage2: number; pairs: Stage12Pair[]; held: AutoMergeHeld;
 }> {
-  const stage1 = await db.execute<{
-    survivor_id: string; loser_id: string; isbn_13: string; same_title: boolean; shared_author: boolean;
-  }>(sql.raw(STAGE1_SQL));
-  const stage2 = await db.execute<{
-    survivor_id: string; loser_id: string; norm: string; group_size: number; survivor_sub: string; loser_sub: string;
-  }>(sql.raw(STAGE2_SQL));
+  // Audit 15 (A-03-026): never the whole catalog in one statement. STAGE1_SQL
+  // and STAGE2_SQL are run over slices (ISBN ranges, author batches) and the
+  // slices' pairs merged, which gives exactly their whole-catalog result.
+  const stage1 = await stage1Pairs(db, opts.isbnBatch ?? STAGE1_ISBN_BATCH);
+  const stage2 = await stage2Pairs(db, opts.authorBatch ?? BACKLOG_AUTHOR_BATCH);
 
   const key = (a: string, b: string) => (a < b ? `${a}:${b}` : `${b}:${a}`);
   const dismissed = new Set((await db.execute<{ survivor_id: string; loser_id: string }>(sql`
@@ -1853,6 +1902,77 @@ export async function detectStage12(db: Db): Promise<{
   // Deterministic order, so a capped run merges the same pairs a re-run would.
   pairs.sort((a, b) => (a.survivorId + a.loserId < b.survivorId + b.loserId ? -1 : 1));
   return { stage1: stage1.length, stage2: stage2.length, pairs, held };
+}
+
+/** ISBN-13 rows per stage-1 slice (Audit 15, A-03-026). */
+export const STAGE1_ISBN_BATCH = 20_000;
+
+type Stage1Row = { survivor_id: string; loser_id: string; isbn_13: string; same_title: boolean; shared_author: boolean };
+type Stage2Row = { survivor_id: string; loser_id: string; norm: string; group_size: number; survivor_sub: string; loser_sub: string };
+
+/**
+ * STAGE1_SQL over one range of ISBN-13s at a time: the shared ISBN must lie in
+ * [lo, hi) on the first edition, and the second has the same ISBN, so every
+ * (pair, ISBN) is seen in exactly one range. A pair sharing ISBNs in several
+ * ranges is merged here, keeping the smallest ISBN as the whole statement
+ * did (min(isbn_13)).
+ */
+export async function stage1Pairs(db: Db, batch: number): Promise<Stage1Row[]> {
+  const marker = 'WHERE e1.isbn_13 IS NOT NULL';
+  const at = STAGE1_SQL.indexOf(marker);
+  const head = STAGE1_SQL.slice(0, at + marker.length);
+  const tail = STAGE1_SQL.slice(at + marker.length);
+  const out = new Map<string, Stage1Row>();
+  let lo = '';
+  for (;;) {
+    const [b] = await db.execute<{ k: string }>(sql`
+      SELECT isbn_13 AS k FROM editions WHERE isbn_13 IS NOT NULL AND isbn_13 >= ${lo}
+      ORDER BY isbn_13 OFFSET ${batch} LIMIT 1`);
+    let hi: string | null = b?.k ?? null;
+    if (hi !== null && hi === lo) {
+      const [n] = await db.execute<{ k: string }>(sql`
+        SELECT isbn_13 AS k FROM editions WHERE isbn_13 > ${lo} ORDER BY isbn_13 LIMIT 1`);
+      hi = n?.k ?? null;
+    }
+    const rows = await db.execute<Stage1Row>(sql`
+      ${sql.raw(head)} AND e1.isbn_13 >= ${lo} ${hi === null ? sql`` : sql`AND e1.isbn_13 < ${hi}`}
+      ${sql.raw(tail)}`);
+    for (const r of rows) {
+      const k = `${r.survivor_id}:${r.loser_id}`;
+      const prev = out.get(k);
+      if (!prev || r.isbn_13 < prev.isbn_13) out.set(k, r);
+    }
+    if (hi === null) break;
+    lo = hi;
+  }
+  return [...out.values()];
+}
+
+/**
+ * STAGE2_SQL over batches of authors (the backlog's walk, BACKLOG_PAIRS_SQL):
+ * a pair is formed inside an (author, title) group, so each author's pairs
+ * come from that author's batch, and a pair that shares several authors keeps
+ * the largest group, as the whole statement's GROUP BY did.
+ */
+export async function stage2Pairs(db: Db, batch: number): Promise<Stage2Row[]> {
+  const out = new Map<string, Stage2Row>();
+  let after = '00000000-0000-0000-0000-000000000000';
+  for (;;) {
+    const authors = (await db.execute<{ author_id: string }>(sql`
+      SELECT DISTINCT author_id FROM work_authors WHERE author_id > ${after}::uuid
+      ORDER BY author_id LIMIT ${batch}`)).map((r) => r.author_id);
+    if (authors.length === 0) break;
+    after = authors[authors.length - 1]!;
+    const rows = await db.execute<Stage2Row>(BACKLOG_PAIRS_SQL(authors));
+    for (const r of rows) {
+      const k = `${r.survivor_id}:${r.loser_id}`;
+      const prev = out.get(k);
+      if (!prev || Number(r.group_size) > Number(prev.group_size)) {
+        out.set(k, { survivor_id: r.survivor_id, loser_id: r.loser_id, norm: r.norm, group_size: Number(r.group_size), survivor_sub: r.survivor_sub, loser_sub: r.loser_sub });
+      }
+    }
+  }
+  return [...out.values()];
 }
 
 /**

@@ -421,6 +421,8 @@ const WRITES: WriteRow[] = [
   { name: 'POST /v1/shelves/:id/save (hidden shelf)', method: 'POST', url: (o) => `/v1/shelves/${o.shelf.private.id}/save`, randomUrl: () => `/v1/shelves/${R()}/save`, vis: ['private'] },
   // Audit 11 (A-11-015): unsaving answered 200 with the hidden shelf's save count.
   { name: 'DELETE /v1/shelves/:id/save (hidden shelf)', method: 'DELETE', url: (o) => `/v1/shelves/${o.shelf.private.id}/save`, randomUrl: () => `/v1/shelves/${R()}/save`, vis: ['private'] },
+  // Audit 15 (§4 matrix re-run): DELETE /v1/reads/:id arrived in Part 08 and was not in the matrix.
+  { name: 'DELETE /v1/reads/:id', method: 'DELETE', url: (o, v) => `/v1/reads/${o.read[v]}`, randomUrl: () => `/v1/reads/${R()}` },
   { name: 'POST /v1/shelves/:id/restore', method: 'POST', url: (o, v) => `/v1/shelves/${o.shelf[v].id}/restore`, randomUrl: () => `/v1/shelves/${R()}/restore` },
 ];
 
@@ -499,9 +501,9 @@ describe('authorization matrix: unverified accounts (D-04-1)', () => {
     expect(refused(res)).toBe(true);
   });
 
+  // Audit 15 removed the /v1/follows/:userId alias (A-13-009); the canonical route remains.
   it.each([
     ['POST /v1/users/:id/follow', (id: string) => `/v1/users/${id}/follow`],
-    ['POST /v1/follows/:userId', (id: string) => `/v1/follows/${id}`],
   ])('cannot follow via %s', async (_n, url) => {
     const res = await app.inject({ method: 'POST', url: url(owners.public.user.id), headers: viewers.unverified.auth });
     expect(refused(res)).toBe(true);

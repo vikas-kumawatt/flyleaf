@@ -12,6 +12,9 @@
 import { sql } from 'drizzle-orm';
 import type { Db } from '../platform/index.js';
 
+/** Authors per range for the has_works repair: the table is 15.4M rows on the full catalog. */
+export const AUTHOR_REPAIR_BATCH = 20_000;
+
 export const NIL_UUID = '00000000-0000-0000-0000-000000000000';
 
 /** A table's uuid key that an index orders, e.g. reads.work_id via reads_work_idx. */

@@ -1640,6 +1640,7 @@ export const shelfOwnerSchema = {
     username: { type: 'string' },
     displayName: { type: ['string', 'null'] },
     avatarKey: { type: ['string', 'null'] },
+    avatarUrl: { type: ['string', 'null'] },
   },
   required: ['id', 'username'],
 } as const;

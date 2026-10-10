@@ -302,6 +302,35 @@ describe('D-10-3: the zero-result summary', () => {
   });
 });
 
+describe('§4: every server-rendered HTML page escapes what it shows and sends a CSP', () => {
+  it('admin login, both shelf share pages and both emailed-link pages', async () => {
+    const { IdentityService } = await import('../identity/index.js');
+    const { PgRateLimiter } = await import('../platform/index.js');
+    const app = await buildApp({ db, identity: new IdentityService(db, new PgRateLimiter(db)), storage: new MemoryObjectStorage() });
+    const owner = await user('html');
+    const evil = '<script>alert(1)</script>';
+    const shelf = await one<{ id: string; slug: string }>(sql`
+      INSERT INTO shelves (user_id, name, slug, description, privacy) VALUES (${owner.id}::uuid, ${`Mine ${evil}`}, ${name('h')}, ${evil}, 'public') RETURNING id, slug`);
+    const pages = [
+      '/admin/login',
+      `/shelf/${shelf.id}`,
+      `/u/${owner.username}/shelves/${shelf.slug}`,
+      `/verify-email?token=${encodeURIComponent(`abc"${evil}`)}`,
+      `/reset-password?token=${encodeURIComponent(`abc"${evil}`)}`,
+    ];
+    for (const url of pages) {
+      const res = await app.inject({ method: 'GET', url });
+      expect(res.headers['content-type'], url).toMatch(/^text\/html/);
+      const csp = String(res.headers['content-security-policy'] ?? '');
+      expect(csp, url).toContain("default-src 'none'");
+      expect(csp, url).not.toMatch(/script-src[^;]*'unsafe-inline'/);
+      expect(res.body, url).not.toContain(evil);
+      expect(res.body, url).not.toMatch(/\son[a-z]+=/i); // no inline handlers
+    }
+    await app.close();
+  });
+});
+
 describe('A-15-001: telemetry is served where the app sends it', () => {
   it('POST /v1/events and GET /v1/admin/telemetry/budgets exist on the real app; the old root paths do not', async () => {
     const app = await buildApp({ db, storage: new MemoryObjectStorage() });

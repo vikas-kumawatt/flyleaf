@@ -80,12 +80,21 @@ describe('zero-result search (PRD §14.7, AC-7)', () => {
     await search('zzqqxxv');
     await search('hobbit');
     const rows = await db.select().from(events);
-    expect(rows.map((r) => [r.name, r.properties, r.userId]).sort()).toEqual(
+    // D-10-3 (Audit 15): each row also carries `searcher`, a keyed hash under
+    // this week's salt, which is deleted once the week's summary is written.
+    // It is never the account id or anything derived from it without the salt.
+    const searchers = rows.map((r) => (r.properties as { searcher?: string }).searcher);
+    for (const k of searchers) {
+      expect(k).toMatch(/^[0-9a-f]{32}$/);
+      expect(k).not.toContain(u.id.replace(/-/g, '').slice(0, 12));
+    }
+    expect(rows.map((r) => [r.name, { query: (r.properties as { query: string }).query }, r.userId]).sort()).toEqual(
       [
         ['search_zero_results', { query: 'tolkein' }, null],
         ['search_zero_results', { query: 'zzqqxxv' }, null],
       ].sort(),
     );
+    expect(rows.map((r) => Object.keys(r.properties as object).sort())).toEqual([['query', 'searcher'], ['query', 'searcher']]);
   });
 
   it('the vocabulary keeps only popular, non-explicit works and their authors', async () => {
