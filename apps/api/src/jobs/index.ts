@@ -110,7 +110,7 @@ export type PingResult = { pong: true; note: string; workedAt: string };
 
 export type ReconcileShelvesResult = { reconciled: true; workedAt: string };
 
-export type ReconcileFollowsResult = { reconciled: true; workedAt: string };
+export type ReconcileFollowsResult = { reconciled: true; corrected: number; workedAt: string };
 
 export type ReconcileReadsResult = { reconciled: true; corrected: number; workedAt: string };
 
@@ -214,13 +214,17 @@ export async function reconcileShelvesJobHandler(
 
 /**
  * Follow counter reconciliation background job handler (Architecture §3.9, SO-01).
+ * `corrected` is the number of profiles whose counters had drifted (audit 13,
+ * A-13-002): 0 on a healthy night.
  */
 export async function reconcileFollowsJobHandler(
   _jobs: Job<void>[],
   db: Db,
 ): Promise<ReconcileFollowsResult> {
-  await db.execute(sql`SELECT reconcile_follow_counters();`);
-  return { reconciled: true, workedAt: new Date().toISOString() };
+  const [row] = await db.execute<{ corrected: number }>(
+    sql`SELECT reconcile_follow_counters() AS corrected;`,
+  );
+  return { reconciled: true, corrected: Number(row?.corrected ?? 0), workedAt: new Date().toISOString() };
 }
 
 /**
@@ -442,6 +446,7 @@ export async function registerQueues(boss: PgBoss, log: JobLog, deps?: WorkerDep
           queue: QUEUES.reconcileFollows,
           ids: jobs.map((j) => j.id),
           reconciled: result.reconciled,
+          corrected: result.corrected,
         },
         'job handled',
       );

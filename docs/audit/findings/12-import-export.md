@@ -210,11 +210,16 @@
 ### D-12-1 · Taken (safest reversible): an import merges into the library, it never adds attempts
 - **Options:** (a) **merge**: a book already in the library is left as it is, the row is reported `already_in_library` (built); (b) replace: overwrite the existing read with the file's state; (c) new attempt (the old behaviour: doubles the library on every re-import).
 - **Why (a):** it never loses or duplicates what the reader logged, and it is what a reader expects from "import my newer Goodreads export". PRD §6.8 asks to "offer merge or replace"; replace overwrites data the reader may have edited in Flyleaf, so it needs a confirmation UI. **Owner:** confirm (a), and whether "replace" is wanted at all (if so: a `mode: 'replace'` on `POST /v1/imports` that updates the latest attempt's status, dates and rating, never deletes; ≈ half a day).
+- **Owner decision (recorded 2026-10-10, Part 13): confirmed.** Imports merge. No replace mode now; "import replace mode" is on the post-audit list in `PENDING.md`.
+
+### D-12-2 · Owner decision (recorded 2026-10-10, Part 13): option (b)
+- A Calibre book imports as **want-to-read** unless one of its tags says read, reading or DNF. Built in Part 13: `configs/calibre.ts` `calibreStatus()` matches **whole** tags, case-insensitively (`dnf`/`did-not-finish`/`did not finish`/`abandoned` → DNF, then `reading`/`currently-reading`/`currently reading` → reading, then `read`/`finished` → finished; anything else, `to-read`/`unread`/`wishlist` included, → want). The old substring test also read `reading-list` as reading. A rating on an untagged book is kept (a want-to-read read may carry one, as StoryGraph imports already do).
+- **Test:** `import-export-audit.test.ts` › *D-12-2: a Calibre book is want-to-read unless a whole tag says read, reading or DNF*. Seen failing on `main`: yes (`fiction, owned` imported as finished). `import-mapping.test.ts` row 1 now expects `want` (commented).
 
 ## Decisions needed
 
-- **D-12-1:** confirm merge; replace wanted? (above)
-- **D-12-2 · Calibre's default status.** Calibre has no read state; a book with no read-ish tag imports as **finished**, so a 2,000-ebook library becomes 2,000 finished books (goals, stats). Options: (a) keep finished; (b) **want** unless a tag says read/reading/DNF (recommended: a Calibre library is a collection, not a reading log); (c) ask in the app before importing. Left as is until decided.
+- ~~**D-12-1:** confirm merge; replace wanted? (above)~~ Decided 2026-10-10: merge; no replace mode (post-audit list).
+- ~~**D-12-2 · Calibre's default status.** Calibre has no read state; a book with no read-ish tag imports as **finished**, so a 2,000-ebook library becomes 2,000 finished books (goals, stats). Options: (a) keep finished; (b) **want** unless a tag says read/reading/DNF (recommended: a Calibre library is a collection, not a reading log); (c) ask in the app before importing. Left as is until decided.~~ Decided 2026-10-10: (b), built in Part 13 (above).
 
 ## Performance
 
@@ -261,7 +266,7 @@ Sandbox PostgreSQL 18.3, synthetic catalog (header). **Not measured on flyleaf �
 | Import/export/upload rate limits (A-12-021) | One limiter layer | Part 15 |
 | Retention of `import_rows`, deleted accounts' objects (A-12-027) | Retention sweep | Part 15 |
 | Unverified/new accounts' imported ratings (§9.7) | With SL-62b | Part 15 |
-| D-12-1 replace mode, D-12-2 Calibre default | Owner decisions | Owner |
+| ~~D-12-1 replace mode, D-12-2 Calibre default~~ Decided 2026-10-10: merge only (replace mode post-audit); Calibre (b) built in Part 13 | Owner decisions | Owner |
 
 ## CI result
 

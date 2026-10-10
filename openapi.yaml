@@ -1737,6 +1737,191 @@ paths:
                       - message
                 required:
                   - error
+  /me/username:
+    patch:
+      summary: Change my username
+      tags:
+        - Auth
+      description: Changes the viewer's username (PRD §6.43). The old name stays
+        reserved to this account for as long as it exists, and share links
+        carrying it redirect (301) to the new one (D-11-2). 409 `username_taken`
+        for a name another account has or had.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                username:
+                  type: string
+                  maxLength: 64
+                  description: 3–20 lowercase letters, numbers and underscores; trimmed and
+                    lowercased like register
+              required:
+                - username
+              additionalProperties: false
+      security:
+        - BearerAuth: []
+      responses:
+        "200":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id:
+                    type: string
+                    format: uuid
+                  username:
+                    type: string
+                  displayName:
+                    type:
+                      - "null"
+                      - string
+                  bio:
+                    type:
+                      - "null"
+                      - string
+                  avatarKey:
+                    type:
+                      - "null"
+                      - string
+                  avatarUrl:
+                    type:
+                      - "null"
+                      - string
+                    description: "GET /v1/avatars/…; null: the generated typographic avatar (PRD
+                      §6.7)."
+                  isPrivate:
+                    type: boolean
+                  followerCount:
+                    type: integer
+                  followingCount:
+                    type: integer
+                  favourite_work_ids:
+                    type: array
+                    items:
+                      type: string
+                      format: uuid
+                    maxItems: 4
+                  favourites:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: string
+                          format: uuid
+                        title:
+                          type: string
+                        author_name:
+                          type: string
+                        cover_id:
+                          type:
+                            - "null"
+                            - integer
+                      required:
+                        - id
+                        - title
+                        - author_name
+                    maxItems: 4
+                  createdAt:
+                    type: string
+                    format: date-time
+                  isRestricted:
+                    type: boolean
+                    description: "Private account, viewer not an accepted follower: header only
+                      (AC-13)."
+                  followStatus:
+                    type: string
+                    enum:
+                      - none
+                      - pending
+                      - accepted
+                      - self
+                  followedBy:
+                    type: boolean
+                required:
+                  - id
+                  - username
+                  - isPrivate
+                  - followerCount
+                  - followingCount
+                  - createdAt
+        "401":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      code:
+                        type: string
+                        description: Machine-readable error code
+                      message:
+                        type: string
+                        description: Human-readable error description
+                      field:
+                        type: string
+                        description: Invalid field name if applicable
+                    required:
+                      - code
+                      - message
+                required:
+                  - error
+        "409":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      code:
+                        type: string
+                        description: Machine-readable error code
+                      message:
+                        type: string
+                        description: Human-readable error description
+                      field:
+                        type: string
+                        description: Invalid field name if applicable
+                    required:
+                      - code
+                      - message
+                required:
+                  - error
+        "422":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      code:
+                        type: string
+                        description: Machine-readable error code
+                      message:
+                        type: string
+                        description: Human-readable error description
+                      field:
+                        type: string
+                        description: Invalid field name if applicable
+                    required:
+                      - code
+                      - message
+                required:
+                  - error
   /users/{id}:
     get:
       summary: Get public profile
@@ -11897,6 +12082,10 @@ paths:
                       - owner
                 required:
                   - shelf
+        "301":
+          description: "Moved permanently: the shelf or its owner was renamed. `Location`
+            holds the current address; old slugs and usernames stay with their
+            shelf and account."
         "404":
           description: Default Response
           content:
@@ -12024,6 +12213,10 @@ paths:
                       - owner
                 required:
                   - shelf
+        "301":
+          description: "Moved permanently: the shelf or its owner was renamed. `Location`
+            holds the current address; old slugs and usernames stay with their
+            shelf and account."
         "404":
           description: Default Response
           content:

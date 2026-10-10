@@ -343,6 +343,30 @@ describe('IM-04 source maps against the real exporters (A-12-007, A-12-008, A-12
     expect(await db.select().from(reviews).where(eq(reviews.readId, r!.id))).toHaveLength(0);
   });
 
+  it('D-12-2: a Calibre book is want-to-read unless a whole tag says read, reading or DNF', async () => {
+    const u = await makeUser(db, uniq('calst_'));
+    const plain = await work('Calibre Plain', { isbn13: '9780000000910' });
+    const listed = await work('Calibre Listed', { isbn13: '9780000000927' });
+    const done = await work('Calibre Done', { isbn13: '9780000000934' });
+    const now = await work('Calibre Now', { isbn13: '9780000000941' });
+    const quit = await work('Calibre Quit', { isbn13: '9780000000958' });
+    const csv =
+      'authors,id,isbn,rating,tags,title\n' +
+      '"Jane Doe","1","9780000000910","4","fiction, owned","Calibre Plain"\n' +
+      '"Jane Doe","2","9780000000927","","reading-list, dread","Calibre Listed"\n' +
+      '"Jane Doe","3","9780000000934","","fiction, Read","Calibre Done"\n' +
+      '"Jane Doe","4","9780000000941","","currently-reading","Calibre Now"\n' +
+      '"Jane Doe","5","9780000000958","","DNF","Calibre Quit"\n';
+    await runImport(u, csv, { source: 'calibre' });
+    // Before D-12-2 the first two imported as finished (no tag said so; the
+    // second matched `reading` as a substring and imported as reading).
+    expect((await readsOf(u.id, plain.id))[0]).toMatchObject({ status: 'want', rating: '4.0' });
+    expect((await readsOf(u.id, listed.id))[0]?.status).toBe('want');
+    expect((await readsOf(u.id, done.id))[0]?.status).toBe('finished');
+    expect((await readsOf(u.id, now.id))[0]?.status).toBe('reading');
+    expect((await readsOf(u.id, quit.id))[0]?.status).toBe('dnf');
+  });
+
   it('Goodreads: a review marked Spoiler is imported with the spoiler flag', async () => {
     const u = await makeUser(db, uniq('spoil_'));
     const w = await work('Spoiled Ending', { isbn13: '9780000000125' });

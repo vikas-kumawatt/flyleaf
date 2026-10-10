@@ -253,6 +253,20 @@
       "when": 1789180000000,
       "tag": "0035_export_token_hash",
       "breakpoints": true
+    },
+    {
+      "idx": 36,
+      "version": "7",
+      "when": 1789190000000,
+      "tag": "0036_social_graph_audit",
+      "breakpoints": true
+    },
+    {
+      "idx": 37,
+      "version": "7",
+      "when": 1789200000000,
+      "tag": "0037_slug_history",
+      "breakpoints": true
     }
   ]
 }

@@ -19,6 +19,7 @@ import { useSession } from '@/lib/session';
 import { useActionGate } from '@/ui/ActionGate';
 import { useOfflineSync } from '@/offline/sync';
 import { useVerifyEmailPrompt } from '@/ui/VerifyEmail';
+import { FOLLOW_PAGE_SIZE, appendFollowPage, hasMoreFollows } from '@/lib/socialValidation';
 import {
   Button,
   Card,
@@ -45,15 +46,18 @@ export default function FollowersScreen() {
   const [refreshing, setRefreshing] = useState(false);
   const [notFound, setNotFound] = useState(false);
   const [processingId, setProcessingId] = useState<string | null>(null);
+  const [more, setMore] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
 
   const fetchFollowers = useCallback(async () => {
     if (!id) return;
     try {
       setLoading(true);
       setNotFound(false);
-      const res = await api.getFollowers(id);
+      const res = await api.getFollowers(id, { limit: FOLLOW_PAGE_SIZE, offset: 0 });
       setUsers(res.users);
       setTotal(res.total);
+      setMore(hasMoreFollows(res.users.length, res.total, res.users.length));
     } catch (err: any) {
       if (err?.status === 404 || err?.code === 'not_found') {
         setNotFound(true);
@@ -62,6 +66,23 @@ export default function FollowersScreen() {
       setLoading(false);
     }
   }, [id]);
+
+  // The next page (audit 13, A-13-013: only the first 50 were ever shown).
+  const loadMore = async () => {
+    if (!id || loadingMore) return;
+    try {
+      setLoadingMore(true);
+      const res = await api.getFollowers(id, { limit: FOLLOW_PAGE_SIZE, offset: users.length });
+      const next = appendFollowPage(users, res.users);
+      setUsers(next);
+      setTotal(res.total);
+      setMore(hasMoreFollows(next.length, res.total, res.users.length));
+    } catch {
+      Alert.alert('Could not load more', 'We could not reach Flyleaf. Try again in a moment.');
+    } finally {
+      setLoadingMore(false);
+    }
+  };
 
   useEffect(() => {
     fetchFollowers();
@@ -229,6 +250,14 @@ export default function FollowersScreen() {
             </Card>
           ))
         )}
+        {!loading && !notFound && more ? (
+          <Button
+            label={loadingMore ? 'Loading…' : 'Show more'}
+            variant="outline"
+            onPress={loadMore}
+            disabled={loadingMore}
+          />
+        ) : null}
       </ScrollView>
     </Screen>
   );

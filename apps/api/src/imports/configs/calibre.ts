@@ -5,7 +5,7 @@
 //   - Calibre separates authors with '&' or ','.
 //   - Identifiers column can contain "isbn:9780441478125,google:xyz".
 //   - Comments column holds HTML notes/descriptions.
-//   - Reading status inferred from tags; defaults to finished.
+//   - Reading status inferred from whole tags; defaults to want (D-12-2).
 
 import type { SourceColumnConfig } from '../types.js';
 import {
@@ -16,6 +16,19 @@ import {
   parseShelves,
   mapFormat,
 } from '../transformers.js';
+
+const CALIBRE_DNF_TAGS = new Set(['dnf', 'did-not-finish', 'did not finish', 'abandoned']);
+const CALIBRE_READING_TAGS = new Set(['reading', 'currently-reading', 'currently reading']);
+const CALIBRE_READ_TAGS = new Set(['read', 'finished']);
+
+/** D-12-2: want unless a whole tag says DNF, reading or read (in that order). */
+export function calibreStatus(val: string | undefined): 'want' | 'reading' | 'finished' | 'dnf' {
+  const tags = (val ?? '').split(/[,;|]/).map((t) => t.trim().toLowerCase()).filter(Boolean);
+  if (tags.some((t) => CALIBRE_DNF_TAGS.has(t))) return 'dnf';
+  if (tags.some((t) => CALIBRE_READING_TAGS.has(t))) return 'reading';
+  if (tags.some((t) => CALIBRE_READ_TAGS.has(t))) return 'finished';
+  return 'want';
+}
 
 export const calibreConfig: SourceColumnConfig = {
   source: 'calibre',
@@ -104,19 +117,11 @@ export const calibreConfig: SourceColumnConfig = {
     },
     status: {
       headers: ['tags', 'Tags', 'status'],
-      transform: (val) => {
-        const tags = (val ?? '').toLowerCase();
-        if (tags.includes('currently-reading') || tags.includes('reading')) {
-          return 'reading';
-        }
-        if (tags.includes('to-read') || tags.includes('unread') || tags.includes('wishlist')) {
-          return 'want';
-        }
-        if (tags.includes('dnf') || tags.includes('did-not-finish') || tags.includes('abandoned')) {
-          return 'dnf';
-        }
-        return 'finished';
-      },
+      // D-12-2 (owner, option b): a Calibre library is a collection, not a
+      // reading log, so a book is want-to-read unless one of its tags says
+      // read, reading or DNF. Whole tags, not substrings: `reading-list` or
+      // `dread` say nothing about the reader.
+      transform: (val) => calibreStatus(val),
       required: true,
     },
     rating: {

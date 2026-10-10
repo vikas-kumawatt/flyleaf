@@ -9,7 +9,7 @@
 // 6. Per-entry notes (up to 280 characters).
 
 import { FastifyInstance, FastifyPluginAsync } from 'fastify';
-import { and, eq, sql, inArray, type SQL } from 'drizzle-orm';
+import { and, eq, getTableColumns, sql, inArray, type SQL } from 'drizzle-orm';
 import { config, Db } from '../platform/index.js';
 import { ApiError, requireViewer } from '../http.js';
 import { resolveWorkId } from '../catalog/resolve.js';
@@ -18,6 +18,8 @@ import {
   shelves,
   shelfItems,
   shelfSaves,
+  shelfSlugs,
+  usernameClaims,
   profiles,
   users,
   follows,
@@ -54,6 +56,7 @@ import {
   browseShelvesResponseSchema,
   userShelvesResponseSchema,
   shelfSlugParamsSchema,
+  slugMovedResponseSchema,
 } from '../contract/schemas.js';
 
 export interface BrowseShelvesInput {
@@ -175,7 +178,10 @@ export function slugify(name: string): string {
 
 /**
  * Generates a unique slug for a user, appending -1, -2 etc on collision.
- * Deleted shelves keep their slug (they can be restored), so it stays taken.
+ * Every slug a shelf of this user has ever had stays taken (D-11-2): deleted
+ * shelves keep theirs (they can be restored), and a renamed shelf keeps its
+ * old ones so old links still reach it. A shelf may take back its own old
+ * slug (`excludeShelfId`).
  */
 export async function generateUniqueSlug(
   db: Db,
@@ -186,13 +192,13 @@ export async function generateUniqueSlug(
   const baseSlug = slugify(name);
 
   const existing = await db
-    .select({ slug: shelves.slug })
-    .from(shelves)
+    .select({ slug: shelfSlugs.slug })
+    .from(shelfSlugs)
     .where(
       and(
-        eq(shelves.userId, userId),
-        excludeShelfId ? sql`${shelves.id} <> ${excludeShelfId}::uuid` : undefined,
-        sql`(${shelves.slug} = ${baseSlug} OR ${shelves.slug} ~ ${`^${baseSlug}-[0-9]+$`})`,
+        eq(shelfSlugs.userId, userId),
+        excludeShelfId ? sql`${shelfSlugs.shelfId} <> ${excludeShelfId}::uuid` : undefined,
+        sql`(${shelfSlugs.slug} = ${baseSlug} OR ${shelfSlugs.slug} ~ ${`^${baseSlug}-[0-9]+$`})`,
       ),
     );
 
@@ -1226,33 +1232,52 @@ export class ShelvesService {
     return { shelves: result };
   }
 
-  async getBySlug(
+  /**
+   * A shelf by its owner's username and its slug, following renames (D-11-2):
+   * a username the owner used to have and a slug the shelf used to have
+   * still find it, and come back as `moved` with the current pair so the
+   * route can redirect. A redirect is only ever issued for a shelf the viewer
+   * may see; anything else is the random slug's 404.
+   */
+  async resolveSlug(
     viewer: string | null,
     username: string,
     slug: string,
-  ): Promise<ShelfDetail> {
+  ): Promise<{ shelf: ShelfDetail } | { moved: { username: string; slug: string } }> {
     const trimmedUsername = username.trim().toLowerCase();
     const trimmedSlug = slug.trim().toLowerCase();
+    const profileColumns = {
+      userId: profiles.userId,
+      username: profiles.username,
+      displayName: profiles.displayName,
+      avatarKey: profiles.avatarKey,
+      isPrivate: profiles.isPrivate,
+    };
 
-    // 1. Look up profile by username
-    const [profile] = await this.db
-      .select({
-        userId: profiles.userId,
-        username: profiles.username,
-        displayName: profiles.displayName,
-        avatarKey: profiles.avatarKey,
-        isPrivate: profiles.isPrivate,
-      })
+    // 1. The owner: by current username, else by one the account used to have.
+    let movedUser = false;
+    let [profile] = await this.db
+      .select(profileColumns)
       .from(profiles)
       .where(sql`lower(${profiles.username}) = ${trimmedUsername}`)
       .limit(1);
+    if (!profile) {
+      [profile] = await this.db
+        .select(profileColumns)
+        .from(usernameClaims)
+        .innerJoin(profiles, eq(profiles.userId, usernameClaims.userId))
+        .where(eq(usernameClaims.username, trimmedUsername))
+        .limit(1);
+      movedUser = Boolean(profile);
+    }
 
     if (!profile) {
       throw ApiError.notFound('Shelf not found.');
     }
 
-    // 2. Look up shelf by user_id and slug
-    const [shelf] = await this.db
+    // 2. The shelf: by current slug, else by one it used to have.
+    let movedSlug = false;
+    let [shelf] = await this.db
       .select()
       .from(shelves)
       .where(
@@ -1263,6 +1288,21 @@ export class ShelvesService {
         ),
       )
       .limit(1);
+    if (!shelf) {
+      [shelf] = await this.db
+        .select(getTableColumns(shelves))
+        .from(shelfSlugs)
+        .innerJoin(shelves, eq(shelves.id, shelfSlugs.shelfId))
+        .where(
+          and(
+            eq(shelfSlugs.userId, profile.userId),
+            eq(shelfSlugs.slug, trimmedSlug),
+            sql`${shelves.deletedAt} IS NULL`,
+          ),
+        )
+        .limit(1);
+      movedSlug = Boolean(shelf);
+    }
 
     if (!shelf) {
       throw ApiError.notFound('Shelf not found.');
@@ -1272,6 +1312,9 @@ export class ShelvesService {
     // message, "Not found.", told a blocked or unapproved viewer it exists).
     const rel = await loadRelationship(this.db, viewer, profile.userId);
     if (!canViewWith(viewer, profile.userId, rel, shelf.privacy)) throw ApiError.notFound('Shelf not found.');
+
+    // Seen, so the current address may be told (D-11-2).
+    if (movedUser || movedSlug) return { moved: { username: profile.username, slug: shelf.slug } };
 
     // 5. Covers
     let coverIds: (number | null)[] = [];
@@ -1302,7 +1345,7 @@ export class ShelvesService {
       avatarKey: profile.avatarKey,
     };
 
-    return this.formatShelf(shelf, owner, isSaved, coverIds);
+    return { shelf: this.formatShelf(shelf, owner, isSaved, coverIds) };
   }
 
   private async getOwnerProfile(
@@ -1771,14 +1814,16 @@ export const shelvesPlugin: FastifyPluginAsync<{ db: Db }> = async (fastify, opt
         params: shelfSlugParamsSchema,
         response: {
           200: shelfResponseSchema,
+          301: slugMovedResponseSchema,
           404: errorResponseSchema,
         },
       },
     },
     async (request, reply) => {
       const { username, slug } = request.params as { username: string; slug: string };
-      const shelf = await service.getBySlug(request.viewer, username, slug);
-      return reply.send({ shelf });
+      const found = await service.resolveSlug(request.viewer, username, slug);
+      if ('moved' in found) return sendMoved(request, reply, found.moved);
+      return reply.send({ shelf: found.shelf });
     },
   );
 
@@ -1792,17 +1837,31 @@ export const shelvesPlugin: FastifyPluginAsync<{ db: Db }> = async (fastify, opt
         params: shelfSlugParamsSchema,
         response: {
           200: shelfResponseSchema,
+          301: slugMovedResponseSchema,
           404: errorResponseSchema,
         },
       },
     },
     async (request, reply) => {
       const { username, slug } = request.params as { username: string; slug: string };
-      const shelf = await service.getBySlug(request.viewer, username, slug);
-      return reply.send({ shelf });
+      const found = await service.resolveSlug(request.viewer, username, slug);
+      if ('moved' in found) return sendMoved(request, reply, found.moved);
+      return reply.send({ shelf: found.shelf });
     },
   );
 };
+
+/**
+ * The 301 for a renamed shelf or owner (D-11-2): the same route with the
+ * current username and slug. `no-store`, because a browser that cached
+ * `a → b` would loop once the shelf is renamed back to `a`.
+ */
+function sendMoved(request: { routeOptions: { url?: string } }, reply: any, moved: { username: string; slug: string }) {
+  const location = (request.routeOptions.url ?? '')
+    .replace(':username', encodeURIComponent(moved.username))
+    .replace(':slug', encodeURIComponent(moved.slug));
+  return reply.code(301).header('location', location).header('cache-control', 'no-store').send();
+}
 
 function escapeHtml(str: string): string {
   return str
@@ -1974,7 +2033,9 @@ export const shelvesWebPlugin: FastifyPluginAsync<{ db: Db }> = async (fastify, 
     { schema: { hide: true } },
     async (request, reply) => {
       const { username, slug } = request.params;
-      const shelf = await service.getBySlug(request.viewer, username, slug);
+      const found = await service.resolveSlug(request.viewer, username, slug);
+      if ('moved' in found) return sendMoved(request, reply, found.moved);
+      const shelf = found.shelf;
       if (request.headers.accept?.includes('application/json')) {
         return reply.header('cache-control', shareCacheControl(request.viewer, shelf)).send({ shelf });
       }
