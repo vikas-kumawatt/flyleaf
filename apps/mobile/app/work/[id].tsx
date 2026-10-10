@@ -254,11 +254,9 @@ export default function WorkScreen() {
 
   // Status control handler (SL-31, SL-32, SL-41)
   const setStatus = async (status: string) => {
-    budgetTracker.recordBookLogged({
-      tapCount: 2,
-      source: 'work_detail',
-      targetStatus: status,
-    });
+    // §4.4 "+ tapped -> anything saved": the FAB's search lands here.
+    // book_logged needs counted taps, which nothing counts yet (audit 10).
+    budgetTracker.recordLogSheetCompleted({ targetStatus: status });
 
     if (!user) {
       if (status === 'want') {

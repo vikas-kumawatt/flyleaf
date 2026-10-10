@@ -134,6 +134,15 @@ paths:
                         description: "On GET /me. False: the date of birth was never entered; the
                           account is treated as a minor for maturity rules until
                           POST /me/date-of-birth (D-07-3)."
+                      showExplicit:
+                        type: boolean
+                        description: On GET /me. "Show explicit titles in search" (PRD §7.8). Search
+                          honours it only while explicitSettingAvailable.
+                      explicitSettingAvailable:
+                        type: boolean
+                        description: "On GET /me. True for a confirmed date of birth at 18 or over.
+                          False: the client hides the control entirely (PRD
+                          §7.8, §26.6)."
                     required:
                       - id
                       - email
@@ -245,6 +254,15 @@ paths:
                         description: "On GET /me. False: the date of birth was never entered; the
                           account is treated as a minor for maturity rules until
                           POST /me/date-of-birth (D-07-3)."
+                      showExplicit:
+                        type: boolean
+                        description: On GET /me. "Show explicit titles in search" (PRD §7.8). Search
+                          honours it only while explicitSettingAvailable.
+                      explicitSettingAvailable:
+                        type: boolean
+                        description: "On GET /me. True for a confirmed date of birth at 18 or over.
+                          False: the client hides the control entirely (PRD
+                          §7.8, §26.6)."
                     required:
                       - id
                       - email
@@ -1026,6 +1044,15 @@ paths:
                     description: "On GET /me. False: the date of birth was never entered; the
                       account is treated as a minor for maturity rules until
                       POST /me/date-of-birth (D-07-3)."
+                  showExplicit:
+                    type: boolean
+                    description: On GET /me. "Show explicit titles in search" (PRD §7.8). Search
+                      honours it only while explicitSettingAvailable.
+                  explicitSettingAvailable:
+                    type: boolean
+                    description: "On GET /me. True for a confirmed date of birth at 18 or over.
+                      False: the client hides the control entirely (PRD §7.8,
+                      §26.6)."
                 required:
                   - id
                   - email
@@ -1127,6 +1154,15 @@ paths:
                     description: "On GET /me. False: the date of birth was never entered; the
                       account is treated as a minor for maturity rules until
                       POST /me/date-of-birth (D-07-3)."
+                  showExplicit:
+                    type: boolean
+                    description: On GET /me. "Show explicit titles in search" (PRD §7.8). Search
+                      honours it only while explicitSettingAvailable.
+                  explicitSettingAvailable:
+                    type: boolean
+                    description: "On GET /me. True for a confirmed date of birth at 18 or over.
+                      False: the client hides the control entirely (PRD §7.8,
+                      §26.6)."
                 required:
                   - id
                   - email
@@ -1227,6 +1263,168 @@ paths:
                       - message
                 required:
                   - error
+  /me/content-settings:
+    put:
+      summary: Set "Show explicit titles in search"
+      tags:
+        - Auth
+      description: "PRD §7.8 [LOCKED]: off by default; only an account with a
+        confirmed date of birth at 18 or over may turn it on (403
+        setting_unavailable otherwise), and turning it on re-enters that date
+        (422 dob_required / dob_mismatch). Turning it off is always allowed.
+        Returns the /me user."
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                showExplicit:
+                  type: boolean
+                dateOfBirth:
+                  type: string
+                  maxLength: 10
+                  description: Required to turn the setting on, and must match the confirmed date
+                    of birth. Ignored when turning it off.
+              required:
+                - showExplicit
+      security:
+        - BearerAuth: []
+      responses:
+        "200":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id:
+                    type: string
+                    format: uuid
+                  email:
+                    type: string
+                    format: email
+                  username:
+                    type: string
+                  emailVerified:
+                    type: boolean
+                    description: "On GET /me. False: reviews, comments and follows answer 403
+                      email_unverified (D-04-1)."
+                  dobConfirmed:
+                    type: boolean
+                    description: "On GET /me. False: the date of birth was never entered; the
+                      account is treated as a minor for maturity rules until
+                      POST /me/date-of-birth (D-07-3)."
+                  showExplicit:
+                    type: boolean
+                    description: On GET /me. "Show explicit titles in search" (PRD §7.8). Search
+                      honours it only while explicitSettingAvailable.
+                  explicitSettingAvailable:
+                    type: boolean
+                    description: "On GET /me. True for a confirmed date of birth at 18 or over.
+                      False: the client hides the control entirely (PRD §7.8,
+                      §26.6)."
+                required:
+                  - id
+                  - email
+                  - username
+        "401":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      code:
+                        type: string
+                        description: Machine-readable error code
+                      message:
+                        type: string
+                        description: Human-readable error description
+                      field:
+                        type: string
+                        description: Invalid field name if applicable
+                    required:
+                      - code
+                      - message
+                required:
+                  - error
+        "403":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      code:
+                        type: string
+                        description: Machine-readable error code
+                      message:
+                        type: string
+                        description: Human-readable error description
+                      field:
+                        type: string
+                        description: Invalid field name if applicable
+                    required:
+                      - code
+                      - message
+                required:
+                  - error
+        "404":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      code:
+                        type: string
+                        description: Machine-readable error code
+                      message:
+                        type: string
+                        description: Human-readable error description
+                      field:
+                        type: string
+                        description: Invalid field name if applicable
+                    required:
+                      - code
+                      - message
+                required:
+                  - error
+        "422":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      code:
+                        type: string
+                        description: Machine-readable error code
+                      message:
+                        type: string
+                        description: Human-readable error description
+                      field:
+                        type: string
+                        description: Invalid field name if applicable
+                    required:
+                      - code
+                      - message
+                required:
+                  - error
   /me/profile:
     get:
       summary: Get my profile
@@ -1261,6 +1459,12 @@ paths:
                     type:
                       - "null"
                       - string
+                  avatarUrl:
+                    type:
+                      - "null"
+                      - string
+                    description: "GET /v1/avatars/…; null: the generated typographic avatar (PRD
+                      §6.7)."
                   isPrivate:
                     type: boolean
                   followerCount:
@@ -1423,6 +1627,12 @@ paths:
                     type:
                       - "null"
                       - string
+                  avatarUrl:
+                    type:
+                      - "null"
+                      - string
+                    description: "GET /v1/avatars/…; null: the generated typographic avatar (PRD
+                      §6.7)."
                   isPrivate:
                     type: boolean
                   followerCount:
@@ -1567,6 +1777,12 @@ paths:
                     type:
                       - "null"
                       - string
+                  avatarUrl:
+                    type:
+                      - "null"
+                      - string
+                    description: "GET /v1/avatars/…; null: the generated typographic avatar (PRD
+                      §6.7)."
                   isPrivate:
                     type: boolean
                   followerCount:
@@ -1752,6 +1968,14 @@ paths:
                             required:
                               - id
                               - format
+                        page_count:
+                          type:
+                            - "null"
+                            - integer
+                          description: "GET /works/:id only: the default edition's page count, else the
+                            median of its editions' (counts under 20 ignored).
+                            What progress and stats use when no edition is
+                            chosen (D-08-3)."
                         your_read:
                           type: object
                           properties:
@@ -1885,8 +2109,17 @@ paths:
                         - title
                         - author_name
                         - log_count
+                  suggestion:
+                    type:
+                      - "null"
+                      - string
+                    description: 'PRD §14.7 step 1, "Did you mean …?": a popular title or author
+                      name close to the query, when the local catalog found
+                      nothing (looked up before the live Open Library lookup).
+                      Null otherwise.'
                 required:
                   - data
+                  - suggestion
   /works/{id}:
     get:
       summary: Get book by ID
@@ -1978,6 +2211,14 @@ paths:
                       required:
                         - id
                         - format
+                  page_count:
+                    type:
+                      - "null"
+                      - integer
+                    description: "GET /works/:id only: the default edition's page count, else the
+                      median of its editions' (counts under 20 ignored). What
+                      progress and stats use when no edition is chosen
+                      (D-08-3)."
                   your_read:
                     type: object
                     properties:
@@ -2265,6 +2506,14 @@ paths:
                             required:
                               - id
                               - format
+                        page_count:
+                          type:
+                            - "null"
+                            - integer
+                          description: "GET /works/:id only: the default edition's page count, else the
+                            median of its editions' (counts under 20 ignored).
+                            What progress and stats use when no edition is
+                            chosen (D-08-3)."
                         your_read:
                           type: object
                           properties:
@@ -2627,6 +2876,14 @@ paths:
                           required:
                             - id
                             - format
+                      page_count:
+                        type:
+                          - "null"
+                          - integer
+                        description: "GET /works/:id only: the default edition's page count, else the
+                          median of its editions' (counts under 20 ignored).
+                          What progress and stats use when no edition is chosen
+                          (D-08-3)."
                       your_read:
                         type: object
                         properties:
@@ -2880,6 +3137,17 @@ paths:
           in: query
           name: year
           required: false
+          description: '"all" or YYYY. Default: the current year in `tz`. Anything else is
+            422 invalid_year.'
+        - schema:
+            type: string
+            maxLength: 64
+          in: query
+          name: tz
+          required: false
+          description: "IANA time zone whose days count for streaks, listening windows and
+            the default year (PRD §8.7). Default UTC. Unknown: 422
+            invalid_timezone."
       security:
         - BearerAuth: []
       responses:
@@ -2902,27 +3170,51 @@ paths:
                     type:
                       - "null"
                       - number
+                  distinct_works_count:
+                    type: integer
+                    description: Different works among books_count; a re-read counts once here (PRD
+                      §17.2).
                   rating_distribution:
                     type: object
+                    description: Finished reads per half-star rating, "0.5" to "5.0" (PRD §17.2; the
+                      same buckets as the book page).
                     properties:
-                      "1":
+                      "0.5":
                         type: integer
-                      "2":
+                      "1.0":
                         type: integer
-                      "3":
+                      "1.5":
                         type: integer
-                      "4":
+                      "2.0":
                         type: integer
-                      "5":
+                      "2.5":
+                        type: integer
+                      "3.0":
+                        type: integer
+                      "3.5":
+                        type: integer
+                      "4.0":
+                        type: integer
+                      "4.5":
+                        type: integer
+                      "5.0":
                         type: integer
                     required:
-                      - "5"
-                      - "4"
-                      - "3"
-                      - "2"
-                      - "1"
+                      - "0.5"
+                      - "1.0"
+                      - "1.5"
+                      - "2.0"
+                      - "2.5"
+                      - "3.0"
+                      - "3.5"
+                      - "4.0"
+                      - "4.5"
+                      - "5.0"
                   format_breakdown:
                     type: object
+                    description: reads.format_override, else the edition format (hardcover and
+                      paperback are print); unknown when neither says (PRD
+                      §17.2, never guessed).
                     properties:
                       print:
                         type: integer
@@ -2930,10 +3222,13 @@ paths:
                         type: integer
                       audiobook:
                         type: integer
+                      unknown:
+                        type: integer
                     required:
                       - print
                       - ebook
                       - audiobook
+                      - unknown
                   monthly_pace:
                     type: array
                     items:
@@ -3023,9 +3318,25 @@ paths:
                     type: integer
                   longest_streak:
                     type: integer
+                  excluded:
+                    type: object
+                    description: 'PRD §17.4 disclosure. undated: finished reads with no finish date
+                      (counted in "all", never in a year or month).
+                      missing_page_count: finished reads in scope with no usable
+                      page count (they add no pages).'
+                    properties:
+                      undated:
+                        type: integer
+                      missing_page_count:
+                        type: integer
+                    required:
+                      - undated
+                      - missing_page_count
                 required:
                   - year
                   - books_count
+                  - distinct_works_count
+                  - excluded
                   - pages_count
                   - audio_hours
                   - rating_distribution
@@ -3036,6 +3347,30 @@ paths:
                   - current_streak
                   - longest_streak
         "401":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      code:
+                        type: string
+                        description: Machine-readable error code
+                      message:
+                        type: string
+                        description: Human-readable error description
+                      field:
+                        type: string
+                        description: Invalid field name if applicable
+                    required:
+                      - code
+                      - message
+                required:
+                  - error
+        "422":
           description: Default Response
           content:
             application/json:
@@ -3071,6 +3406,17 @@ paths:
           in: query
           name: year
           required: false
+          description: '"all" or YYYY. Default: the current year in `tz`. Anything else is
+            422 invalid_year.'
+        - schema:
+            type: string
+            maxLength: 64
+          in: query
+          name: tz
+          required: false
+          description: "IANA time zone whose days count for streaks, listening windows and
+            the default year (PRD §8.7). Default UTC. Unknown: 422
+            invalid_timezone."
         - schema:
             type: string
             format: uuid
@@ -3098,27 +3444,51 @@ paths:
                     type:
                       - "null"
                       - number
+                  distinct_works_count:
+                    type: integer
+                    description: Different works among books_count; a re-read counts once here (PRD
+                      §17.2).
                   rating_distribution:
                     type: object
+                    description: Finished reads per half-star rating, "0.5" to "5.0" (PRD §17.2; the
+                      same buckets as the book page).
                     properties:
-                      "1":
+                      "0.5":
                         type: integer
-                      "2":
+                      "1.0":
                         type: integer
-                      "3":
+                      "1.5":
                         type: integer
-                      "4":
+                      "2.0":
                         type: integer
-                      "5":
+                      "2.5":
+                        type: integer
+                      "3.0":
+                        type: integer
+                      "3.5":
+                        type: integer
+                      "4.0":
+                        type: integer
+                      "4.5":
+                        type: integer
+                      "5.0":
                         type: integer
                     required:
-                      - "5"
-                      - "4"
-                      - "3"
-                      - "2"
-                      - "1"
+                      - "0.5"
+                      - "1.0"
+                      - "1.5"
+                      - "2.0"
+                      - "2.5"
+                      - "3.0"
+                      - "3.5"
+                      - "4.0"
+                      - "4.5"
+                      - "5.0"
                   format_breakdown:
                     type: object
+                    description: reads.format_override, else the edition format (hardcover and
+                      paperback are print); unknown when neither says (PRD
+                      §17.2, never guessed).
                     properties:
                       print:
                         type: integer
@@ -3126,10 +3496,13 @@ paths:
                         type: integer
                       audiobook:
                         type: integer
+                      unknown:
+                        type: integer
                     required:
                       - print
                       - ebook
                       - audiobook
+                      - unknown
                   monthly_pace:
                     type: array
                     items:
@@ -3219,9 +3592,25 @@ paths:
                     type: integer
                   longest_streak:
                     type: integer
+                  excluded:
+                    type: object
+                    description: 'PRD §17.4 disclosure. undated: finished reads with no finish date
+                      (counted in "all", never in a year or month).
+                      missing_page_count: finished reads in scope with no usable
+                      page count (they add no pages).'
+                    properties:
+                      undated:
+                        type: integer
+                      missing_page_count:
+                        type: integer
+                    required:
+                      - undated
+                      - missing_page_count
                 required:
                   - year
                   - books_count
+                  - distinct_works_count
+                  - excluded
                   - pages_count
                   - audio_hours
                   - rating_distribution
@@ -3232,6 +3621,30 @@ paths:
                   - current_streak
                   - longest_streak
         "404":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      code:
+                        type: string
+                        description: Machine-readable error code
+                      message:
+                        type: string
+                        description: Human-readable error description
+                      field:
+                        type: string
+                        description: Invalid field name if applicable
+                    required:
+                      - code
+                      - message
+                required:
+                  - error
+        "422":
           description: Default Response
           content:
             application/json:
@@ -3906,11 +4319,13 @@ paths:
                   - error
   /users/{id}/reads:
     get:
-      summary: List user public reads
+      summary: List a user's reads, newest update first, cursor-paginated
       tags:
         - Reading
-      description: Returns public reads for a user. Private accounts return empty list
-        for non-followers.
+      description: "The reads this viewer may see (PRD §17.5: visibility per item, the
+        account's privacy, blocks). A private account the viewer does not
+        follow, a blocked or missing user all answer an empty page. `limit`
+        1-100, default 50; pass `next_cursor` back as `cursor` (A-08-027)."
       parameters:
         - schema:
             type: string
@@ -3922,6 +4337,19 @@ paths:
               - dnf
           in: query
           name: status
+          required: false
+        - schema:
+            type: string
+            maxLength: 200
+          in: query
+          name: cursor
+          required: false
+        - schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+          in: query
+          name: limit
           required: false
         - schema:
             type: string
@@ -4041,8 +4469,37 @@ paths:
                         - attempt_no
                         - hearted
                         - visibility
+                  next_cursor:
+                    type:
+                      - "null"
+                      - string
                 required:
                   - data
+                  - next_cursor
+        "400":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      code:
+                        type: string
+                        description: Machine-readable error code
+                      message:
+                        type: string
+                        description: Human-readable error description
+                      field:
+                        type: string
+                        description: Invalid field name if applicable
+                    required:
+                      - code
+                      - message
+                required:
+                  - error
         "422":
           description: Default Response
           content:
@@ -8597,8 +9054,12 @@ paths:
       summary: Ingest client telemetry events (SL-80)
       tags:
         - Telemetry
-      description: Accepts a batch of up to 100 client events. User ID is attached
-        automatically if authenticated.
+      description: "Accepts a batch of up to 100 client events. User ID is attached
+        automatically if authenticated, never taken from the body. Stores only
+        events that pass the caps: a name from the PRD §28.2 taxonomy, at most
+        20 flat properties (scalars, strings up to 200), a timestamp within the
+        last 7 days, and for §4.4 budget events their measurement as a number in
+        range. The rest are counted in `rejected`."
       requestBody:
         required: true
         content:
@@ -8654,8 +9115,13 @@ paths:
                 properties:
                   accepted:
                     type: integer
+                  rejected:
+                    type: integer
+                    description: Events dropped by the caps (unknown name, properties, timestamp,
+                      budget measurement).
                 required:
                   - accepted
+                  - rejected
         "400":
           description: Default Response
           content:
@@ -8686,8 +9152,18 @@ paths:
       tags:
         - Admin
         - Telemetry
-      description: Returns p75 durations, tap counts, and abandonment rates evaluated
-        against non-negotiable budgets.
+      description: p75 durations, tap counts and the abandonment rate over the last
+        `days` (default 28), against the §4.4 budgets. `passing` is null when
+        the window has no samples.
+      parameters:
+        - schema:
+            type: integer
+            minimum: 1
+            maximum: 365
+          in: query
+          name: days
+          required: false
+          description: Report window in days. Default 28.
       responses:
         "200":
           description: Default Response
@@ -8696,6 +9172,8 @@ paths:
               schema:
                 type: object
                 properties:
+                  window_days:
+                    type: integer
                   progress_updated:
                     type: object
                     properties:
@@ -8708,7 +9186,10 @@ paths:
                       sample_count:
                         type: integer
                       passing:
-                        type: boolean
+                        type:
+                          - "null"
+                          - boolean
+                        description: "null: no samples in the window."
                     required:
                       - p75_duration_ms
                       - budget_ms
@@ -8726,7 +9207,10 @@ paths:
                       sample_count:
                         type: integer
                       passing:
-                        type: boolean
+                        type:
+                          - "null"
+                          - boolean
+                        description: "null: no samples in the window."
                     required:
                       - p75_tap_count
                       - budget_taps
@@ -8744,7 +9228,10 @@ paths:
                       sample_count:
                         type: integer
                       passing:
-                        type: boolean
+                        type:
+                          - "null"
+                          - boolean
+                        description: "null: no samples in the window."
                     required:
                       - p75_duration_seconds
                       - budget_seconds
@@ -8762,7 +9249,10 @@ paths:
                       sample_count:
                         type: integer
                       passing:
-                        type: boolean
+                        type:
+                          - "null"
+                          - boolean
+                        description: "null: no samples in the window."
                     required:
                       - p75_duration_ms
                       - budget_ms
@@ -8772,7 +9262,9 @@ paths:
                     type: object
                     properties:
                       abandonment_rate:
-                        type: number
+                        type:
+                          - "null"
+                          - number
                       abandoned_count:
                         type: integer
                       completed_count:
@@ -8780,7 +9272,10 @@ paths:
                       budget_max_rate:
                         type: number
                       passing:
-                        type: boolean
+                        type:
+                          - "null"
+                          - boolean
+                        description: "null: no samples in the window."
                     required:
                       - abandonment_rate
                       - abandoned_count
@@ -8788,6 +9283,7 @@ paths:
                       - budget_max_rate
                       - passing
                 required:
+                  - window_days
                   - progress_updated
                   - book_logged
                   - finish_completed
@@ -8818,6 +9314,30 @@ paths:
                 required:
                   - error
         "403":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      code:
+                        type: string
+                        description: Machine-readable error code
+                      message:
+                        type: string
+                        description: Human-readable error description
+                      field:
+                        type: string
+                        description: Invalid field name if applicable
+                    required:
+                      - code
+                      - message
+                required:
+                  - error
+        "422":
           description: Default Response
           content:
             application/json:
@@ -12172,6 +12692,7 @@ paths:
                   type: string
                   enum:
                     - import
+                    - avatar
                 content_type:
                   type: string
                   minLength: 1
@@ -12202,6 +12723,7 @@ paths:
                     type: string
                     enum:
                       - import
+                      - avatar
                   status:
                     type: string
                     enum:
@@ -12389,6 +12911,7 @@ paths:
                     type: string
                     enum:
                       - import
+                      - avatar
                   status:
                     type: string
                     enum:
@@ -12546,6 +13069,230 @@ paths:
                 required:
                   - error
         "422":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      code:
+                        type: string
+                        description: Machine-readable error code
+                      message:
+                        type: string
+                        description: Human-readable error description
+                      field:
+                        type: string
+                        description: Invalid field name if applicable
+                    required:
+                      - code
+                      - message
+                required:
+                  - error
+  /me/avatar:
+    put:
+      summary: Set my avatar
+      tags:
+        - Uploads
+      description: Consumes a completed upload with purpose avatar (JPEG/PNG/WebP, 2
+        MB; PRD §6.7). A replay with the same upload succeeds; an upload already
+        used for an earlier avatar is 409 upload_consumed.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                upload_id:
+                  type: string
+                  format: uuid
+                  description: A completed upload with purpose avatar.
+              required:
+                - upload_id
+      responses:
+        "200":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  avatar_url:
+                    type:
+                      - "null"
+                      - string
+                    description: GET /v1/avatars/…, or null for the generated avatar.
+                required:
+                  - avatar_url
+        "401":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      code:
+                        type: string
+                        description: Machine-readable error code
+                      message:
+                        type: string
+                        description: Human-readable error description
+                      field:
+                        type: string
+                        description: Invalid field name if applicable
+                    required:
+                      - code
+                      - message
+                required:
+                  - error
+        "404":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      code:
+                        type: string
+                        description: Machine-readable error code
+                      message:
+                        type: string
+                        description: Human-readable error description
+                      field:
+                        type: string
+                        description: Invalid field name if applicable
+                    required:
+                      - code
+                      - message
+                required:
+                  - error
+        "409":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      code:
+                        type: string
+                        description: Machine-readable error code
+                      message:
+                        type: string
+                        description: Human-readable error description
+                      field:
+                        type: string
+                        description: Invalid field name if applicable
+                    required:
+                      - code
+                      - message
+                required:
+                  - error
+        "410":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      code:
+                        type: string
+                        description: Machine-readable error code
+                      message:
+                        type: string
+                        description: Human-readable error description
+                      field:
+                        type: string
+                        description: Invalid field name if applicable
+                    required:
+                      - code
+                      - message
+                required:
+                  - error
+    delete:
+      summary: Remove my avatar
+      tags:
+        - Uploads
+      description: Back to the generated typographic avatar (PRD §6.7).
+      responses:
+        "200":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  avatar_url:
+                    type:
+                      - "null"
+                      - string
+                    description: GET /v1/avatars/…, or null for the generated avatar.
+                required:
+                  - avatar_url
+        "401":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      code:
+                        type: string
+                        description: Machine-readable error code
+                      message:
+                        type: string
+                        description: Human-readable error description
+                      field:
+                        type: string
+                        description: Invalid field name if applicable
+                    required:
+                      - code
+                      - message
+                required:
+                  - error
+  /avatars/uploads/{userId}/{uploadId}:
+    get:
+      summary: An avatar image
+      tags:
+        - Uploads
+      description: "Redirects (302) to a short-lived URL for the image, to whoever may
+        see the profile header (PRD §16.3): anyone for a public account,
+        signed-in users for a private one, nobody across a block. Only current
+        avatars of live accounts; anything else is 404. Send the bearer token
+        for a private account."
+      parameters:
+        - schema:
+            type: string
+            format: uuid
+          in: path
+          name: userId
+          required: true
+        - schema:
+            type: string
+            format: uuid
+          in: path
+          name: uploadId
+          required: true
+      responses:
+        "404":
           description: Default Response
           content:
             application/json:

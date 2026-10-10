@@ -292,14 +292,17 @@ describe('Profile, Favourites & Stats (SL-7x)', () => {
 
       // Average rating: (5 + 4.5 + 4) / 3 = 4.5
       expect(stats.avg_rating).toBe(4.5);
-      expect(stats.rating_distribution['5']).toBe(2); // 5.0 and 4.5 round to 5
-      expect(stats.rating_distribution['4']).toBe(1);
+      // Ten half-star buckets (PRD §17.2, A-09-043; was five, rounded).
+      expect(stats.rating_distribution['5.0']).toBe(1);
+      expect(stats.rating_distribution['4.5']).toBe(1);
+      expect(stats.rating_distribution['4.0']).toBe(1);
 
-      // Format breakdown: 1 print, 1 ebook, 1 audiobook
+      // Format breakdown: 1 print, 1 ebook, 1 audiobook, none unknown (Audit 10)
       expect(stats.format_breakdown).toEqual({
         print: 1,
         ebook: 1,
         audiobook: 1,
+        unknown: 0,
       });
 
       // Monthly pace

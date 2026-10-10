@@ -19,25 +19,31 @@
 import crypto from 'node:crypto';
 import path from 'node:path';
 import type { FastifyPluginAsync } from 'fastify';
-import { and, eq, inArray, isNotNull, lt, sql } from 'drizzle-orm';
+import { and, eq, inArray, isNotNull, isNull, lt, sql } from 'drizzle-orm';
 import type { Db } from '../platform/index.js';
-import { exports as exportsTable, imports, uploads, type Upload } from '../db/schema.js';
+import { exports as exportsTable, imports, profiles, uploads, users, type Upload } from '../db/schema.js';
 import { ApiError, requireViewer } from '../http.js';
+import { loadRelationship } from '../authorization/index.js';
 import type { ObjectStorage, UploadTarget } from '../providers/storage/index.js';
 import {
   createUploadBodySchema,
+  setAvatarBodySchema,
+  avatarResponseSchema,
+  avatarParamsSchema,
   errorResponseSchema,
   idParamSchema,
   uploadResponseSchema,
 } from '../contract/schemas.js';
 
-export type UploadPurpose = 'import';
+export type UploadPurpose = 'import' | 'avatar';
 
 export interface UploadPolicy {
   maxBytes: number;
   contentTypes: readonly string[];
   /** How complete() judges the first bytes. */
-  sniff: 'text';
+  sniff: 'text' | 'image';
+  /** The 413 message. */
+  tooLarge: string;
 }
 
 /**
@@ -53,6 +59,16 @@ export const UPLOAD_POLICIES: Record<UploadPurpose, UploadPolicy> = {
     maxBytes: 10 * 1024 * 1024,
     contentTypes: ['text/csv', 'text/plain', 'application/csv', 'application/vnd.ms-excel'],
     sniff: 'text',
+    tooLarge: 'File exceeds the 10MB limit. Please split your export into smaller files.',
+  },
+  // PRD §6.7 (audit 10, A-07-032): the client resizes before sending (a
+  // 512 px JPEG is ~100 KB), so 2 MB only has to cover a client that cannot.
+  // The magic bytes must match the declared type (PRD §42 #11).
+  avatar: {
+    maxBytes: 2 * 1024 * 1024,
+    contentTypes: ['image/jpeg', 'image/png', 'image/webp'],
+    sniff: 'image',
+    tooLarge: 'The photo is over 2MB. Choose a smaller one.',
   },
 };
 
@@ -81,6 +97,16 @@ const BINARY_SIGNATURES: number[][] = [
   [0xff, 0xd8, 0xff], // JPEG
   [0x47, 0x49, 0x46, 0x38], // GIF8
 ];
+
+/** The image type the first bytes say, or null. Only the types an avatar may be. */
+export function imageTypeOf(head: Buffer): 'image/jpeg' | 'image/png' | 'image/webp' | null {
+  const at = (bytes: number[], offset = 0) => bytes.every((b, i) => head[offset + i] === b);
+  if (at([0xff, 0xd8, 0xff])) return 'image/jpeg';
+  if (at([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])) return 'image/png';
+  // RIFF....WEBP
+  if (at([0x52, 0x49, 0x46, 0x46]) && at([0x57, 0x45, 0x42, 0x50], 8)) return 'image/webp';
+  return null;
+}
 
 /**
  * Text, judged by content: no known binary signature, and no NUL byte (which
@@ -150,12 +176,7 @@ export class UploadService {
       );
     }
     if (input.size > policy.maxBytes) {
-      throw new ApiError(
-        413,
-        'file_too_large',
-        'File exceeds the 10MB limit. Please split your export into smaller files.',
-        'size',
-      );
+      throw new ApiError(413, 'file_too_large', policy.tooLarge, 'size');
     }
 
     const id = crypto.randomUUID();
@@ -219,8 +240,12 @@ export class UploadService {
     if (scan.bytes !== row.size) {
       await reject('upload_size_mismatch', `The file is ${scan.bytes} bytes; ${row.size} were declared.`);
     }
-    if (!looksLikeText(scan.head)) {
+    const policy = UPLOAD_POLICIES[row.purpose as UploadPurpose];
+    if (policy.sniff === 'text' && !looksLikeText(scan.head)) {
       await reject('upload_invalid_content', 'The file is not a text export. Upload the CSV file your library service produced.');
+    }
+    if (policy.sniff === 'image' && imageTypeOf(scan.head) !== row.contentType) {
+      await reject('upload_invalid_content', 'The file is not the image it was declared as. Choose a JPEG, PNG or WebP photo.');
     }
 
     const [updated] = await this.db
@@ -369,6 +394,79 @@ export async function cleanupStorage(
   return { uploadsExpired, exportFilesDeleted: oldExports.length, importFilesDeleted: oldImports.length };
 }
 
+/**
+ * Where a profile's avatar is served (GET /v1/avatars/<key>), or null. Every
+ * response that carries avatar_url builds it here.
+ */
+export function avatarUrl(key: string | null | undefined): string | null {
+  return key ? `/v1/avatars/${key}` : null;
+}
+
+/** A served avatar URL is valid for an hour; responses may be cached a little less. */
+const AVATAR_URL_TTL_SECONDS = 60 * 60;
+
+/**
+ * Avatars (PRD §6.7, audit 10 A-07-032). The upload is an ordinary PV-02
+ * upload with purpose 'avatar'; PUT /me/avatar consumes it. The old object is
+ * deleted after the switch commits. Best effort: a failed delete leaves an
+ * orphan for Part 15's retention sweep (A-PV-008), never a broken avatar.
+ */
+export class AvatarService {
+  constructor(private db: Db, private storage: ObjectStorage) {}
+
+  async set(userId: string, uploadId: string): Promise<{ avatar_url: string | null }> {
+    const { key, previous } = await this.db.transaction(async (tx) => {
+      const row = await lockUploadForConsumer(tx as unknown as Db, userId, uploadId, 'avatar');
+      const [profile] = await tx
+        .select({ key: profiles.avatarKey })
+        .from(profiles)
+        .where(eq(profiles.userId, userId))
+        .for('update');
+      if (row.status === 'consumed') {
+        // A replay of the request that set it is a success; an older
+        // avatar's upload cannot come back (its object may be gone).
+        if (profile?.key === row.key) return { key: row.key, previous: null };
+        throw ApiError.conflict('upload_consumed', 'This upload was already used. Upload the photo again.');
+      }
+      await tx.update(profiles).set({ avatarKey: row.key }).where(eq(profiles.userId, userId));
+      await markUploadConsumed(tx as unknown as Db, row.id);
+      return { key: row.key, previous: profile?.key ?? null };
+    });
+    if (previous && previous !== key) await this.storage.delete(previous).catch(() => {});
+    return { avatar_url: avatarUrl(key) };
+  }
+
+  async remove(userId: string): Promise<{ avatar_url: null }> {
+    const [old] = await this.db
+      .select({ key: profiles.avatarKey })
+      .from(profiles)
+      .where(eq(profiles.userId, userId));
+    await this.db.update(profiles).set({ avatarKey: null }).where(eq(profiles.userId, userId));
+    if (old?.key) await this.storage.delete(old.key).catch(() => {});
+    return { avatar_url: null };
+  }
+
+  /**
+   * A short-lived URL for a CURRENT avatar of a live account, or null. Only
+   * keys that are some profile's avatar_key are served: the key is built
+   * from the path, and every other upload (import CSVs) shares its shape.
+   * The header rules of PRD §16.3: a private account's avatar does not exist
+   * for a guest, and nobody's exists across a block either way.
+   */
+  async url(viewer: string | null, userId: string, uploadId: string): Promise<string | null> {
+    const rel = await loadRelationship(this.db, viewer, userId);
+    if (!rel.ownerExists || rel.isBlocked || (rel.isOwnerPrivate && viewer === null)) return null;
+    const key = `uploads/${userId}/${uploadId}`;
+    const [row] = await this.db
+      .select({ key: profiles.avatarKey })
+      .from(profiles)
+      .innerJoin(users, eq(users.id, profiles.userId))
+      .where(and(eq(profiles.userId, userId), eq(profiles.avatarKey, key), isNull(users.deletedAt)));
+    if (!row) return null;
+    return this.storage.createDownloadUrl(key, { expiresIn: AVATAR_URL_TTL_SECONDS });
+  }
+}
+
 export interface UploadsPluginOptions {
   db: Db;
   storage: ObjectStorage;
@@ -433,6 +531,71 @@ export const uploadsPlugin: FastifyPluginAsync<UploadsPluginOptions> = async (fa
       const viewer = requireViewer(request);
       const { id } = request.params as { id: string };
       return reply.send(await service.complete(viewer, id));
+    },
+  );
+
+  const avatars = new AvatarService(opts.db, opts.storage);
+
+  fastify.put(
+    '/me/avatar',
+    {
+      schema: {
+        tags: ['Uploads'],
+        summary: 'Set my avatar',
+        description:
+          'Consumes a completed upload with purpose avatar (JPEG/PNG/WebP, 2 MB; PRD §6.7). A replay with the same upload succeeds; ' +
+          'an upload already used for an earlier avatar is 409 upload_consumed.',
+        body: setAvatarBodySchema,
+        response: {
+          200: avatarResponseSchema,
+          401: errorResponseSchema,
+          404: errorResponseSchema,
+          409: errorResponseSchema,
+          410: errorResponseSchema,
+        },
+      },
+    },
+    async (request) => {
+      const viewer = requireViewer(request);
+      return avatars.set(viewer, (request.body as { upload_id: string }).upload_id);
+    },
+  );
+
+  fastify.delete(
+    '/me/avatar',
+    {
+      schema: {
+        tags: ['Uploads'],
+        summary: 'Remove my avatar',
+        description: 'Back to the generated typographic avatar (PRD §6.7).',
+        response: { 200: avatarResponseSchema, 401: errorResponseSchema },
+      },
+    },
+    async (request) => avatars.remove(requireViewer(request)),
+  );
+
+  fastify.get(
+    '/avatars/uploads/:userId/:uploadId',
+    {
+      schema: {
+        tags: ['Uploads'],
+        summary: 'An avatar image',
+        description:
+          'Redirects (302) to a short-lived URL for the image, to whoever may see the profile header (PRD §16.3): ' +
+          'anyone for a public account, signed-in users for a private one, nobody across a block. ' +
+          'Only current avatars of live accounts; anything else is 404. Send the bearer token for a private account.',
+        params: avatarParamsSchema,
+        response: { 404: errorResponseSchema },
+      },
+    },
+    async (request, reply) => {
+      const { userId, uploadId } = request.params as { userId: string; uploadId: string };
+      const url = await avatars.url(request.viewer, userId, uploadId);
+      if (!url) throw ApiError.notFound('No such avatar.');
+      return reply
+        // private: whether it may be served depends on the viewer.
+        .header('cache-control', `private, max-age=${AVATAR_URL_TTL_SECONDS - 300}`)
+        .redirect(url, 302);
     },
   );
 };

@@ -16,6 +16,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as Haptics from 'expo-haptics';
 import { useSession } from '@/lib/session';
 import { api, type ReadingStats } from '@/lib/api';
+import { deviceTimeZone, dnfPercent, excludedNote, formatShares, statsRatingRows } from '@/lib/statsView';
 import {
   Button,
   Card,
@@ -50,8 +51,8 @@ export default function StatsScreen() {
     try {
       setLoading(true);
       const res = isOtherUser
-        ? await api.userStats(targetUserId, selectedYear)
-        : await api.myStats(selectedYear);
+        ? await api.userStats(targetUserId, selectedYear, deviceTimeZone())
+        : await api.myStats(selectedYear, deviceTimeZone());
       setStats(res);
     } catch {
       // Offline / error
@@ -77,18 +78,11 @@ export default function StatsScreen() {
     return Math.max(1, ...stats.monthly_pace.map((m) => m.books));
   }, [stats]);
 
-  // Max rating count for histogram bar scaling
-  const maxRatingCount = useMemo(() => {
-    if (!stats?.rating_distribution) return 1;
-    const values = Object.values(stats.rating_distribution);
-    return Math.max(1, ...values);
-  }, [stats]);
-
-  // Total formats count for percentage calculation
-  const totalFormats = useMemo(() => {
-    if (!stats?.format_breakdown) return 0;
-    return stats.format_breakdown.print + stats.format_breakdown.ebook + stats.format_breakdown.audiobook;
-  }, [stats]);
+  // The ten half-star buckets (PRD §17.2) and the format split, unknown included.
+  const ratingRows = useMemo(() => statsRatingRows(stats?.rating_distribution), [stats]);
+  const formats = useMemo(() => formatShares(stats?.format_breakdown), [stats]);
+  // §17.4: what the figures leave out.
+  const excluded = stats ? excludedNote(stats) : null;
 
   return (
     <Screen style={{ flex: 1, backgroundColor: c.ground }}>
@@ -255,6 +249,12 @@ export default function StatsScreen() {
               </View>
             </View>
 
+            {excluded && (
+              <Txt variant="caption" color="muted">
+                {excluded}
+              </Txt>
+            )}
+
             {/* 2. TEMPORAL PACE CHART */}
             <Card style={{ padding: space[4], gap: space[3] }}>
               <View style={sheet.rowBetween}>
@@ -329,14 +329,11 @@ export default function StatsScreen() {
                   <Txt variant="caption" color="muted" style={{ fontWeight: '600' }}>
                     Rating Distribution
                   </Txt>
-                  {['5', '4', '3', '2', '1'].map((star) => {
-                    const count = stats.rating_distribution[star as keyof typeof stats.rating_distribution] || 0;
-                    const fillPercent = maxRatingCount > 0 ? (count / maxRatingCount) * 100 : 0;
-
+                  {ratingRows.map(({ bucket, count, fill: fillPercent }) => {
                     return (
-                      <View key={star} style={[sheet.row, { gap: space[2] }]}>
-                        <Txt variant="caption" style={{ width: 24, fontWeight: '600' }}>
-                          {star}★
+                      <View key={bucket} style={[sheet.row, { gap: space[2] }]}>
+                        <Txt variant="caption" style={{ width: 32, fontWeight: '600' }}>
+                          {bucket}★
                         </Txt>
                         <View style={[styles.histTrack, { backgroundColor: c.ground }]}>
                           <View
@@ -358,16 +355,14 @@ export default function StatsScreen() {
                 </View>
 
                 {/* Format Breakdown */}
-                {totalFormats > 0 && (
+                {formats.length > 0 && (
                   <View style={{ gap: space[2], borderTopWidth: 1, borderTopColor: c.line, paddingTop: space[3] }}>
                     <Txt variant="caption" color="muted" style={{ fontWeight: '600' }}>
                       Format Breakdown
                     </Txt>
                     <View style={[sheet.rowBetween, { gap: space[2] }]}>
-                      {(['print', 'ebook', 'audiobook'] as const).map((fmt) => {
-                        const count = stats.format_breakdown[fmt];
-                        const pct = Math.round((count / totalFormats) * 100);
-                        const label = fmt === 'print' ? 'Print' : fmt === 'ebook' ? 'eBook' : 'Audio';
+                      {formats.map(({ key: fmt, count, pct }) => {
+                        const label = fmt === 'print' ? 'Print' : fmt === 'ebook' ? 'eBook' : fmt === 'audiobook' ? 'Audio' : 'Unknown';
 
                         return (
                           <View
@@ -396,7 +391,7 @@ export default function StatsScreen() {
                     Did Not Finish (DNF)
                   </Txt>
                   <Txt variant="caption" color="ink" style={{ fontWeight: '600' }}>
-                    {stats.dnf_count} {stats.dnf_count === 1 ? 'book' : 'books'} ({stats.dnf_rate}% rate)
+                    {stats.dnf_count} {stats.dnf_count === 1 ? 'book' : 'books'} ({dnfPercent(stats.dnf_rate)}% rate)
                   </Txt>
                 </View>
               </Card>

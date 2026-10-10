@@ -185,7 +185,8 @@ export default function ReadingScreen() {
   const handleStartReading = async (read: LocalRead) => {
     if (!db || !user) return;
     void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-    budgetTracker.recordBookLogged({ tapCount: 2, source: 'reading_tab', targetStatus: 'reading' });
+    // Taps are not counted yet, so no book_logged (audit 10); a save ends a running "+" clock.
+    budgetTracker.recordLogSheetCompleted({ targetStatus: 'reading' });
     const repo = new OfflineRepository(db, user.id);
     await repo.saveReadStatus(read.work_id, 'reading', null, null, {
       title: read.title ?? undefined,
@@ -655,7 +656,6 @@ export default function ReadingScreen() {
                             variant="secondary"
                             onPress={() => {
                               void Haptics.selectionAsync();
-                              budgetTracker.startLogSheet(read.id);
                               setSheetRead(read);
                             }}
                             style={{ minHeight: 36, paddingHorizontal: space[3] }}

@@ -14,6 +14,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import { useSession } from '@/lib/session';
+import { budgetTracker } from '@/lib/budgetTracker';
 import { useActionGate } from '@/ui/ActionGate';
 import { useTheme, radius, space, type as t } from '@/ui/tokens';
 
@@ -134,6 +135,7 @@ export default function TabLayout() {
                     });
                     return;
                   }
+                  budgetTracker.startLogSheet();
                   router.push('/log');
                 }}
                 accessibilityRole="button"

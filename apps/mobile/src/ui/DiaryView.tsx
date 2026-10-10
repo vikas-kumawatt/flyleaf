@@ -28,6 +28,7 @@ import {
   sheet,
 } from './components';
 import { radius, space, useTheme } from './tokens';
+import { diaryPages, groupDiary } from '@/lib/diaryGroups';
 
 export type DiaryViewMode = 'list' | 'grid' | 'calendar';
 
@@ -122,7 +123,7 @@ export function DiaryView({
   // Summary stats for current view
   const summaryStats = useMemo(() => {
     const totalBooks = filteredReads.length;
-    const totalPages = filteredReads.reduce((sum, r) => sum + (r.page || 0), 0);
+    const totalPages = diaryPages(filteredReads);
     const rated = filteredReads.filter((r) => r.rating !== null && r.rating !== undefined);
     const avgRating =
       rated.length > 0
@@ -132,33 +133,9 @@ export function DiaryView({
   }, [filteredReads]);
 
   // Group reads by Month & Year for list & grid views
-  const groupedReads = useMemo(() => {
-    const groups: { monthKey: string; monthLabel: string; reads: LocalRead[] }[] = [];
-    const map = new Map<string, LocalRead[]>();
-
-    for (const r of filteredReads) {
-      const dStr = r.finished_at || r.updated_at;
-      let key = 'Earlier';
-      let label = 'Earlier';
-      if (dStr) {
-        const d = new Date(dStr);
-        if (!isNaN(d.getTime())) {
-          key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
-          label = d.toLocaleDateString(undefined, { month: 'long', year: 'numeric' });
-        }
-      }
-
-      const list = map.get(key);
-      if (list) {
-        list.push(r);
-      } else {
-        const newList = [r];
-        map.set(key, newList);
-        groups.push({ monthKey: key, monthLabel: label, reads: newList });
-      }
-    }
-    return groups;
-  }, [filteredReads]);
+  // Undated finishes go under "Undated", last; never under the month they
+  // were imported or edited (audit 10, §17.4).
+  const groupedReads = useMemo(() => groupDiary(filteredReads), [filteredReads]);
 
   // Calendar dates lookup
   const calendarReadsMap = useMemo(() => {

@@ -460,12 +460,14 @@
     2. **Grid view**: Visual cover shelf/posters with rating chips and finish dates.
     3. **Calendar view**: Heatmap calendar matrix showing month days with dot indicators for reading completions, month navigation, and tap-to-inspect date drawer.
   - Year jump selector (`All Time`, `2026`, `2025`...) with auto-computed years from read history, quick-toggle format filter (`print`, `ebook`, `audiobook`), star rating filter (`5★+`, `4★+`, `3★+`), and Hearted-only filter toggle.
-  - Volume summary bar displaying total books, pages read, and audio hours for the active filter slice.
+  - ~~Volume summary bar displaying total books, pages read, and audio hours for the active filter slice.~~ "Pages" summed the bookmark position, not the books' page counts; fixed (A-10-021).
+  - **Audit (2026-10-06):** ⚠️ — the views work, but undated finishes were filed under the month they were edited, a 1 March finish showed under February west of UTC, and no "Undated" group existed (fixed); filters stay on the device and there is no single-read delete (deferred); see A-10-021, A-10-026, A-10-030.
 - [x] **SL-71** **The Wall**: 3-col grid, filters incl. Hearted, 2-col below 340dp — 1.5d
   - Dedicated screen at `apps/mobile/app/wall.tsx` and parameterized user wall at `apps/mobile/app/wall/[id].tsx`.
   - Responsive column layout using window width measurement: renders 3 columns on standard mobile devices and seamlessly collapses to 2 columns on screens under 340dp width.
   - Filter and sort controls: Hearted toggle pill (`♥ Hearted`), Year selector pills, Rating filters (`5★+`, `4★+`, `3★+`), Format selector pills (`Print`, `Ebook`, `Audiobook`), and Sort menu (`Finished (newest)`, `Rating (highest)`, `Title (A-Z)`).
   - High-density poster aesthetic with fluid aspect ratio covers (`aspectRatio: 2 / 3`), subtle rating badges, and instant navigation to book details.
+  - **Audit (2026-10-06):** ❌ — another user's Wall loaded the **viewer's own** reads (`GET /reads`); now pages `GET /users/:id/reads` (fixed). The 340 dp switch is correct; server-side filters deferred; see A-10-002, A-10-026.
 - [x] **SL-72** Profile: favourites, stats strip, currently reading, Diary, reviews — 2d
   - Complete profile screen at `apps/mobile/app/(tabs)/profile.tsx` and public profile viewer at `apps/mobile/app/user/[id].tsx` respecting privacy settings.
   - Profile features:
@@ -477,22 +479,25 @@
     - Diary preview strip showing recent read entries with shortcut to full Diary.
     - Recent Reviews section with star ratings, text previews, and likes.
     - In-app Profile Editor modal for updating display name and bio (enforcing 160 char limit).
-- [x] **SL-73** Favourites picker (4, ordered, drag) — 0.5d
+  - **Audit (2026-10-06):** ⚠️ — the bio limit counted UTF-16 units, nothing was trimmed and the privacy switch was not atomic (fixed); no avatar picker existed (built, PV-02 purpose `avatar`); see A-10-020, A-10-016.
+- [x] **SL-73** Favourites picker (4, ordered, ~~drag~~ Up/Down buttons) — 0.5d
   - Standalone manager screen at `apps/mobile/app/profile/favourites.tsx`.
   - Exactly 4 ordered slots (`#1` through `#4`) displaying book cover, title, author, and move Up/Down reordering controls with haptic feedback.
   - Remove button to free up slots; Add button opening live catalog search modal to find and select works from user's history or catalog.
-  - Direct integration with `PATCH /v1/me/profile` sending ordered `favourites: [{ work_id, position }]` payload.
+  - ~~Direct integration with `PATCH /v1/me/profile` sending ordered `favourites: [{ work_id, position }]` payload.~~ It sends `favouriteWorkIds` (ordered ids), the only shape the server accepts.
+  - **Audit (2026-10-06):** ✅ — at most four, unknown ids refused, merged works resolved to the survivor, repeats collapse, dedupe repoints them; see A-10-031.
 - [x] **SL-74** Basic stats: volume, temporal, taste, extremes — 0.5d
   - Dedicated stats screen at `apps/mobile/app/stats.tsx` and user stats at `apps/mobile/app/stats/[id].tsx`.
   - Comprehensive statistical insights:
     - **Volume & Habit**: Books finished, pages read, audio hours, and reading habit daily/longest streaks.
     - **Temporal Pace**: 12-month interactive bar chart tracking books and pages read per month.
-    - **Taste & Ratings**: Average star rating and rating distribution histogram (1★ to 5★).
-    - **Format Breakdown**: Percentage and count split across print, ebook, and audiobook editions.
+    - **Taste & Ratings**: Average star rating and rating distribution histogram ~~(1★ to 5★)~~ (ten half-star buckets since audit 10, A-10-013).
+    - **Format Breakdown**: Percentage and count split across print, ebook, and audiobook editions. ~~(no override counted as print)~~ Falls back to the edition format, else `unknown` (A-10-009).
     - **Reading Extremes**: Longest book read, shortest book read, and most read author with book counts.
     - **Did Not Finish (DNF)**: Abandoned book count and DNF rate percentage.
   - Backend aggregation service in `apps/api/src/reading/index.ts` and `apps/api/src/identity/index.ts` with `GET /v1/me/stats`, `GET /v1/users/:id/stats`, `GET /v1/me/profile`, and `PATCH /v1/me/profile`.
-  - 8 backend tests in `apps/api/src/test/profile-stats.test.ts` and 9 mobile unit tests in `apps/mobile/src/lib/__tests__/profile-stats.test.ts`. 100% green CI pipeline.
+  - 8 backend tests in `apps/api/src/test/profile-stats.test.ts` and 9 mobile unit tests in `apps/mobile/src/lib/__tests__/profile-stats.test.ts`. 100% green CI pipeline. (The mobile tests re-implement the logic they test, A-10-023.)
+  - **Audit (2026-10-06):** ❌ — **P0**: another viewer's audio hours and streaks included private reads (§17.5 [LOCKED]); streak days were UTC, years came from the server clock, audio summed positions, pages used the smallest edition, nothing was disclosed (§17.4); all fixed, with a twin-account privacy oracle; see A-10-001, A-10-007…A-10-013, A-10-024.
 
 ### Instrumentation — `SL-8x` · 2d
 - [x] **SL-80** ⚠️ `events` table + client emitter — 0.5d
@@ -503,20 +508,23 @@
     - Automatic periodic flush (15s timer) and threshold-triggered flush (>= 20 events).
     - AppState lifecycle hook flushing events when app moves to background.
     - Offline resilience: retained events on network failure (prepended up to 200 items).
+  - **Audit (2026-10-06):** ❌ — the anonymous endpoint stored any name, any properties and any timestamp, and took the **user id from the body** (fixed: taxonomy, shape caps, token-only user); no rate limit (Part 15) and no retention (decision needed); see A-10-017, A-10-025, A-10-029.
 - [x] **SL-81** ⚠️ **Instrument the §4.4 budgets**: progress duration, finish duration, tap counts, abandonment — 1d
   - Built real-time budget instrumenter in `apps/mobile/src/lib/budgetTracker.ts` measuring the 5 non-negotiable PRD §4.4 interaction budgets:
     1. `progress_updated`: duration from Reading tab focus to save (budget: p75 < 5s). Integrated into slider release, quick add, and progress sheet.
-    2. `book_logged`: tap count from impression to shelved (budget: p75 <= 2 taps). Integrated into work detail and reading queue.
+    2. ~~`book_logged`: tap count from impression to shelved (budget: p75 <= 2 taps). Integrated into work detail and reading queue.~~ Both call sites sent a constant 2; not sent until taps are counted (A-10-003).
     3. `finish_completed`: duration from Finish tap to save (budget: p75 < 20s). Integrated into Finish flow modal (`FinishScreen`) and review composer.
     4. `finish_flow_abandoned`: tracks flow abandonment when user dismisses without saving (budget: < 8% abandonment).
-    5. `log_sheet_completed`: duration from `+` FAB or Update sheet tap to save (budget: p75 < 15s).
+    5. `log_sheet_completed`: duration from `+` FAB ~~or Update sheet~~ tap to save (budget: p75 < 15s). The FAB had no instrumentation; it starts the clock now (A-10-003).
   - Admin budget analytics endpoint `GET /v1/admin/telemetry/budgets` computing PostgreSQL `percentile_cont(0.75)` for progress, finish, and log sheet durations, tap counts, and flow abandonment rate.
   - 10 mobile unit tests covering event queuing, session rotation, and all 5 budget events in `apps/mobile/src/lib/__tests__/telemetry-budgets.test.ts`.
+  - **Audit (2026-10-06):** ❌ — false green at both ends: the app invented in-budget durations when no clock ran and re-anchored the progress clock at each save, and the report read all time and said "passing" with no samples; one malformed event broke it (fixed; `book_logged` deferred); see A-10-003, A-10-004.
 - [x] **SL-82** Sentry, app + API — 0.5d
   - ~~API Sentry integration in `apps/api/src/telemetry/sentry.ts` and `apps/api/src/app.ts`: custom Fastify 500 error hook capturing unhandled exceptions~~ The hook never sent anything: `initSentry()` had no caller, so capture was a no-op whatever `SENTRY_DSN` said. Now an `ErrorReporter` port chosen by `ERROR_DRIVER` (PV-06, A-PV-003); the redaction stays in `telemetry/errors.ts`. with automatic redaction of sensitive headers (`authorization`, `cookie`, `secret`, `password`, `token`, `totp`).
-  - Mobile Sentry wrapper in `apps/mobile/src/lib/sentry.ts` with exception formatting, platform tagging, and graceful fallback.
+  - Mobile Sentry wrapper in `apps/mobile/src/lib/sentry.ts` with exception formatting, platform tagging, and graceful fallback. (Its event ids were not valid Sentry ids, it had no release tag, and despite its header it scrubbed nothing; fixed, A-10-019.)
   - Global `ErrorBoundary` in `apps/mobile/src/ui/ErrorBoundary.tsx` wrapping the application root in `apps/mobile/app/_layout.tsx` with user-friendly recovery screen and error reporting.
   - 7 backend tests in `apps/api/src/test/telemetry.test.ts` covering event ingestion, budget calculation, moderator role gating, and Sentry context sanitization. 100% green CI pipeline.
+  - **Audit (2026-10-06):** ⚠️ — the API scrubbed six top-level keys only, so `refresh_token`, nested passwords and verification codes reached Sentry; now recursive and case-insensitive, emails included (fixed); see A-10-018, A-10-019.
 
 - [x] **Phase 1 Exit Criteria Verified** · `phase1-exit-criteria.test.ts` (100% green in CI):
   - **Two books tracked end-to-end**: Book 1 (*Piranesi*) tracked want -> reading -> 3 progress increments -> finished (5★, heart, print, review). Book 2 (*The Left Hand of Darkness*) tracked reading -> progress -> finished (4.5★, ebook, review). Verified local SQLite persistence, Diary aggregations (2 finished, 4.75 avg rating, format breakdown), and sync queue.

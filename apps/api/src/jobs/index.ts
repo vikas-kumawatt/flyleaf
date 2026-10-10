@@ -96,6 +96,11 @@ export const QUEUES = {
    * import finished are deleted from object storage.
    */
   storageCleanup: 'storage.cleanup',
+  /**
+   * Weekly rebuild of the "Did you mean …?" vocabulary (audit 10, 0032):
+   * titles and authors of works with 20+ logs move slowly.
+   */
+  refreshSearchSuggestions: 'search.suggestions.refresh',
 } as const;
 
 export type QueueName = (typeof QUEUES)[keyof typeof QUEUES];
@@ -252,6 +257,12 @@ export async function reconcileWorksJobHandler(
     catalogMean: Number(row?.r.catalog_mean ?? 0),
     workedAt: new Date().toISOString(),
   };
+}
+
+/** Rebuilds search_suggestions (0032); returns the number of terms. */
+export async function refreshSearchSuggestionsJobHandler(_jobs: Job<void>[], db: Db): Promise<{ terms: number }> {
+  const [row] = await db.execute<{ n: number }>(sql`SELECT refresh_search_suggestions() AS n;`);
+  return { terms: Number(row?.n ?? 0) };
 }
 
 /**
@@ -462,6 +473,12 @@ export async function registerQueues(boss: PgBoss, log: JobLog, deps?: WorkerDep
         },
         'job handled',
       );
+      return result;
+    });
+
+    await boss.work<void, { terms: number }>(QUEUES.refreshSearchSuggestions, async (jobs) => {
+      const result = await refreshSearchSuggestionsJobHandler(jobs, db);
+      log.info({ queue: QUEUES.refreshSearchSuggestions, ids: jobs.map((j) => j.id), terms: result.terms }, 'job handled');
       return result;
     });
 

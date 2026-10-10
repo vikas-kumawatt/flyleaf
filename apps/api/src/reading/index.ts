@@ -20,6 +20,8 @@ import { type Visibility, VISIBILITIES, canViewWith, loadRelationship, visibleLe
 import {
   readSchema,
   readListResponseSchema,
+  userReadPageResponseSchema,
+  userReadsQuerySchema,
   statusQuerySchema,
   idParamSchema,
   upsertReadBodySchema,
@@ -575,15 +577,35 @@ export class ReadingService {
    * Returns only reads the viewer is authorized to see via canView.
    */
   async list(viewer: string | null, userId: string, status?: string): Promise<Read[]> {
+    return (await this.listPage(viewer, userId, status, {})).data;
+  }
+
+  /**
+   * One page of `list`, newest update first, for GET /users/:id/reads
+   * (A-08-027: it returned every read, 628 for one bench user). The cursor
+   * is (updated_at, id) with updated_at as Postgres prints it, microseconds
+   * included: a JS Date would round it to milliseconds and skip rows that
+   * share the millisecond. Without `limit`, every read (GET /reads, the
+   * owner's own sync).
+   */
+  async listPage(
+    viewer: string | null,
+    userId: string,
+    status: string | undefined,
+    opts: { cursor?: string; limit?: number },
+  ): Promise<{ data: Read[]; next_cursor: string | null }> {
+    const after = decodeReadsCursor(opts.cursor);
     // Which visibilities this viewer may see, derived from canView() itself,
     // so an accepted follower gets followers-only reads (Audit 05).
     const rel = await loadRelationship(this.db, viewer, userId);
     const levels = visibleLevels(viewer, userId, rel);
-    if (levels.length === 0) return [];
+    if (levels.length === 0) return { data: [], next_cursor: null };
     const levelList = sql.join(levels.map((l) => sql`${l}`), sql`, `);
+    const limit = opts.limit;
 
     const rows = await this.db.execute<{
       id: string; user_id: string; work_id: string; edition_id: string | null;
+      updated_key: string;
       status: string; attempt_no: number;
       started_at: string | null; finished_at: string | null;
       abandoned_at: string | null; abandoned_page: number | null; dnf_reason: string | null;
@@ -591,9 +613,21 @@ export class ReadingService {
       title: string; author_name: string | null; cover_id: number | null;
       page: number | null; percent: string | null; page_count: number | null;
     }>(sql`
+      -- The page first, so the lookups below run for its rows only.
+      WITH page AS (
+        SELECT r.*
+          FROM reads r
+         WHERE r.user_id = ${userId}
+           AND r.visibility IN (${levelList})
+           AND (${status ?? null}::text IS NULL OR r.status = ${status ?? null})
+           ${after ? sql`AND (r.updated_at, r.id) < (${after.at}::timestamptz, ${after.id}::uuid)` : sql``}
+         ORDER BY r.updated_at DESC, r.id DESC
+         ${limit ? sql`LIMIT ${limit + 1}` : sql``}
+      )
       SELECT r.id, r.user_id, r.work_id, r.edition_id, r.status, r.attempt_no,
              r.started_at, r.finished_at, r.abandoned_at, r.abandoned_page, r.dnf_reason,
              r.rating, r.hearted, r.format_override, r.visibility,
+             r.updated_at::text AS updated_key,
              w.title,
              -- Authorship is a join table and covers live on editions now
              -- (FN-10). Same response shape, different storage.
@@ -615,24 +649,23 @@ export class ReadingService {
                  ORDER BY e.publish_year DESC NULLS LAST
                  LIMIT 1)) AS cover_id,
              pe.page, pe.percent,
-             CASE WHEN r.edition_id IS NOT NULL THEN re.page_count
-                  ELSE (SELECT page_count FROM editions e
-                         WHERE e.work_id = r.work_id
-                         ORDER BY page_count NULLS LAST LIMIT 1) END AS page_count
-      FROM reads r
+             -- One rule everywhere (D-08-3, migration 0030); it was the
+             -- smallest edition, which understated long books.
+             flyleaf_page_count(r.edition_id, r.work_id) AS page_count
+      FROM page r
       JOIN works w ON w.id = r.work_id
       LEFT JOIN editions re ON re.id = r.edition_id
       LEFT JOIN LATERAL (
         SELECT page, percent FROM progress_events
         WHERE read_id = r.id ORDER BY at DESC LIMIT 1
       ) pe ON true
-      WHERE r.user_id = ${userId}
-        AND r.visibility IN (${levelList})
-        AND (${status ?? null}::text IS NULL OR r.status = ${status ?? null})
-      ORDER BY r.updated_at DESC
+      ORDER BY r.updated_at DESC, r.id DESC
     `);
 
-    return rows.map((r) => ({
+    const more = limit !== undefined && rows.length > limit;
+    const pageRows = more ? rows.slice(0, limit) : rows;
+    const last = pageRows[pageRows.length - 1];
+    const data = pageRows.map((r) => ({
       id: r.id,
       user_id: r.user_id,
       work_id: r.work_id,
@@ -655,6 +688,7 @@ export class ReadingService {
       percent: r.percent === null ? null : Number(r.percent),
       page_count: r.page_count,
     }));
+    return { data, next_cursor: more && last ? encodeReadsCursor(last.updated_key, last.id) : null };
   }
 
   /**
@@ -715,205 +749,268 @@ export class ReadingService {
     return read;
   }
 
+  /**
+   * Reading stats (SL-74, PRD §6.40, §17). The viewer is an input to every
+   * query, not a filter on a shared result (§17.5 [LOCKED]): each of the three
+   * queries below reads only the visibility levels this viewer may see, so a
+   * private read cannot reach a count, an extreme, the listening hours or the
+   * streak of anyone but its owner (audit 10: audio and streak ignored it).
+   *
+   * `tz` is the IANA zone whose days count (§8.7: the user's local day);
+   * absent, days are UTC. `year` is 'all' or YYYY, default this year in `tz`.
+   */
   async getStats(
     viewer: string | null,
     userId: string,
     yearParam?: string,
-  ): Promise<any> {
+    tzParam?: string,
+  ): Promise<ReadingStats> {
+    const tz = tzParam ?? 'UTC';
+    if (!isTimeZone(tz)) {
+      throw ApiError.unprocessable('invalid_timezone', 'Unknown time zone. Send an IANA name such as Europe/London.', 'tz');
+    }
+    const today = localDate(tz);
+    let year: number | null;
+    if (yearParam === undefined) year = Number(today.slice(0, 4));
+    else if (yearParam === 'all') year = null;
+    else if (/^\d{4}$/.test(yearParam) && Number(yearParam) >= 1000) year = Number(yearParam);
+    else throw ApiError.unprocessable('invalid_year', 'Year is YYYY or "all".', 'year');
+
     const rel = await loadRelationship(this.db, viewer, userId);
-      if (!canViewWith(viewer, userId, rel)) throw ApiError.notFound('User not found.');
+    if (!canViewWith(viewer, userId, rel)) throw ApiError.notFound('User not found.');
+    const levelList = sql.join(visibleLevels(viewer, userId, rel).map((l) => sql`${l}`), sql`, `);
 
-      const currentYear = new Date().getFullYear();
-      const yearStr = yearParam && (yearParam === 'all' || /^\d{4}$/.test(yearParam)) ? yearParam : String(currentYear);
-      const isAllTime = yearStr === 'all';
-      const selectedYear = isAllTime ? null : Number(yearStr);
+    // Calendar dates, and the instants where the user's local year begins and ends.
+    const ys = year === null ? null : `${year}-01-01`;
+    const ye = year === null ? null : `${year + 1}-01-01`;
+    const winStart = ys === null ? sql`NULL::timestamptz` : sql`(${ys}::timestamp AT TIME ZONE ${tz})`;
+    const winEnd = ye === null ? sql`NULL::timestamptz` : sql`(${ye}::timestamp AT TIME ZONE ${tz})`;
+    const effectiveFormat = sql`COALESCE(r.format_override,
+      CASE e.format WHEN 'hardcover' THEN 'print' WHEN 'paperback' THEN 'print'
+                    WHEN 'ebook' THEN 'ebook' WHEN 'audiobook' THEN 'audiobook' END,
+      'unknown')`;
 
-      const userReads = await this.db
-        .select({
-          id: reads.id,
-          workId: reads.workId,
-          editionId: reads.editionId,
-          status: reads.status,
-          startedAt: reads.startedAt,
-          finishedAt: reads.finishedAt,
-          abandonedAt: reads.abandonedAt,
-          rating: reads.rating,
-          formatOverride: reads.formatOverride,
-          title: works.title,
-          coverId: sql<number | null>`COALESCE(
-            ${editions.olCoverId},
-            ${works.olCoverId},
-            (SELECT e.ol_cover_id FROM editions e WHERE e.work_id = works.id AND e.ol_cover_id IS NOT NULL LIMIT 1)
-          )`.as('cover_id'),
-          pageCount: sql<number | null>`COALESCE(
-            ${editions.pageCount},
-            (SELECT e.page_count FROM editions e WHERE e.work_id = works.id AND e.page_count IS NOT NULL LIMIT 1)
-          )`.as('page_count'),
-          authorName: sql<string>`COALESCE((
-            SELECT a.name
-            FROM work_authors wa JOIN authors a ON a.id = wa.author_id
-            WHERE wa.work_id = works.id
-            ORDER BY wa.position, a.name
-            LIMIT 1
-          ), 'Unknown Author')`.as('author_name'),
-          visibility: reads.visibility,
-        })
-        .from(reads)
-        .innerJoin(works, eq(reads.workId, works.id))
-        .leftJoin(editions, eq(reads.editionId, editions.id))
-        .where(eq(reads.userId, userId));
-
-      const visibleReads = userReads.filter((r) =>
-        // With the relationship: a follower's stats include followers-only reads.
-        canViewWith(viewer, userId, rel, r.visibility),
-      );
-
-      const finishedInYear = visibleReads.filter((r) => {
-        if (r.status !== 'finished') return false;
-        if (isAllTime) return true;
-        if (!r.finishedAt) return false;
-        return new Date(r.finishedAt).getFullYear() === selectedYear;
-      });
-
-      const dnfInYear = visibleReads.filter((r) => {
-        if (r.status !== 'dnf') return false;
-        if (isAllTime) return true;
-        const d = r.abandonedAt ? new Date(r.abandonedAt).getFullYear() : null;
-        return d === selectedYear;
-      });
-
-      const monthlyPace = Array.from({ length: 12 }, (_, i) => ({
-        month: i + 1,
-        books: 0,
-        pages: 0,
-      }));
-
-      for (const r of finishedInYear) {
-        if (r.finishedAt) {
-          const m = new Date(r.finishedAt).getMonth();
-          const item = monthlyPace[m];
-          if (item) {
-            item.books += 1;
-            item.pages += r.pageCount ?? 0;
-          }
-        }
-      }
-
-      const booksCount = finishedInYear.length;
-      const pagesCount = finishedInYear.reduce((acc, r) => acc + (r.pageCount ?? 0), 0);
-
-      const audioQuery = await this.db.execute<{ total_seconds: string | number }>(sql`
-        SELECT COALESCE(SUM(pe.audio_seconds), 0) as total_seconds
-        FROM progress_events pe
-        JOIN reads r ON pe.read_id = r.id
-        WHERE r.user_id = ${userId}
-        ${selectedYear ? sql`AND EXTRACT(YEAR FROM pe.at) = ${selectedYear}` : sql``}
-      `);
-      const audioRows = (audioQuery as any)?.rows ?? (audioQuery as any);
-      const audioSeconds = Number(audioRows?.[0]?.total_seconds ?? 0);
-      const audioHours = Math.round((audioSeconds / 3600) * 10) / 10;
-
-      const ratedReads = finishedInYear.filter((r) => r.rating !== null);
-      const avgRating =
-        ratedReads.length > 0
-          ? Math.round(
-              (ratedReads.reduce((sum, r) => sum + Number(r.rating), 0) / ratedReads.length) * 100
-            ) / 100
-          : null;
-
-      const ratingDistribution: Record<string, number> = { '5': 0, '4': 0, '3': 0, '2': 0, '1': 0 };
-      for (const r of ratedReads) {
-        const rounded = Math.min(5, Math.max(1, Math.round(Number(r.rating))));
-        const key = String(rounded);
-        ratingDistribution[key] = (ratingDistribution[key] ?? 0) + 1;
-      }
-
-      const formatBreakdown = { print: 0, ebook: 0, audiobook: 0 };
-      for (const r of finishedInYear) {
-        const fmt = r.formatOverride ?? 'print';
-        if (fmt === 'ebook') {
-          formatBreakdown.ebook += 1;
-        } else if (fmt === 'audiobook') {
-          formatBreakdown.audiobook += 1;
-        } else {
-          formatBreakdown.print += 1;
-        }
-      }
-
-      const booksWithPages = finishedInYear.filter((r) => (r.pageCount ?? 0) > 0);
-      booksWithPages.sort((a, b) => (b.pageCount ?? 0) - (a.pageCount ?? 0));
-
-      const longest = booksWithPages[0];
-      const longestBook = longest ? {
-        work_id: longest.workId,
-        title: longest.title,
-        author_name: longest.authorName,
-        page_count: longest.pageCount,
-        cover_id: longest.coverId,
-      } : null;
-
-      const shortest = booksWithPages[booksWithPages.length - 1];
-      const shortestBook = shortest ? {
-        work_id: shortest.workId,
-        title: shortest.title,
-        author_name: shortest.authorName,
-        page_count: shortest.pageCount,
-        cover_id: shortest.coverId,
-      } : null;
-
-      const authorCounts = new Map<string, number>();
-      for (const r of finishedInYear) {
-        if (r.authorName) {
-          authorCounts.set(r.authorName, (authorCounts.get(r.authorName) ?? 0) + 1);
-        }
-      }
-      let mostReadAuthor: { name: string; count: number } | null = null;
-      for (const [name, count] of authorCounts.entries()) {
-        if (!mostReadAuthor || count > mostReadAuthor.count) {
-          mostReadAuthor = { name, count };
-        }
-      }
-
-      const dnfCount = dnfInYear.length;
-      const totalFinishedOrDnf = booksCount + dnfCount;
-      const dnfRate = totalFinishedOrDnf > 0 ? Math.round((dnfCount / totalFinishedOrDnf) * 100) / 100 : 0;
-
-      const activityDatesRes = await this.db.execute<{ activity_date: string }>(sql`
-        SELECT DISTINCT to_char(pe.at, 'YYYY-MM-DD') as activity_date
-        FROM progress_events pe
-        JOIN reads r ON pe.read_id = r.id
-        WHERE r.user_id = ${userId}
+    const [rows, audio, days] = await Promise.all([
+      // Finished and DNF reads in scope. An undated finish comes back too:
+      // it counts all-time and is disclosed (§17.4), never placed in a month.
+      this.db.execute<StatsRow>(sql`
+        SELECT r.id, r.work_id, r.status,
+               r.finished_at::text AS finished_at, r.abandoned_at::text AS abandoned_at,
+               r.rating::text AS rating,
+               ${effectiveFormat} AS format,
+               flyleaf_page_count(r.edition_id, r.work_id) AS page_count,
+               w.title,
+               COALESCE(e.ol_cover_id, w.ol_cover_id,
+                 (SELECT e2.ol_cover_id FROM editions e2
+                   WHERE e2.work_id = w.id AND e2.ol_cover_id IS NOT NULL LIMIT 1)) AS cover_id,
+               COALESCE((SELECT a.name FROM work_authors wa JOIN authors a ON a.id = wa.author_id
+                          WHERE wa.work_id = w.id ORDER BY wa.position, a.name LIMIT 1),
+                        'Unknown Author') AS author_name
+          FROM reads r
+          JOIN works w ON w.id = r.work_id
+          LEFT JOIN editions e ON e.id = r.edition_id
+         WHERE r.user_id = ${userId}
+           AND r.visibility IN (${levelList})
+           AND r.status IN ('finished', 'dnf')
+           AND (${ys}::date IS NULL
+                OR (r.status = 'finished' AND (r.finished_at IS NULL
+                    OR (r.finished_at >= ${ys}::date AND r.finished_at < ${ye}::date)))
+                OR (r.status = 'dnf' AND r.abandoned_at >= ${ys}::date AND r.abandoned_at < ${ye}::date))
+      `),
+      // Listening. audio_seconds is a POSITION, like page (§8.3: the latest
+      // row is the current position), so a window gets the furthest point
+      // reached in it minus the furthest point reached before it. A finished
+      // audiobook with a known duration has reached its duration on the
+      // finish date. Summing the events counted the same hour again and again.
+      this.db.execute<{ seconds: string | number }>(sql`
+        WITH vr AS (
+          SELECT r.id, r.status, r.finished_at,
+                 CASE WHEN ${effectiveFormat} = 'audiobook' THEN e.audio_seconds END AS duration
+            FROM reads r LEFT JOIN editions e ON e.id = r.edition_id
+           WHERE r.user_id = ${userId} AND r.visibility IN (${levelList})
+        ), pos AS (
+          SELECT vr.id,
+                 max(pe.audio_seconds) FILTER (WHERE ${winEnd} IS NULL OR pe.at < ${winEnd}) AS reached,
+                 max(pe.audio_seconds) FILTER (WHERE pe.at < ${winStart}) AS before
+            FROM vr JOIN progress_events pe ON pe.read_id = vr.id
+           WHERE pe.audio_seconds IS NOT NULL
+           GROUP BY vr.id
+        )
+        SELECT COALESCE(sum(GREATEST(0,
+                 GREATEST(COALESCE(p.reached, 0),
+                          CASE WHEN vr.status = 'finished' AND vr.duration IS NOT NULL
+                                AND (${ye}::date IS NULL OR vr.finished_at < ${ye}::date)
+                               THEN vr.duration ELSE 0 END)
+               - GREATEST(COALESCE(p.before, 0),
+                          CASE WHEN vr.status = 'finished' AND vr.duration IS NOT NULL
+                                AND vr.finished_at < ${ys}::date
+                               THEN vr.duration ELSE 0 END))), 0) AS seconds
+          FROM vr LEFT JOIN pos p ON p.id = vr.id
+         WHERE p.id IS NOT NULL OR vr.duration IS NOT NULL
+      `),
+      // Streak days: the user's local dates with activity, visible reads only.
+      this.db.execute<{ d: string }>(sql`
+        SELECT DISTINCT (pe.at AT TIME ZONE ${tz})::date::text AS d
+          FROM reads r JOIN progress_events pe ON pe.read_id = r.id
+         WHERE r.user_id = ${userId} AND r.visibility IN (${levelList})
         UNION
-        SELECT DISTINCT finished_at::text as activity_date
-        FROM reads
-        WHERE user_id = ${userId} AND finished_at IS NOT NULL
-        ORDER BY activity_date DESC
-      `);
-      const activityRows = (activityDatesRes as any)?.rows ?? (activityDatesRes as any);
-      const dateStrings = (Array.isArray(activityRows) ? activityRows : []).map((r: any) => r.activity_date);
-      const { currentStreak, longestStreak } = computeStreaks(dateStrings);
+        SELECT r.finished_at::text
+          FROM reads r
+         WHERE r.user_id = ${userId} AND r.visibility IN (${levelList}) AND r.finished_at IS NOT NULL
+      `),
+    ]);
 
-      return {
-        year: yearStr,
-        books_count: booksCount,
-        pages_count: pagesCount,
-        audio_hours: audioHours,
-        avg_rating: avgRating,
-        rating_distribution: ratingDistribution,
-        format_breakdown: formatBreakdown,
-        monthly_pace: monthlyPace,
-        longest_book: longestBook,
-        shortest_book: shortestBook,
-        most_read_author: mostReadAuthor,
-        dnf_count: dnfCount,
-        dnf_rate: dnfRate,
-        current_streak: currentStreak,
-        longest_streak: longestStreak,
-      };
+    const finished = rows.filter((r) => r.status === 'finished' && (year === null || r.finished_at !== null));
+    const dnf = rows.filter((r) => r.status === 'dnf');
+
+    const monthlyPace = Array.from({ length: 12 }, (_, i) => ({ month: i + 1, books: 0, pages: 0 }));
+    for (const r of finished) {
+      if (r.finished_at === null) continue; // undated: no month (§17.4)
+      const item = monthlyPace[Number(r.finished_at.slice(5, 7)) - 1]!;
+      item.books += 1;
+      item.pages += r.page_count ?? 0;
+    }
+
+    const rated = finished.filter((r) => r.rating !== null);
+    const ratingDistribution = Object.fromEntries(STATS_RATING_BUCKETS.map((b) => [b, 0])) as Record<string, number>;
+    for (const r of rated) ratingDistribution[Number(r.rating).toFixed(1)]! += 1;
+    const avgRating = rated.length > 0
+      ? Math.round((rated.reduce((sum, r) => sum + Number(r.rating), 0) / rated.length) * 100) / 100
+      : null;
+
+    const formatBreakdown = { print: 0, ebook: 0, audiobook: 0, unknown: 0 };
+    for (const r of finished) formatBreakdown[r.format] += 1;
+
+    // Extremes: a fixed order, so equal page counts do not swap between calls.
+    const withPages = finished
+      .filter((r) => r.page_count !== null)
+      .sort((a, b) => b.page_count! - a.page_count! || a.id.localeCompare(b.id));
+    const extreme = (r: StatsRow | undefined) => r
+      ? { work_id: r.work_id, title: r.title, author_name: r.author_name, page_count: r.page_count, cover_id: r.cover_id }
+      : null;
+
+    const authorCounts = new Map<string, number>();
+    for (const r of finished) authorCounts.set(r.author_name, (authorCounts.get(r.author_name) ?? 0) + 1);
+    let mostReadAuthor: { name: string; count: number } | null = null;
+    for (const [name, count] of [...authorCounts.entries()].sort((a, b) => a[0].localeCompare(b[0]))) {
+      if (!mostReadAuthor || count > mostReadAuthor.count) mostReadAuthor = { name, count };
+    }
+
+    const booksCount = finished.length;
+    const dnfCount = dnf.length;
+    const audioSeconds = Number(audio[0]?.seconds ?? 0);
+    const { currentStreak, longestStreak } = computeStreaks(days.map((d) => d.d), today);
+
+    return {
+      year: year === null ? 'all' : String(year),
+      books_count: booksCount,
+      distinct_works_count: new Set(finished.map((r) => r.work_id)).size,
+      pages_count: withPages.reduce((acc, r) => acc + r.page_count!, 0),
+      audio_hours: Math.round((audioSeconds / 3600) * 10) / 10,
+      avg_rating: avgRating,
+      rating_distribution: ratingDistribution,
+      format_breakdown: formatBreakdown,
+      monthly_pace: monthlyPace,
+      longest_book: extreme(withPages[0]),
+      shortest_book: extreme(withPages[withPages.length - 1]),
+      most_read_author: mostReadAuthor,
+      dnf_count: dnfCount,
+      dnf_rate: booksCount + dnfCount > 0 ? Math.round((dnfCount / (booksCount + dnfCount)) * 100) / 100 : 0,
+      current_streak: currentStreak,
+      longest_streak: longestStreak,
+      // §17.4: what the figures above leave out, so the client can say so.
+      // Undated finishes (every visible one) never reach a month or a year;
+      // books without a page count add nothing to pages or the extremes.
+      excluded: {
+        undated: rows.filter((r) => r.status === 'finished' && r.finished_at === null).length,
+        missing_page_count: finished.filter((r) => r.page_count === null).length,
+      },
+    };
   }
 }
 
-export function computeStreaks(dateStrings: string[]): { currentStreak: number; longestStreak: number } {
+/** Opaque cursor for GET /users/:id/reads: updated_at as Postgres text, then the id. */
+function encodeReadsCursor(updatedAt: string, id: string): string {
+  return Buffer.from(`${updatedAt}|${id}`, 'utf8').toString('base64url');
+}
+
+function decodeReadsCursor(cursor: string | undefined): { at: string; id: string } | null {
+  if (!cursor) return null;
+  const [at, id] = Buffer.from(cursor, 'base64url').toString('utf8').split('|');
+  // Postgres's own text form: 2026-01-01 10:00:00.123003+00
+  if (!at || !id || !/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}(\.\d{1,6})?[+-]\d{2}(:\d{2})?$/.test(at) || !/^[0-9a-f-]{36}$/i.test(id)) {
+    throw ApiError.badRequest('invalid_cursor', 'Cursor is not valid.', 'cursor');
+  }
+  return { at, id };
+}
+
+/** The stats histogram's buckets: the same ten half stars as the book page (A-09-043). */
+const STATS_RATING_BUCKETS = ['0.5', '1.0', '1.5', '2.0', '2.5', '3.0', '3.5', '4.0', '4.5', '5.0'] as const;
+
+type StatsRow = {
+  id: string;
+  work_id: string;
+  status: 'finished' | 'dnf';
+  finished_at: string | null;
+  abandoned_at: string | null;
+  rating: string | null;
+  format: 'print' | 'ebook' | 'audiobook' | 'unknown';
+  page_count: number | null;
+  title: string;
+  cover_id: number | null;
+  author_name: string;
+};
+
+type ExtremeBook = { work_id: string; title: string; author_name: string; page_count: number | null; cover_id: number | null };
+
+export type ReadingStats = {
+  year: string;
+  books_count: number;
+  distinct_works_count: number;
+  pages_count: number;
+  audio_hours: number;
+  avg_rating: number | null;
+  rating_distribution: Record<string, number>;
+  format_breakdown: { print: number; ebook: number; audiobook: number; unknown: number };
+  monthly_pace: Array<{ month: number; books: number; pages: number }>;
+  longest_book: ExtremeBook | null;
+  shortest_book: ExtremeBook | null;
+  most_read_author: { name: string; count: number } | null;
+  dnf_count: number;
+  dnf_rate: number;
+  current_streak: number;
+  longest_streak: number;
+  excluded: { undated: number; missing_page_count: number };
+};
+
+/**
+ * An IANA zone Intl knows. The character check keeps anything odd away from
+ * Postgres, which answers an unknown zone with an error rather than a value.
+ */
+export function isTimeZone(tz: string): boolean {
+  if (tz.length > 64 || !/^[A-Za-z][A-Za-z0-9_+\-/]*$/.test(tz)) return false;
+  try {
+    new Intl.DateTimeFormat('en-US', { timeZone: tz });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** The date, YYYY-MM-DD, in `tz`. */
+export function localDate(tz: string, at = new Date()): string {
+  return new Intl.DateTimeFormat('en-CA', { timeZone: tz, year: 'numeric', month: '2-digit', day: '2-digit' }).format(at);
+}
+
+/**
+ * Current and longest run of consecutive active dates (YYYY-MM-DD, already
+ * in the user's zone). A run is current if it reaches today or yesterday.
+ * No grace period yet: PRD §8.7's two days are ST-06.
+ */
+export function computeStreaks(
+  dateStrings: string[],
+  today = new Date().toISOString().slice(0, 10),
+): { currentStreak: number; longestStreak: number } {
   if (dateStrings.length === 0) {
     return { currentStreak: 0, longestStreak: 0 };
   }
@@ -921,8 +1018,8 @@ export function computeStreaks(dateStrings: string[]): { currentStreak: number; 
   const uniqueDates = Array.from(new Set(dateStrings)).sort().reverse();
   const dateObjs = uniqueDates.map((d) => new Date(`${d}T00:00:00Z`));
 
-  const todayStr = new Date().toISOString().slice(0, 10);
-  const yesterdayStr = new Date(Date.now() - 86400000).toISOString().slice(0, 10);
+  const todayStr = today;
+  const yesterdayStr = new Date(Date.parse(`${today}T00:00:00Z`) - 86400000).toISOString().slice(0, 10);
 
   let currentStreak = 0;
   if (uniqueDates.includes(todayStr) || uniqueDates.includes(yesterdayStr)) {
@@ -968,7 +1065,7 @@ export function computeStreaks(dateStrings: string[]): { currentStreak: number; 
 export function readingRoutes(service: ReadingService) {
   return async (app: FastifyInstance) => {
     // Current user's reading stats (authenticated)
-    app.get<{ Querystring: { year?: string } }>(
+    app.get<{ Querystring: { year?: string; tz?: string } }>(
       '/me/stats',
       {
         schema: {
@@ -980,17 +1077,18 @@ export function readingRoutes(service: ReadingService) {
           response: {
             200: readingStatsResponseSchema,
             401: errorResponseSchema,
+            422: errorResponseSchema,
           },
         },
       },
       async (req) => {
         const viewer = requireViewer(req);
-        return service.getStats(viewer, viewer, req.query.year);
+        return service.getStats(viewer, viewer, req.query.year, req.query.tz);
       },
     );
 
     // Another user's reading stats
-    app.get<{ Params: { id: string }; Querystring: { year?: string } }>(
+    app.get<{ Params: { id: string }; Querystring: { year?: string; tz?: string } }>(
       '/users/:id/stats',
       {
         schema: {
@@ -1002,11 +1100,12 @@ export function readingRoutes(service: ReadingService) {
           response: {
             200: readingStatsResponseSchema,
             404: errorResponseSchema,
+            422: errorResponseSchema,
           },
         },
       },
       async (req) => {
-        return service.getStats(req.viewer, req.params.id, req.query.year);
+        return service.getStats(req.viewer, req.params.id, req.query.year, req.query.tz);
       },
     );
 
@@ -1060,27 +1159,31 @@ export function readingRoutes(service: ReadingService) {
     );
 
     // Another user's public reads (optional auth: guest viewer is null)
-    app.get<{ Params: { id: string }; Querystring: { status?: string } }>(
+    app.get<{ Params: { id: string }; Querystring: { status?: string; cursor?: string; limit?: number } }>(
       '/users/:id/reads',
       {
         schema: {
           tags: ['Reading'],
-          summary: 'List user public reads',
-          description: 'Returns public reads for a user. Private accounts return empty list for non-followers.',
+          summary: 'List a user\'s reads, newest update first, cursor-paginated',
+          description:
+            'The reads this viewer may see (PRD §17.5: visibility per item, the account\'s privacy, blocks). ' +
+            'A private account the viewer does not follow, a blocked or missing user all answer an empty page. ' +
+            '`limit` 1-100, default 50; pass `next_cursor` back as `cursor` (A-08-027).',
           params: idParamSchema,
-          querystring: statusQuerySchema,
+          querystring: userReadsQuerySchema,
           response: {
-            200: readListResponseSchema,
+            200: userReadPageResponseSchema,
+            400: errorResponseSchema,
             422: errorResponseSchema,
           },
         },
       },
       async (req) => {
-        const { status } = req.query;
+        const { status, cursor, limit } = req.query;
         if (status && !STATUSES.includes(status as Status)) {
           throw ApiError.unprocessable('invalid_status', 'Unknown status filter.', 'status');
         }
-        return { data: await service.list(req.viewer, req.params.id, status) };
+        return service.listPage(req.viewer, req.params.id, status, { cursor, limit: limit ?? 50 });
       },
     );
 

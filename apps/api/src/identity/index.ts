@@ -15,6 +15,7 @@ import { config, type Db, type RateLimiter } from '../platform/index.js';
 import { type EmailSender, ConsoleEmailSender } from '../providers/email/index.js';
 import { users, profiles, works, follows, blocks, refreshTokens, emailVerificationTokens, passwordResetTokens } from '../db/schema.js';
 import { ApiError, requireViewer } from '../http.js';
+import { avatarUrl } from '../uploads/index.js';
 import { resolveWorkId } from '../catalog/resolve.js';
 import { isCommonPassword } from './common-passwords.js';
 import { canViewWith, loadRelationship } from '../authorization/index.js';
@@ -32,6 +33,8 @@ export type Profile = {
   displayName: string | null;
   bio: string | null;
   avatarKey: string | null;
+  /** GET /v1/avatars/…, or null (audit 10). */
+  avatarUrl: string | null;
   isPrivate: boolean;
   isRestricted?: boolean;
   followerCount: number;
@@ -135,11 +138,19 @@ export function isAtLeast13(dobStr: string, now: Date = new Date()): boolean {
   return age >= 13;
 }
 
-export const dobSchema = z
+/**
+ * The words for an under-13 date, at signup and at confirmation (D-07b-1): a
+ * neutral age gate does not say which answer would pass.
+ */
+export const AGE_GATE_MESSAGE = "Sorry, you can't use Flyleaf.";
+
+/** A well-formed, real date; the age rule is separate so confirmation can record an under-13 attempt. */
+const dobFormatSchema = z
   .string()
   .regex(/^\d{4}-\d{2}-\d{2}$/, 'Use YYYY-MM-DD for date of birth.')
-  .refine((s) => parseDob(s) !== null, 'Enter a real date of birth.')
-  .refine((s) => isAtLeast13(s), 'You must be at least 13 years old to use Flyleaf.');
+  .refine((s) => parseDob(s) !== null, 'Enter a real date of birth.');
+
+export const dobSchema = dobFormatSchema.refine((s) => isAtLeast13(s), AGE_GATE_MESSAGE);
 
 const registerBody = z.object({
   email: z.string().email('That does not look like an email address.'),
@@ -148,7 +159,7 @@ const registerBody = z.object({
   dateOfBirth: dobSchema,
 });
 
-const confirmDobBody = z.object({ dateOfBirth: dobSchema });
+const confirmDobBody = z.object({ dateOfBirth: dobFormatSchema });
 
 const loginBody = z.object({
   email: z.string(),
@@ -235,7 +246,22 @@ export function uniqueViolationField(err: unknown): 'email' | 'username' | 'othe
 
 // ---------------------------------------------------------------- service
 
-export type User = { id: string; email: string; username: string; emailVerified?: boolean; dobConfirmed?: boolean };
+export type User = {
+  id: string;
+  email: string;
+  username: string;
+  emailVerified?: boolean;
+  dobConfirmed?: boolean;
+  showExplicit?: boolean;
+  explicitSettingAvailable?: boolean;
+};
+
+/**
+ * Who may hold "Show explicit titles in search" (PRD §7.8): a confirmed date
+ * of birth at 18 or over. The same expression as CatalogService.#allowsExplicit,
+ * so the control exists exactly when search would honour it.
+ */
+const explicitAvailableSql = sql<boolean>`(${users.dobConfirmed} AND ${users.dateOfBirth} <= (current_date - interval '18 years')::date)`;
 
 import { ActivityService } from '../activity/index.js';
 
@@ -512,30 +538,85 @@ export class IdentityService {
         username: profiles.username,
         emailVerified: sql<boolean>`${users.emailVerifiedAt} IS NOT NULL`,
         dobConfirmed: users.dobConfirmed,
+        showExplicit: profiles.showExplicit,
+        explicitSettingAvailable: explicitAvailableSql,
       })
       .from(users)
       .innerJoin(profiles, eq(users.id, profiles.userId))
       .where(eq(users.id, id))
       .limit(1);
-    return row ? { ...row, emailVerified: Boolean(row.emailVerified) } : null;
+    return row
+      ? { ...row, emailVerified: Boolean(row.emailVerified), explicitSettingAvailable: Boolean(row.explicitSettingAvailable) }
+      : null;
   }
 
   /**
    * Records the date of birth of an account whose stored one was never entered
-   * (dob_confirmed false, D-07-3). Validated like signup by the route. Once:
-   * a confirmed date is not editable here, or anyone could rewrite their age.
+   * (dob_confirmed false, D-07-3). The route checks the format; the age rule
+   * is here. Once: a confirmed date is not editable here, or anyone could
+   * rewrite their age.
+   *
+   * Neutral age gate (D-07b-1): an under-13 date is refused and recorded, and
+   * once recorded every later attempt gets the same refusal, whatever date it
+   * carries. The account stays unconfirmed (most restricted) until reviewed.
    */
   async confirmDateOfBirth(userId: string, dateOfBirth: string): Promise<User> {
+    const refused = () => ApiError.unprocessable('invalid_field', AGE_GATE_MESSAGE, 'dateOfBirth');
+    if (!isAtLeast13(dateOfBirth)) {
+      await this.db
+        .update(users)
+        .set({ underageAttemptAt: sql`COALESCE(${users.underageAttemptAt}, now())` })
+        .where(and(eq(users.id, userId), eq(users.dobConfirmed, false), isNull(users.deletedAt)));
+      throw refused();
+    }
     const updated = await this.db
       .update(users)
       .set({ dateOfBirth, dobConfirmed: true })
-      .where(and(eq(users.id, userId), eq(users.dobConfirmed, false), isNull(users.deletedAt)))
+      .where(and(
+        eq(users.id, userId),
+        eq(users.dobConfirmed, false),
+        isNull(users.underageAttemptAt),
+        isNull(users.deletedAt),
+      ))
       .returning({ id: users.id });
     if (updated.length === 0) {
-      const current = await this.get(userId);
+      const [current] = await this.db
+        .select({ confirmed: users.dobConfirmed, flagged: users.underageAttemptAt })
+        .from(users)
+        .where(and(eq(users.id, userId), isNull(users.deletedAt)));
       if (!current) throw ApiError.notFound('No such account.');
+      if (current.flagged && !current.confirmed) throw refused();
       throw ApiError.conflict('dob_already_confirmed', 'Your date of birth is already confirmed.');
     }
+    const user = await this.get(userId);
+    if (!user) throw ApiError.notFound('No such account.');
+    return user;
+  }
+
+  /**
+   * "Show explicit titles in search" (PRD §7.8 [LOCKED], A-07-036). Only an
+   * account with a confirmed date of birth at 18 or over may turn it on, and
+   * only by re-entering that date. Turning it off is always allowed.
+   */
+  async setContentSettings(userId: string, data: { showExplicit: boolean; dateOfBirth?: string }): Promise<User> {
+    const current = await this.get(userId);
+    if (!current) throw ApiError.notFound('No such account.');
+    if (data.showExplicit) {
+      if (!current.explicitSettingAvailable) {
+        throw ApiError.forbidden('setting_unavailable', 'This setting is not available for your account.');
+      }
+      if (!data.dateOfBirth) {
+        throw ApiError.unprocessable('dob_required', 'Enter your date of birth to turn this on.', 'dateOfBirth');
+      }
+      const [row] = await this.db
+        .select({ dob: users.dateOfBirth })
+        .from(users)
+        .where(eq(users.id, userId));
+      if (row?.dob !== data.dateOfBirth) {
+        throw ApiError.unprocessable('dob_mismatch', 'That date of birth does not match your account.', 'dateOfBirth');
+      }
+    }
+    await this.db.update(profiles).set({ showExplicit: data.showExplicit }).where(eq(profiles.userId, userId));
     const user = await this.get(userId);
     if (!user) throw ApiError.notFound('No such account.');
     return user;
@@ -592,6 +673,7 @@ export class IdentityService {
         displayName: row.displayName,
         bio: row.bio,
         avatarKey: row.avatarKey,
+        avatarUrl: avatarUrl(row.avatarKey),
         isPrivate: row.isPrivate,
         isRestricted: true,
         followerCount: row.followerCount,
@@ -641,6 +723,7 @@ export class IdentityService {
       displayName: row.displayName,
       bio: row.bio,
       avatarKey: row.avatarKey,
+      avatarUrl: avatarUrl(row.avatarKey),
       isPrivate: row.isPrivate,
       isRestricted: false,
       followerCount: row.followerCount,
@@ -662,10 +745,15 @@ export class IdentityService {
       favouriteWorkIds?: string[];
     },
   ): Promise<Profile> {
-      if (data.bio !== undefined && data.bio !== null && data.bio.length > 160) {
+      // Trimmed, and whitespace only is no value (audit 10). Lengths are in
+      // characters, as the schema and profiles_bio_length_ck count them: a
+      // UTF-16 .length made 160 emoji a 422 at 81.
+      const tidy = (v: string | null | undefined) => (v === undefined ? undefined : v === null ? null : v.trim() || null);
+      data = { ...data, bio: tidy(data.bio), displayName: tidy(data.displayName) };
+      if (data.bio && [...data.bio].length > 160) {
         throw ApiError.unprocessable('bio_too_long', 'Bio must not exceed 160 characters.', 'bio');
       }
-      if (data.displayName !== undefined && data.displayName !== null && data.displayName.length > 100) {
+      if (data.displayName && [...data.displayName].length > 100) {
         throw ApiError.unprocessable('display_name_too_long', 'Display name must not exceed 100 characters.', 'displayName');
       }
       if (data.favouriteWorkIds !== undefined) {
@@ -704,24 +792,29 @@ export class IdentityService {
       if (data.isPrivate !== undefined) updates.isPrivate = data.isPrivate;
       if (data.favouriteWorkIds !== undefined) updates.favouriteWorkIds = data.favouriteWorkIds;
 
-      if (Object.keys(updates).length > 0) {
-        await this.db
-          .update(profiles)
-          .set(updates)
-          .where(eq(profiles.userId, userId));
+      // One transaction (audit 10): a failure after the flag flipped to
+      // private used to leave the account's public activity public, and one
+      // after it flipped back left requests pending on a public account.
+      await this.db.transaction(async (tx) => {
+        if (Object.keys(updates).length > 0) {
+          await tx
+            .update(profiles)
+            .set(updates)
+            .where(eq(profiles.userId, userId));
 
-        if (data.isPrivate === true) {
-          await this.activityService.setAccountPrivacy(this.db, userId, true);
+          if (data.isPrivate === true) {
+            await this.activityService.setAccountPrivacy(tx as unknown as Db, userId, true);
+          }
         }
-      }
 
-      // If going public, auto-accept pending requests
-      if (goingPublic) {
-        await this.db
-          .update(follows)
-          .set({ state: 'accepted' })
-          .where(and(eq(follows.followeeId, userId), eq(follows.state, 'pending')));
-      }
+        // If going public, auto-accept pending requests
+        if (goingPublic) {
+          await tx
+            .update(follows)
+            .set({ state: 'accepted' })
+            .where(and(eq(follows.followeeId, userId), eq(follows.state, 'pending')));
+        }
+      });
 
       const updated = await this.getProfile(userId, userId);
       if (!updated) throw ApiError.notFound('Profile not found.');
@@ -999,6 +1092,7 @@ import {
   revokeSessionResponseSchema,
   userSchema,
   confirmDobBodySchema,
+  contentSettingsBodySchema,
   profileSchema,
   updateProfileBodySchema,
   updateProfileResponseSchema,
@@ -1342,6 +1436,33 @@ export function identityRoutes(service: IdentityService) {
           throw ApiError.unprocessable('invalid_field', issue?.message ?? 'Check that.', 'dateOfBirth');
         }
         return service.confirmDateOfBirth(viewer, parsed.data.dateOfBirth);
+      },
+    );
+
+    app.put<{ Body: { showExplicit: boolean; dateOfBirth?: string } }>(
+      '/me/content-settings',
+      {
+        schema: {
+          tags: ['Auth'],
+          summary: 'Set "Show explicit titles in search"',
+          description:
+            'PRD §7.8 [LOCKED]: off by default; only an account with a confirmed date of birth at 18 or over may turn it on ' +
+            '(403 setting_unavailable otherwise), and turning it on re-enters that date (422 dob_required / dob_mismatch). ' +
+            'Turning it off is always allowed. Returns the /me user.',
+          security: [{ BearerAuth: [] }],
+          body: contentSettingsBodySchema,
+          response: {
+            200: userSchema,
+            401: errorResponseSchema,
+            403: errorResponseSchema,
+            404: errorResponseSchema,
+            422: errorResponseSchema,
+          },
+        },
+      },
+      async (req) => {
+        const viewer = requireViewer(req);
+        return service.setContentSettings(viewer, req.body);
       },
     );
 

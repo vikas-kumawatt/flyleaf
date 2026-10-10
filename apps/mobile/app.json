@@ -41,7 +41,14 @@
         }
       ],
       "expo-image",
-      "expo-sqlite"
+      "expo-sqlite",
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Flyleaf uses your photos to set your profile picture.",
+          "cameraPermission": "Flyleaf uses the camera to scan book barcodes and to take a profile picture."
+        }
+      ]
     ],
     "experiments": {
       "typedRoutes": true

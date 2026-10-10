@@ -497,6 +497,10 @@ These change the native app, so a JavaScript reload does not pick them up:
 | `@expo/metro-runtime` 57.0.15 → 57.0.16 | patch (A-07-022) |
 | `app.json` › `android.intentFilters`: `https://flyleaf.app/verify-email` and `/reset-password`, `autoVerify` | Android App Links: the emailed links open the app (D-07-1) |
 | `app.json` › `ios.associatedDomains`: `applinks:flyleaf.app` | iOS Universal Links, same links (not built here: Android only) |
+| `expo-image-picker` ~57.0.20 (new) + `app.json` plugin entry (photo and camera permission strings) | Avatar picker: library or camera (audit 10, A-10-016) |
+| `expo-image-manipulator` ~57.0.20 (new) | Avatar resized to 512 px JPEG on the device before upload (PRD §6.7, A-10-016) |
+
+Batched: the owner rebuilds once after Part 14, with every native change listed here.
 
 The intent filter lives in the generated `android/` folder, so it must be regenerated, not just rebuilt. One command, from `apps\mobile` (PowerShell; it deletes and recreates the generated `android\` folder, re-applies the Gradle timeout fix, then builds and installs):
 

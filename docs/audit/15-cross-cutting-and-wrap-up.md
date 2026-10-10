@@ -61,3 +61,11 @@ These are the sibling-feature inconsistencies that each part saw only half of:
 - the recommended order for anything still open
 
 Your final chat message is that summary, shortened.
+
+## Handed over from Part 10 (see `findings/10-profile-stats-telemetry.md`)
+
+- **Event retention, D-10-1 corrected (PRD §23.5 wins), A-10-025:** a daily prune deletes `events` older than **13 months**, and `search_zero_results` older than a **flat 30 days**, independent of the weekly summary (the summary only reads inside that window). State the 13 months in the privacy policy.
+- **Zero-result weekly summary, D-10-3:** `(week, query or null, searches, distinct_searchers)`; the query text only when **≥ 5 distinct searchers** that week, otherwise counts only. Searchers are counted with `hmac(week_salt, account id or guest session id)` stored on each zero-result event; the salt lives in its own table, rotates weekly and is **deleted in the same transaction that writes the week's summary**. Nothing user-identifying is stored. Open implementation choice: `/v1/search` receives no guest session id today (the app sends `session_id` only on `POST /events`), so either the app sends it on search or this part decides a fallback.
+- **`book_logged` tap counter, D-10-2 refined, A-10-003:** the clock starts at the first render of a screen offering the shelve action for a work (a search row or the book page); it carries from a search row to the book page it opens for the **same work** (that tap counts); it ends on navigation elsewhere or after **10 minutes**; it stops at **local success**, not server acknowledgement. `book_logged` is not sent at all until this exists.
+- **Rate limits (RL), A-10-029:** `POST /v1/events` (anonymous), `GET /v1/search` (a zero-result search now writes an event), `PUT /v1/me/content-settings`, `PATCH /v1/me/profile`, `PUT/DELETE /v1/me/avatar`, `GET /v1/avatars/…` (anonymous), `GET /v1/users/:id/stats`, `GET /v1/users/:id/reads`.
+- **Avatar objects, A-10-016:** a replaced avatar's object is deleted best effort; a failed delete and a deleted account's avatar belong to the retention sweep (with A-PV-008).

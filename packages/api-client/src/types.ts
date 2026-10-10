@@ -26,6 +26,16 @@ export interface User {
    * ask for it with confirmDateOfBirth. Until then the account is treated as a minor.
    */
   dobConfirmed?: boolean;
+  /** Present on GET /me: "Show explicit titles in search" (PRD §7.8). */
+  showExplicit?: boolean;
+  /** Present on GET /me: false hides the control entirely (under 18, or date of birth not confirmed). */
+  explicitSettingAvailable?: boolean;
+}
+
+/** PUT /me/content-settings. dateOfBirth is required to turn it on and must match the account's. */
+export interface ContentSettingsRequest {
+  showExplicit: boolean;
+  dateOfBirth?: string;
 }
 
 export interface ProfileFavourite {
@@ -41,6 +51,8 @@ export interface Profile {
   displayName: string | null;
   bio: string | null;
   avatarKey: string | null;
+  /** GET /v1/avatars/… (relative to the API origin), or null for the generated avatar. */
+  avatarUrl?: string | null;
   isPrivate: boolean;
   isRestricted?: boolean;
   followerCount: number;
@@ -108,17 +120,16 @@ export interface ReadingStats {
   pages_count: number;
   audio_hours: number;
   avg_rating?: number | null;
-  rating_distribution: {
-    '5': number;
-    '4': number;
-    '3': number;
-    '2': number;
-    '1': number;
-  };
+  /** Different works among books_count: a re-read counts once here (PRD §17.2). */
+  distinct_works_count: number;
+  /** Finished reads per half-star rating, "0.5" to "5.0" (A-09-043). */
+  rating_distribution: Record<RatingBucket, number>;
+  /** format_override, else the edition format; unknown when neither says (never guessed as print). */
   format_breakdown: {
     print: number;
     ebook: number;
     audiobook: number;
+    unknown: number;
   };
   monthly_pace: MonthlyPaceItem[];
   longest_book?: ExtremeBook | null;
@@ -128,6 +139,8 @@ export interface ReadingStats {
   dnf_rate: number;
   current_streak: number;
   longest_streak: number;
+  /** PRD §17.4: what the figures leave out, so the screen can say so. */
+  excluded: { undated: number; missing_page_count: number };
 }
 
 export interface RegisterRequest {
@@ -268,6 +281,8 @@ export interface Work {
   series?: { id: string; name: string; position: number | null }[];
   /** GET /works/:id only: readers per half-star rating, "0.5" to "5.0" (PRD §9.6); each reader once, at their latest rated attempt. Sums to rating_count. */
   rating_distribution?: Record<RatingBucket, number>;
+  /** GET /works/:id only: the page count progress and stats use with no edition chosen (default edition, else the median, D-08-3). */
+  page_count?: number | null;
 }
 
 /** GET /authors/:id (SL-43). */
@@ -300,6 +315,8 @@ export interface SeriesDetail {
 
 export interface SearchResponse {
   data: Work[];
+  /** "Did you mean …?" (PRD §14.7) when the local catalog found nothing; else null. */
+  suggestion: string | null;
 }
 
 // ---------------------------------------------------------------- Reading
@@ -845,11 +862,14 @@ export interface PostEventsBatchRequest {
 
 export interface PostEventsResponse {
   accepted: number;
+  /** Dropped by the caps: unknown name, properties, timestamp, budget measurement. */
+  rejected: number;
 }
 
 export interface BudgetMetricItem {
   sample_count: number;
-  passing: boolean;
+  /** null: no samples in the window. */
+  passing: boolean | null;
 }
 
 export interface DurationBudgetMetric extends BudgetMetricItem {
@@ -868,13 +888,14 @@ export interface SecondsBudgetMetric extends BudgetMetricItem {
 }
 
 export interface AbandonmentBudgetMetric extends BudgetMetricItem {
-  abandonment_rate: number;
+  abandonment_rate: number | null;
   abandoned_count: number;
   completed_count: number;
   budget_max_rate: number;
 }
 
 export interface BudgetMetricsResponse {
+  window_days: number;
   progress_updated: DurationBudgetMetric;
   book_logged: TapBudgetMetric;
   finish_completed: SecondsBudgetMetric;
@@ -1031,7 +1052,18 @@ export interface UserShelvesResponse {
 
 // ---------------------------------------------------------------- Uploads (PV-02)
 
-export type UploadPurpose = 'import';
+export type UploadPurpose = 'import' | 'avatar';
+
+/** PUT/DELETE /me/avatar. */
+export interface AvatarResponse {
+  avatar_url: string | null;
+}
+
+/** GET /users/:id/reads: one page, newest update first. */
+export interface UserReadPage {
+  data: Read[];
+  next_cursor: string | null;
+}
 export type UploadStatus = 'pending' | 'uploaded' | 'consumed' | 'expired';
 
 export interface CreateUploadRequest {

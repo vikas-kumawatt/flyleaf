@@ -4,6 +4,9 @@
 // to Sentry endpoint if EXPO_PUBLIC_SENTRY_DSN is configured.
 
 import { Platform } from 'react-native';
+import * as Crypto from 'expo-crypto';
+import Constants from 'expo-constants';
+import { scrubText, sentryEventId } from './sentryScrub';
 
 const PlatformOS = Platform.OS;
 
@@ -49,8 +52,12 @@ export async function captureMobileException(
   error: unknown,
   context: MobileErrorContext = {},
 ): Promise<string> {
-  const eventId = Math.random().toString(36).substring(2, 15);
+  // Sentry drops an event whose id is not 32 hex characters (audit 10: it was
+  // an 11-character random string). Secrets are scrubbed from the message and
+  // the stack before anything leaves the device.
+  const eventId = sentryEventId(Crypto.randomUUID());
   const err = error instanceof Error ? error : new Error(String(error));
+  const version = Constants.expoConfig?.version ?? 'unknown';
 
   if (!enabled || !dsnConfig) {
     // In dev / unconfigured mode: record as console error
@@ -65,14 +72,16 @@ export async function captureMobileException(
     timestamp: new Date().toISOString(),
     platform: PlatformOS,
     level: 'error',
+    release: `flyleaf-mobile@${version}`,
+    environment: __DEV__ ? 'development' : 'production',
     exception: {
       values: [
         {
           type: err.name,
-          value: err.message,
+          value: scrubText(err.message),
           stacktrace: err.stack
             ? {
-                frames: err.stack.split('\n').map((line) => ({ filename: line.trim() })),
+                frames: err.stack.split('\n').map((line) => ({ filename: scrubText(line.trim()) })),
               }
             : undefined,
         },
@@ -80,6 +89,7 @@ export async function captureMobileException(
     },
     tags: {
       platform: PlatformOS,
+      app_version: version,
       screen: context.screen,
     },
     extra: {

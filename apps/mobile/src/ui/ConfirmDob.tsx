@@ -9,6 +9,7 @@ import React, { useState } from 'react';
 import { Modal, View } from 'react-native';
 import { api, FlyleafApiError } from '@/lib/api';
 import { validateDob } from '@/lib/auth-validation';
+import { recordDeviceAgeGate } from '@/lib/ageGate';
 import { useSession } from '@/lib/session';
 import { Button, Field, Txt } from './components';
 import { radius, space, useTheme } from './tokens';
@@ -26,7 +27,10 @@ export function ConfirmDobPrompt() {
 
   const submit = async () => {
     const check = validateDob(dob.trim());
-    if (!check.valid) {
+    // An under-13 date still goes to the server, which records it on the
+    // account and refuses later attempts (D-07b-1); the device is flagged too.
+    if (check.underage) void recordDeviceAgeGate();
+    else if (!check.valid) {
       setError(check.error ?? 'Check your date of birth.');
       return;
     }
@@ -71,7 +75,7 @@ export function ConfirmDobPrompt() {
             content settings stay at their most restricted.
           </Txt>
           <Field
-            label="Date of birth (age 13+)"
+            label="Date of birth"
             value={dob}
             onChangeText={(v) => {
               setDob(v);

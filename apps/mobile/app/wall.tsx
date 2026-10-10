@@ -79,9 +79,11 @@ export default function WallScreen() {
           }
         })();
       } else {
-        // External user reads
+        // Another user's Wall: THEIR finished reads, through the privacy-checked
+        // route (audit 10: this called the viewer's own /reads and showed the
+        // viewer's books on everyone's Wall).
         try {
-          const server = await api.reads('finished');
+          const server = await api.userReads(targetUserId, 'finished');
           setReads(
             server.map((s) => ({
               id: s.id,

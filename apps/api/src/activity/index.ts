@@ -17,6 +17,7 @@ import { activity, profiles, type Activity } from '../db/schema.js';
 import type { Db } from '../platform/index.js';
 import type { Visibility } from '../authorization/index.js';
 import { requireViewer } from '../http.js';
+import { avatarUrl } from '../uploads/index.js';
 import {
   feedQuerySchema,
   feedResponseSchema,
@@ -351,7 +352,7 @@ export class ActivityService {
         id: r.actor_id,
         username: r.actor_username ?? 'reader',
         display_name: r.actor_display_name,
-        avatar_url: r.actor_avatar_key ? `/avatars/${r.actor_avatar_key}` : null,
+        avatar_url: avatarUrl(r.actor_avatar_key),
       },
       verb: r.verb as ActivityVerb,
       work_id: r.work_id,
@@ -539,7 +540,7 @@ export class ActivityService {
         id: r.actor_id,
         username: r.actor_username ?? 'reader',
         display_name: r.actor_display_name,
-        avatar_url: r.actor_avatar_key ? `/avatars/${r.actor_avatar_key}` : null,
+        avatar_url: avatarUrl(r.actor_avatar_key),
       },
       verb: r.verb as ActivityVerb,
       work_id: r.work_id,

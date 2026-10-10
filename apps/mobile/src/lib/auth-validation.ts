@@ -74,9 +74,28 @@ export function validatePassword(password: string): { valid: boolean; error?: st
   return { valid: true, score: Math.min(4, score) };
 }
 
+/**
+ * The server's AGE_GATE_MESSAGE (identity/index.ts), word for word: a neutral
+ * age gate does not say which answer would pass (D-07b-1).
+ */
+export const AGE_GATE_MESSAGE = "Sorry, you can't use Flyleaf.";
+
+/**
+ * The device flag (D-07b-1): once an under-13 date was entered on this device,
+ * every later date is refused with the same words. `underage` marks the
+ * attempt that should set the flag.
+ */
+export function applyAgeGate(
+  check: { valid: boolean; error?: string; underage?: boolean },
+  deviceGated: boolean,
+): { valid: boolean; error?: string; underage?: boolean } {
+  if (deviceGated && check.valid) return { valid: false, error: AGE_GATE_MESSAGE };
+  return check;
+}
+
 // Same rules as the server's dobSchema (apps/api/src/identity/index.ts): a real
 // calendar date from 1900 on, age counted in UTC calendar days.
-export function validateDob(dobStr: string, now: Date = new Date()): { valid: boolean; error?: string } {
+export function validateDob(dobStr: string, now: Date = new Date()): { valid: boolean; error?: string; underage?: boolean } {
   const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(dobStr);
   if (!match) {
     return { valid: false, error: 'Use YYYY-MM-DD for date of birth.' };
@@ -92,7 +111,7 @@ export function validateDob(dobStr: string, now: Date = new Date()): { valid: bo
     age--;
   }
   if (age < 13) {
-    return { valid: false, error: 'You must be at least 13 years old to use Flyleaf.' };
+    return { valid: false, error: AGE_GATE_MESSAGE, underage: true };
   }
   return { valid: true };
 }

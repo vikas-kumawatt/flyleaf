@@ -21,6 +21,7 @@ import type { Db, RateLimiter } from '../platform/index.js';
 import { PgRateLimiter } from '../platform/index.js';
 import { reads, readLikes, readComments, profiles } from '../db/schema.js';
 import { ApiError, requireViewer } from '../http.js';
+import { avatarUrl } from '../uploads/index.js';
 import { canViewWith, loadRelationship, requireVerified } from '../authorization/index.js';
 import {
   readIdParamsSchema,
@@ -108,7 +109,7 @@ function toUser(row: {
     id: row.userId,
     username: row.username ?? 'reader',
     display_name: row.displayName,
-    avatar_url: row.avatarKey ? `/avatars/${row.avatarKey}` : null,
+    avatar_url: avatarUrl(row.avatarKey),
   };
 }
 

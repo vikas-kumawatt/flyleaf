@@ -44,8 +44,31 @@ export const userSchema = {
       description:
         'On GET /me. False: the date of birth was never entered; the account is treated as a minor for maturity rules until POST /me/date-of-birth (D-07-3).',
     },
+    showExplicit: {
+      type: 'boolean',
+      description: 'On GET /me. "Show explicit titles in search" (PRD §7.8). Search honours it only while explicitSettingAvailable.',
+    },
+    explicitSettingAvailable: {
+      type: 'boolean',
+      description:
+        'On GET /me. True for a confirmed date of birth at 18 or over. False: the client hides the control entirely (PRD §7.8, §26.6).',
+    },
   },
   required: ['id', 'email', 'username'],
+} as const;
+
+/** PUT /me/content-settings (PRD §7.8, A-07-036). Turning it on re-enters the date of birth. */
+export const contentSettingsBodySchema = {
+  type: 'object',
+  properties: {
+    showExplicit: { type: 'boolean' },
+    dateOfBirth: {
+      type: 'string',
+      maxLength: 10,
+      description: 'Required to turn the setting on, and must match the confirmed date of birth. Ignored when turning it off.',
+    },
+  },
+  required: ['showExplicit'],
 } as const;
 
 export const profileFavouriteSchema = {
@@ -67,6 +90,7 @@ export const profileSchema = {
     displayName: { type: ['string', 'null'] },
     bio: { type: ['string', 'null'] },
     avatarKey: { type: ['string', 'null'] },
+    avatarUrl: { type: ['string', 'null'], description: 'GET /v1/avatars/…; null: the generated typographic avatar (PRD §6.7).' },
     isPrivate: { type: 'boolean' },
     followerCount: { type: 'integer' },
     followingCount: { type: 'integer' },
@@ -332,6 +356,10 @@ export const workSchema = {
       description: 'GET /works/:id only: readers who hearted the book, shown next to the rating count (PRD §9.4).',
     },
     editions: { type: 'array', items: editionSchema },
+    page_count: {
+      type: ['integer', 'null'],
+      description: "GET /works/:id only: the default edition's page count, else the median of its editions' (counts under 20 ignored). What progress and stats use when no edition is chosen (D-08-3).",
+    },
     your_read: yourReadSchema,
     merged_into: {
       type: 'string',
@@ -446,8 +474,13 @@ export const searchResponseSchema = {
   type: 'object',
   properties: {
     data: { type: 'array', items: workSchema },
+    suggestion: {
+      type: ['string', 'null'],
+      description:
+        'PRD §14.7 step 1, "Did you mean …?": a popular title or author name close to the query, when the local catalog found nothing (looked up before the live Open Library lookup). Null otherwise.',
+    },
   },
-  required: ['data'],
+  required: ['data', 'suggestion'],
 } as const;
 
 export const editionLookupResponseSchema = {
@@ -518,6 +551,25 @@ export const readListResponseSchema = {
     data: { type: 'array', items: readSchema },
   },
   required: ['data'],
+} as const;
+
+/** GET /users/:id/reads: one page (A-08-027). */
+export const userReadPageResponseSchema = {
+  type: 'object',
+  properties: {
+    data: { type: 'array', items: readSchema },
+    next_cursor: { type: ['string', 'null'] },
+  },
+  required: ['data', 'next_cursor'],
+} as const;
+
+export const userReadsQuerySchema = {
+  type: 'object',
+  properties: {
+    status: { type: 'string', enum: ['want', 'reading', 'paused', 'finished', 'dnf'] },
+    cursor: { type: 'string', maxLength: 200 },
+    limit: { type: 'integer', minimum: 1, maximum: 100 },
+  },
 } as const;
 
 export const statusQuerySchema = {
@@ -616,7 +668,12 @@ export const extremeBookSchema = {
 export const readingStatsQuerySchema = {
   type: 'object',
   properties: {
-    year: { type: 'string' },
+    year: { type: 'string', description: '"all" or YYYY. Default: the current year in `tz`. Anything else is 422 invalid_year.' },
+    tz: {
+      type: 'string',
+      maxLength: 64,
+      description: 'IANA time zone whose days count for streaks, listening windows and the default year (PRD §8.7). Default UTC. Unknown: 422 invalid_timezone.',
+    },
   },
 } as const;
 
@@ -628,25 +685,28 @@ export const readingStatsResponseSchema = {
     pages_count: { type: 'integer' },
     audio_hours: { type: 'number' },
     avg_rating: { type: ['number', 'null'] },
+    distinct_works_count: { type: 'integer', description: 'Different works among books_count; a re-read counts once here (PRD §17.2).' },
     rating_distribution: {
       type: 'object',
+      description: 'Finished reads per half-star rating, "0.5" to "5.0" (PRD §17.2; the same buckets as the book page).',
       properties: {
-        '5': { type: 'integer' },
-        '4': { type: 'integer' },
-        '3': { type: 'integer' },
-        '2': { type: 'integer' },
-        '1': { type: 'integer' },
+        '0.5': { type: 'integer' }, '1.0': { type: 'integer' }, '1.5': { type: 'integer' },
+        '2.0': { type: 'integer' }, '2.5': { type: 'integer' }, '3.0': { type: 'integer' },
+        '3.5': { type: 'integer' }, '4.0': { type: 'integer' }, '4.5': { type: 'integer' },
+        '5.0': { type: 'integer' },
       },
-      required: ['5', '4', '3', '2', '1'],
+      required: ['0.5', '1.0', '1.5', '2.0', '2.5', '3.0', '3.5', '4.0', '4.5', '5.0'],
     },
     format_breakdown: {
       type: 'object',
+      description: 'reads.format_override, else the edition format (hardcover and paperback are print); unknown when neither says (PRD §17.2, never guessed).',
       properties: {
         print: { type: 'integer' },
         ebook: { type: 'integer' },
         audiobook: { type: 'integer' },
+        unknown: { type: 'integer' },
       },
-      required: ['print', 'ebook', 'audiobook'],
+      required: ['print', 'ebook', 'audiobook', 'unknown'],
     },
     monthly_pace: {
       type: 'array',
@@ -675,10 +735,21 @@ export const readingStatsResponseSchema = {
     dnf_rate: { type: 'number' },
     current_streak: { type: 'integer' },
     longest_streak: { type: 'integer' },
+    excluded: {
+      type: 'object',
+      description: 'PRD §17.4 disclosure. undated: finished reads with no finish date (counted in "all", never in a year or month). missing_page_count: finished reads in scope with no usable page count (they add no pages).',
+      properties: {
+        undated: { type: 'integer' },
+        missing_page_count: { type: 'integer' },
+      },
+      required: ['undated', 'missing_page_count'],
+    },
   },
   required: [
     'year',
     'books_count',
+    'distinct_works_count',
+    'excluded',
     'pages_count',
     'audio_hours',
     'rating_distribution',
@@ -1467,20 +1538,29 @@ export const postEventsResponseSchema = {
   type: 'object',
   properties: {
     accepted: { type: 'integer' },
+    rejected: { type: 'integer', description: 'Events dropped by the caps (unknown name, properties, timestamp, budget measurement).' },
   },
-  required: ['accepted'],
+  required: ['accepted', 'rejected'],
+} as const;
+
+export const budgetQuerySchema = {
+  type: 'object',
+  properties: {
+    days: { type: 'integer', minimum: 1, maximum: 365, description: 'Report window in days. Default 28.' },
+  },
 } as const;
 
 export const budgetMetricsResponseSchema = {
   type: 'object',
   properties: {
+    window_days: { type: 'integer' },
     progress_updated: {
       type: 'object',
       properties: {
         p75_duration_ms: { type: ['number', 'null'] },
         budget_ms: { type: 'number' },
         sample_count: { type: 'integer' },
-        passing: { type: 'boolean' },
+        passing: { type: ['boolean', 'null'], description: 'null: no samples in the window.' },
       },
       required: ['p75_duration_ms', 'budget_ms', 'sample_count', 'passing'],
     },
@@ -1490,7 +1570,7 @@ export const budgetMetricsResponseSchema = {
         p75_tap_count: { type: ['number', 'null'] },
         budget_taps: { type: 'number' },
         sample_count: { type: 'integer' },
-        passing: { type: 'boolean' },
+        passing: { type: ['boolean', 'null'], description: 'null: no samples in the window.' },
       },
       required: ['p75_tap_count', 'budget_taps', 'sample_count', 'passing'],
     },
@@ -1500,7 +1580,7 @@ export const budgetMetricsResponseSchema = {
         p75_duration_seconds: { type: ['number', 'null'] },
         budget_seconds: { type: 'number' },
         sample_count: { type: 'integer' },
-        passing: { type: 'boolean' },
+        passing: { type: ['boolean', 'null'], description: 'null: no samples in the window.' },
       },
       required: ['p75_duration_seconds', 'budget_seconds', 'sample_count', 'passing'],
     },
@@ -1510,23 +1590,24 @@ export const budgetMetricsResponseSchema = {
         p75_duration_ms: { type: ['number', 'null'] },
         budget_ms: { type: 'number' },
         sample_count: { type: 'integer' },
-        passing: { type: 'boolean' },
+        passing: { type: ['boolean', 'null'], description: 'null: no samples in the window.' },
       },
       required: ['p75_duration_ms', 'budget_ms', 'sample_count', 'passing'],
     },
     finish_flow_abandoned: {
       type: 'object',
       properties: {
-        abandonment_rate: { type: 'number' },
+        abandonment_rate: { type: ['number', 'null'] },
         abandoned_count: { type: 'integer' },
         completed_count: { type: 'integer' },
         budget_max_rate: { type: 'number' },
-        passing: { type: 'boolean' },
+        passing: { type: ['boolean', 'null'], description: 'null: no samples in the window.' },
       },
       required: ['abandonment_rate', 'abandoned_count', 'completed_count', 'budget_max_rate', 'passing'],
     },
   },
   required: [
+    'window_days',
     'progress_updated',
     'book_logged',
     'finish_completed',
@@ -1867,7 +1948,7 @@ export const shelfSlugParamsSchema = {
 
 // ---------------------------------------------------------------- uploads (PV-02)
 
-export const uploadPurposeEnum = ['import'] as const;
+export const uploadPurposeEnum = ['import', 'avatar'] as const;
 export const uploadStatusEnum = ['pending', 'uploaded', 'consumed', 'expired'] as const;
 
 export const createUploadBodySchema = {
@@ -2393,3 +2474,25 @@ export const feedResponseSchema = {
 
 
 
+
+/** PUT /me/avatar (audit 10, A-07-032). */
+export const setAvatarBodySchema = {
+  type: 'object',
+  properties: { upload_id: { type: 'string', format: 'uuid', description: 'A completed upload with purpose avatar.' } },
+  required: ['upload_id'],
+} as const;
+
+export const avatarResponseSchema = {
+  type: 'object',
+  properties: { avatar_url: { type: ['string', 'null'], description: 'GET /v1/avatars/…, or null for the generated avatar.' } },
+  required: ['avatar_url'],
+} as const;
+
+export const avatarParamsSchema = {
+  type: 'object',
+  properties: {
+    userId: { type: 'string', format: 'uuid' },
+    uploadId: { type: 'string', format: 'uuid' },
+  },
+  required: ['userId', 'uploadId'],
+} as const;

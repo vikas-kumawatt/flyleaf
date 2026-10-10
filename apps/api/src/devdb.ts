@@ -447,6 +447,12 @@ async function copyAll(sql: Sql, slice: Slice, opts: Options) {
           // recomputes it from the copied reads through reconcile_work_counters().
           n = 0;
           break;
+        case 'search_suggestions':
+          // Derived from works (audit 10, 0032), and 0032 already filled it in
+          // the target: copying would be the same primary key violation.
+          // finish() rebuilds it from the copied slice.
+          n = 0;
+          break;
         default:
           n = (await tx.unsafe(insert)).count; // user data: everything
       }
@@ -493,7 +499,7 @@ async function finish(sql: Sql) {
   // source can lack rows (reads written before 0011 created the trigger were
   // never backfilled, and no worker runs the nightly job locally). It also
   // refreshes the catalog mean C.
-  for (const fn of ['reconcile_read_counters', 'reconcile_follow_counters', 'reconcile_shelf_counters', 'reconcile_work_counters']) {
+  for (const fn of ['reconcile_read_counters', 'reconcile_follow_counters', 'reconcile_shelf_counters', 'reconcile_work_counters', 'refresh_search_suggestions']) {
     const [exists] = await sql`SELECT 1 FROM pg_proc WHERE proname = ${fn}`;
     if (exists) await sql.unsafe(`SELECT ${fn}()`);
   }

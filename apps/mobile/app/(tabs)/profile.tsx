@@ -26,6 +26,8 @@ import {
 import { useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as Haptics from 'expo-haptics';
+import { Image } from 'expo-image';
+import { pickAndUploadAvatar, useAvatarSource, type AvatarSource } from '@/lib/avatar';
 import { useSession } from '@/lib/session';
 import { useDatabase } from '@/offline/db';
 import { OfflineRepository } from '@/offline/repository';
@@ -59,6 +61,41 @@ export default function ProfileScreen() {
   const db = useDatabase();
 
   const [profile, setProfile] = useState<Profile | null>(null);
+  const [avatarBusy, setAvatarBusy] = useState(false);
+  const avatarSource = useAvatarSource(profile?.avatarUrl);
+
+  // PRD §6.7: library, camera or the generated avatar. A failure says so and
+  // leaves the current avatar in place.
+  const changeAvatar = () => {
+    const run = async (source: AvatarSource) => {
+      setAvatarBusy(true);
+      try {
+        const url = await pickAndUploadAvatar(source);
+        if (url !== null) setProfile((p) => (p ? { ...p, avatarUrl: url } : p));
+      } catch (err) {
+        Alert.alert('Photo not saved', err instanceof Error ? err.message : 'Try again in a moment.');
+      } finally {
+        setAvatarBusy(false);
+      }
+    };
+    const remove = async () => {
+      setAvatarBusy(true);
+      try {
+        await api.removeAvatar();
+        setProfile((p) => (p ? { ...p, avatarUrl: null } : p));
+      } catch {
+        Alert.alert('Photo not removed', 'Try again in a moment.');
+      } finally {
+        setAvatarBusy(false);
+      }
+    };
+    Alert.alert('Profile photo', undefined, [
+      { text: 'Choose from library', onPress: () => void run('library') },
+      { text: 'Take a photo', onPress: () => void run('camera') },
+      ...(profile?.avatarUrl ? [{ text: 'Remove photo', style: 'destructive' as const, onPress: () => void remove() }] : []),
+      { text: 'Cancel', style: 'cancel' as const },
+    ]);
+  };
   const [stats, setStats] = useState<ReadingStats | null>(null);
   const [reads, setReads] = useState<LocalRead[]>([]);
   const [loading, setLoading] = useState(true);
@@ -212,20 +249,31 @@ export default function ProfileScreen() {
             {/* 1. IDENTITY HEADER */}
             <View style={{ gap: space[3] }}>
               <View style={[sheet.rowTop, { gap: space[4] }]}>
-                {/* Large Avatar */}
-                <View
+                {/* Large Avatar: tap to change (PRD §6.7) */}
+                <Pressable
+                  onPress={changeAvatar}
+                  disabled={avatarBusy}
+                  accessibilityRole="button"
+                  accessibilityLabel="Change profile photo"
                   style={[
                     styles.avatar,
                     {
                       backgroundColor: c.accentSoft,
                       borderColor: c.line,
+                      overflow: 'hidden',
                     },
                   ]}
                 >
-                  <Txt variant="title" style={{ fontSize: 26, fontWeight: '800', color: c.accent }}>
-                    {(profile?.displayName || user.username).charAt(0).toUpperCase()}
-                  </Txt>
-                </View>
+                  {avatarBusy ? (
+                    <ActivityIndicator color={c.accent} />
+                  ) : avatarSource ? (
+                    <Image source={avatarSource} style={{ width: '100%', height: '100%' }} contentFit="cover" />
+                  ) : (
+                    <Txt variant="title" style={{ fontSize: 26, fontWeight: '800', color: c.accent }}>
+                      {(profile?.displayName || user.username).charAt(0).toUpperCase()}
+                    </Txt>
+                  )}
+                </Pressable>
 
                 {/* Identity Info */}
                 <View style={{ flex: 1, gap: 2 }}>
@@ -619,6 +667,31 @@ export default function ProfileScreen() {
                     </Txt>
                   </View>
                 </Card>
+
+                {/* Content (PRD §7.8): the control exists only for confirmed adults. */}
+                {user?.explicitSettingAvailable && (
+                  <Card
+                    onPress={() => {
+                      void Haptics.selectionAsync();
+                      router.push('/profile/content' as any);
+                    }}
+                    style={{ padding: space[3] }}
+                  >
+                    <View style={sheet.rowBetween}>
+                      <View style={{ gap: 2 }}>
+                        <Txt variant="title" style={{ fontSize: 15, fontWeight: '700' }}>
+                          Content
+                        </Txt>
+                        <Txt variant="caption" color="muted">
+                          Explicit titles in search.
+                        </Txt>
+                      </View>
+                      <Txt variant="title" color="accent">
+                        →
+                      </Txt>
+                    </View>
+                  </Card>
+                )}
 
                 {/* Muted Content */}
                 <Card

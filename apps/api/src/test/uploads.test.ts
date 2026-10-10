@@ -91,11 +91,12 @@ describe('POST /v1/uploads', () => {
   });
 
   it('refuses an unknown purpose with 422', async () => {
+    // Was 'avatar', which is a purpose since audit 10 (A-07-032).
     const res = await app.inject({
       method: 'POST',
       url: '/v1/uploads',
       headers: alice.auth,
-      payload: { purpose: 'avatar', content_type: 'text/csv', size: 10 },
+      payload: { purpose: 'banner', content_type: 'text/csv', size: 10 },
     });
     expect(res.statusCode).toBe(422);
   });

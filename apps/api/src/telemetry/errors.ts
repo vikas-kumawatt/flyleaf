@@ -34,14 +34,11 @@ export function sanitizeContext(context: ErrorContext): ErrorContext {
     sanitized.headers = safeHeaders;
   }
 
+  // At any depth, in camel or snake case (audit 10: only six top-level
+  // camelCase keys were scrubbed, so refresh_token, a nested password, or
+  // the 6-digit `code` of a TOTP or verification step went out as sent).
   if (sanitized.body && typeof sanitized.body === 'object') {
-    const safeBody = { ...sanitized.body };
-    for (const k of ['password', 'newPassword', 'token', 'refreshToken', 'secret', 'totp', 'backupCode']) {
-      if (k in safeBody) {
-        safeBody[k] = '[REDACTED]';
-      }
-    }
-    sanitized.body = safeBody;
+    sanitized.body = scrubSecrets(sanitized.body) as Record<string, any>;
   }
 
   // The export download link carries its token in the query (Audit 05).
@@ -54,6 +51,19 @@ export function sanitizeContext(context: ErrorContext): ErrorContext {
   }
 
   return sanitized;
+}
+
+/** Body keys whose values are secrets, or an email address (PII, PRD §26.5). Compared with `_` and case removed: refresh_token = refreshToken. */
+const SECRET_KEY = /password|token|secret|totp|backupcode|^code$|otp|apikey|authorization|cookie|email/;
+
+function scrubSecrets(value: unknown, depth = 0): unknown {
+  if (depth > 20 || value === null || typeof value !== 'object') return value;
+  if (Array.isArray(value)) return value.map((v) => scrubSecrets(v, depth + 1));
+  const out: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(value)) {
+    out[k] = SECRET_KEY.test(k.toLowerCase().replace(/[_-]/g, '')) ? '[REDACTED]' : scrubSecrets(v, depth + 1);
+  }
+  return out;
 }
 
 /** Scrub, then report. Never throws: the caller is already handling a failure. */

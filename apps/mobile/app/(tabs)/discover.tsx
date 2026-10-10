@@ -71,6 +71,8 @@ export default function DiscoverScreen() {
 
   const [q, setQ] = useState('');
   const [results, setResults] = useState<Work[]>([]);
+  // "Did you mean …?" (PRD §14.7, AC-7): only when the catalog found nothing.
+  const [suggestion, setSuggestion] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [shelfResults, setShelfResults] = useState<Shelf[]>([]);
   const [shelfLoading, setShelfLoading] = useState(false);
@@ -161,10 +163,16 @@ export default function DiscoverScreen() {
       const timer = setTimeout(async () => {
         const current = guard.begin();
         try {
-          const data = await api.search(trimmed);
-          if (current()) setResults(data);
+          const res = await api.searchWithSuggestion(trimmed);
+          if (current()) {
+            setResults(res.data);
+            setSuggestion(res.suggestion);
+          }
         } catch {
-          if (current()) setResults([]);
+          if (current()) {
+            setResults([]);
+            setSuggestion(null);
+          }
         } finally {
           if (current()) setLoading(false);
         }
@@ -696,6 +704,19 @@ export default function DiscoverScreen() {
                 title={`No results for "${q}"`}
                 subtitle="Try checking for typos or searching by author name or 13-digit ISBN."
                 action={
+                  <View style={{ alignItems: 'center' }}>
+                  {suggestion && (
+                    <Pressable
+                      onPress={() => setQ(suggestion)}
+                      accessibilityRole="button"
+                      accessibilityLabel={`Search for ${suggestion} instead`}
+                      style={{ marginTop: space[3] }}
+                    >
+                      <Txt variant="body">
+                        Did you mean <Txt variant="body" color="accent" style={{ fontWeight: '600' }}>{suggestion}</Txt>?
+                      </Txt>
+                    </Pressable>
+                  )}
                   <Pressable
                     onPress={() => router.push('/scanner' as any)}
                     accessibilityRole="button"
@@ -712,6 +733,7 @@ export default function DiscoverScreen() {
                       Scan a barcode instead
                     </Txt>
                   </Pressable>
+                  </View>
                 }
               />
             )

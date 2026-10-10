@@ -93,6 +93,9 @@ async function main() {
   await boss.schedule(QUEUES.reconcileWorks, '40 3 * * *');
   // Expired uploads and export files leave object storage (PV-02).
   await boss.schedule(QUEUES.storageCleanup, '45 3 * * *');
+  // "Did you mean …?" vocabulary (audit 10): Sundays, after works.reconcile
+  // has settled log counts.
+  await boss.schedule(QUEUES.refreshSearchSuggestions, '0 4 * * 0');
 
   log.info({ queues: Object.values(QUEUES), schema: 'pgboss' }, 'worker ready');
 

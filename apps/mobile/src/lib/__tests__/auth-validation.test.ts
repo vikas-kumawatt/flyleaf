@@ -5,6 +5,8 @@ import {
   validatePassword,
   validateDob,
   RESERVED_USERNAMES,
+  AGE_GATE_MESSAGE,
+  applyAgeGate,
 } from '../auth-validation.js';
 
 describe('Auth Validation Suite (SL-21, SL-22)', () => {
@@ -81,7 +83,18 @@ describe('Auth Validation Suite (SL-21, SL-22)', () => {
       const tenYearsAgo = `${today.getFullYear() - 10}-01-01`;
       const res = validateDob(tenYearsAgo);
       assert.equal(res.valid, false);
-      assert.match(res.error || '', /13 years old/i);
+      assert.equal(res.underage, true);
+      // D-07b-1: neutral words, the server's own, that do not say what would pass.
+      assert.equal(res.error, AGE_GATE_MESSAGE);
+      assert.doesNotMatch(res.error || '', /\d|old|age|young/i);
+    });
+
+    test('a device that saw an under-13 date refuses an older one the same way (D-07b-1)', () => {
+      const adult = validateDob('1985-03-14');
+      assert.deepEqual(applyAgeGate(adult, false), adult);
+      assert.deepEqual(applyAgeGate(adult, true), { valid: false, error: AGE_GATE_MESSAGE });
+      // A format error stays a format error.
+      assert.equal(applyAgeGate(validateDob('nope'), true).error, 'Use YYYY-MM-DD for date of birth.');
     });
 
     test('accepts 13 and older', () => {

@@ -21,7 +21,7 @@ export async function startUpload(
   app: FastifyInstance,
   auth: Headers,
   body: Buffer | string,
-  opts: { contentType?: string; filename?: string; size?: number } = {},
+  opts: { contentType?: string; filename?: string; size?: number; purpose?: 'import' | 'avatar' } = {},
 ) {
   const bytes = Buffer.isBuffer(body) ? body : Buffer.from(body);
   const res = await app.inject({
@@ -29,7 +29,7 @@ export async function startUpload(
     url: '/v1/uploads',
     headers: auth,
     payload: {
-      purpose: 'import',
+      purpose: opts.purpose ?? 'import',
       content_type: opts.contentType ?? 'text/csv',
       size: opts.size ?? bytes.length,
       ...(opts.filename ? { filename: opts.filename } : {}),
@@ -60,7 +60,7 @@ export async function uploadFile(
   app: FastifyInstance,
   auth: Headers,
   body: Buffer | string,
-  opts: { contentType?: string; filename?: string } = {},
+  opts: { contentType?: string; filename?: string; purpose?: 'import' | 'avatar' } = {},
 ): Promise<string> {
   const { res, bytes } = await startUpload(app, auth, body, opts);
   if (res.statusCode !== 201) throw new Error(`POST /v1/uploads: ${res.statusCode} ${res.body}`);

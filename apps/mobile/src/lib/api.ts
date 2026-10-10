@@ -352,17 +352,35 @@ export const api = {
 
   me: () => client.getMe(),
   confirmDateOfBirth: (dateOfBirth: string) => client.confirmDateOfBirth(dateOfBirth),
+  setContentSettings: (data: { showExplicit: boolean; dateOfBirth?: string }) => client.setContentSettings(data),
   myProfile: () => client.getMyProfile(),
   updateProfile: (data: UpdateProfileRequest) => client.updateProfile(data),
   userProfile: (userId: string) => client.getUserProfile(userId),
-  myStats: (year?: string) => client.getMyStats(year),
-  userStats: (userId: string, year?: string) => client.getUserStats(userId, year),
+  myStats: (year?: string, tz?: string) => client.getMyStats(year, tz),
+  userStats: (userId: string, year?: string, tz?: string) => client.getUserStats(userId, year, tz),
 
   search: (q: string) => client.search(q),
+  searchWithSuggestion: (q: string) => client.searchWithSuggestion(q),
 
   work: (id: string) => client.getWork(id),
 
   reads: (status?: string) => client.getReads(status as ReadStatus | undefined),
+
+  /**
+   * Another user's reads the viewer may see (GET /users/:id/reads), every
+   * page up to `max` (audit 10: the Wall filters on the device). The server
+   * applies privacy; this only pages.
+   */
+  userReads: async (userId: string, status?: ReadStatus, max = 3000) => {
+    const all: Awaited<ReturnType<typeof client.getUserReads>>['data'] = [];
+    let cursor: string | undefined;
+    do {
+      const page = await client.getUserReads(userId, { status, cursor, limit: 100 });
+      all.push(...page.data);
+      cursor = page.next_cursor ?? undefined;
+    } while (cursor && all.length < max);
+    return all;
+  },
 
   setStatus: (
     workId: string,
@@ -485,6 +503,13 @@ export const api = {
   // Presigned: intent -> straight to storage -> complete (PV-02, PV-03).
   uploadFile: (file: string | Blob | Uint8Array | ArrayBuffer, options: UploadFileOptions) =>
     client.uploadFile('import', file, options),
+
+  // Avatar (audit 10, A-07-032): the same presigned path, purpose 'avatar'.
+  uploadAvatar: async (jpeg: Uint8Array) => {
+    const upload = await client.uploadFile('avatar', jpeg, { contentType: 'image/jpeg', filename: 'avatar.jpg' });
+    return client.setAvatar(upload.id);
+  },
+  removeAvatar: () => client.removeAvatar(),
   createImport: (data: CreateImportRequest) => client.createImport(data),
   getImport: (id: string) => client.getImport(id),
   listImports: () => client.listImports(),

@@ -27,7 +27,9 @@ import {
   validateUsername,
   validatePassword,
   validateDob,
+  applyAgeGate,
 } from '@/lib/auth-validation';
+import { isDeviceAgeGated, recordDeviceAgeGate } from '@/lib/ageGate';
 import { createUsernameChecker, type UsernameStatus } from '@/lib/usernameCheck';
 import { WelcomeCarousel } from '@/ui/WelcomeCarousel';
 import { Button, Card, Screen, Txt, sheet } from '@/ui/components';
@@ -85,7 +87,12 @@ export default function AuthScreen() {
     checker.current?.update(usernameCheck.valid ? username.trim().toLowerCase() : null);
   }, [username, usernameCheck.valid]);
   const passwordCheck = validatePassword(password);
-  const dobCheck = validateDob(dob);
+  // Neutral age gate (D-07b-1): an under-13 date flags this device.
+  const [deviceGated, setDeviceGated] = useState(false);
+  useEffect(() => {
+    void isDeviceAgeGated().then(setDeviceGated);
+  }, []);
+  const dobCheck = applyAgeGate(validateDob(dob), deviceGated);
 
   // ---------------------------------------------------------------- Actions
   const handleLogin = async () => {
@@ -118,6 +125,10 @@ export default function AuthScreen() {
       return;
     }
     if (!dobCheck.valid) {
+      if (dobCheck.underage) {
+        void recordDeviceAgeGate();
+        setDeviceGated(true);
+      }
       setGeneralError(dobCheck.error ?? 'Please check your date of birth.');
       return;
     }
@@ -417,7 +428,7 @@ export default function AuthScreen() {
 
             <View style={{ gap: space[1] }}>
               <Txt variant="micro" color="muted">
-                DATE OF BIRTH (AGE 13+)
+                DATE OF BIRTH
               </Txt>
               <TextInput
                 value={dob}

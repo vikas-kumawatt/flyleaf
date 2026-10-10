@@ -211,6 +211,34 @@
       "when": 1789120000000,
       "tag": "0029_latest_rating_per_user",
       "breakpoints": true
+    },
+    {
+      "idx": 30,
+      "version": "7",
+      "when": 1789130000000,
+      "tag": "0030_page_count_rule",
+      "breakpoints": true
+    },
+    {
+      "idx": 31,
+      "version": "7",
+      "when": 1789140000000,
+      "tag": "0031_age_gate",
+      "breakpoints": true
+    },
+    {
+      "idx": 32,
+      "version": "7",
+      "when": 1789150000000,
+      "tag": "0032_search_suggestions",
+      "breakpoints": true
+    },
+    {
+      "idx": 33,
+      "version": "7",
+      "when": 1789160000000,
+      "tag": "0033_avatar_uploads",
+      "breakpoints": true
     }
   ]
 }

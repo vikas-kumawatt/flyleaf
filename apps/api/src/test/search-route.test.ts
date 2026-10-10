@@ -240,13 +240,13 @@ describe('query string', () => {
     'answers q=%s with 200 and an empty list, never an error', async (q) => {
       const res = await get(`/v1/search?q=${q}`);
       expect(res.statusCode).toBe(200);
-      expect(JSON.parse(res.body)).toEqual({ data: [] });
+      expect(JSON.parse(res.body)).toEqual({ data: [], suggestion: null }) // suggestion: audit 10, §14.7;
     });
 
   it('answers a missing q with 200 and an empty list', async () => {
     const res = await get('/v1/search');
     expect(res.statusCode).toBe(200);
-    expect(JSON.parse(res.body)).toEqual({ data: [] });
+    expect(JSON.parse(res.body)).toEqual({ data: [], suggestion: null });
   });
 
   it('survives a 5,000-character query', async () => {

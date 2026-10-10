@@ -53,6 +53,9 @@ import type {
   Read,
   ReadingStats,
   ReadListResponse,
+  UserReadPage,
+  ContentSettingsRequest,
+  AvatarResponse,
   ReadStatus,
   RefreshRequest,
   RefreshResponse,
@@ -116,6 +119,15 @@ import type {
   ExportListResponse,
   CreateExportRequest,
 } from './types.js';
+
+/** ?year=&tz= for the stats routes, only what is given. */
+function statsQuery(year?: number | string, tz?: string): string {
+  const q = new URLSearchParams();
+  if (year !== undefined) q.set('year', String(year));
+  if (tz) q.set('tz', tz);
+  const s = q.toString();
+  return s ? `?${s}` : '';
+}
 
 export class FlyleafApiError extends Error {
   constructor(
@@ -302,6 +314,26 @@ export class FlyleafClient {
     });
   }
 
+  /** PRD §7.8: turning it on needs the account's date of birth (422 dob_required / dob_mismatch); 403 setting_unavailable under 18. */
+  async setContentSettings(data: ContentSettingsRequest): Promise<User> {
+    return this.request<User>('/me/content-settings', {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    });
+  }
+
+  /** Consumes a completed upload with purpose 'avatar' (uploadFile). */
+  async setAvatar(uploadId: string): Promise<AvatarResponse> {
+    return this.request<AvatarResponse>('/me/avatar', {
+      method: 'PUT',
+      body: JSON.stringify({ upload_id: uploadId }),
+    });
+  }
+
+  async removeAvatar(): Promise<AvatarResponse> {
+    return this.request<AvatarResponse>('/me/avatar', { method: 'DELETE' });
+  }
+
   async getUserProfile(userId: string): Promise<Profile> {
     return this.request<Profile>(`/users/${encodeURIComponent(userId)}`, {
       method: 'GET',
@@ -329,6 +361,12 @@ export class FlyleafClient {
       method: 'GET',
     });
     return res.data;
+  }
+
+  /** search() plus the "Did you mean …?" suggestion when nothing was found (PRD §14.7). */
+  async searchWithSuggestion(q: string, limit = 20): Promise<SearchResponse> {
+    const query = new URLSearchParams({ q, limit: String(limit) });
+    return this.request<SearchResponse>(`/search?${query.toString()}`, { method: 'GET' });
   }
 
   async getWork(id: string): Promise<Work> {
@@ -359,12 +397,19 @@ export class FlyleafClient {
     });
   }
 
-  async getUserReads(userId: string, status?: ReadStatus): Promise<Read[]> {
-    const query = status ? `?status=${encodeURIComponent(status)}` : '';
-    const res = await this.request<ReadListResponse>(`/users/${encodeURIComponent(userId)}/reads${query}`, {
+  /** One page of another user's reads they let the viewer see, newest update first. Pass next_cursor back as cursor. */
+  async getUserReads(
+    userId: string,
+    opts: { status?: ReadStatus; cursor?: string; limit?: number } = {},
+  ): Promise<UserReadPage> {
+    const query = new URLSearchParams();
+    if (opts.status) query.set('status', opts.status);
+    if (opts.cursor) query.set('cursor', opts.cursor);
+    if (opts.limit !== undefined) query.set('limit', String(opts.limit));
+    const qs = query.toString();
+    return this.request<UserReadPage>(`/users/${encodeURIComponent(userId)}/reads${qs ? `?${qs}` : ''}`, {
       method: 'GET',
     });
-    return res.data;
   }
 
   async createRead(data: UpsertReadRequest): Promise<Read> {
@@ -414,16 +459,15 @@ export class FlyleafClient {
     return this.request<DeleteReadResponse>(`/reads/${encodeURIComponent(readId)}`, { method: 'DELETE' });
   }
 
-  async getMyStats(year?: number | string): Promise<ReadingStats> {
-    const q = year !== undefined ? `?year=${encodeURIComponent(String(year))}` : '';
-    return this.request<ReadingStats>(`/me/stats${q}`, {
+  /** `tz`: the IANA zone whose days count for streaks and the default year (PRD §8.7). Default UTC. */
+  async getMyStats(year?: number | string, tz?: string): Promise<ReadingStats> {
+    return this.request<ReadingStats>(`/me/stats${statsQuery(year, tz)}`, {
       method: 'GET',
     });
   }
 
-  async getUserStats(userId: string, year?: number | string): Promise<ReadingStats> {
-    const q = year !== undefined ? `?year=${encodeURIComponent(String(year))}` : '';
-    return this.request<ReadingStats>(`/users/${encodeURIComponent(userId)}/stats${q}`, {
+  async getUserStats(userId: string, year?: number | string, tz?: string): Promise<ReadingStats> {
+    return this.request<ReadingStats>(`/users/${encodeURIComponent(userId)}/stats${statsQuery(year, tz)}`, {
       method: 'GET',
     });
   }

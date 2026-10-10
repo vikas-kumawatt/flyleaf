@@ -302,7 +302,8 @@ describe('Telemetry & Interaction Budgets Suite (SL-8x)', () => {
       expect(sanitized.headers?.cookie).toBe('[REDACTED]');
       expect(sanitized.headers?.['user-agent']).toBe('Flyleaf-Mobile/1.0');
 
-      expect(sanitized.body?.email).toBe('reader@example.com');
+      // Audit 10: an email address is PII and Sentry is a third party (PRD §26.5). It was passed through.
+      expect(sanitized.body?.email).toBe('[REDACTED]');
       expect(sanitized.body?.password).toBe('[REDACTED]');
       expect(sanitized.body?.totp).toBe('[REDACTED]');
     });

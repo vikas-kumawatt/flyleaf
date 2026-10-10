@@ -6,6 +6,10 @@
 // 3. Time from Finish tapped -> log saved (budget: p75 < 20s)
 // 4. Time from `+` FAB tapped -> anything saved (budget: p75 < 15s)
 // 5. Finish flow abandonment rate (budget: < 8%)
+//
+// A budget event is a measurement or nothing (audit 10). With no running
+// clock nothing is sent: the tracker used to invent 1200 ms, 4 s or 3500 ms,
+// all inside budget, which made the §4.4 report a false green.
 
 import { track } from './events';
 
@@ -29,30 +33,33 @@ class BudgetTracker {
     method?: 'slider' | 'sheet' | 'quick_add' | 'direct';
     deltaPages?: number;
   } = {}): void {
-    const now = Date.now();
-    const durationMs = this.readingTabOpenTime ? Math.max(1, now - this.readingTabOpenTime) : 1200;
+    // §4.4 measures Reading tab open -> progress saved: one sample per
+    // visit. A later save in the same visit did not start at the tab.
+    if (this.readingTabOpenTime === null) return;
+    const durationMs = Math.max(1, Date.now() - this.readingTabOpenTime);
+    this.readingTabOpenTime = null;
 
     track('progress_updated', {
       duration_ms: durationMs,
       method: options.method || 'slider',
       delta_pages: options.deltaPages ?? 0,
     });
-
-    // Reset open time so subsequent updates measure from current anchor
-    this.readingTabOpenTime = now;
   }
 
   // ---------------------------------------------------------------- 2. Book Shelved Tap Budget
   /**
-   * Call when reader shelves a book from anywhere in the app.
+   * Call when reader shelves a book, with the taps COUNTED since the book's
+   * impression. No call site counts them yet (audit 10: both passed a
+   * constant 2, which can never miss the budget), so nothing calls this until
+   * a tap counter exists.
    */
   recordBookLogged(options: {
-    tapCount?: number;
+    tapCount: number;
     source?: string;
     targetStatus?: string;
-  } = {}): void {
+  }): void {
     track('book_logged', {
-      tap_count: options.tapCount ?? 2,
+      tap_count: options.tapCount,
       source: options.source || 'work_detail',
       target_status: options.targetStatus || 'want',
     });
@@ -79,7 +86,8 @@ class BudgetTracker {
       pageCount?: number | null;
     } = {},
   ): void {
-    const startTime = this.finishFlowStartTimes.get(readId) || Date.now() - 4000;
+    const startTime = this.finishFlowStartTimes.get(readId);
+    if (startTime === undefined) return;
     const durationMs = Math.max(100, Date.now() - startTime);
     const durationSeconds = Math.round(durationMs / 1000);
 
@@ -120,7 +128,8 @@ class BudgetTracker {
 
   // ---------------------------------------------------------------- 4. FAB Log Sheet Budget
   /**
-   * Call when reader taps the center FAB `+` button.
+   * Call when reader taps the center FAB `+` button (§4.4: "+ tapped ->
+   * anything saved"); the next save anywhere completes it.
    */
   startLogSheet(_readId?: string): void {
     this.logSheetStartTime = Date.now();
@@ -134,8 +143,8 @@ class BudgetTracker {
     maybeOptions?: { targetStatus?: string; deltaPages?: number; hadNote?: boolean; hadMinutes?: boolean },
   ): void {
     const options = typeof readIdOrOptions === 'string' ? maybeOptions || {} : readIdOrOptions || {};
-    const now = Date.now();
-    const durationMs = this.logSheetStartTime ? Math.max(1, now - this.logSheetStartTime) : 3500;
+    if (this.logSheetStartTime === null) return;
+    const durationMs = Math.max(1, Date.now() - this.logSheetStartTime);
 
     track('log_sheet_completed', {
       duration_ms: durationMs,

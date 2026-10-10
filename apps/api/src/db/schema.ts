@@ -277,6 +277,17 @@ export const catalogRatingStats = pgTable('catalog_rating_stats', {
   check('catalog_rating_stats_id_check', sql`${t.id}`),
 ]);
 
+/**
+ * "Did you mean …?" vocabulary for a zero-result search (0032, audit 10):
+ * titles and credited authors of works with 20+ logs, never explicit.
+ * Rebuilt weekly by search.suggestions.refresh. The trigram GIN index on
+ * lower(term) lives in the migration.
+ */
+export const searchSuggestions = pgTable('search_suggestions', {
+  term: text('term').primaryKey(),
+  weight: integer('weight').notNull(),
+});
+
 // ---------------------------------------------------------------------------
 // 2. Provenance and raw payloads (architecture.md §3.2, PRD §7.9 / §41)
 // ---------------------------------------------------------------------------
@@ -361,6 +372,8 @@ export const users = pgTable('users', {
   dateOfBirth: date('date_of_birth').notNull(),
   // False: the date of birth was never entered (0025, D-07-3); most restricted until confirmed.
   dobConfirmed: boolean('dob_confirmed').notNull().default(true),
+  // A date under 13 was entered at confirmation (0031, D-07b-1): every later attempt is refused.
+  underageAttemptAt: timestamp('underage_attempt_at', { withTimezone: true }),
   role: text('role').notNull().default('user'),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   deletedAt: timestamp('deleted_at', { withTimezone: true }),
@@ -977,7 +990,7 @@ export const uploads = pgTable('uploads', {
   completedAt: timestamp('completed_at', { withTimezone: true }),
   consumedAt: timestamp('consumed_at', { withTimezone: true }),
 }, (t) => [
-  check('uploads_purpose_ck', sql`${t.purpose} IN ('import')`),
+  check('uploads_purpose_ck', sql`${t.purpose} IN ('import', 'avatar')`),
   check('uploads_status_ck', sql`${t.status} IN ('pending','uploaded','consumed','expired')`),
   check('uploads_size_ck', sql`${t.size} > 0 AND ${t.size} <= ${t.maxBytes}`),
   check('uploads_filename_ck', sql`char_length(${t.filename}) <= 255`),

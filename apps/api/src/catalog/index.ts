@@ -16,6 +16,7 @@ import { editions, reads, progressEvents } from '../db/schema.js';
 import { ApiError } from '../http.js';
 import { detectIsbn, type DetectedIsbn } from './isbn.js';
 import { resolveWorkId } from './resolve.js';
+import { recordEvents } from '../telemetry/index.js';
 
 export type Edition = {
   id: string;
@@ -77,6 +78,8 @@ export type Work = {
   merged_into?: string;
   /** GET /works/:id only (PRD §7.8, A-02-019). */
   maturity?: Maturity;
+  /** GET /works/:id only: the page count progress and stats use when no edition is chosen (D-08-3). */
+  page_count?: number | null;
   /** GET /works/:id only: explicit, and search would hide it from this viewer. The client shows its interstitial. */
   content_warning?: boolean;
   /** GET /works/:id only (audit 08, SL-41 / SL-43). */
@@ -482,8 +485,18 @@ export class CatalogService {
 
   /** See SEARCH_SQL above for how matching and ranking work. */
   async search(viewer: string | null, q: string, limit = 20): Promise<Work[]> {
+    return (await this.searchPage(viewer, q, limit)).data;
+  }
+
+  /**
+   * search(), plus PRD §14.7's zero-result handling (AC-7, audit 10): when the
+   * local catalog finds nothing, a spelling suggestion is looked up BEFORE the
+   * live Open Library lookup, and a search that ends with no results is
+   * logged as `search_zero_results{query}`.
+   */
+  async searchPage(viewer: string | null, q: string, limit = 20): Promise<{ data: Work[]; suggestion: string | null }> {
     const query = cleanQuery(q);
-    if (Array.from(query).length < 2) return [];
+    if (Array.from(query).length < 2) return { data: [], suggestion: null };
 
     const isbn = detectIsbn(query);
     // An exact ISBN typed into search follows the same maturity filter as
@@ -494,12 +507,14 @@ export class CatalogService {
     const localSearch = (n: number) => this.#localSearch(query, n, allowExplicit);
 
     let rows: SearchRow[] = [];
+    let suggestion: string | null = null;
     if (isbnMatch) {
       // PRD §1013: ISBN pasted -> exact edition match first.
       const otherRows = await localSearch(limit - 1);
       rows = [isbnMatch, ...otherRows.filter((r) => r.id !== isbnMatch!.id)];
     } else {
       rows = await localSearch(limit);
+      if (rows.length === 0 && !isbn) suggestion = await this.#suggest(query);
 
       // Layer 2 of the catalog accelerator. Bounded by the outbound client's
       // 2.5s timeout and skipped entirely when the circuit is open or the
@@ -523,8 +538,17 @@ export class CatalogService {
       }
     }
 
+    if (rows.length === 0) {
+      // Reviewed weekly as catalog-quality input (§14.7), capped at the event
+      // property limit. Never linked to the viewer: search queries are
+      // personal data (PRD §23.5), and the weekly review needs the query, not
+      // who typed it.
+      await recordEvents(this.db, [{ name: 'search_zero_results', properties: { query: query.slice(0, 200) } }], null);
+      return { data: [], suggestion };
+    }
+
     const yours = await this.#yourReads(viewer, rows.map((r) => r.id));
-    return rows.map((r) => {
+    const data = rows.map((r) => {
       const work: Work = {
         id: r.id,
         title: r.title,
@@ -536,6 +560,29 @@ export class CatalogService {
       const mine = yours.get(r.id);
       return mine ? { ...work, your_read: mine } : work;
     });
+    return { data, suggestion };
+  }
+
+  /**
+   * "Did you mean …?" (§14.7 step 1) from search_suggestions (0032), never
+   * the catalog: one GIN probe on ~112k terms instead of the loose trigram
+   * pass over 3.2M titles that A-02-023 removed. Word similarity ≥ 0.45 (the
+   * typo arms use 0.6, which is why "tolkein", at 0.50, missed), ranked by
+   * similarity × ln(2 + popularity). The threshold is set for this
+   * transaction only. Null when nothing is close, or when the best term is
+   * the query itself.
+   */
+  async #suggest(query: string): Promise<string | null> {
+    const q = query.toLowerCase();
+    const rows = await this.db.transaction(async (tx) => {
+      await tx.execute(sql`SELECT set_config('pg_trgm.word_similarity_threshold', '0.45', true)`);
+      return tx.execute<{ term: string }>(sql`
+        SELECT term FROM search_suggestions
+         WHERE ${q} <% lower(term) AND lower(term) <> ${q}
+         ORDER BY word_similarity(${q}, lower(term)) * ln(2 + weight) DESC, term
+         LIMIT 1`);
+    });
+    return rows[0]?.term ?? null;
   }
 
   /**
@@ -608,9 +655,11 @@ export class CatalogService {
         id: string; title: string; subtitle: string | null;
         first_publish_year: number | null; log_count: number;
         ol_cover_id: number | null; author_name: string | null; maturity: Maturity;
+        page_count: number | null;
       }>(sql`
         SELECT
           w.id, w.title, w.subtitle, w.first_publish_year, w.log_count, w.ol_cover_id, w.maturity,
+          flyleaf_page_count(NULL, w.id) AS page_count,
           (SELECT a.name
              FROM work_authors wa JOIN authors a ON a.id = wa.author_id
             WHERE wa.work_id = w.id
@@ -693,6 +742,7 @@ export class CatalogService {
           publish_year: e.publishYear,
         })),
         maturity: w.maturity,
+        page_count: w.page_count,
         description: extra?.description ?? null,
         authors: extra?.authors ?? [],
         series: (extra?.series ?? []).map((x) => ({ ...x, position: x.position === null ? null : Number(x.position) })),
@@ -947,7 +997,7 @@ export function catalogRoutes(service: CatalogService) {
       },
       async (req) => {
         const { q, limit } = searchQuery.parse(req.query);
-        return { data: await service.search(req.viewer, q ?? '', limit) };
+        return service.searchPage(req.viewer, q ?? '', limit);
       },
     );
 

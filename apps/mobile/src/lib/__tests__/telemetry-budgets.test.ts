@@ -186,3 +186,63 @@ describe('PRD §4.4 Interaction Budgets Instrumenter (SL-81, PRD §4.4)', () => 
     assert.ok(typeof props.duration_ms === 'number');
   });
 });
+
+// Audit 10: a budget event is a measurement or nothing. The tracker used to
+// make one up when its clock was never started (1200 ms, 4 s, 3500 ms, all
+// inside budget), and re-anchored the progress clock at every save, so the
+// §4.4 report could only ever be green (P1 false green).
+describe('§4.4 budgets measure, never invent (audit 10)', () => {
+  const realNow = Date.now;
+  let now = 1_000_000;
+  beforeEach(() => {
+    clearEventQueue();
+    setTelemetryTransport(null);
+    Date.now = () => now;
+  });
+  const names = () => getPendingEventQueue().map((e) => e.name);
+  const last = () => {
+    const q = getPendingEventQueue();
+    return (q[q.length - 1] as unknown as { properties: Record<string, unknown> }).properties;
+  };
+
+  it('no clock, no sample: progress, finish and log sheet without a start emit nothing', () => {
+    budgetTracker.recordProgressSaved({ method: 'slider' }); // after any earlier sample consumed the focus
+    budgetTracker.recordProgressSaved({ method: 'slider' });
+    budgetTracker.recordFinishCompleted('never-started');
+    budgetTracker.recordLogSheetCompleted({ targetStatus: 'want' });
+    assert.deepEqual(names().filter((n) => n !== 'progress_updated'), []);
+    assert.ok(names().filter((n) => n === 'progress_updated').length <= 1);
+  });
+
+  it('progress is measured from Reading tab focus, once per focus', () => {
+    budgetTracker.startReadingTab();
+    now += 3_200;
+    budgetTracker.recordProgressSaved({ method: 'slider' });
+    now += 60_000;
+    budgetTracker.recordProgressSaved({ method: 'slider' }); // a second save in the same visit: not a from-focus sample
+    assert.deepEqual(names(), ['progress_updated']);
+    assert.equal(last().duration_ms, 3_200);
+    budgetTracker.startReadingTab();
+    now += 900;
+    budgetTracker.recordProgressSaved({ method: 'quick_add' });
+    assert.equal(last().duration_ms, 900);
+  });
+
+  it('finish and log sheet durations run from their own start', () => {
+    budgetTracker.startFinishFlow('r1');
+    now += 14_000;
+    budgetTracker.recordFinishCompleted('r1');
+    assert.equal(last().duration_seconds, 14);
+    budgetTracker.startLogSheet();
+    now += 9_500;
+    budgetTracker.recordLogSheetCompleted({ targetStatus: 'reading' });
+    assert.equal(last().duration_ms, 9_500);
+    budgetTracker.recordLogSheetCompleted({ targetStatus: 'reading' }); // clock consumed
+    assert.equal(names().filter((n) => n === 'log_sheet_completed').length, 1);
+  });
+
+  it('restores the clock', () => {
+    Date.now = realNow;
+    assert.ok(Date.now() > 1_000_000_000);
+  });
+});
