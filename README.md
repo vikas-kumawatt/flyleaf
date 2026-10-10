@@ -835,8 +835,8 @@ Refreshed by the audit (Part 15a, 2026-10-10). Every figure below names where it
 | Check | Result |
 |---|---|
 | CI | `node scripts/ci.mjs` runs 9 steps, the same ones GitHub Actions runs: api-client build, api typecheck, spec check, api tests, api build, `npm audit --audit-level=high`, mobile typecheck, mobile tests, and migrations on a real Postgres 18. Last full run: see `docs/audit/findings/15-cross-cutting.md` › CI result. |
-| API tests (`vitest`) | **CI_API_AFTER tests in CI_API_FILES files**. Every suite that touches SQL runs against **PGlite** (Postgres in WASM). PGlite timestamps have millisecond resolution, so cursor precision is also checked on a real server (`src/bench/cursor-sweep.ts`). |
-| Mobile tests (`node --test`) | **CI_MOBILE_AFTER tests**: offline queue, auth, guest, reading rules, stats, telemetry budgets, feed cards, shelves, social and interactions |
+| API tests (`vitest`) | **1,733 tests in 82 files**. Every suite that touches SQL runs against **PGlite** (Postgres in WASM). PGlite timestamps have millisecond resolution, so cursor precision is also checked on a real server (`src/bench/cursor-sweep.ts`). |
+| Mobile tests (`node --test`) | **214 tests**: offline queue, auth, guest, reading rules, stats, telemetry budgets, feed cards, shelves, social and interactions |
 | Audit | 15 parts, all in `docs/audit/`: findings per part, `SUMMARY.md`, and open questions in `DECISIONS.md` |
 | OpenAPI drift | **0**. `spec:check` fails the build on any divergence. |
 | Migrations | **42** (`0000_phase0_catalog` … `0041_retention`). They apply cleanly to an empty database in the test suite and to a real Postgres in CI. They are hand-written and idempotent from `0019` on. |

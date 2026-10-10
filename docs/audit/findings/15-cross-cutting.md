@@ -1,6 +1,6 @@
 # Audit 15a — Cross-cutting fixes (the cloud half of Part 15)
 
-2026-10-10 · CI: see "CI result" at the end · Tests: API **1,610 → CI_API_AFTER** (+94 `rate-limits.test.ts`, +8 `popular-feed.test.ts`, +16 `cross-cutting-audit.test.ts`, +1 each in `dedupe`, `ingest`, `shelves-audit`, +2 `admin-security`, +1 `auth-audit`); mobile **207 → 214** (+6 tap counter in `telemetry-budgets.test.ts`, +1 in `queue.test.ts`). No test was weakened or skipped. Existing assertions that pinned behaviour this part deliberately changed were updated with a comment naming the finding (list under "Behaviour changes" › "Tests changed").
+2026-10-10 · CI: **green in 1,327 s**, all 9 steps (sandbox; details at the end) · Tests: API **1,610 → 1,733** (+94 `rate-limits.test.ts`, +8 `popular-feed.test.ts`, +16 `cross-cutting-audit.test.ts`, +1 each in `dedupe`, `ingest`, `shelves-audit`, +2 `admin-security`, +1 `auth-audit`); mobile **207 → 214** (+6 tap counter in `telemetry-budgets.test.ts`, +1 in `queue.test.ts`). No test was weakened or skipped. Existing assertions that pinned behaviour this part deliberately changed were updated with a comment naming the finding (list under "Behaviour changes" › "Tests changed").
 
 **How this part ran.** The brief is split: **15a** (this file, a cloud sandbox) does every code change, the docs, and the measurements that are meaningful on a small synthetic database. **15b** (the owner's laptop, `docs/audit/15b-laptop.md`) applies the migrations to `flyleaf` and `flyleaf_dev`, runs every deferred bench, and finishes `perf/comparison.md` and `SUMMARY.md`. Overrides for this run:
 
@@ -295,4 +295,18 @@ All here is **sandbox, synthetic** (empty catalog). Every laptop number is **TBD
 
 ## CI result
 
-CI_RESULT
+`FLYLEAF_TEST_WORKERS=2 node scripts/ci.mjs` in the sandbox, with Postgres 18.3 on 5432 and MinIO on 9000.
+
+- **Run 1** (commit `fd72b9f`, before the last code changes): green in 1,368 s, exit 0, all 9 steps. API tests: **1,728 passed / 82 files**. Mobile: **214 passed**. Spec drift 0. Migrations applied on the real Postgres. MinIO came up during the run.
+- **Run 2, final** (commit `2e9913c`; the later commits are docs only): **green in 1,327 s, exit 0**, all 9 steps:
+  - api-client build;
+  - api typecheck;
+  - spec check ("openapi.yaml is up to date", drift 0);
+  - api tests: **1,733 passed / 82 files, 0 skipped** (MinIO up, so the S3 contract block ran);
+  - api build;
+  - api audit (`--audit-level=high`; 7 moderate, all dev-only);
+  - mobile typecheck;
+  - mobile tests: **214 passed**;
+  - migrations on a real Postgres ("migrations applied", **not skipped**).
+- The A-04-006 timing test did not flake in either run.
+- **15b:** TBD. Steps 1 and 13 of `15b-laptop.md` add the laptop's migration times and its CI run.

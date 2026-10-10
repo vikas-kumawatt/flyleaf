@@ -31,8 +31,8 @@ The three open P1s:
 | 08 Catalog, reading | 29 | 28 | 1 | | PV Providers | 9 | 9 | 0 |
 
 **Tests:**
-- API: about 740 tests (Part 02) grew to **CI_API_AFTER**.
-- Mobile: 100 grew to **CI_MOBILE_AFTER**.
+- API: about 740 tests (Part 02) grew to **1,733**.
+- Mobile: 100 grew to **214**.
 - No test was weakened, skipped or deleted. Assertions that pinned behaviour a fix changed on purpose were updated with a comment naming the finding.
 
 **Migrations:** `0019`–`0041`, all hand-written and idempotent. On the laptop, `0034`–`0041` are still to be applied (15b).
