@@ -82,16 +82,23 @@ interface AccessibleRead {
   commentCount: number;
 }
 
-// Opaque, total-order cursor: created_at alone is not unique.
-function encodeCursor(createdAt: Date, id: string): string {
-  return Buffer.from(`${createdAt.toISOString()}|${id}`, 'utf8').toString('base64url');
+// Opaque, total-order cursor: created_at alone is not unique. created_at goes
+// in as Postgres's own text, microseconds included: cut to a JS Date's
+// milliseconds, the last comment of a page sorted after its own cursor and
+// opened the next page again (audit 14, A-14-020). PGlite's clock only has
+// milliseconds, so only a real server showed it.
+function encodeCursor(createdAt: string, id: string): string {
+  return Buffer.from(`${createdAt}|${id}`, 'utf8').toString('base64url');
 }
+
+// Postgres text (2026-01-01 10:00:00.123003+00), or the ISO form older cursors carry.
+const CURSOR_AT = /^\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}:\d{2}(\.\d{1,6})?(Z|[+-]\d{2}(:\d{2})?)$/;
 
 function decodeCursor(cursor: string | undefined): { at: string; id: string } | null {
   if (!cursor) return null;
   try {
     const [at, id] = Buffer.from(cursor, 'base64url').toString('utf8').split('|');
-    if (!at || !id || Number.isNaN(Date.parse(at))) throw new Error('bad cursor');
+    if (!at || !id || !CURSOR_AT.test(at) || Number.isNaN(Date.parse(at.replace(' ', 'T').replace(/\.(\d{3})\d*/, '.$1').replace(/([+-]\d{2})$/, '$1:00')))) throw new Error('bad cursor');
     if (!/^[0-9a-f-]{36}$/i.test(id)) throw new Error('bad cursor');
     return { at, id };
   } catch {
@@ -319,6 +326,7 @@ export class InteractionService {
         userId: readComments.userId,
         body: readComments.body,
         createdAt: readComments.createdAt,
+        createdKey: sql<string>`${readComments.createdAt}::text`,
         username: profiles.username,
         displayName: profiles.displayName,
         avatarKey: profiles.avatarKey,
@@ -352,7 +360,7 @@ export class InteractionService {
         author: toUser(r),
         viewer_can_delete: viewer !== null && viewer === r.userId,
       })),
-      next_cursor: rows.length > limit && last ? encodeCursor(last.createdAt, last.id) : null,
+      next_cursor: rows.length > limit && last ? encodeCursor(last.createdKey, last.id) : null,
     };
   }
 

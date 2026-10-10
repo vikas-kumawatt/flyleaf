@@ -4,6 +4,7 @@
 // Optimistic local write to SQLite -> UI updates immediately -> queued for sync.
 
 import type { OfflineDatabase } from './db';
+import type { WantToReadOutcome } from '../lib/homeFeed';
 import { MutationQueue, type MutationHandler } from './queue';
 import type { LocalRead, LocalProgressEvent } from './schema';
 import type { Read, ReadStatus } from '@/lib/api';
@@ -370,6 +371,65 @@ export class OfflineRepository {
     });
 
     void this.queue.flush();
+  }
+
+  /**
+   * The feed's want-to-read swipe (audit D-11-1). Writes only when this
+   * reader has no read of the book: setting `want` over a read in progress
+   * would move it back, and over a finished one would start a re-read. The
+   * local check covers what this device knows; `if_absent` makes the server
+   * check too, so a replay or another device's read is never overwritten
+   * (409 already_in_library; the queue then drops the local copy). Online,
+   * the write is sent before this returns, so the toast tells the truth.
+   * The returned readId is what Undo deletes: only the read this created.
+   */
+  async wantToRead(
+    workId: string,
+    meta?: { title?: string; author_name?: string | null; cover_id?: number | null },
+  ): Promise<WantToReadOutcome> {
+    const localId = randomUUID();
+    const now = new Date().toISOString();
+    let created = false;
+    await this.db.transaction(async (tx) => {
+      const existing = await tx.getFirst<{ id: string }>(
+        `SELECT id FROM reads WHERE work_id = ? AND user_id = ? LIMIT 1`,
+        [workId, this.userId],
+      );
+      if (existing) return;
+      await tx.run(
+        `INSERT INTO reads (
+          id, user_id, work_id, edition_id, status, attempt_no, started_at, finished_at,
+          rating, hearted, format_override, visibility,
+          title, author_name, cover_id, page, percent, page_count, synced, created_at, updated_at
+        ) VALUES (?, ?, ?, NULL, 'want', 1, NULL, NULL, NULL, 0, NULL, 'public', ?, ?, ?, NULL, NULL, NULL, 0, ?, ?)`,
+        [localId, this.userId, workId, meta?.title ?? null, meta?.author_name ?? null, meta?.cover_id ?? null, now, now],
+      );
+      await this.queue.enqueue('read', localId, 'upsert_read', {
+        work_id: workId,
+        status: 'want',
+        rating: null,
+        hearted: null,
+        extra: { if_absent: true },
+      });
+      created = true;
+    });
+    if (!created) return { kind: 'already' };
+
+    try {
+      await this.queue.flush();
+    } catch {
+      // Still queued; the outcome below says so.
+    }
+    const alias = await this.db.getFirst<{ server_id: string }>(
+      `SELECT server_id FROM read_aliases WHERE local_id = ?`, [localId]);
+    const readId = alias?.server_id ?? localId;
+    const row = await this.db.getFirst<{ synced: number }>(
+      `SELECT synced FROM reads WHERE id = ? AND user_id = ?`, [readId, this.userId]);
+    if (!row) return { kind: 'already' };
+    if (row.synced) return { kind: 'added', readId };
+    const dead = await this.db.getFirst<{ id: string }>(
+      `SELECT id FROM mutation_queue WHERE entity_id = ? AND status = 'dead_letter'`, [readId]);
+    return dead ? { kind: 'failed' } : { kind: 'queued', readId };
   }
 
   /**

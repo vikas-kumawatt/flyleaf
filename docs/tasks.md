@@ -970,16 +970,18 @@
   - Defined `activity` Drizzle table in `apps/api/src/db/schema.ts` and migration `apps/api/drizzle/0017_activity.sql` with covering index `(actor_id, created_at desc)` (Architecture §3.5, PRD §23.3) and CHECK constraints on verbs (`started`, `finished`, `rated`, `reviewed`, `dnf`, `shelved`, `followed`, `goal_reached`, `quoted`) and visibility (`public`, `followers`, `private`).
   - Built `ActivityService` in `apps/api/src/activity/index.ts` with atomic write-on-action logging (`recordActivity`), visibility updates (`updateActivityVisibility`), entity deletion cascading (`deleteActivity`), and retroactive privacy updates (`setAccountPrivacy`).
   - Strict import feed exclusion (IM-07, PRD §4410): reads and reviews with `source = 'import'` generate NO activity rows.
-  - Strict privacy enforcement (PRD §16.3, §26.1, §26.2): per-item private reads, reviews, and shelves generate NO activity rows; private account activities default to `followers` visibility; switching account to private retroactively restricts public activity to `followers`.
+  - Strict privacy enforcement (PRD §16.3, §26.1, §26.2): per-item private reads, reviews, and shelves generate NO activity rows; private account activities default to `followers` visibility; switching account to private retroactively restricts public activity to `followers`. (Audit 14: switching back to public left it all followers-only; it now returns to each item's own visibility, A-14-007.)
   - Integrated write-on-action into `ReadingService` (`started`, `finished`, `dnf`), `ReviewService` (`reviewed`), `ShelvesService` (`shelved`), `SocialService` (`followed`), and `IdentityService` (retroactive privacy adjustment).
   - Integration test suite `apps/api/src/test/activity.test.ts` (10/10 tests passing) verifying write-on-action for all verbs, import exclusion, item privacy, private profile restriction, retroactive privacy toggling, and review/follow activity cleanup.
+  - **Audit (2026-10-10):** ⚠️ — writers, import exclusion and lifecycle hold; but there was no 180-day prune, going public left every card followers-only, and `rated`/`goal_reached`/`quoted` have no writer; prune and restore fixed, a single accepted request now writes a card (D-13-1); see A-14-006, A-14-007, A-14-016, A-14-019.
 - [x] **SO-11** ⚠️ **Feed query**: cursor-paginated, blocks/mutes excluded — 1.5d
   - Created Fastify route schemas `feedQuerySchema`, `feedResponseSchema`, `feedActivityActorSchema`, `feedActivityWorkSchema`, and `feedActivityItemSchema` in `apps/api/src/contract/schemas.ts`.
   - Implemented cursor-paginated `getFriendsFeed` (Fan-out on read for followed accounts with `state = 'accepted'`, PRD §12.7, Architecture §8) and `getPopularFeed` (platform-wide public activities) in `ActivityService` (`apps/api/src/activity/index.ts`).
   - Strict exclusion filtering: SQL queries enforce bidirectional block exclusion (`blocks` table for blocker/blocked) and user & work mute exclusion (`mutes` table for muted users and muted book works).
   - Fastify route plugin `activityPlugin` registered on `/feed` and `/v1/feed` with `tab=friends` (default, requires auth viewer) and `tab=popular` (supports optional auth / guest viewers).
   - Synchronized OpenAPI 3.1.0 specifications (`openapi.yaml`) with 0 contract drift (`npm run spec:check`).
-  - Comprehensive integration test suite `apps/api/src/test/feed-query.test.ts` (7/7 tests passing) asserting reverse-chronological order, ISO timestamp cursor pagination, bidirectional block filtering, user mute filtering, work mute filtering, popular feed querying, and 401 guest rejection for friends feed.
+  - Comprehensive integration test suite `apps/api/src/test/feed-query.test.ts` (7/7 tests passing) asserting reverse-chronological order, ~~ISO timestamp cursor pagination~~ (the cursor lost and repeated cards once ranking reordered a page; now an opaque `(created_at µs, id, deferred ids)` cursor, A-14-001), bidirectional block filtering, user mute filtering, work mute filtering, popular feed querying, and 401 guest rejection for friends feed.
+  - **Audit (2026-10-10):** ❌ — pagination lost and repeated cards and a bad cursor served page one (fixed: exactly once, 400 `invalid_cursor`); "followed" cards showed people in a block with the viewer (P0, fixed); the friends query seq-scanned `activity` and sorted to disk for a heavy follower (fixed: p95 494 → 161 ms, sandbox); Popular has no popularity signal (D-14-1); see A-14-001, A-14-004, A-14-008, A-14-009.
 - [x] **SO-12** Ranking + diversity constraints in TypeScript — 1.5d
   - Created feed ranking & diversity engine in `apps/api/src/activity/ranking.ts` implementing PRD §12.2–12.4 and Architecture §8 specifications.
   - Scoring formula: `rank = activity_weight * recency_decay(age_hours) * affinity(viewer, actor) * diversity_penalty`.
@@ -989,9 +991,10 @@
     1. Max 2 consecutive cards from the same person (AC-11).
     2. Max 3 cards about the same book (`work_id`) per 20-item page window (AC-11).
     3. Max 1 "started" card per 10-item block (PRD §12.4), with fallback to prevent starving thin feeds.
-    4. Min 1 low-affinity / rarely engaged actor card per 10-item block (if present in candidate set).
+    4. Min 1 low-affinity / rarely engaged actor card per 10-item block (if present in candidate set). ~~Integrated~~ **Audit 14:** no affinity was ever passed in, so this rule never ran and ranking was weight × decay; affinity now comes from likes, comments and mutual follows (A-14-002).
   - Integrated `rankAndDiversifyFeed` into `ActivityService.getFriendsFeed` and `getPopularFeed` (`apps/api/src/activity/index.ts`).
   - Dedicated unit & integration test suite `apps/api/src/test/feed-ranking.test.ts` (9/9 tests passing) verifying activity weights, 36h decay math, rank score composition, consecutive actor interleaving, book frequency capping, "started" card rules, and high-weight activity prioritization. All 16 feed tests green.
+  - **Audit (2026-10-10):** ⚠️ — weights, decay and rules 1, 2 and 4 hold (mutation-checked); affinity was never supplied (fixed); cards that break a rule now wait for the next page instead of being dropped; see A-14-001, A-14-002, A-14-018.
 - [x] **SO-13** Aggregation: shelf adds, follows — 0.5d
   - Created `aggregateFeedItems` engine in `apps/api/src/activity/ranking.ts` implementing PRD §12.2 and AC-11 specifications.
   - Automatically collapses repetitive low-weight activity items by the same actor into single aggregated summary cards prior to re-ranking & diversity evaluation:
@@ -1002,24 +1005,27 @@
   - Boosted activity weight (`getActivityWeight`) for aggregated items scaling with item count (`baseWeight + 0.05 * min(count - 1, 4)`).
   - Integrated into feed execution pipeline (`rankAndDiversifyFeed` in `apps/api/src/activity/ranking.ts`).
   - Dedicated unit tests in `apps/api/src/test/feed-ranking.test.ts` (13/13 tests passing) verifying shelf add aggregation, follow aggregation, same-day start aggregation, and high-value non-aggregation rules. All 20 feed tests green.
+  - **Audit (2026-10-10):** ⚠️ — groups correctly; aggregated shelf cards lost the shelf name (`shelfName` vs `shelf_name`), aggregates carried no member ids, follow aggregates named every target "reader"; all fixed; "day" is a UTC day (no profile time zone); see A-14-004, A-14-005, A-14-021.
 - [x] **SO-14** ⚠️ **Cold start: never empty**, Friends/Popular switch, blended <3 follows — 1d
   - Extended API contract (`feedResponseSchema` in `apps/api/src/contract/schemas.ts`) with cold start metadata fields: `is_cold_start`, `following_count`, and `cold_start_reason`.
   - Implemented 4 cold-start scenarios in `ActivityService.getFriendsFeed` (`apps/api/src/activity/index.ts`):
     1. **0 follows**: Auto-switches Friends tab query to Popular feed (`tab: 'popular'`, `is_cold_start: true`, `following_count: 0`, `cold_start_reason: 'no_follows'`).
-    2. **1–3 follows**: Returns Friends feed blended with Popular activities tagged `is_blended_popular: true`, `label: 'Popular on Flyleaf'`, `cold_start_reason: 'sparse_follows'`.
+    2. **1–3 follows**: Returns Friends feed blended with Popular activities tagged `is_blended_popular: true`, `label: 'Popular on Flyleaf'`, `cold_start_reason: 'sparse_follows'`. (Audit 14: ~~on every page~~ the blend repeated on every page and the feed never ended; now page one only, from people the viewer does not follow, A-14-003.)
     3. **>3 follows with zero recent activity**: Backfills with Popular activities tagged `is_blended_popular: true`, `label: 'While you wait'`, `cold_start_reason: 'no_activity'`.
     4. **Never Empty Guarantee**: If `items.length === 0` (fresh DB with zero platform activity), appends an editorial welcome card (`is_editorial: true`).
   - Unit & integration tests in `apps/api/src/test/feed-cold-start.test.ts` (4/4 tests passing) covering all 4 cold start scenarios. All 24 feed test assertions green across `feed-cold-start.test.ts`, `feed-ranking.test.ts`, and `feed-query.test.ts`.
+  - **Audit (2026-10-10):** ❌ — the 1–3-follows feed never ended and could repeat a followed reader's card, the editorial card closed every feed, `following_count` counted deleted accounts; all fixed; see A-14-001, A-14-003.
 - [x] SO-15 Feed card types + swipe actions — 0.5d
   - Created feed card helper library `apps/mobile/src/lib/feedCard.ts` for card type resolution (`review`, `finish`, `rated`, `dnf`, `shelved`, `followed`, `started`, `goal_reached`, `quoted`, `editorial`), activity headline formatting (including aggregated cards), and swipe action configuration.
   - Implemented interactive `FeedCard` component (`apps/mobile/src/ui/FeedCard.tsx`) using `Swipeable` from `react-native-gesture-handler`:
     - **Swipe Right** (reveals left action): Green **"Want to read"** action with bookmark icon, haptics, and toast notification (~~`POST /v1/shelves/want-to-read/items`~~ no such route exists; want-to-read is a read status, not a shelf: per D-11-1 the swipe uses `POST /v1/reads {status: 'want'}` only when the viewer has no read of the work, wiring → Part 14).
-    - **Swipe Left** (reveals right action): Blue **"Rate & Review"** action with star icon, haptics, and navigation to review composer (`/log?workId=...`).
+    - **Swipe Left** (reveals right action): Blue **"Rate & Review"** action with star icon, haptics, and navigation to review composer (~~`/log?workId=...`~~ `/log` ignores `workId`; now `/review/compose/<workId>`, A-14-015).
     - Non-gesture accessibility buttons & overflow shortcuts for VoiceOver/TalkBack and web visitors (PRD §4682).
     - Spoiler blur overlay toggle ("Contains spoilers - Tap to reveal") (PRD §10.4).
     - Cold-start badge banners ("Popular on Flyleaf", "While you wait", "Welcome Card").
-  - Updated Home Feed screen (`apps/mobile/app/(tabs)/index.tsx`) with real feed cards, guest auth gates (`ActionGate`), and swipe action toast alerts.
+  - ~~Updated Home Feed screen (`apps/mobile/app/(tabs)/index.tsx`) with real feed cards~~ Home rendered hard-coded sample items and never called the API (audit 14, A-14-010: now wired to `GET /v1/feed`), guest auth gates (`ActionGate`), and swipe action toast alerts (~~the want-to-read toast~~ called nothing: A-14-011).
   - Unit tests in `apps/mobile/src/lib/__tests__/feed-card.test.ts` (92/92 mobile tests passing, typecheck clean).
+  - **Audit (2026-10-10):** ❌ — Home showed samples, the swipe was fake, Rate & Review opened search, review cards showed no excerpt or spoiler blur from real payloads, hex colours, the editorial card linked to a nil-UUID profile; all fixed (swipe per D-11-1 with `if_absent` and Undo; the offline queue no longer lets Undo overtake a backing-off create); see A-14-010 … A-14-015, A-14-017, A-14-022.
 
 ### Interaction — `SO-2x` · 3d
 - [x] **SO-20** `read_likes`, `read_comments` migrations + counters — 0.5d
@@ -1042,7 +1048,7 @@
   - Mobile: `getCardInteraction()` in `src/lib/feedCard.ts` resolves what a card's buttons act on. ⚠️ **Fixed an SO-15 bug:** review cards passed the *activity* id as the read id, which could never match a read. `FeedCard` hides like/comment on non-social cards, sends the wanted state (POST or DELETE), rolls back on failure, and opens the comment thread by default.
   - 17 tests in `read-likes.test.ts`; SL-64's toggle test rewritten for like/unlike in `reviews.test.ts`.
 - [x] **SO-22** Comments, single-level, rate-limited — 1d
-  - `GET /v1/reads/:id/comments` (guest-readable for public reads; oldest first; opaque `(created_at, id)` cursor, malformed cursor → 400 `invalid_cursor`), `POST /v1/reads/:id/comments` (201), `DELETE /v1/comments/:id` (204, soft delete).
+  - `GET /v1/reads/:id/comments` (guest-readable for public reads; oldest first; opaque `(created_at, id)` cursor, malformed cursor → 400 `invalid_cursor`) (audit 14, A-14-020: ~~`(created_at, id)`~~ the cursor cut `created_at` to milliseconds, so on Postgres each page repeated the previous page's last comment; it now carries microseconds), `POST /v1/reads/:id/comments` (201), `DELETE /v1/comments/:id` (204, soft delete).
   - **Rate limit: 5 comments/minute per user** (PRD §6.28, §11.7, §24) through the injected `RateLimiter` — `PgRateLimiter` by default, so it holds across API instances. Bucket `comments:{userId}`. Checked *after* authorization and validation, so a 404/409/400 never burns budget. `buildApp({ limiter })` and `server.ts` now share one limiter instance.
   - Terminal reads only (409 `not_commentable`); body trimmed, 1–2,000 chars (whitespace-only → 400 `empty_body`; over-length → 422 at the schema).
   - **Deleted review → read-only thread** (PRD §6.28, §43): `POST` returns 409 `thread_locked`; `GET` still returns the comments with `locked: true`.

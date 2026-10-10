@@ -272,6 +272,17 @@ export class SocialService {
           AND EXISTS (SELECT 1 FROM users u WHERE u.id = ${requesterId}::uuid AND u.deleted_at IS NULL)
         RETURNING follower_id`);
       if (!row) throw ApiError.notFound('Pending follow request not found.');
+      // D-13-1 (owner, 2026-10-10): a single accept is when the follow starts,
+      // so it gets the requester's card, dated now. The bulk accept when an
+      // account goes public writes none (identity/index.ts).
+      await this.activityService.recordActivity(t, {
+        actorId: requesterId,
+        verb: 'followed',
+        objectType: 'user',
+        objectId: viewer,
+        metadata: { followeeId: viewer },
+        visibility: 'public',
+      });
     });
 
     return {

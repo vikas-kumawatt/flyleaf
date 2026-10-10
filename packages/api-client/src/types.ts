@@ -374,6 +374,8 @@ export interface UpsertReadRequest {
   hearted?: boolean | null;
   format_override?: string | null;
   visibility?: ReadVisibility | null;
+  /** true writes only if the viewer has no read of the work; otherwise 409 already_in_library (D-11-1). */
+  if_absent?: boolean | null;
 }
 
 export interface ProgressEventRequest {
@@ -531,6 +533,7 @@ export interface FeedItem {
 
 export interface FeedResponse {
   items: FeedItem[];
+  /** Opaque; pass it back as `cursor`. A page may hold fewer than `limit` items while has_more is true. */
   next_cursor: string | null;
   has_more: boolean;
   tab: string;

@@ -250,12 +250,22 @@ export class MutationQueue {
       // from a process that died while sending it: send it again.
       await this.db.run(`UPDATE mutation_queue SET status = 'pending' WHERE status = 'processing'`);
 
+      // A row waits while an earlier write for the same entity is backing
+      // off: sent ahead of it, a delete would 404 ("already gone") and the
+      // create would land after it (audit 14: the swipe's Undo was lost).
+      // Ties on created_at (same millisecond) go by insertion order.
+      const now = new Date().toISOString();
       const eligible = await this.db.getAll<{ id: string; entity_id: string }>(
-        `SELECT id, entity_id FROM mutation_queue
-          WHERE user_id = ? AND status = 'pending'
-            AND (? OR next_retry_at IS NULL OR next_retry_at <= ?)
-          ORDER BY created_at ASC`,
-        [this.userId, force ? 1 : 0, new Date().toISOString()],
+        `SELECT q.id, q.entity_id FROM mutation_queue q
+          WHERE q.user_id = ? AND q.status = 'pending'
+            AND (? OR q.next_retry_at IS NULL OR q.next_retry_at <= ?)
+            AND NOT EXISTS (
+              SELECT 1 FROM mutation_queue e
+               WHERE e.user_id = q.user_id AND e.entity_id = q.entity_id AND e.status = 'pending'
+                 AND (e.created_at < q.created_at OR (e.created_at = q.created_at AND e.rowid < q.rowid))
+                 AND NOT (? OR e.next_retry_at IS NULL OR e.next_retry_at <= ?))
+          ORDER BY q.created_at ASC, q.rowid ASC`,
+        [this.userId, force ? 1 : 0, now, force ? 1 : 0, now],
       );
 
       const byEntity = new Map<string, string[]>();
@@ -328,7 +338,16 @@ export class MutationQueue {
           );
           break;
         case 'upsert_read':
-          result = await handler.upsertRead(payload.work_id, payload.status, payload.rating, payload.hearted, payload.extra);
+          try {
+            result = await handler.upsertRead(payload.work_id, payload.status, payload.rating, payload.hearted, payload.extra);
+          } catch (err) {
+            // The want-to-read swipe (D-11-1) found a read on the server: the
+            // book is in the library, as asked. Drop the local copy, not a sync issue.
+            if (!(payload.extra?.if_absent && err instanceof FlyleafApiError && err.status === 409
+              && err.code === 'already_in_library')) throw err;
+            await this.db.run(`DELETE FROM reads WHERE id = ? AND user_id = ? AND synced = 0`, [m.entity_id, this.userId]);
+            result = null;
+          }
           break;
         case 'finish_read':
           result = await handler.finishRead(m.entity_id, body);

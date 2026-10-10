@@ -1,0 +1,440 @@
+{
+  "meta": {
+    "label": "14-feed-sandbox-after",
+    "date": "2026-10-10T19:55:12.716Z",
+    "base_url": "http://localhost:3000",
+    "commit": "89e9df0",
+    "dirty": true,
+    "node": "v22.22.0",
+    "connections": 10,
+    "duration_s": 10,
+    "sequential_n": 15,
+    "seed_generated_at": "2026-10-10T19:25:47.751Z",
+    "seed_counts": {
+      "users": 3000,
+      "private_users": 300,
+      "follows": 186014,
+      "pending_follows": 9259,
+      "blocks": 150,
+      "mutes": 300,
+      "reads": 62365,
+      "import_reads": 9425,
+      "rereads": 5156,
+      "progress_events": 220584,
+      "reviews": 12000,
+      "likes": 40000,
+      "comments": 8000,
+      "shelves": 4005,
+      "shelf_items": 79251,
+      "saves": 1500,
+      "activity": 142152
+    },
+    "personas": {
+      "heavy": {
+        "username": "bench_u00006",
+        "following": 1158,
+        "followers": 141
+      },
+      "typical": {
+        "username": "bench_u00182",
+        "following": 40,
+        "followers": 22
+      },
+      "new": {
+        "username": "bench_u00011",
+        "following": 0,
+        "followers": 0
+      },
+      "private_owner": {
+        "username": "bench_u00012",
+        "following": 40,
+        "followers": 5
+      },
+      "blocked_pair_a": {
+        "username": "bench_u00013",
+        "following": 379,
+        "followers": 36
+      },
+      "blocked_pair_b": {
+        "username": "bench_u00014",
+        "following": 28,
+        "followers": 41
+      },
+      "celebrity": {
+        "username": "bench_u00001",
+        "following": 48,
+        "followers": 2577
+      },
+      "reviewer_of_hot_work": {
+        "username": "bench_u00015",
+        "following": 32,
+        "followers": 161
+      }
+    },
+    "notes": [
+      "search:common dropped \"love\" (0 local results; would trigger live gap-fill)",
+      "search:common dropped \"war\" (0 local results; would trigger live gap-fill)",
+      "search:common dropped \"night\" (0 local results; would trigger live gap-fill)",
+      "search:common dropped \"house\" (0 local results; would trigger live gap-fill)",
+      "search:common dropped \"girl\" (0 local results; would trigger live gap-fill)",
+      "search:author dropped \"tolkien\" (0 local results; would trigger live gap-fill)",
+      "search:author dropped \"stephen king\" (0 local results; would trigger live gap-fill)",
+      "search:author dropped \"murakami\" (0 local results; would trigger live gap-fill)",
+      "search:author dropped \"agatha christie\" (0 local results; would trigger live gap-fill)",
+      "search:author dropped \"jane austen\" (0 local results; would trigger live gap-fill)",
+      "search:author dropped \"haruki murakami\" (0 local results; would trigger live gap-fill)",
+      "search:cjk dropped \"村上春樹\" (0 local results; would trigger live gap-fill)",
+      "search:cjk dropped \"ハリー\" (0 local results; would trigger live gap-fill)",
+      "search:typo dropped \"harry pottr\" (0 local results; would trigger live gap-fill)",
+      "search:typo dropped \"atomc habits\" (0 local results; would trigger live gap-fill)",
+      "search:typo dropped \"the hobit\" (0 local results; would trigger live gap-fill)",
+      "search:typo dropped \"pride and prejudise\" (0 local results; would trigger live gap-fill)",
+      "search:typo dropped \"lord of the rigns\" (0 local results; would trigger live gap-fill)"
+    ]
+  },
+  "results": [
+    {
+      "scenario": "feed:friends:heavy",
+      "group": "feed",
+      "method": "GET",
+      "persona": "heavy",
+      "notes": [],
+      "skipped": null,
+      "sequential": {
+        "statuses": {
+          "200": 15
+        },
+        "latencyP50": 46.40223900000001,
+        "queries": [
+          4,
+          4,
+          4,
+          4,
+          4,
+          4,
+          4,
+          4,
+          4,
+          4,
+          4,
+          4,
+          4,
+          4,
+          4
+        ],
+        "sampleError": null,
+        "n": 15
+      },
+      "load": {
+        "requests": 874,
+        "completed": 874,
+        "unfinished": 10,
+        "rps": 87.1,
+        "p50": 111.365395,
+        "p95": 161.416561,
+        "p99": 200.269315,
+        "max": 237.129617,
+        "statuses": {
+          "200": 874
+        },
+        "errors": 0,
+        "timeouts": 0,
+        "drainMs": 2015.4212689999986
+      }
+    },
+    {
+      "scenario": "feed:friends:heavy:page2",
+      "group": "feed",
+      "method": "GET",
+      "persona": "heavy",
+      "notes": [],
+      "skipped": null,
+      "sequential": {
+        "statuses": {
+          "200": 15
+        },
+        "latencyP50": 58.714804999999615,
+        "queries": [
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5
+        ],
+        "sampleError": null,
+        "n": 15
+      },
+      "load": {
+        "requests": 830,
+        "completed": 830,
+        "unfinished": 10,
+        "rps": 82.8,
+        "p50": 118.849317,
+        "p95": 164.423358,
+        "p99": 193.635074,
+        "max": 206.780648,
+        "statuses": {
+          "200": 830
+        },
+        "errors": 0,
+        "timeouts": 0,
+        "drainMs": 2014.1198990000012
+      }
+    },
+    {
+      "scenario": "feed:friends:typical",
+      "group": "feed",
+      "method": "GET",
+      "persona": "typical",
+      "notes": [],
+      "skipped": null,
+      "sequential": {
+        "statuses": {
+          "200": 15
+        },
+        "latencyP50": 32.069562000004225,
+        "queries": [
+          4,
+          4,
+          4,
+          4,
+          4,
+          4,
+          4,
+          4,
+          4,
+          4,
+          4,
+          4,
+          4,
+          4,
+          4
+        ],
+        "sampleError": null,
+        "n": 15
+      },
+      "load": {
+        "requests": 1264,
+        "completed": 1264,
+        "unfinished": 10,
+        "rps": 126.1,
+        "p50": 76.987272,
+        "p95": 113.305127,
+        "p99": 131.326281,
+        "max": 169.974344,
+        "statuses": {
+          "200": 1264
+        },
+        "errors": 0,
+        "timeouts": 0,
+        "drainMs": 2015.2922240000044
+      }
+    },
+    {
+      "scenario": "feed:friends:typical:page2",
+      "group": "feed",
+      "method": "GET",
+      "persona": "typical",
+      "notes": [],
+      "skipped": null,
+      "sequential": {
+        "statuses": {
+          "200": 15
+        },
+        "latencyP50": 34.21938400000363,
+        "queries": [
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5
+        ],
+        "sampleError": null,
+        "n": 15
+      },
+      "load": {
+        "requests": 1119,
+        "completed": 1119,
+        "unfinished": 10,
+        "rps": 111.8,
+        "p50": 89.235769,
+        "p95": 124.041105,
+        "p99": 140.666487,
+        "max": 164.735032,
+        "statuses": {
+          "200": 1119
+        },
+        "errors": 0,
+        "timeouts": 0,
+        "drainMs": 2020.5285900000017
+      }
+    },
+    {
+      "scenario": "feed:friends:new",
+      "group": "feed",
+      "method": "GET",
+      "persona": "new",
+      "notes": [],
+      "skipped": null,
+      "sequential": {
+        "statuses": {
+          "200": 15
+        },
+        "latencyP50": 23.414817999997467,
+        "queries": [
+          3,
+          3,
+          3,
+          3,
+          3,
+          3,
+          3,
+          3,
+          3,
+          3,
+          3,
+          3,
+          3,
+          3,
+          3
+        ],
+        "sampleError": null,
+        "n": 15
+      },
+      "load": {
+        "requests": 1906,
+        "completed": 1906,
+        "unfinished": 10,
+        "rps": 190.4,
+        "p50": 51.502088,
+        "p95": 76.891223,
+        "p99": 90.45794,
+        "max": 125.993624,
+        "statuses": {
+          "200": 1906
+        },
+        "errors": 0,
+        "timeouts": 0,
+        "drainMs": 2010.978986000002
+      }
+    },
+    {
+      "scenario": "feed:friends:new:page2",
+      "group": "feed",
+      "method": "GET",
+      "persona": "new",
+      "notes": [],
+      "skipped": null,
+      "sequential": {
+        "statuses": {
+          "200": 15
+        },
+        "latencyP50": 20.036699999996927,
+        "queries": [
+          4,
+          4,
+          4,
+          4,
+          4,
+          4,
+          4,
+          4,
+          4,
+          4,
+          4,
+          4,
+          4,
+          4,
+          4
+        ],
+        "sampleError": null,
+        "n": 15
+      },
+      "load": {
+        "requests": 1969,
+        "completed": 1969,
+        "unfinished": 10,
+        "rps": 196.7,
+        "p50": 50.59823,
+        "p95": 69.91107,
+        "p99": 80.753059,
+        "max": 91.99464,
+        "statuses": {
+          "200": 1969
+        },
+        "errors": 0,
+        "timeouts": 0,
+        "drainMs": 2011.6568479999987
+      }
+    },
+    {
+      "scenario": "feed:popular:guest",
+      "group": "feed",
+      "method": "GET",
+      "persona": null,
+      "notes": [],
+      "skipped": null,
+      "sequential": {
+        "statuses": {
+          "200": 15
+        },
+        "latencyP50": 14.546456000010949,
+        "queries": [
+          2,
+          2,
+          2,
+          2,
+          2,
+          2,
+          2,
+          2,
+          2,
+          2,
+          2,
+          2,
+          2,
+          2,
+          2
+        ],
+        "sampleError": null,
+        "n": 15
+      },
+      "load": {
+        "requests": 2737,
+        "completed": 2737,
+        "unfinished": 10,
+        "rps": 273.4,
+        "p50": 36.030352,
+        "p95": 52.487083,
+        "p99": 62.796803,
+        "max": 97.969591,
+        "statuses": {
+          "200": 2737
+        },
+        "errors": 0,
+        "timeouts": 0,
+        "drainMs": 2013.4231369999907
+      }
+    }
+  ]
+}

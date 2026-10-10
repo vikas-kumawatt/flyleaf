@@ -103,8 +103,8 @@ describe('SO-02 follow state machine', () => {
     expect(acc.json()).toMatchObject({ status: 'accepted', follower_id: a.id, followee_id: p.id });
     expect(await counts(p.id)).toEqual({ followers: 1, following: 0 });
     expect(await counts(a.id)).toEqual({ followers: 0, following: 1 });
-    // A follow accepted from a request writes no card today (D-13-1).
-    expect(await followedCards(a.id, p.id)).toHaveLength(0);
+    // D-13-1 decided (owner, 2026-10-10, built in Part 14): a single accept writes the requester's card.
+    expect(await followedCards(a.id, p.id)).toHaveLength(1);
     expect((await call('DELETE', `/v1/users/${p.id}/follow`, a)).json().status).toBe('none');
     expect(await counts(p.id)).toEqual({ followers: 0, following: 0 });
   });
@@ -181,7 +181,7 @@ describe('SO-02 follow state machine', () => {
     expect(pub.statusCode).toBe(200);
     expect([await edge(a.id, p.id), await edge(b.id, p.id)]).toEqual(['accepted', 'accepted']);
     expect(await counts(p.id)).toEqual({ followers: 2, following: 0 });
-    // No burst of cards: requests accepted in bulk write none, as a single accept writes none (D-13-1).
+    // No burst of cards: requests accepted in bulk write none (D-13-1; a single accept writes one).
     expect([...await followedCards(a.id, p.id), ...await followedCards(b.id, p.id)]).toHaveLength(0);
 
     // While public, p's own follow card is public ...

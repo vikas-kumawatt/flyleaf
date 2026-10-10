@@ -11,6 +11,7 @@ import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import { api, type ImportResponse } from '@/lib/api';
 import { startImportPolling } from '@/lib/importPolling';
+import { formatEta, importEtaSeconds, type ProgressSample } from '@/lib/homeFeed';
 import { Card, Txt, ProgressBar, Button, sheet } from '@/ui/components';
 import { space, radius, useTheme } from '@/ui/tokens';
 
@@ -32,6 +33,8 @@ export function ImportProgressBanner({
 
   const [job, setJob] = useState<ImportResponse | null>(initialData ?? null);
   const [error, setError] = useState<string | null>(null);
+  // Progress over time, for the ETA (A-12-023: rows per second × rows left, once there are two samples).
+  const [samples, setSamples] = useState<ProgressSample[]>([]);
   // The latest callback, without restarting the polling when it changes
   // (audit 12, A-12-022: an inline onComplete restarted it on every render).
   const onCompleteRef = useRef(onComplete);
@@ -44,6 +47,9 @@ export function ImportProgressBanner({
         onUpdate: (data) => {
           setJob(data);
           setError(null);
+          if (data.state === 'processing') {
+            setSamples((prev) => [...prev.slice(-9), { at: Date.now(), processed: data.matched + data.unmatched }]);
+          }
         },
         onDone: (data) => {
           if (data.state === 'completed') onCompleteRef.current?.(data);
@@ -119,10 +125,12 @@ export function ImportProgressBanner({
           </Txt>
         </View>
 
-        {onDismiss && isCompleted && (
+        {onDismiss && (
           <Pressable
             onPress={onDismiss}
-            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+            hitSlop={{ top: 14, bottom: 14, left: 14, right: 14 }}
+            accessibilityRole="button"
+            accessibilityLabel="Dismiss import progress"
           >
             <Ionicons name="close" size={16} color={c.muted} />
           </Pressable>
@@ -143,13 +151,21 @@ export function ImportProgressBanner({
               {job.matched} matched · {job.unmatched} unmatched
             </Txt>
           </View>
+          {isProcessing && (() => {
+            const eta = importEtaSeconds(samples, total);
+            return eta === null ? null : (
+              <Txt variant="caption" color="muted" style={{ fontSize: 12 }}>
+                {formatEta(eta)}
+              </Txt>
+            );
+          })()}
         </View>
       )}
 
       {/* Queued Message */}
       {isQueued && (
         <Txt variant="caption" color="muted" style={{ marginTop: space[2] }}>
-          Your export is in queue. Processing will begin shortly...
+          Your import is in the queue. Processing will begin shortly...
         </Txt>
       )}
 
