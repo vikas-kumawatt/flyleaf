@@ -108,6 +108,7 @@ Stop the server (Ctrl-C) when it is done.
 | Part 12 | `DATABASE_URL=$DEV npx tsx src/bench/import-cost.ts --rows 5000 --export` | `flyleaf_dev` | `15b/import-5000-dev.txt` |
 
 - Each command cleans up its own rows: `--clean`, a deleted throwaway user, or EXPLAIN only.
+- **Deep follower pages:** Part 13 asked for the Part 01 celebrity's followers at offset 1,900. The runner's `followers:celebrity` scenario (step 4) times page 1 only. `social-graph.ts --lists` times offsets 0, 1,000 and 1,900 on its own 2,000-follower celebrity, on the same database. Record both, and say which is which.
 - Part 14's question: is the §12.7 trigger (feed p95 > 200 ms) hit? Read it from `15-after.md`'s `feed:*` rows.
 - Part 12's question: with the full catalog, does the exact-title stage stay index-bound for one-word titles ("Dune")? Read it from the import's statements per row and time.
 

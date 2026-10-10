@@ -142,6 +142,14 @@ Layers 1+2 are one week and produce a catalog good enough to build the entire ap
 
 Anything with a screen. Resist it.
 
+**Audit (25 Sep – 10 Oct 2026).** Parts 02–06 and 15 re-verified this phase:
+- **Search** (`findings/02-search.md`, `02d-…`): relevance on the real catalog is 214/214. Some query classes are still over budget under load; the author-arm plan is approved for after the audit.
+- **Dedupe** (`03-dedupe.md`): auto-merge rules were tightened after unrelated books were merged. The backlog merges after the audit, in batches.
+- **Auth, authorization, admin** (`04`, `05`, `06`).
+- **Batch jobs** (`15-cross-cutting.md`): they get their own memory and time budgets, and work in key ranges, after one dedupe statement was OOM-killed and took Postgres down.
+
+The headline is in `docs/audit/SUMMARY.md`.
+
 ---
 
 ## Phase 1 — The solo loop
@@ -178,6 +186,13 @@ Anything with a screen. Resist it.
 
 Follows, feed, likes, comments, notifications. **The solo experience must stand alone** — assume the user has no friends here for three months.
 
+**Audit.** Parts 07–10 re-verified this phase. Fixed P0s:
+- queued writes replayed under the next user's token;
+- the query cache survived an account switch;
+- private reviews stayed in the public feed.
+
+The §4.4 budgets had been false greens: the app invented durations, and a constant tap count could never miss its budget. Since Part 15 they are measured, and `book_logged` is counted per D-10-2. Exit criteria above stand as the owner verified them on the device; the audit's device checklist is in `docs/audit/SUMMARY.md`.
+
 ---
 
 ## Phase 2 — Shelves & lists
@@ -189,6 +204,8 @@ Curation, ranked lists, per-entry notes, public shelf pages, save-someone-else's
 ### Exit criteria
 - [x] A ranked list with notes can be built, reordered and shared
 - [x] Shelf privacy respected on every read path
+
+**Audit (Part 11).** A shelf's privacy change or delete never reached the feed (P0, fixed). There was no restore, no caps, and concurrent adds collided. Browse's `views` term is always 0 (`DECISIONS.md` 3). Shelves deleted more than 30 days ago are now purged (Part 15).
 
 ---
 
@@ -217,6 +234,8 @@ Importing your own thousand-book library is the **best load test the catalog wil
 - [x] Your own real Goodreads or StoryGraph export imports with ≥85% match (92.0% achieved with 23/25 matched)
 - [x] Unmatched rows are reviewable and resolvable (verified via GET /v1/imports/:id/rows and POST /v1/imports/:id/rows/:rowNo/resolve)
 - [x] Export round-trips: export, wipe a test account, re-import, data intact (100% fidelity verified across reads, ratings, shelves, reviews, and dates)
+
+**Audit (Part 12).** Re-importing doubled a library (fixed: imports merge, D-12-1). Calibre books imported as finished (D-12-2). The matcher's cost on the full 3.2M catalog is measured in 15b. Import, export and upload limits are enforced since Part 15.
 
 ---
 
@@ -248,6 +267,12 @@ Without them every share is a dead link for anyone without the app, which breaks
 - [ ] **Nobody has an empty feed** — verified for every beta user
 - [ ] Block is complete: neither party can see the other anywhere
 - [ ] A report reaches the admin queue and can be actioned end to end
+
+**Audit (Parts 13–15).**
+- **Social graph:** the follower counters lost updates under concurrency, and a block could be detected through unfollow and mute answers. Both are fixed. PRD §11.7 anti-abuse limits are enforced (Part 15).
+- **Feed:** pages lost and repeated cards, and the 1–3-follows feed never ended. Both are fixed: every card is served once.
+- **Popular** is now popular (D-14-1: reviews and finishes, likes and comments, never rating).
+- **Rate limits:** one layer for PRD §24.4 across the API.
 
 ---
 
@@ -286,6 +311,8 @@ Stats screen with per-card sharing · goal ring on the profile · server-rendere
 - [ ] Crash-free sessions ≥ 99.5% across the beta
 - [ ] Relevance panel at ≥95% top-3
 - [ ] Store listing, screenshots, privacy labels submitted
+
+**Audit (Part 15).** The account hard-delete step exists: the daily retention sweep removes an account 30 days after deletion, its stored objects first. The in-app flow (LA-01) is still to build. Before launch, the privacy policy must state the event retention: 13 months raw, 30 days for zero-result searches.
 
 ---
 
