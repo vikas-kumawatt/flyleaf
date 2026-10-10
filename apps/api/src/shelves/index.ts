@@ -220,7 +220,7 @@ function isUniqueViolation(err: unknown): boolean {
 }
 
 /** Serializes one user's shelf creates, renames and restores (limit and slug). */
-async function lockUserShelves(tx: Db, userId: string): Promise<void> {
+export async function lockUserShelves(tx: Db, userId: string): Promise<void> {
   await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtextextended(${`shelves:${userId}`}, 0))`);
 }
 

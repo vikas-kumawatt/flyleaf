@@ -118,6 +118,7 @@ import type {
   ExportFormat,
   ExportResponse,
   ExportListResponse,
+  ExportLinkResponse,
   CreateExportRequest,
 } from './types.js';
 
@@ -1073,6 +1074,13 @@ export class FlyleafClient {
 
   async listExports(): Promise<ExportListResponse> {
     return this.request<ExportListResponse>('/exports', {
+      method: 'GET',
+    });
+  }
+
+  /** The owner's short-lived download link for a completed export (audit 12). */
+  async getExportLink(id: string): Promise<ExportLinkResponse> {
+    return this.request<ExportLinkResponse>(`/exports/${encodeURIComponent(id)}/link`, {
       method: 'GET',
     });
   }

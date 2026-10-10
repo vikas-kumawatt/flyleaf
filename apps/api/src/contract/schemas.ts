@@ -2219,7 +2219,10 @@ export const exportResponseSchema = {
       enum: exportStateEnum,
     },
     file_size_bytes: { type: ['integer', 'null'] },
-    download_url: { type: ['string', 'null'] },
+    download_url: {
+      type: ['string', 'null'],
+      description: 'Always null since audit 12: the emailed token is stored only as a hash. Use GET /v1/exports/{id}/link.',
+    },
     expires_at: { type: ['string', 'null'], format: 'date-time' },
     error: { type: ['string', 'null'] },
     created_at: { type: 'string', format: 'date-time' },
@@ -2244,9 +2247,18 @@ export const downloadExportQuerySchema = {
   properties: {
     token: {
       type: 'string',
-      description: 'Single-use or time-limited download token sent via email',
+      description: 'The download token from the export email. Valid until expires_at (48 h after the file is ready), any number of times.',
     },
   },
+} as const;
+
+export const exportLinkResponseSchema = {
+  type: 'object',
+  properties: {
+    url: { type: 'string', description: 'Storage URL for the file, valid for 5 minutes.' },
+    expires_at: { type: 'string', format: 'date-time' },
+  },
+  required: ['url', 'expires_at'],
 } as const;
 
 // ---------------------------------------------------------------- Social Graph & Follows (SO-01, SO-02)

@@ -110,8 +110,9 @@ export const librarythingConfig: SourceColumnConfig = {
       transform: (val) => normalizeRating(val, '5'),
       fallback: null,
     },
+    // `Entry Date` is when the book was catalogued, not started (A-12-019).
     startedAt: {
-      headers: ['Entry Date', 'entry_date', 'Date Added'],
+      headers: ['Date Started', 'date_started'],
       transform: (val) => parseDate(val),
       fallback: null,
     },

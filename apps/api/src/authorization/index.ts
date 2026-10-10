@@ -10,6 +10,9 @@
 //   4. Private accounts require the viewer to be an accepted follower.
 //   5. Followers-only items require the viewer to be an accepted follower.
 //   6. Public items on public accounts are visible to all (including guests where viewer === null).
+//   6b. Authored content (reviews) of an author whose email is unverified is
+//       visible only to its author (D-05-3): imports cannot bulk-publish from
+//       a throwaway account, and verifying shows it with no data rewrite.
 //   7. If access is denied to another user's resource, return 404 NOT FOUND, never 403 (PRD §25.3).
 
 import { sql, type SQL } from 'drizzle-orm';
@@ -26,6 +29,8 @@ export interface CanViewParams {
   isOwnerPrivate?: boolean;
   isBlocked?: boolean;
   isFollower?: boolean;
+  /** The item is authored content (a review) and its author's email is unverified (D-05-3). */
+  isAuthorUnverified?: boolean;
 }
 
 /**
@@ -58,6 +63,7 @@ export function canView(
   let isOwnerPrivate: boolean;
   let isBlocked: boolean;
   let isFollower: boolean;
+  let isAuthorUnverified = false;
 
   if (typeof viewerOrParams === 'object' && viewerOrParams !== null && 'ownerId' in viewerOrParams) {
     viewer = viewerOrParams.viewer;
@@ -66,6 +72,7 @@ export function canView(
     isOwnerPrivate = viewerOrParams.isOwnerPrivate ?? false;
     isBlocked = viewerOrParams.isBlocked ?? false;
     isFollower = viewerOrParams.isFollower ?? false;
+    isAuthorUnverified = viewerOrParams.isAuthorUnverified ?? false;
   } else {
     viewer = viewerOrParams as string | null;
     ownerId = ownerIdArg!;
@@ -84,6 +91,9 @@ export function canView(
 
   // 3. Private item: visible only to the owner (Architecture §4, PRD §26.2).
   if (visibility === 'private') return false;
+
+  // 3b. An unverified author's review: only the author (D-05-3).
+  if (isAuthorUnverified) return false;
 
   // 4. Private account: only approved followers can view anything (PRD §26.1).
   // Guests (viewer === null) and non-followers receive false.
@@ -125,6 +135,8 @@ export interface Relationship {
   followStatus: 'none' | 'pending' | 'accepted' | 'self';
   /** Owner → viewer, accepted. */
   followedBy: boolean;
+  /** The owner's email is verified (D-05-3: gates authored content, see canView). */
+  ownerVerified: boolean;
 }
 
 export async function loadRelationship(db: Db, viewer: string | null, ownerId: string): Promise<Relationship> {
@@ -133,8 +145,9 @@ export async function loadRelationship(db: Db, viewer: string | null, ownerId: s
     blocked: boolean;
     follow_state: string | null;
     followed_by: boolean;
+    verified: boolean;
   }>(sql`
-    SELECT p.is_private,
+    SELECT p.is_private, u.email_verified_at IS NOT NULL AS verified,
       ${viewer === null ? sql`false` : sql`EXISTS (
         SELECT 1 FROM blocks b
         WHERE (b.blocker_id = ${viewer}::uuid AND b.blocked_id = u.id)
@@ -153,7 +166,7 @@ export async function loadRelationship(db: Db, viewer: string | null, ownerId: s
   `);
 
   if (!row) {
-    return { ownerExists: false, isOwnerPrivate: false, isBlocked: false, followStatus: 'none', followedBy: false };
+    return { ownerExists: false, isOwnerPrivate: false, isBlocked: false, followStatus: 'none', followedBy: false, ownerVerified: false };
   }
   const self = viewer !== null && viewer === ownerId;
   return {
@@ -168,6 +181,7 @@ export async function loadRelationship(db: Db, viewer: string | null, ownerId: s
           ? 'pending'
           : 'none',
     followedBy: !self && Boolean(row.followed_by),
+    ownerVerified: Boolean(row.verified),
   };
 }
 
@@ -177,6 +191,7 @@ export function canViewWith(
   ownerId: string,
   rel: Relationship,
   visibility: Visibility | string | null = 'public',
+  opts: { authored?: boolean } = {},
 ): boolean {
   if (!rel.ownerExists) return false;
   return canView({
@@ -186,6 +201,7 @@ export function canViewWith(
     isOwnerPrivate: rel.isOwnerPrivate,
     isBlocked: rel.isBlocked,
     isFollower: rel.followStatus === 'accepted',
+    isAuthorUnverified: opts.authored === true && !rel.ownerVerified,
   });
 }
 
@@ -208,10 +224,21 @@ export function visibleLevels(viewer: string | null, ownerId: string, rel: Relat
  */
 export function canViewSql(
   viewer: string | null,
-  cols: { ownerId: SQL | unknown; visibility: SQL | unknown; ownerIsPrivate: SQL | unknown },
+  cols: {
+    ownerId: SQL | unknown;
+    visibility: SQL | unknown;
+    ownerIsPrivate: SQL | unknown;
+    /** Authored content (reviews): an unverified author's is visible to the author only (D-05-3). */
+    authored?: boolean;
+  },
 ): SQL {
   const { ownerId, visibility, ownerIsPrivate } = cols;
-  const ownerAlive = sql`EXISTS (SELECT 1 FROM users du WHERE du.id = ${ownerId} AND du.deleted_at IS NULL)`;
+  const verified = cols.authored
+    ? viewer === null
+      ? sql` AND du.email_verified_at IS NOT NULL`
+      : sql` AND (du.email_verified_at IS NOT NULL OR du.id = ${viewer}::uuid)`
+    : sql``;
+  const ownerAlive = sql`EXISTS (SELECT 1 FROM users du WHERE du.id = ${ownerId} AND du.deleted_at IS NULL${verified})`;
   if (viewer === null) {
     return sql`(${ownerAlive} AND ${visibility} = 'public' AND NOT ${ownerIsPrivate})`;
   }

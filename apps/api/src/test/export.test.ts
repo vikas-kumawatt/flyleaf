@@ -211,8 +211,10 @@ describe('IM-10: CSV/JSON Export & Emailed Link API', () => {
       .where(eq(exportsTable.id, createdExportId));
 
     expect(row).toBeDefined();
-    expect(row!.downloadToken).toBeDefined();
-    downloadToken = row!.downloadToken!;
+    // Audit 12 (A-12-016): no token exists until the file is ready, and then
+    // only its hash is stored; the token itself is in the email.
+    expect(row!.downloadToken).toBeNull();
+    expect(row!.downloadTokenHash).toBeNull();
   });
 
   it('processExport generates CSV file in storage and emails download link', async () => {
@@ -222,7 +224,8 @@ describe('IM-10: CSV/JSON Export & Emailed Link API', () => {
 
     expect(result.state).toBe('completed');
     expect(result.file_size_bytes).toBeGreaterThan(0);
-    expect(result.download_url).toContain(`/v1/exports/${createdExportId}/download?token=${downloadToken}`);
+    // Audit 12 (A-12-016): responses no longer carry the emailed link.
+    expect(result.download_url).toBeNull();
 
     // Verify file exists in storage
     const [row] = await drizzleDb
@@ -250,7 +253,10 @@ describe('IM-10: CSV/JSON Export & Emailed Link API', () => {
     const sent = mailer.sentMessages[0]!;
     expect(sent.to).toBe('alice@flyleaf.test');
     expect(sent.subject).toContain('Your Flyleaf data export is ready');
-    expect(sent.text).toContain(`token=${downloadToken}`);
+    expect(sent.text).toContain(`/v1/exports/${createdExportId}/download?token=`);
+    downloadToken = new URL(sent.text.match(/https?:\/\/\S+/)![0]).searchParams.get('token')!;
+    expect(downloadToken.length).toBeGreaterThan(20);
+    expect(row!.downloadTokenHash).not.toContain(downloadToken);
   });
 
   it('GET /v1/exports/:id/download with the emailed token redirects to a short-lived storage URL (PV-02)', async () => {
@@ -343,7 +349,7 @@ describe('IM-10: CSV/JSON Export & Emailed Link API', () => {
     const content = await stored(row!.fileKey!);
     const parsed = JSON.parse(content!.toString('utf-8'));
 
-    expect(parsed.version).toBe('1.0');
+    expect(parsed.version).toBe('1.1'); // 1.1 (audit 12): progress, follows, DNF fields, heart, visibility
     expect(parsed.user.username).toBe('alice');
     expect(parsed.reads).toHaveLength(2);
     expect(parsed.shelves).toHaveLength(1);

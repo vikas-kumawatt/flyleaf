@@ -39,6 +39,7 @@ import {
   sheet,
 } from '@/ui/components';
 import { ImportProgressBanner } from '@/ui/ImportProgressBanner';
+import { isExportDownloadable } from '@/lib/exportDownload';
 import { space, radius, useTheme } from '@/ui/tokens';
 
 const PLATFORMS: { id: ImportSource; name: string; desc: string; icon: string }[] = [
@@ -522,15 +523,20 @@ export default function ImportScreen() {
                         </Txt>
                       </View>
 
-                      {exp.download_url && (
+                      {isExportDownloadable(exp) && (
                         <Button
                           label="Download"
                           size="sm"
                           variant="outline"
                           onPress={() => {
-                            if (exp.download_url) {
-                              void Linking.openURL(exp.download_url);
-                            }
+                            // The API no longer returns the emailed link
+                            // (audit 12, A-12-016): ask for a 5-minute one.
+                            api
+                              .getExportLink(exp.id)
+                              .then(({ url }) => Linking.openURL(url))
+                              .catch((err: any) =>
+                                Alert.alert('Download unavailable', err?.message || 'Request a new export and try again.'),
+                              );
                           }}
                         />
                       )}

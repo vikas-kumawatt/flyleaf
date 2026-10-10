@@ -449,6 +449,7 @@ function visibleReviews(workId: string, viewer: string | null, rating: number | 
           ownerId: sql`rv.user_id`,
           visibility: mostRestrictiveSql(sql`rv.visibility`, sql`r.visibility`),
           ownerIsPrivate: sql`COALESCE(p.is_private, true)`,
+          authored: true,
         })}`;
 }
 
@@ -615,7 +616,7 @@ export class ReviewService {
     // every denial is the same 404 as a missing review.
     const viewer = viewerId ?? null;
     const rel = await loadRelationship(this.db, viewer, r.userId);
-    if (!canViewWith(viewer, r.userId, rel, mostRestrictive(r.visibility, r.readVisibility))) {
+    if (!canViewWith(viewer, r.userId, rel, mostRestrictive(r.visibility, r.readVisibility), { authored: true })) {
       throw ApiError.notFound('Review not found');
     }
     const viewerHasLiked = Boolean(r.viewerHasLiked);

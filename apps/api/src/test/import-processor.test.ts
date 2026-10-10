@@ -287,6 +287,11 @@ describe('IM-08: Import Background Processor (Chunked, Resumable, Progress-Repor
       confidence: 1.0,
     });
 
+    // Audit 12 (D-12-1): an import no longer adds a second attempt of a book
+    // already in the library, and an earlier test imported Dune Messiah for
+    // this user; clear it so the row has something to commit.
+    await db.delete(reads).where(and(eq(reads.userId, testUserId), eq(reads.workId, messiahWorkId)));
+
     const preReads = await db
       .select({ count: reads.id })
       .from(reads)

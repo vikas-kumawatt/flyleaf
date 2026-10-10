@@ -13,6 +13,7 @@ import type { Db } from '../platform/index.js';
 import { imports, importRows } from '../db/schema.js';
 import { detectIsbn } from '../catalog/isbn.js';
 import { normaliseTitle } from '../catalog/dedupe.js';
+import { resolveWorkId } from '../catalog/resolve.js';
 import type { NormalizedImportRow } from './types.js';
 
 export type MatchStrategy =
@@ -49,6 +50,7 @@ export interface MatchResult {
 export async function matchImportRow(
   db: Db,
   row: NormalizedImportRow,
+  isbnLookup?: IsbnLookup,
 ): Promise<MatchResult> {
   // 1. Validate required identity fields
   if (!row.title || row.title.trim().length === 0) {
@@ -62,8 +64,10 @@ export async function matchImportRow(
     };
   }
 
-  // 2. Stage 1: Exact ISBN match on editions
-  const isbnMatch = await findMatchByIsbn(db, row);
+  // 2. Stage 1: Exact ISBN match on editions. Ambiguous (two works) stops
+  // here: a title match must not override what the ISBN says is unclear.
+  const lookup = isbnLookup ?? (await lookupIsbns(db, rowIsbns(row)));
+  const isbnMatch = isbnMatchFrom(row, lookup);
   if (isbnMatch) {
     return isbnMatch;
   }
@@ -86,57 +90,104 @@ export async function matchImportRow(
   return await findMatchByFuzzyTitleAuthor(db, row);
 }
 
-/**
- * Stage 1: Matches ISBN-10 or ISBN-13 against editions table.
- * Confidence = 1.0
- */
-async function findMatchByIsbn(
-  db: Db,
-  row: NormalizedImportRow,
-): Promise<MatchResult | null> {
-  const isbnCandidates: string[] = [];
+/** Every editions row for these ISBNs, keyed by ISBN-13 and ISBN-10. */
+export type IsbnLookup = Map<string, Array<{ workId: string; editionId: string; title: string }>>;
 
+/** The row's ISBNs, both forms, deduplicated. */
+export function rowIsbns(row: NormalizedImportRow): string[] {
+  const out: string[] = [];
   for (const raw of [row.isbn13, row.isbn10, row.isbn]) {
     if (!raw) continue;
     const det = detectIsbn(raw);
     if (det) {
-      if (det.isbn13) isbnCandidates.push(det.isbn13);
-      if (det.isbn10) isbnCandidates.push(det.isbn10);
+      if (det.isbn13) out.push(det.isbn13);
+      if (det.isbn10) out.push(det.isbn10);
     }
   }
+  return Array.from(new Set(out));
+}
 
-  const uniqueIsbns = Array.from(new Set(isbnCandidates));
-  if (uniqueIsbns.length === 0) return null;
-
-  const results = await db.execute<{
-    edition_id: string;
-    work_id: string;
-    work_title: string;
+/**
+ * Stage 1, for many rows at once: one query for every ISBN of a chunk
+ * (audit 12, A-12-014: one per row before). Editions of merged works were
+ * moved to the survivor by the merge, so only live works are read.
+ */
+export async function lookupIsbns(db: Db, isbns: string[]): Promise<IsbnLookup> {
+  const lookup: IsbnLookup = new Map();
+  if (isbns.length === 0) return lookup;
+  const unique = Array.from(new Set(isbns));
+  const rows = await db.execute<{
+    edition_id: string; work_id: string; work_title: string; isbn_13: string | null; isbn_10: string | null;
   }>(sql`
-    SELECT
-      e.id AS edition_id,
-      e.work_id,
-      w.title AS work_title
+    SELECT e.id AS edition_id, e.work_id, w.title AS work_title, e.isbn_13, e.isbn_10
     FROM editions e
     JOIN works w ON w.id = e.work_id
-    WHERE (e.isbn_13 IN ${uniqueIsbns} OR e.isbn_10 IN ${uniqueIsbns})
+    WHERE (e.isbn_13 IN ${unique} OR e.isbn_10 IN ${unique})
       AND w.merged_into_id IS NULL
       AND w.is_provisional = false
-    ORDER BY w.log_count DESC, e.publish_year DESC NULLS LAST
-    LIMIT 1
+    ORDER BY w.log_count DESC, e.publish_year DESC NULLS LAST, e.id
   `);
+  for (const r of rows) {
+    for (const key of [r.isbn_13, r.isbn_10]) {
+      if (!key || !unique.includes(key)) continue;
+      const list = lookup.get(key) ?? [];
+      list.push({ workId: r.work_id, editionId: r.edition_id, title: r.work_title });
+      lookup.set(key, list);
+    }
+  }
+  return lookup;
+}
 
-  const match = results[0];
-  if (!match) return null;
-
+/**
+ * Stage 1: ISBN-10 or ISBN-13. Confidence 1.0 when every edition carrying
+ * the row's ISBNs belongs to ONE work. Editions of two different works (a
+ * catalog duplicate, or ISBN-10 and ISBN-13 of the row disagreeing) are
+ * ambiguous: AC-9 says never guess, and the more popular work is a guess
+ * (A-12-002).
+ */
+function isbnMatchFrom(row: NormalizedImportRow, lookup: IsbnLookup): MatchResult | null {
+  const isbns = rowIsbns(row);
+  const hits = isbns.flatMap((i) => lookup.get(i) ?? []);
+  if (hits.length === 0) return null;
+  const works = new Map<string, { workId: string; editionId: string; title: string }>();
+  for (const h of hits) if (!works.has(h.workId)) works.set(h.workId, h);
+  if (works.size > 1) {
+    return {
+      state: 'unmatched',
+      workId: null,
+      editionId: null,
+      confidence: 0.5,
+      failureReason: 'ambiguous_match',
+      strategy: null,
+      candidates: [...works.values()].map((w) => ({ workId: w.workId, title: w.title, authorName: null, score: 1 })),
+    };
+  }
+  const only = hits[0]!;
   return {
     state: 'matched',
-    workId: match.work_id,
-    editionId: match.edition_id,
+    workId: only.workId,
+    editionId: only.editionId,
     confidence: 1.0,
     failureReason: null,
     strategy: 'isbn',
   };
+}
+
+/** For a LIKE pattern: the value matches itself only (A-12-003). */
+function likeEscape(value: string): string {
+  return value.replace(/[\\%_]/g, (c) => `\\${c}`);
+}
+
+/**
+ * The index-backed candidate set for a title (A-12-014): exact title in any
+ * case (trigram index on works.title serves ILIKE without wildcards), or the
+ * normalised title as a whole-word match inside the title (`%>`, same index).
+ * The stages below re-check their own exact rule on this set; before, each
+ * stage compared every work's title in the catalog, per row.
+ */
+function titleCandidates(title: string, normTitle: string) {
+  const exact = sql`w.title ILIKE ${likeEscape(title.trim())} ESCAPE '\\'`;
+  return normTitle.length > 0 ? sql`(${exact} OR w.title %> ${normTitle})` : exact;
 }
 
 /**
@@ -153,24 +204,23 @@ async function findMatchBySourceId(
   const workKeyMatch = trimmed.match(/(OL\d+W)/i);
   if (workKeyMatch && workKeyMatch[1]) {
     const key = workKeyMatch[1].toUpperCase();
-    const results = await db.execute<{
-      work_id: string;
-      edition_id: string | null;
-    }>(sql`
-      SELECT
-        w.id AS work_id,
-        COALESCE(
-          w.default_edition_id,
-          (SELECT e.id FROM editions e WHERE e.work_id = w.id ORDER BY e.publish_year DESC NULLS LAST LIMIT 1)
-        ) AS edition_id
-      FROM works w
-      WHERE w.ol_work_key = ${key}
-        AND w.merged_into_id IS NULL
-        AND w.is_provisional = false
-      LIMIT 1
+    const results = await db.execute<{ work_id: string }>(sql`
+      SELECT w.id AS work_id FROM works w WHERE w.ol_work_key = ${key} LIMIT 1
     `);
 
-    const match = results[0];
+    // A merged work's key still names the book: resolve to the survivor (A-12-002).
+    const keyed = results[0];
+    const workId = keyed ? await resolveWorkId(db, keyed.work_id) : null;
+    const [match] = workId
+      ? await db.execute<{ work_id: string; edition_id: string | null }>(sql`
+          SELECT w.id AS work_id,
+            COALESCE(
+              w.default_edition_id,
+              (SELECT e.id FROM editions e WHERE e.work_id = w.id ORDER BY e.publish_year DESC NULLS LAST LIMIT 1)
+            ) AS edition_id
+          FROM works w
+          WHERE w.id = ${workId} AND w.merged_into_id IS NULL AND w.is_provisional = false`)
+      : [];
     if (match) {
       return {
         state: 'matched',
@@ -255,6 +305,7 @@ async function findMatchByExactTitleAuthor(
       FROM works w
       WHERE w.merged_into_id IS NULL
         AND w.is_provisional = false
+        AND ${titleCandidates(row.title, normTitle)}
         AND (
           lower(w.title) = lower(${row.title.trim()})
           OR btrim(regexp_replace(
@@ -323,6 +374,7 @@ async function findMatchByExactTitleAuthor(
     FROM works w
     WHERE w.merged_into_id IS NULL
       AND w.is_provisional = false
+      AND ${titleCandidates(row.title, normTitle)}
       AND (
         lower(w.title) = lower(${row.title.trim()})
         OR btrim(regexp_replace(
@@ -338,8 +390,8 @@ async function findMatchByExactTitleAuthor(
         WHERE wa.work_id = w.id
           AND (
             lower(a.name) = lower(${authorClean})
-            OR lower(a.name) ILIKE ${'%' + authorClean.toLowerCase() + '%'}
-            OR lower(${authorClean}) ILIKE ('%' || lower(a.name) || '%')
+            OR lower(a.name) LIKE ${'%' + likeEscape(authorClean.toLowerCase()) + '%'} ESCAPE '\\'
+            OR lower(${authorClean}) LIKE ('%' || replace(replace(replace(lower(a.name), '\\', '\\\\'), '%', '\\%'), '_', '\\_') || '%') ESCAPE '\\'
           )
       )
     ORDER BY w.log_count DESC
@@ -424,10 +476,12 @@ async function findMatchByFuzzyTitleAuthor(
       FROM works w
       WHERE w.merged_into_id IS NULL
         AND w.is_provisional = false
-        AND (
-          similarity(w.title, ${row.title}) > 0.40
-          OR w.title ILIKE ${'%' + normTitle.slice(0, 20) + '%'}
-        )
+        -- % is the trigram index's operator (threshold 0.3); the 0.40 floor
+        -- is the rule. The old OR ILIKE '%…%' arm defeated the index (a scan
+        -- of every work per row, A-12-014); a candidate it alone admitted
+        -- scored under 0.40 on title and could never be the match.
+        AND w.title % ${row.title}
+        AND similarity(w.title, ${row.title}) > 0.40
     )
     SELECT
       work_id,

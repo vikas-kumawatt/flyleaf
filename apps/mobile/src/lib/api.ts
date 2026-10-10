@@ -527,6 +527,7 @@ export const api = {
   requestExport: (data?: CreateExportRequest) => client.requestExport(data),
   getExport: (id: string) => client.getExport(id),
   listExports: () => client.listExports(),
+  getExportLink: (id: string) => client.getExportLink(id),
 
   // Social & Follows (SO-01, SO-02)
   followUser: (userId: string) => client.followUser(userId),

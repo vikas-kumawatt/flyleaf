@@ -24,6 +24,10 @@ export const openlibraryConfig: SourceColumnConfig = {
   detection: {
     requiredHeaders: ['title', 'authors'],
     signatureHeaders: [
+      'Work ID',
+      'Edition ID',
+      'Bookshelf',
+      'My Ratings',
       'work_key',
       'edition_key',
       'read_status',
@@ -40,13 +44,14 @@ export const openlibraryConfig: SourceColumnConfig = {
       transform: (val) => cleanText(val) ?? '',
       required: true,
     },
+    // Open Library joins authors with " | ".
     author: {
       headers: ['authors', 'Authors', 'author', 'Author'],
       transform: (val) => {
         const cleaned = cleanText(val);
         if (!cleaned) return null;
-        if (cleaned.includes(',')) {
-          const first = cleaned.split(',')[0]?.trim();
+        if (cleaned.includes('|') || cleaned.includes(',')) {
+          const first = cleaned.split(/[|,]/)[0]?.trim();
           return first && first.length > 0 ? first : cleaned;
         }
         return cleaned;
@@ -63,9 +68,9 @@ export const openlibraryConfig: SourceColumnConfig = {
             .filter((s): s is string => s !== null && s.length > 0);
         }
         const authors = cleanText(row['authors'] ?? row['Authors']);
-        if (authors && authors.includes(',')) {
+        if (authors && (authors.includes('|') || authors.includes(','))) {
           return authors
-            .split(',')
+            .split(/[|,]/)
             .slice(1)
             .map((s) => cleanText(s))
             .filter((s): s is string => s !== null && s.length > 0);
@@ -93,7 +98,7 @@ export const openlibraryConfig: SourceColumnConfig = {
       },
     },
     sourceId: {
-      headers: ['work_key', 'Work', 'edition_key', 'Edition', 'ol_id'],
+      headers: ['Work ID', 'work_key', 'Work', 'Edition ID', 'edition_key', 'Edition', 'ol_id'],
       transform: (val) => {
         const cleaned = cleanText(val);
         if (!cleaned) return null;
@@ -102,12 +107,17 @@ export const openlibraryConfig: SourceColumnConfig = {
       },
     },
     status: {
-      headers: ['read_status', 'Read Status', 'shelf', 'Shelf', 'status'],
+      headers: ['Bookshelf', 'read_status', 'Read Status', 'shelf', 'Shelf', 'status'],
       transform: (val, row) => {
         if (val && val.trim().length > 0) {
           return mapStatus(
             val,
             {
+              // The reading log's Bookshelf values.
+              'already read': 'finished',
+              'currently reading': 'reading',
+              'want to read': 'want',
+              'stopped reading': 'dnf',
               'already-read': 'finished',
               read: 'finished',
               finished: 'finished',
@@ -131,7 +141,7 @@ export const openlibraryConfig: SourceColumnConfig = {
       required: true,
     },
     rating: {
-      headers: ['rating', 'Rating', 'my_rating', 'My Rating'],
+      headers: ['My Ratings', 'rating', 'Rating', 'my_rating', 'My Rating'],
       transform: (val) => normalizeRating(val, '5'),
       fallback: null,
     },

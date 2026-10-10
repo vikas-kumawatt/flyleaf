@@ -48,3 +48,11 @@ State machine: none → pending (private target) / accepted (public target) → 
 ## Deliverables
 
 `docs/audit/findings/13-social-graph.md`, the follow state-machine test, fixes, docs corrections, and audit lines under SO-01…06.
+
+## Handed over from Part 11 (owner decision, recorded 2026-10-10 in Part 12)
+
+**D-11-2 (A-11-028): build a slug history, option (b).** Renaming a shelf or changing a username must not break share links, and a freed slug or username must not later open someone else's content. Build one mechanism for both:
+- Shelves: a history of each shelf's old slugs. An old slug stays reserved to that shelf (the owner's next shelf with the same name gets a new slug) and `301`s to the current slug on every slug route (`/u/:username/shelves/:slug`, `/v1/users/:username/shelves/slug/:slug`, `/v1/shelves/by-slug/:username/:slug`).
+- Usernames: old usernames stay reserved (not available to another account) and `301` to the current one on profile and vanity routes. Decide and record how long a username stays reserved.
+- A deleted shelf keeps its history (restore within 30 days must bring its links back). Privacy is unchanged: a redirect never reveals a shelf or profile the viewer may not see (same 404 as a random slug).
+See `findings/11-shelves.md` A-11-028.

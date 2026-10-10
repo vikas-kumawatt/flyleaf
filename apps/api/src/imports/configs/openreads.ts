@@ -24,12 +24,15 @@ export const openreadsConfig: SourceColumnConfig = {
   detection: {
     requiredHeaders: ['title', 'author', 'status'],
     signatureHeaders: [
-      'started_date',
-      'finished_date',
+      'readings',
+      'my_review',
+      'book_format',
+      'olid',
+      'favourite',
+      'deleted',
       'pages',
       'notes',
       'tags',
-      'format',
       'rating',
     ],
     minimumConfidence: 0.7,
@@ -74,8 +77,9 @@ export const openreadsConfig: SourceColumnConfig = {
         return cleaned && cleaned.length === 13 ? cleaned : null;
       },
     },
+    // An Open Library edition key (OL…M), which the matcher understands.
     sourceId: {
-      headers: ['id', 'openreads_id', 'ID'],
+      headers: ['olid', 'id', 'openreads_id', 'ID'],
       transform: (val) => cleanText(val),
     },
     status: {
@@ -91,6 +95,9 @@ export const openreadsConfig: SourceColumnConfig = {
             'in-progress': 'reading',
             not_started: 'want',
             'not-started': 'want',
+            // OpenReads writes finished / in_progress / planned / abandoned / unknown.
+            planned: 'want',
+            unknown: 'want',
             to_read: 'want',
             'to-read': 'want',
             unfinished: 'dnf',
@@ -106,24 +113,27 @@ export const openreadsConfig: SourceColumnConfig = {
       transform: (val) => normalizeRating(val, '5'),
       fallback: null,
     },
+    // `readings` is `start|finish|ms;start|finish|ms` (ISO dates); the latest
+    // reading is the one a read records.
     startedAt: {
       headers: ['started_date', 'start_date', 'startedAt'],
-      transform: (val) => parseDate(val),
+      transform: (val, row) => parseDate(val) ?? lastReading(row)[0],
       fallback: null,
     },
     finishedAt: {
       headers: ['finished_date', 'finish_date', 'finishedAt'],
-      transform: (val) => parseDate(val),
+      transform: (val, row) => parseDate(val) ?? lastReading(row)[1],
       fallback: null,
     },
     review: {
-      headers: ['review', 'Review'],
+      headers: ['my_review', 'review', 'Review'],
       transform: (val) => cleanText(val),
       fallback: null,
     },
+    // OpenReads joins tags with '|||||'.
     shelves: {
       headers: ['tags', 'Tags', 'genres', 'shelves'],
-      transform: (val) => parseShelves(val, /[,;]/),
+      transform: (val) => parseShelves(val, /\|{5}|[,;]/),
       fallback: [],
     },
     readCount: {
@@ -141,7 +151,7 @@ export const openreadsConfig: SourceColumnConfig = {
       fallback: null,
     },
     format: {
-      headers: ['format', 'Format'],
+      headers: ['book_format', 'format', 'Format'],
       transform: (val) => mapFormat(val),
       fallback: null,
     },
@@ -150,5 +160,20 @@ export const openreadsConfig: SourceColumnConfig = {
       transform: (val) => cleanText(val),
       fallback: null,
     },
+    // A book in OpenReads' trash is exported with deleted=true.
+    excluded: {
+      headers: ['deleted'],
+      transform: (val) => (val ?? '').trim().toLowerCase() === 'true',
+      fallback: false,
+    },
   },
 };
+
+/** [start, finish] of the last entry of OpenReads' `readings` column. */
+function lastReading(row: Record<string, string>): [string | null, string | null] {
+  const readings = (row['readings'] ?? '').split(';').map((r) => r.trim()).filter(Boolean);
+  const last = readings[readings.length - 1];
+  if (!last) return [null, null];
+  const [start, finish] = last.split('|');
+  return [parseDate(start), parseDate(finish)];
+}

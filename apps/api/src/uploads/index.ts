@@ -116,6 +116,14 @@ export function imageTypeOf(head: Buffer): 'image/jpeg' | 'image/png' | 'image/w
 export function looksLikeText(head: Buffer): boolean {
   if (head.length === 0) return false;
   if (BINARY_SIGNATURES.some((sig) => sig.every((b, i) => head[i] === b))) return false;
+  // UTF-16 with a BOM (Excel's "Unicode text"): every ASCII character has a
+  // NUL byte, so judge the decoded characters instead (audit 12, A-12-004).
+  if ((head[0] === 0xff && head[1] === 0xfe) || (head[0] === 0xfe && head[1] === 0xff)) {
+    const body = Buffer.from(head.subarray(2, 2 + ((head.length - 2) & ~1)));
+    if (head[0] === 0xfe) body.swap16();
+    const text = body.toString('utf16le');
+    return !text.includes('\u0000');
+  }
   return !head.includes(0);
 }
 
