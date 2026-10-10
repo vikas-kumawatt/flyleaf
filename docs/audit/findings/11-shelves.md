@@ -1,6 +1,6 @@
 # Audit 11 — Shelves and lists (SH-01 … SH-10)
 
-2026-10-10 · CI: see **CI result** below · Tests: API **1,466 → 1,502** (+34 in the new `shelves-audit.test.ts`, +2 rows in `authorization-matrix.test.ts`); mobile **177 → 182** (+5 in `shelves.test.ts`). No test was weakened or skipped. One existing assertion was changed because the behaviour it pinned was deliberately changed (`shelves.test.ts`, PATCH position; see Behaviour changes).
+2026-10-10 · CI: **green in 867 s**, all 9 steps (sandbox, `FLYLEAF_TEST_WORKERS=2 node scripts/ci.mjs`, Postgres 18.3 reachable) · Tests: API **1,466 → 1,502** (+34 in the new `shelves-audit.test.ts`, +2 rows in `authorization-matrix.test.ts`); mobile **177 → 182** (+5 in `shelves.test.ts`). No test was weakened or skipped. One existing assertion was changed because the behaviour it pinned was deliberately changed (`shelves.test.ts`, PATCH position; see Behaviour changes).
 
 **How this part ran.** In a cloud sandbox (Linux), not on the laptop. Overrides from the owner for this run:
 
@@ -288,7 +288,19 @@ Sandbox PostgreSQL 18.3, synthetic data (header). Statement counts from `BENCH_C
 
 ## CI result
 
-See the PR. `node scripts/ci.mjs` in the sandbox (`FLYLEAF_TEST_WORKERS=2`, Postgres 18.3 reachable, so step 9 ran): result recorded in the commit/PR description and below.
+`FLYLEAF_TEST_WORKERS=2 node scripts/ci.mjs` in the sandbox, with Postgres 18.3 reachable on 5432 so step 9 ran: **green in 867 s, exit 0.**
+
+1. api-client · build: ok
+2. api · typecheck: ok
+3. api · spec check: "openapi.yaml is up to date" (drift 0)
+4. api · tests: **75 files, 1,502 tests: 1,492 passed, 10 skipped, 0 failed** (845 s). The 10 skipped are the MinIO S3 contract block in `storage-contract.test.ts`, which skips by design when MinIO is not reachable (no MinIO in the sandbox; on the laptop they ran, hence Part 10's 1,466/1,466). 1,466 + 36 new = 1,502.
+5. api · build: ok
+6. api · audit (`--audit-level=high`): ok
+7. mobile · typecheck: ok
+8. mobile · offline tests: **182/182**
+9. api · migrations on a real Postgres: "migrations applied" (sandbox Postgres 18.3, including 0034)
+
+`shelves-audit.test.ts` was edited during the run (the 40-book reorder and the rename assertions); it was re-run on its own afterwards: 34/34. GitHub Actions runs `--strict` on the PR as well.
 
 ## Phone checklist (no native change; a JS reload is enough)
 
