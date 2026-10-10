@@ -140,9 +140,9 @@ export function parseDate(val: string | undefined): string | null {
     const year = Number.parseInt(ymdMatch[1], 10);
     const month = Number.parseInt(ymdMatch[2], 10);
     const day = Number.parseInt(ymdMatch[3], 10);
-    if (isValidDate(year, month, day)) {
-      return formatDate(year, month, day);
-    }
+    // A numeric date that is not a real day is no date: Date() below would
+    // roll 2023/02/30 over to March 2.
+    return isValidDate(year, month, day) ? formatDate(year, month, day) : null;
   }
 
   // 2. M/D/YYYY or MM/DD/YYYY (US format)
@@ -151,9 +151,7 @@ export function parseDate(val: string | undefined): string | null {
     const month = Number.parseInt(mdyMatch[1], 10);
     const day = Number.parseInt(mdyMatch[2], 10);
     const year = Number.parseInt(mdyMatch[3], 10);
-    if (isValidDate(year, month, day)) {
-      return formatDate(year, month, day);
-    }
+    return isValidDate(year, month, day) ? formatDate(year, month, day) : null;
   }
 
   // 3. Fallback to Date.parse()
@@ -171,11 +169,24 @@ export function parseDate(val: string | undefined): string | null {
   return null;
 }
 
+/**
+ * A real calendar day. `2023-02-30` used to pass (any day up to 31), reach
+ * the date column and abort the whole import (audit 12, A-12-006).
+ */
 function isValidDate(year: number, month: number, day: number): boolean {
   if (year < 1800 || year > 2100) return false;
   if (month < 1 || month > 12) return false;
-  if (day < 1 || day > 31) return false;
-  return true;
+  const daysInMonth = new Date(Date.UTC(year, month, 0)).getUTCDate();
+  return day >= 1 && day <= daysInMonth;
+}
+
+/**
+ * Undoes the export's formula guard (audit 12, A-12-015): Flyleaf's CSV export
+ * prefixes `'` to a cell starting with = + - @ tab or CR so a spreadsheet does
+ * not run it. Only that exact shape is undone; `'Salem's Lot` is left alone.
+ */
+export function unguardCell(val: string): string {
+  return /^'[=+\-@\t\r]/.test(val) ? val.slice(1) : val;
 }
 
 function formatDate(year: number, month: number, day: number): string {

@@ -48,3 +48,7 @@ Code: `apps/api/src/activity/{index,ranking}.ts`, migration `0017_activity.sql`,
 ## Deliverables
 
 `docs/audit/findings/14-feed.md`, the pagination exactly-once test, the prune job, the wired home screen, perf before/after for every feed scenario, and audit lines under SO-10…15.
+
+## Handed over from Part 12 (see `findings/12-import-export.md`)
+
+- **Import progress banner on Home (A-12-023, PRD §6.8 "Progress appears as a dismissible banner on Home").** The banner is only on the import screen and is not restored after an app restart. When Home is wired to the API, show `ImportProgressBanner` for the newest import in `queued`/`processing` (from `GET /v1/imports`, `limit 1`), dismissible per import id (remember the dismissal locally). The polling is already safe to mount anywhere (`src/lib/importPolling.ts`: stops on completion, failure and unmount). Show an ETA once it has two progress samples (rows per second × remaining rows).

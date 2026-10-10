@@ -962,7 +962,10 @@ export const exports = pgTable('exports', {
   state: text('state').notNull().default('queued'),
   fileKey: text('file_key'),
   fileSizeBytes: bigint('file_size_bytes', { mode: 'number' }),
+  /** Unused since audit 12 (0035): always NULL. The token is kept only as its hash. */
   downloadToken: text('download_token'),
+  /** SHA-256 (hex) of the emailed download token (A-12-016, 0035). */
+  downloadTokenHash: text('download_token_hash'),
   expiresAt: timestamp('expires_at', { withTimezone: true }),
   error: text('error'),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),

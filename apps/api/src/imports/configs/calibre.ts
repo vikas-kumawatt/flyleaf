@@ -13,7 +13,6 @@ import {
   cleanIsbn,
   normalizeRating,
   formatAuthorName,
-  parseDate,
   parseShelves,
   mapFormat,
 } from '../transformers.js';
@@ -125,21 +124,11 @@ export const calibreConfig: SourceColumnConfig = {
       transform: (val) => normalizeRating(val, '5'),
       fallback: null,
     },
-    startedAt: {
-      headers: ['date', 'timestamp'],
-      transform: (val) => parseDate(val),
-      fallback: null,
-    },
-    finishedAt: {
-      headers: ['pubdate', 'timestamp', 'date'],
-      transform: (val) => parseDate(val),
-      fallback: null,
-    },
-    review: {
-      headers: ['comments', 'Comments', 'review'],
-      transform: (val) => cleanText(val),
-      fallback: null,
-    },
+    // No reading dates: Calibre has none. `timestamp` is when the file was
+    // added and `pubdate` is the book's publication date (audit 12, A-12-009).
+    // No review: `comments` is the book's description (publisher blurb), not
+    // the reader's words, and must never be published under their name.
+
     shelves: {
       headers: ['tags', 'Tags', 'series', 'Series'],
       transform: (val, row) => {

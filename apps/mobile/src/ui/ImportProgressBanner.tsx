@@ -10,6 +10,7 @@ import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import { api, type ImportResponse } from '@/lib/api';
+import { startImportPolling } from '@/lib/importPolling';
 import { Card, Txt, ProgressBar, Button, sheet } from '@/ui/components';
 import { space, radius, useTheme } from '@/ui/tokens';
 
@@ -31,47 +32,26 @@ export function ImportProgressBanner({
 
   const [job, setJob] = useState<ImportResponse | null>(initialData ?? null);
   const [error, setError] = useState<string | null>(null);
-  const pollTimerRef = useRef<NodeJS.Timeout | null>(null);
+  // The latest callback, without restarting the polling when it changes
+  // (audit 12, A-12-022: an inline onComplete restarted it on every render).
+  const onCompleteRef = useRef(onComplete);
+  onCompleteRef.current = onComplete;
 
-  useEffect(() => {
-    let isMounted = true;
-
-    async function poll() {
-      try {
-        const data = await api.getImport(importId);
-        if (!isMounted) return;
-        setJob(data);
-
-        if (data.state === 'completed' || data.state === 'failed') {
-          if (pollTimerRef.current) {
-            clearInterval(pollTimerRef.current);
-            pollTimerRef.current = null;
-          }
-          if (data.state === 'completed' && onComplete) {
-            onComplete(data);
-          }
-        }
-      } catch (err: any) {
-        if (!isMounted) return;
-        setError(err.message || 'Failed to fetch import status');
-      }
-    }
-
-    // Initial fetch
-    void poll();
-
-    // Start 2s polling interval if active
-    pollTimerRef.current = setInterval(() => {
-      void poll();
-    }, 2000);
-
-    return () => {
-      isMounted = false;
-      if (pollTimerRef.current) {
-        clearInterval(pollTimerRef.current);
-      }
-    };
-  }, [importId, onComplete]);
+  useEffect(
+    () =>
+      startImportPolling<ImportResponse>({
+        fetch: () => api.getImport(importId),
+        onUpdate: (data) => {
+          setJob(data);
+          setError(null);
+        },
+        onDone: (data) => {
+          if (data.state === 'completed') onCompleteRef.current?.(data);
+        },
+        onError: (err: any) => setError(err?.message || 'Failed to fetch import status'),
+      }),
+    [importId],
+  );
 
   if (!job) {
     return (

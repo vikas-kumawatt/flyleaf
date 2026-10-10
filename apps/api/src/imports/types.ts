@@ -43,6 +43,12 @@ export interface NormalizedImportRow {
   owned: boolean | null;
   format: NormalizedFormat | null;
   notes: string | null;
+  /** The source marks the review as containing spoilers (Goodreads `Spoiler`). */
+  hasSpoilers?: boolean;
+  /** The source says this row is not part of the library (OpenReads `deleted`). Recorded as skipped. */
+  excluded?: boolean;
+  /** The CSV row had an unclosed quote (parser). Recorded as unmatched, never matched. */
+  malformed?: boolean;
 
   // --- Validation Warnings ---
   errors: string[];
@@ -96,6 +102,8 @@ export interface SourceColumnConfig {
     owned?: FieldMapping<boolean | null>;
     format?: FieldMapping<NormalizedFormat | null>;
     notes?: FieldMapping<string | null>;
+    hasSpoilers?: FieldMapping<boolean>;
+    excluded?: FieldMapping<boolean>;
   };
 }
 

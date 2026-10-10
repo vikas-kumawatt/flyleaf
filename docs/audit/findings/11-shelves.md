@@ -198,13 +198,13 @@ Found with `grep -rn "Part 11" docs/audit/findings/` and the handoff.
 
 ### A-11-027 · P2 (process) · The `55f72e3` regression did not pass CI; main stayed red for seven pushes
 - **Evidence:** `d8f7c73` (22 Sep) dropped `.where(and(...whereConditions))` from `browse`. Its GitHub Actions run **failed**, as did the next six pushes to `main` (`780905d` … `55d1d83`); `55f72e3` restored the line and was the first green run. Checked out `d8f7c73` here: **5 browse tests fail** (`shelves.test.ts` ×4, `shelves-privacy.test.ts` ×1). So the tests caught it; work simply continued on a red `main`. Today, removing the line again fails 6 tests, including the Part 05 matrix row for browse.
-- **Fix / recommendation:** turn on branch protection for `main` requiring the `CI` check (or merge only through PRs). A GitHub setting, owner's call: **DEFERRED → owner**.
+- **Fix / recommendation:** turn on branch protection for `main` requiring the `CI` check (or merge only through PRs). A GitHub setting, owner's call. **Done (owner, 2026-10-10): branch protection on `main` is on.**
 
 ### A-11-028 · DECISION NEEDED · Renaming a shelf or a user breaks its share link, and the old link can later open a different shelf
 - **Evidence:** a rename regenerates the slug; `/u/alice/shelves/old-name` then 404s, and the freed slug can be taken by Alice's next shelf with that name, so an old link opens the wrong list. A username change breaks every vanity link of that user. Links by id (`/shelf/:id`, `flyleaf://shelf/:id`) are unaffected.
 - **Spec:** PRD §15.2 ("Slug for future web URLs"), §29.1 (share links must not be dead). Nothing on renames.
 - **Options:** (a) keep the slug fixed at creation (simplest; slugs drift from names); (b) a `shelf_slugs` history table, old slugs reserved and redirected (301) to the current one; (c) as is, document it. Username changes need the same for profiles (Part 13).
-- **Recommendation:** (b), with the profile equivalent in Part 13. **Left as is** until decided.
+- **Recommendation:** (b), with the profile equivalent in Part 13. **Decided (owner, 2026-10-10): (b) → D-11-2, built in Part 13** with username history.
 
 ### A-11-029 · P3 · Shelf owners carry `avatarKey`, not a URL
 - Every other surface (feed, profiles) returns `avatar_url` via `avatarUrl()`. No screen renders a shelf owner's avatar today. → Part 13 (profile/social consistency) or Part 15.
@@ -268,8 +268,10 @@ Sandbox PostgreSQL 18.3, synthetic data (header). Statement counts from `BENCH_C
 
 ## Decisions needed
 
-- **A-11-028:** slug and username changes break share links, and a freed slug can be reused. Recommendation: slug history with redirects (b).
-- **A-11-027:** branch protection on `main` (owner's GitHub setting).
+Both decided by the owner on 2026-10-10 (recorded at the start of Part 12):
+
+- **D-11-2 (A-11-028) · decided: option (b).** Keep a slug history: a shelf's old slugs stay reserved to that shelf (never reused by another shelf of the same user) and `301` to the current slug. **Routed to Part 13**, which builds it together with the same mechanism for username changes (old usernames reserved and redirected), so both share one design.
+- **A-11-027 · done by the owner:** branch protection on `main` is on.
 
 ## Deferred (with reason and owner)
 
@@ -285,6 +287,7 @@ Sandbox PostgreSQL 18.3, synthetic data (header). Statement counts from `BENCH_C
 | Owner `avatar_url` on shelves (A-11-029) | Consistency, no screen affected | Part 13 |
 | App Links for shelf URLs (A-11-030) | Native change | After Part 14 (batched rebuild) |
 | Want-to-read swipe wiring per D-11-1 | Swipe belongs to Part 14 | Part 14 |
+| Slug history with 301s (D-11-2), with username history | Owner chose (b); one design for shelves and profiles | Part 13 |
 
 ## CI result
 

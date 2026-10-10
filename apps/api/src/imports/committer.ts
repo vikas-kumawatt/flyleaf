@@ -8,15 +8,16 @@
 //      excluded from the social activity feed. Importing 800+ books must NEVER
 //      spam followers or create 800 feed items.
 
-import { sql, eq, and, desc } from 'drizzle-orm';
+import { and, eq, sql } from 'drizzle-orm';
 import type { Db } from '../platform/index.js';
+import { importRows, reads, reviews, shelves } from '../db/schema.js';
 import {
-  reads,
-  reviews,
-  shelves,
-  shelfItems,
-  importRows,
-} from '../db/schema.js';
+  MAX_ITEMS_PER_SHELF,
+  MAX_SHELVES_PER_USER,
+  generateUniqueSlug,
+  lockUserShelves,
+  slugify,
+} from '../shelves/index.js';
 import type { NormalizedImportRow, NormalizedFormat } from './types.js';
 import type { MatchResult } from './matcher.js';
 
@@ -87,29 +88,33 @@ export function feedExcludesImportsSql() {
   return sql`${reads.source} != 'import'`;
 }
 
-/**
- * Generates a URL-safe slug for a custom shelf name.
- */
-function slugifyShelfName(name: string): string {
-  const cleaned = name
-    .toLowerCase()
-    .trim()
-    .replace(/[^\p{L}\p{N}]+/gu, '-')
-    .replace(/^-+|-+$/g, '')
-    .slice(0, 60);
-  return cleaned || 'shelf';
+export interface CommitOptions {
+  /**
+   * Shelf ids already resolved in this transaction, by lower-cased tag (or
+   * null: no room for a new shelf). One import tags hundreds of rows with the
+   * same few names; this saves a lookup per row and tag.
+   */
+  shelfCache?: Map<string, string | null>;
 }
 
 /**
  * Commits a single matched import row to Flyleaf's reading spine.
  *
- * Runs atomically inside the provided Db or Transaction client.
+ * Runs inside the provided Db or Transaction client. Never touches
+ * import_rows: the caller records the row's outcome.
+ *
+ * A book the reader already has (any attempt, from the app or an earlier
+ * import) is left exactly as it is, and the row is reported
+ * `already_in_library` (audit 12, A-12-001 / D-12-1). Re-importing a file, or a
+ * newer export that overlaps an older one, used to add a second attempt of
+ * every book: double the finished books, every rating counted twice.
  */
 export async function commitImportRow(
   db: Db,
   input: CommitImportRowInput,
+  opts: CommitOptions = {},
 ): Promise<CommitImportRowResult> {
-  const { userId, importId, row, match } = input;
+  const { userId, row, match } = input;
 
   // 1. Only matched rows with a resolved work ID can be committed
   if (match.state !== 'matched' || !match.workId) {
@@ -128,47 +133,34 @@ export async function commitImportRow(
   // 2. IM-06: Rating normalisation (0 -> NULL)
   const rating = normalizeRatingForPersistence(row.rating);
 
-  // 3. Date handling (ensure finishedAt >= startedAt if both exist)
+  // 3. Dates were sanitised in normalizeRow; keep the order rule here too for
+  // callers that build rows by hand.
   let startedAt = row.startedAt ?? null;
-  let finishedAt = row.finishedAt ?? null;
-  if (startedAt && finishedAt && finishedAt < startedAt) {
-    // Retain finished date as primary, clear start date to prevent constraint violation
-    startedAt = null;
-  }
+  const finishedAt = row.finishedAt ?? null;
+  if (startedAt && finishedAt && finishedAt < startedAt) startedAt = null;
 
   // 4. Format override normalization
   const validFormats: NormalizedFormat[] = ['print', 'ebook', 'audiobook'];
   const formatOverride = row.format && validFormats.includes(row.format) ? row.format : null;
 
-  // 5. Attempt number: find existing reads for (userId, workId)
-  const existingReads = await db
-    .select({ attemptNo: reads.attemptNo })
-    .from(reads)
-    .where(and(eq(reads.userId, userId), eq(reads.workId, workId)))
-    .orderBy(desc(reads.attemptNo));
-
-  const attemptNo = (existingReads[0]?.attemptNo ?? 0) + 1;
-
-  // 6. IM-07: Create read with source = 'import'
-  const [read] = await db
-    .insert(reads)
-    .values({
-      userId,
-      workId,
-      editionId,
-      status: row.status ?? 'finished',
-      attemptNo,
-      startedAt,
-      finishedAt,
-      rating, // strictly NULL for unrated / 0 (IM-06)
-      source: 'import', // strictly 'import' (IM-07)
-      formatOverride,
-      visibility: 'public',
-    })
-    .returning();
+  // 5 + 6. IM-07: the read, source = 'import', only if the reader has no read
+  // of this work. One statement: the app's per-(user, work) attempt lock
+  // (SL-56), the existence check and the insert.
+  const [read] = await db.execute<{ id: string }>(sql`
+    WITH lock AS (
+      SELECT pg_advisory_xact_lock(hashtextextended(${`reads:${userId}:${workId}`}, 0))
+    )
+    INSERT INTO reads (user_id, work_id, edition_id, status, attempt_no, started_at, finished_at,
+                       rating, source, format_override, visibility)
+    SELECT ${userId}::uuid, ${workId}::uuid, ${editionId}::uuid, ${row.status ?? 'finished'}, 1,
+           ${startedAt}::date, ${finishedAt}::date, ${rating}::numeric, 'import', ${formatOverride}, 'public'
+    FROM lock
+    WHERE NOT EXISTS (SELECT 1 FROM reads WHERE user_id = ${userId}::uuid AND work_id = ${workId}::uuid)
+    RETURNING id
+  `);
 
   if (!read) {
-    throw new Error('Failed to create read');
+    return { committed: false, readId: null, reviewId: null, shelfIds: [], reason: 'already_in_library' };
   }
 
   let reviewId: string | null = null;
@@ -183,6 +175,7 @@ export async function commitImportRow(
         userId,
         workId,
         body: reviewBody,
+        hasSpoilers: row.hasSpoilers === true,
         visibility: 'public',
         publishedAt: finishedAt ? new Date(finishedAt) : new Date(),
       })
@@ -194,62 +187,23 @@ export async function commitImportRow(
     }
   }
 
-  // 8. Custom Shelves persistence
+  // 8. Custom shelves from the source's tags
   const shelfIds: string[] = [];
-  if (row.shelves && row.shelves.length > 0) {
-    // Unique shelf names
-    const uniqueNames = Array.from(new Set(row.shelves.map((s) => s.trim()).filter(Boolean)));
-
-    for (const shelfName of uniqueNames) {
-      const slug = slugifyShelfName(shelfName);
-
-      // Find or create shelf
-      let [shelf] = await db
-        .select()
-        .from(shelves)
-        .where(and(eq(shelves.userId, userId), eq(shelves.slug, slug)))
-        .limit(1);
-
-      if (!shelf) {
-        const [newShelf] = await db
-          .insert(shelves)
-          .values({
-            userId,
-            name: shelfName.slice(0, 60),
-            slug,
-            privacy: 'public',
-            itemCount: 0,
-          })
-          .returning();
-        shelf = newShelf;
-      }
-
-      if (shelf) {
-        shelfIds.push(shelf.id);
-
-        // Check if work is already on shelf
-        const [existingItem] = await db
-          .select({ workId: shelfItems.workId })
-          .from(shelfItems)
-          .where(and(eq(shelfItems.shelfId, shelf.id), eq(shelfItems.workId, workId)))
-          .limit(1);
-
-        if (!existingItem) {
-          await db.insert(shelfItems).values({
-            shelfId: shelf.id,
-            workId,
-            position: shelf.itemCount + 1,
-          });
-        }
-      }
-    }
+  const cache = opts.shelfCache ?? new Map<string, string | null>();
+  const uniqueNames = Array.from(new Set((row.shelves ?? []).map((s) => s.trim()).filter(Boolean)));
+  for (const shelfName of uniqueNames) {
+    const shelfId = await importShelf(db, userId, shelfName, cache);
+    if (!shelfId) continue;
+    shelfIds.push(shelfId);
+    // At the end of the shelf, never past MAX_ITEMS_PER_SHELF, never twice.
+    await db.execute(sql`
+      INSERT INTO shelf_items (shelf_id, work_id, position)
+      SELECT ${shelfId}::uuid, ${workId}::uuid, COALESCE(max(position), 0) + 1
+      FROM shelf_items WHERE shelf_id = ${shelfId}::uuid
+      HAVING count(*) < ${MAX_ITEMS_PER_SHELF}
+      ON CONFLICT DO NOTHING
+    `);
   }
-
-  // 9. Mark import_rows as resolved
-  await db
-    .update(importRows)
-    .set({ state: 'resolved' })
-    .where(and(eq(importRows.importId, importId), eq(importRows.rowNo, row.rowNo)));
 
   return {
     committed: true,
@@ -257,6 +211,52 @@ export async function commitImportRow(
     reviewId,
     shelfIds,
   };
+}
+
+/**
+ * The reader's live shelf for an import tag: one with that name (any case) or
+ * that slug, else a new one, as the shelves API would create it (same slug
+ * rules, same 200-shelf limit under the same lock; A-12-011). A deleted shelf
+ * is never filled: it keeps its slug for restore, so the new shelf gets the
+ * next one. null when the reader is at the shelf limit: the book is imported,
+ * only the tag is dropped.
+ */
+async function importShelf(
+  db: Db,
+  userId: string,
+  name: string,
+  cache: Map<string, string | null>,
+): Promise<string | null> {
+  const key = name.toLowerCase();
+  if (cache.has(key)) return cache.get(key)!;
+
+  const shelfName = name.slice(0, 60);
+  const [found] = await db.execute<{ id: string }>(sql`
+    SELECT id FROM shelves
+    WHERE user_id = ${userId}::uuid AND deleted_at IS NULL
+      AND (lower(name) = lower(${shelfName}) OR slug = ${slugify(shelfName)})
+    ORDER BY (lower(name) = lower(${shelfName})) DESC, created_at
+    LIMIT 1
+  `);
+  if (found) {
+    cache.set(key, found.id);
+    return found.id;
+  }
+
+  await lockUserShelves(db, userId);
+  const [count] = await db.execute<{ n: number }>(sql`
+    SELECT count(*)::int AS n FROM shelves WHERE user_id = ${userId}::uuid AND deleted_at IS NULL`);
+  if (Number(count?.n ?? 0) >= MAX_SHELVES_PER_USER) {
+    cache.set(key, null);
+    return null;
+  }
+  const slug = await generateUniqueSlug(db, userId, shelfName);
+  const [created] = await db
+    .insert(shelves)
+    .values({ userId, name: shelfName, slug, privacy: 'public', itemCount: 0 })
+    .returning({ id: shelves.id });
+  cache.set(key, created!.id);
+  return created!.id;
 }
 
 /**
@@ -284,6 +284,10 @@ export async function commitImportBatch(
       if (result.committed && result.readId) {
         committed++;
         readIds.push(result.readId);
+        await tx
+          .update(importRows)
+          .set({ state: 'resolved' })
+          .where(and(eq(importRows.importId, importId), eq(importRows.rowNo, item.row.rowNo)));
       } else {
         skipped++;
       }

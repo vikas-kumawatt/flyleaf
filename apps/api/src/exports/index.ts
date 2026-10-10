@@ -15,7 +15,7 @@ import type { EmailSender } from '../providers/email/index.js';
 import { ConsoleEmailSender } from '../providers/email/index.js';
 import { exports as exportsTable, users, type Export } from '../db/schema.js';
 import { ApiError, requireViewer } from '../http.js';
-import { QUEUES } from '../jobs/index.js';
+import { QUEUES, sendInTx } from '../jobs/index.js';
 import {
   errorResponseSchema,
   idParamSchema,
@@ -23,6 +23,7 @@ import {
   exportResponseSchema,
   exportListResponseSchema,
   downloadExportQuerySchema,
+  exportLinkResponseSchema,
 } from '../contract/schemas.js';
 import type { ObjectStorage } from '../providers/storage/index.js';
 import {
@@ -55,11 +56,14 @@ export interface ExportResponseItem {
   finished_at: string | null;
 }
 
-export function toExportResponse(row: Export, baseUrl = 'https://flyleaf.app'): ExportResponseItem {
-  const downloadUrl =
-    row.state === 'completed' && row.downloadToken
-      ? `${baseUrl}/v1/exports/${row.id}/download?token=${row.downloadToken}`
-      : null;
+/**
+ * `download_url` is always null since audit 12 (A-12-016): the emailed token
+ * is stored only as a hash, so no response can rebuild the emailed link. The
+ * app asks GET /v1/exports/:id/link for a short-lived one instead. The field
+ * stays for older clients, which hide their Download button when it is null.
+ */
+export function toExportResponse(row: Export, _baseUrl = 'https://flyleaf.app'): ExportResponseItem {
+  const downloadUrl = null;
 
   return {
     id: row.id,
@@ -99,36 +103,21 @@ export class ExportService {
     }
 
     const format = rawFormat as ExportFormat;
-    const downloadToken = crypto.randomBytes(32).toString('base64url');
-    const expiresAt = new Date(Date.now() + 48 * 60 * 60 * 1000); // 48 hours validity
+    const expiresAt = new Date(Date.now() + EXPORT_LINK_TTL_MS);
 
-    const [row] = await this.db
-      .insert(exportsTable)
-      .values({
-        userId,
-        format,
-        state: 'queued',
-        downloadToken,
-        expiresAt,
-      })
-      .returning();
-
-    if (!row) {
-      throw new ApiError(500, 'export_create_failed', 'Failed to create export record.');
-    }
-
-    // Enqueue background processing job via pg-boss if configured
-    if (this.boss) {
-      try {
-        await this.boss.send(QUEUES.processExport, {
-          exportId: row.id,
-          userId,
-          format,
-        });
-      } catch {
-        // Fallback: if boss queueing fails, proceed
+    // The row and its job in one transaction (A-12-020, as A-PV-004 for
+    // imports): a failed enqueue is a failed request, never an export left
+    // 'queued' forever. The download token is made when the file is ready.
+    const row = await this.db.transaction(async (tx) => {
+      const [inserted] = await tx
+        .insert(exportsTable)
+        .values({ userId, format, state: 'queued', expiresAt })
+        .returning();
+      if (this.boss) {
+        await sendInTx(this.boss, tx, QUEUES.processExport, { exportId: inserted!.id, userId, format });
       }
-    }
+      return inserted!;
+    });
 
     return toExportResponse(row, this.baseUrl);
   }
@@ -190,13 +179,18 @@ export class ExportService {
       // 4. Save to storage
       await this.storage.put(fileKey, fileBuffer, mimeType);
 
-      // 5. Update export record
+      // 5. Update export record. The emailed token exists only in the
+      // email; the row keeps its hash (A-12-016). The 48 hours run from now.
+      const downloadToken = crypto.randomBytes(32).toString('base64url');
       const [updated] = await this.db
         .update(exportsTable)
         .set({
           state: 'completed',
           fileKey,
           fileSizeBytes: fileBuffer.length,
+          downloadToken: null,
+          downloadTokenHash: hashToken(downloadToken),
+          expiresAt: new Date(Date.now() + EXPORT_LINK_TTL_MS),
           finishedAt: new Date(),
           updatedAt: new Date(),
         })
@@ -204,7 +198,7 @@ export class ExportService {
         .returning();
 
       // 6. Send email notification with download link (PRD §1290, §3424)
-      const downloadUrl = `${this.baseUrl}/v1/exports/${exportId}/download?token=${exportRow.downloadToken}`;
+      const downloadUrl = `${this.baseUrl}/v1/exports/${exportId}/download?token=${downloadToken}`;
 
       await this.mailer.send({
         to: userRow.email,
@@ -254,12 +248,16 @@ export class ExportService {
     return rows.map((r) => toExportResponse(r, this.baseUrl));
   }
 
-  /** Where the file can be fetched for the next few minutes. */
+  /**
+   * Where the file can be fetched for the next few minutes, for the emailed
+   * token or the owner's session. A wrong token, someone else's export and a
+   * missing one are the same 404; an expired link is 410 (A-12-016).
+   */
   async download(
     exportId: string,
     token?: string,
     viewerId?: string,
-  ): Promise<{ url: string }> {
+  ): Promise<{ url: string; expiresAt: string }> {
     const [row] = await this.db
       .select()
       .from(exportsTable)
@@ -270,17 +268,14 @@ export class ExportService {
       throw ApiError.notFound('Export not found.');
     }
 
-    // Access authorization: either viewer owns the export OR valid token provided
-    const isOwner = viewerId && row.userId === viewerId;
-    const isValidToken = token && row.downloadToken === token;
-
+    const isOwner = Boolean(viewerId) && row.userId === viewerId;
+    const isValidToken = Boolean(token) && tokenMatches(token!, row.downloadTokenHash);
     if (!isOwner && !isValidToken) {
       throw ApiError.notFound('Export not found.');
     }
 
-    // Check expiration
     if (row.expiresAt && new Date() > row.expiresAt) {
-      throw ApiError.badRequest('export_expired', 'This export download link has expired. Please request a new export.');
+      throw new ApiError(410, 'export_expired', 'This export download link has expired. Please request a new export.');
     }
 
     if (row.state !== 'completed' || !row.fileKey) {
@@ -297,8 +292,24 @@ export class ExportService {
         expiresIn: EXPORT_DOWNLOAD_URL_TTL_SECONDS,
         filename,
       }),
+      expiresAt: new Date(Date.now() + EXPORT_DOWNLOAD_URL_TTL_SECONDS * 1000).toISOString(),
     };
   }
+}
+
+/** How long the emailed link works after the file is ready (PRD §6.8: 48 h). */
+export const EXPORT_LINK_TTL_MS = 48 * 60 * 60 * 1000;
+
+function hashToken(token: string): string {
+  return crypto.createHash('sha256').update(token, 'utf8').digest('hex');
+}
+
+/** Constant-time comparison of a presented token with the stored hash. */
+function tokenMatches(token: string, storedHash: string | null): boolean {
+  if (!storedHash) return false;
+  const a = Buffer.from(hashToken(token), 'hex');
+  const b = Buffer.from(storedHash, 'hex');
+  return a.length === b.length && crypto.timingSafeEqual(a, b);
 }
 
 export interface ExportsPluginOptions {
@@ -329,6 +340,7 @@ export const exportsPlugin: FastifyPluginAsync<ExportsPluginOptions> = async (fa
           201: exportResponseSchema,
           400: errorResponseSchema,
           401: errorResponseSchema,
+          500: errorResponseSchema,
         },
       },
     },
@@ -395,13 +407,14 @@ export const exportsPlugin: FastifyPluginAsync<ExportsPluginOptions> = async (fa
         summary: 'Download exported library file',
         description:
           'Authorizes the download with the emailed token or Bearer authentication, then redirects (302) ' +
-          'to a storage URL valid for 5 minutes (PV-02).',
+          'to a storage URL valid for 5 minutes (PV-02). A wrong token is 404; an expired link is 410 export_expired.',
         params: idParamSchema,
         querystring: downloadExportQuerySchema,
         response: {
           302: { description: 'Location: a short-lived storage URL for the file.', type: 'null' },
           400: errorResponseSchema,
           404: errorResponseSchema,
+          410: errorResponseSchema,
         },
       },
     },
@@ -417,6 +430,34 @@ export const exportsPlugin: FastifyPluginAsync<ExportsPluginOptions> = async (fa
         .header('cache-control', 'no-store')
         .header('referrer-policy', 'no-referrer')
         .redirect(url, 302);
+    },
+  );
+
+  // GET /v1/exports/:id/link (the app's Download button, audit 12)
+  fastify.get(
+    '/exports/:id/link',
+    {
+      schema: {
+        tags: ['Exports'],
+        summary: 'Get a short-lived download link for my export',
+        description:
+          'For the signed-in owner: a storage URL for the file, valid for 5 minutes, to open in a browser. ' +
+          'The emailed link needs no session; this one needs no token. Someone else\'s export is 404; an expired one is 410.',
+        params: idParamSchema,
+        response: {
+          200: exportLinkResponseSchema,
+          400: errorResponseSchema,
+          401: errorResponseSchema,
+          404: errorResponseSchema,
+          410: errorResponseSchema,
+        },
+      },
+    },
+    async (request, reply) => {
+      const viewer = requireViewer(request);
+      const { id } = request.params as { id: string };
+      const { url, expiresAt } = await service.download(id, undefined, viewer);
+      return reply.header('cache-control', 'no-store').send({ url, expires_at: expiresAt });
     },
   );
 };

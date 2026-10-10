@@ -298,7 +298,8 @@ describe('IM-03: Header Signature Detector', () => {
     const badHeaders = ['Author', 'My Rating', 'Date Read'];
     const result = scoreHeaderMatch(badHeaders, goodreadsConfig);
 
-    expect(result.missingRequiredHeaders).toContain('Book Id');
+    // Audit 12: 'Book Id' is no longer required (Flyleaf's own export has none).
+    expect(result.missingRequiredHeaders).not.toContain('Book Id');
     expect(result.missingRequiredHeaders).toContain('Title');
     expect(result.missingRequiredHeaders).toContain('Exclusive Shelf');
     expect(result.confidence).toBeLessThan(0.5);
@@ -421,7 +422,8 @@ describe('IM-03: Goodreads Reference Normalization Engine', () => {
     expect(r1.status).toBe('finished');
     expect(r1.rating).toBe(5.0);
     expect(r1.finishedAt).toBe('2026-01-15');
-    expect(r1.startedAt).toBe('2026-01-01');
+    // Audit 12 (A-12-019): Date Added is when the book was shelved, not a start date.
+    expect(r1.startedAt).toBeNull();
     expect(r1.shelves).toEqual(['favorites', 'classics']);
     expect(r1.format).toBe('print');
     expect(r1.review).toBe('Essential feminist science fiction masterpiece.');
@@ -560,7 +562,8 @@ describe('IM-04: LibraryThing Source Normalization Pipeline', () => {
     expect(r1.isbn10).toBe('0441478123');
     expect(r1.status).toBe('finished');
     expect(r1.rating).toBe(5.0);
-    expect(r1.startedAt).toBe('2025-01-01');
+    // Audit 12 (A-12-019): Entry Date is when the book was catalogued; LibraryThing's start is Date Started.
+    expect(r1.startedAt).toBeNull();
     expect(r1.finishedAt).toBe('2025-01-20');
     expect(r1.review).toBe('Spice must flow.');
     expect(r1.notes).toBe('First printing copy');
@@ -610,7 +613,8 @@ describe('IM-04: Calibre Source Normalization Pipeline', () => {
     expect(r1.format).toBe('ebook');
     expect(r1.shelves).toContain('sci-fi');
     expect(r1.shelves).toContain('foundation, #1');
-    expect(r1.review).toBe('Great psycho-history concept.');
+    // Audit 12 (A-12-009): Calibre's comments are the book's description, never the reader's review.
+    expect(r1.review).toBeNull();
     expect(r1.owned).toBe(true);
 
     // Row 2: Split author on &, currently-reading status tag, rating 0 -> null
@@ -620,7 +624,7 @@ describe('IM-04: Calibre Source Normalization Pipeline', () => {
     expect(r2.additionalAuthors).toEqual(['Someone Else']);
     expect(r2.status).toBe('reading');
     expect(r2.rating).toBeNull();
-    expect(r2.review).toBe('Spiders evolving!');
+    expect(r2.review).toBeNull(); // audit 12 (A-12-009): comments are the description
 
     // Row 3: to-read tag -> want status
     const r3 = result.rows[2]!;

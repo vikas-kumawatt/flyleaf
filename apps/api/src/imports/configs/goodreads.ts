@@ -22,8 +22,11 @@ export const goodreadsConfig: SourceColumnConfig = {
   displayName: 'Goodreads',
   description: 'Goodreads library export (goodreads_library_export.csv)',
   detection: {
-    requiredHeaders: ['Book Id', 'Title', 'Author', 'My Rating', 'Exclusive Shelf'],
+    // Not 'Book Id': Flyleaf's own export (IM-10) uses this format without
+    // it, and the importer never needs it (audit 12).
+    requiredHeaders: ['Title', 'Author', 'My Rating', 'Exclusive Shelf'],
     signatureHeaders: [
+      'Book Id',
       'Date Read',
       'Date Added',
       'Bookshelves',
@@ -101,8 +104,11 @@ export const goodreadsConfig: SourceColumnConfig = {
       transform: (val) => normalizeRating(val, '5'),
       fallback: null,
     },
+    // Goodreads exports no start date. `Date Added` is when the book was
+    // shelved (often years before it was read), so it is not one (audit 12,
+    // A-12-019). `Date Started` is the column Flyleaf's own export adds.
     startedAt: {
-      headers: ['Date Added', 'date_added'],
+      headers: ['Date Started', 'date_started'],
       transform: (val) => parseDate(val),
       fallback: null,
     },
@@ -148,6 +154,12 @@ export const goodreadsConfig: SourceColumnConfig = {
       headers: ['Private Notes', 'private_notes', 'Notes'],
       transform: (val) => cleanText(val),
       fallback: null,
+    },
+    // `Spoiler` is "true" on a review the reader marked as a spoiler (A-12-018).
+    hasSpoilers: {
+      headers: ['Spoiler', 'spoiler'],
+      transform: (val) => (val ?? '').trim().toLowerCase() === 'true',
+      fallback: false,
     },
   },
 };

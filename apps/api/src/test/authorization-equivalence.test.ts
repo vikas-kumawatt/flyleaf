@@ -122,6 +122,53 @@ describe('canView ≡ canViewSql ≡ PRD oracle', () => {
   });
 });
 
+describe('authored content of an unverified author (D-05-3, audit 12)', () => {
+  // Oracle: an unverified author's review is the author's alone; a verified
+  // author's follows the PRD oracle above. Every viewer × account × visibility.
+  it('canView ≡ canViewSql ≡ oracle with "author unverified" as a dimension (126 cells)', async () => {
+    const rows: string[] = [];
+    let cells = 0;
+    for (const verified of [true, false]) {
+      for (const a of ACCOUNTS) {
+        await db.update(users).set({ emailVerifiedAt: verified ? new Date() : null }).where(eq(users.id, owners[a].id));
+        for (const v of VIEWERS) {
+          const viewer = viewerId(v, a);
+          const ownerId = owners[a].id;
+          const rel = await loadRelationship(db, viewer, ownerId);
+          for (const vis of VISIBILITIES) {
+            cells++;
+            const ts = canViewWith(viewer, ownerId, rel, vis, { authored: true });
+            const [row] = await db.execute<{ ok: boolean }>(sql`
+              SELECT ${canViewSql(viewer, {
+                ownerId: sql`${ownerId}::uuid`,
+                visibility: sql`${vis}::text`,
+                ownerIsPrivate: sql`(SELECT p.is_private FROM profiles p WHERE p.user_id = ${ownerId}::uuid)`,
+                authored: true,
+              })} AS ok
+            `);
+            const inSql = Boolean(row!.ok);
+            const want = verified ? oracle(v, a, vis) : a !== 'deleted' && v === 'owner';
+            if (ts !== want || inSql !== want) {
+              rows.push(`${verified ? 'verified' : 'unverified'} ${v} → ${a}/${vis}: oracle ${want}, canView ${ts}, sql ${inSql}`);
+            }
+          }
+        }
+        await db.update(users).set({ emailVerifiedAt: new Date() }).where(eq(users.id, owners[a].id));
+      }
+    }
+    expect(cells).toBe(126);
+    expect(rows).toEqual([]);
+  });
+
+  it('non-authored items (reads, shelves) ignore verification', async () => {
+    const o = owners.public;
+    await db.update(users).set({ emailVerifiedAt: null }).where(eq(users.id, o.id));
+    const rel = await loadRelationship(db, null, o.id);
+    expect(canViewWith(null, o.id, rel, 'public')).toBe(true);
+    await db.update(users).set({ emailVerifiedAt: new Date() }).where(eq(users.id, o.id));
+  });
+});
+
 describe('mostRestrictive ≡ mostRestrictiveSql (review on a read)', () => {
   it.each(VISIBILITIES.flatMap((a) => VISIBILITIES.map((b) => [a, b] as const)))('%s + %s', async (a, b) => {
     const [row] = await db.execute<{ v: string }>(sql`SELECT ${mostRestrictiveSql(sql`${a}::text`, sql`${b}::text`)} AS v`);

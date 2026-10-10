@@ -12,7 +12,8 @@ import { eq, ne, desc, and, sql } from 'drizzle-orm';
 import type { PgBoss } from 'pg-boss';
 
 import type { Db } from '../platform/index.js';
-import { imports, importRows, type Import, type ImportRow } from '../db/schema.js';
+import { editions, imports, importRows, type Import, type ImportRow } from '../db/schema.js';
+import { resolveWorkId } from '../catalog/resolve.js';
 import { ApiError, requireViewer } from '../http.js';
 import { QUEUES, sendInTx } from '../jobs/index.js';
 import {
@@ -278,62 +279,50 @@ export class ImportService {
     };
   }
 
+  /**
+   * Resolve a row the matcher could not (IM-09). Only an unmatched or skipped
+   * row commits a read; a row already resolved to this work is a replay
+   * (200, nothing written), to another work a 409: the read it made stays
+   * the reader's to edit (A-12-012). The work id is resolved to the survivor
+   * of a merge; a work that does not exist is 404.
+   */
   async resolveRow(
     userId: string,
     importId: string,
     rowNo: number,
     input: { workId: string; editionId?: string },
   ): Promise<ImportRowResponseItem> {
-    const [importRecord] = await this.db
-      .select()
-      .from(imports)
-      .where(and(eq(imports.id, importId), eq(imports.userId, userId)))
-      .limit(1);
+    return this.db.transaction(async (t) => {
+      const tx = t as unknown as Db;
+      const { importRecord, rowRecord } = await this.#lockRow(tx, userId, importId, rowNo);
 
-    if (!importRecord) {
-      throw ApiError.notFound('Import job not found.');
-    }
+      const workId = await resolveWorkId(tx, input.workId);
+      if (!workId) throw ApiError.notFound('Work not found.');
 
-    const [rowRecord] = await this.db
-      .select()
-      .from(importRows)
-      .where(and(eq(importRows.importId, importId), eq(importRows.rowNo, rowNo)))
-      .limit(1);
+      if (rowRecord.state === 'matched' || rowRecord.state === 'resolved') {
+        if (rowRecord.workId === workId) return toImportRowResponse(rowRecord);
+        throw ApiError.conflict('import_row_resolved', 'This book was already matched. Edit it from your library instead.');
+      }
 
-    if (!rowRecord) {
-      throw ApiError.notFound('Import row not found.');
-    }
+      let editionId: string | null = null;
+      if (input.editionId) {
+        const [ed] = await tx
+          .select({ id: editions.id })
+          .from(editions)
+          .where(and(eq(editions.id, input.editionId), eq(editions.workId, workId)));
+        if (!ed) throw ApiError.unprocessable('invalid_edition', 'That edition is not an edition of this book.', 'edition_id');
+        editionId = ed.id;
+      }
 
-    // Idempotent return if already resolved to this work
-    if (rowRecord.state === 'resolved' && rowRecord.workId === input.workId) {
-      return toImportRowResponse(rowRecord);
-    }
+      const config = SOURCE_CONFIGS[importRecord.source as ImportSource] ?? goodreadsConfig;
+      const normalizedRow = normalizeRow(config, rowRecord.raw as Record<string, string>, rowRecord.rowNo);
 
-    let config = SOURCE_CONFIGS[importRecord.source as ImportSource];
-    if (!config) {
-      config = goodreadsConfig;
-    }
-
-    const normalizedRow = normalizeRow(
-      config,
-      rowRecord.raw as Record<string, string>,
-      rowRecord.rowNo,
-    );
-
-    return await this.db.transaction(async (tx) => {
       // 1. Commit to reading spine with source = 'import' and normalized rating (IM-06, IM-07)
-      await commitImportRow(tx as unknown as Db, {
+      const result = await commitImportRow(tx, {
         userId,
         importId,
         row: normalizedRow,
-        match: {
-          state: 'matched',
-          workId: input.workId,
-          editionId: input.editionId ?? null,
-          confidence: 1.0,
-          failureReason: null,
-          strategy: null,
-        },
+        match: { state: 'matched', workId, editionId, confidence: 1.0, failureReason: null, strategy: null },
       });
 
       // 2. Update import_rows to resolved
@@ -341,93 +330,72 @@ export class ImportService {
         .update(importRows)
         .set({
           state: 'resolved',
-          workId: input.workId,
-          editionId: input.editionId ?? null,
+          workId,
+          editionId,
           confidence: 1.0,
-          failureReason: null,
+          failureReason: result.committed ? null : (result.reason ?? null),
         })
         .where(and(eq(importRows.importId, importId), eq(importRows.rowNo, rowNo)))
         .returning();
 
-      // 3. Recompute/update imports counters
-      const [counts] = await tx
-        .select({
-          matched: sql<number>`count(*) FILTER (WHERE ${importRows.state} IN ('matched', 'resolved'))`,
-          unmatched: sql<number>`count(*) FILTER (WHERE ${importRows.state} = 'unmatched')`,
-        })
-        .from(importRows)
-        .where(eq(importRows.importId, importId));
-
-      await tx
-        .update(imports)
-        .set({
-          matched: Number(counts?.matched ?? 0),
-          unmatched: Number(counts?.unmatched ?? 0),
-          updatedAt: new Date(),
-        })
-        .where(eq(imports.id, importId));
-
+      await this.#refreshCounts(tx, importId);
       return toImportRowResponse(updatedRow!);
     });
   }
 
+  /** Skip an unmatched row. A matched or resolved row has a read: 409 (A-12-012). */
   async skipRow(
     userId: string,
     importId: string,
     rowNo: number,
   ): Promise<ImportRowResponseItem> {
-    const [importRecord] = await this.db
+    return this.db.transaction(async (t) => {
+      const tx = t as unknown as Db;
+      const { rowRecord } = await this.#lockRow(tx, userId, importId, rowNo);
+      if (rowRecord.state === 'skipped') return toImportRowResponse(rowRecord);
+      if (rowRecord.state !== 'unmatched') {
+        throw ApiError.conflict('import_row_resolved', 'This book was imported. Remove it from your library instead.');
+      }
+      const [updatedRow] = await tx
+        .update(importRows)
+        .set({ state: 'skipped' })
+        .where(and(eq(importRows.importId, importId), eq(importRows.rowNo, rowNo)))
+        .returning();
+      await this.#refreshCounts(tx, importId);
+      return toImportRowResponse(updatedRow!);
+    });
+  }
+
+  /** The viewer's import and the row, row-locked: two resolves of one row run one after the other. */
+  async #lockRow(tx: Db, userId: string, importId: string, rowNo: number) {
+    const [importRecord] = await tx
       .select()
       .from(imports)
       .where(and(eq(imports.id, importId), eq(imports.userId, userId)))
       .limit(1);
-
-    if (!importRecord) {
-      throw ApiError.notFound('Import job not found.');
-    }
-
-    const [rowRecord] = await this.db
+    if (!importRecord) throw ApiError.notFound('Import job not found.');
+    const [rowRecord] = await tx
       .select()
       .from(importRows)
       .where(and(eq(importRows.importId, importId), eq(importRows.rowNo, rowNo)))
+      .for('update')
       .limit(1);
+    if (!rowRecord) throw ApiError.notFound('Import row not found.');
+    return { importRecord, rowRecord };
+  }
 
-    if (!rowRecord) {
-      throw ApiError.notFound('Import row not found.');
-    }
-
-    if (rowRecord.state === 'skipped') {
-      return toImportRowResponse(rowRecord);
-    }
-
-    return await this.db.transaction(async (tx) => {
-      const [updatedRow] = await tx
-        .update(importRows)
-        .set({
-          state: 'skipped',
-        })
-        .where(and(eq(importRows.importId, importId), eq(importRows.rowNo, rowNo)))
-        .returning();
-
-      const [counts] = await tx
-        .select({
-          matched: sql<number>`count(*) FILTER (WHERE ${importRows.state} IN ('matched', 'resolved'))`,
-          unmatched: sql<number>`count(*) FILTER (WHERE ${importRows.state} = 'unmatched')`,
-        })
-        .from(importRows)
-        .where(eq(importRows.importId, importId));
-
-      await tx
-        .update(imports)
-        .set({
-          matched: Number(counts?.matched ?? 0),
-          unmatched: Number(counts?.unmatched ?? 0),
-          updatedAt: new Date(),
-        })
-        .where(eq(imports.id, importId));
-
-      return toImportRowResponse(updatedRow!);
-    });
+  async #refreshCounts(tx: Db, importId: string): Promise<void> {
+    const [counts] = await tx
+      .select({
+        matched: sql<number>`count(*) FILTER (WHERE ${importRows.state} IN ('matched', 'resolved'))`,
+        unmatched: sql<number>`count(*) FILTER (WHERE ${importRows.state} = 'unmatched')`,
+      })
+      .from(importRows)
+      .where(eq(importRows.importId, importId));
+    await tx
+      .update(imports)
+      .set({ matched: Number(counts?.matched ?? 0), unmatched: Number(counts?.unmatched ?? 0), updatedAt: new Date() })
+      .where(eq(imports.id, importId));
   }
 }
 
@@ -555,7 +523,8 @@ export const importsPlugin: FastifyPluginAsync<ImportsPluginOptions> = async (fa
         tags: ['Imports'],
         summary: 'Resolve an unmatched import row',
         description:
-          'Resolves an unmatched import row by attaching a work ID, committing the read, and updating state to resolved (PRD §34.4, §5141, IM-09).',
+          'Resolves an unmatched or skipped import row by attaching a work ID (a merged work resolves to the survivor), committing the read unless the book is already in the library, and updating state to resolved (PRD §34.4, IM-09). ' +
+          'Repeating it with the same work is a no-op; a row already matched to another work is 409 import_row_resolved; an unknown work is 404.',
         params: importRowParamSchema,
         body: resolveImportRowBodySchema,
         response: {
@@ -563,6 +532,8 @@ export const importsPlugin: FastifyPluginAsync<ImportsPluginOptions> = async (fa
           400: errorResponseSchema,
           401: errorResponseSchema,
           404: errorResponseSchema,
+          409: errorResponseSchema,
+          422: errorResponseSchema,
         },
       },
     },
@@ -585,12 +556,13 @@ export const importsPlugin: FastifyPluginAsync<ImportsPluginOptions> = async (fa
         tags: ['Imports'],
         summary: 'Skip an unmatched import row',
         description:
-          'Marks an unmatched import row as skipped without creating a read (PRD §34.4, Architecture §3.7, IM-09).',
+          'Marks an unmatched import row as skipped without creating a read (PRD §34.4, Architecture §3.7, IM-09). A matched or resolved row has a read: 409 import_row_resolved.',
         params: importRowParamSchema,
         response: {
           200: importRowSchema,
           401: errorResponseSchema,
           404: errorResponseSchema,
+          409: errorResponseSchema,
         },
       },
     },

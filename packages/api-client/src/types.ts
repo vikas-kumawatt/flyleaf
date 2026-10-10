@@ -1199,6 +1199,7 @@ export interface ExportResponse {
   format: ExportFormat;
   state: ExportState;
   file_size_bytes?: number | null;
+  /** Always null since audit 12: use getExportLink(). */
   download_url?: string | null;
   expires_at?: string | null;
   error?: string | null;
@@ -1212,6 +1213,12 @@ export interface ExportListResponse {
 
 export interface CreateExportRequest {
   format?: ExportFormat;
+}
+
+/** GET /v1/exports/:id/link: a storage URL for the owner, valid 5 minutes. */
+export interface ExportLinkResponse {
+  url: string;
+  expires_at: string;
 }
 
 // ---------------------------------------------------------------- Blocking (SO-03)

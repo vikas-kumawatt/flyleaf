@@ -12781,8 +12781,12 @@ paths:
       summary: Resolve an unmatched import row
       tags:
         - Imports
-      description: Resolves an unmatched import row by attaching a work ID, committing
-        the read, and updating state to resolved (PRD §34.4, §5141, IM-09).
+      description: Resolves an unmatched or skipped import row by attaching a work ID
+        (a merged work resolves to the survivor), committing the read unless the
+        book is already in the library, and updating state to resolved (PRD
+        §34.4, IM-09). Repeating it with the same work is a no-op; a row already
+        matched to another work is 409 import_row_resolved; an unknown work is
+        404.
       requestBody:
         required: true
         content:
@@ -12932,13 +12936,62 @@ paths:
                       - message
                 required:
                   - error
+        "409":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      code:
+                        type: string
+                        description: Machine-readable error code
+                      message:
+                        type: string
+                        description: Human-readable error description
+                      field:
+                        type: string
+                        description: Invalid field name if applicable
+                    required:
+                      - code
+                      - message
+                required:
+                  - error
+        "422":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      code:
+                        type: string
+                        description: Machine-readable error code
+                      message:
+                        type: string
+                        description: Human-readable error description
+                      field:
+                        type: string
+                        description: Invalid field name if applicable
+                    required:
+                      - code
+                      - message
+                required:
+                  - error
   /imports/{id}/rows/{rowNo}/skip:
     post:
       summary: Skip an unmatched import row
       tags:
         - Imports
-      description: Marks an unmatched import row as skipped without creating a read
-        (PRD §34.4, Architecture §3.7, IM-09).
+      description: "Marks an unmatched import row as skipped without creating a read
+        (PRD §34.4, Architecture §3.7, IM-09). A matched or resolved row has a
+        read: 409 import_row_resolved."
       parameters:
         - schema:
             type: string
@@ -13026,6 +13079,30 @@ paths:
                 required:
                   - error
         "404":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      code:
+                        type: string
+                        description: Machine-readable error code
+                      message:
+                        type: string
+                        description: Human-readable error description
+                      field:
+                        type: string
+                        description: Invalid field name if applicable
+                    required:
+                      - code
+                      - message
+                required:
+                  - error
+        "409":
           description: Default Response
           content:
             application/json:
@@ -13748,6 +13825,8 @@ paths:
                     type:
                       - "null"
                       - string
+                    description: "Always null since audit 12: the emailed token is stored only as a
+                      hash. Use GET /v1/exports/{id}/link."
                   expires_at:
                     type:
                       - "null"
@@ -13819,6 +13898,30 @@ paths:
                       - message
                 required:
                   - error
+        "500":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      code:
+                        type: string
+                        description: Machine-readable error code
+                      message:
+                        type: string
+                        description: Human-readable error description
+                      field:
+                        type: string
+                        description: Invalid field name if applicable
+                    required:
+                      - code
+                      - message
+                required:
+                  - error
     get:
       summary: List user library exports
       tags:
@@ -13863,6 +13966,8 @@ paths:
                           type:
                             - "null"
                             - string
+                          description: "Always null since audit 12: the emailed token is stored only as a
+                            hash. Use GET /v1/exports/{id}/link."
                         expires_at:
                           type:
                             - "null"
@@ -13960,6 +14065,8 @@ paths:
                     type:
                       - "null"
                       - string
+                    description: "Always null since audit 12: the emailed token is stored only as a
+                      hash. Use GET /v1/exports/{id}/link."
                   expires_at:
                     type:
                       - "null"
@@ -14038,14 +14145,16 @@ paths:
         - Exports
       description: Authorizes the download with the emailed token or Bearer
         authentication, then redirects (302) to a storage URL valid for 5
-        minutes (PV-02).
+        minutes (PV-02). A wrong token is 404; an expired link is 410
+        export_expired.
       parameters:
         - schema:
             type: string
           in: query
           name: token
           required: false
-          description: Single-use or time-limited download token sent via email
+          description: The download token from the export email. Valid until expires_at
+            (48 h after the file is ready), any number of times.
         - schema:
             type: string
             format: uuid
@@ -14081,6 +14190,160 @@ paths:
                 required:
                   - error
         "404":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      code:
+                        type: string
+                        description: Machine-readable error code
+                      message:
+                        type: string
+                        description: Human-readable error description
+                      field:
+                        type: string
+                        description: Invalid field name if applicable
+                    required:
+                      - code
+                      - message
+                required:
+                  - error
+        "410":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      code:
+                        type: string
+                        description: Machine-readable error code
+                      message:
+                        type: string
+                        description: Human-readable error description
+                      field:
+                        type: string
+                        description: Invalid field name if applicable
+                    required:
+                      - code
+                      - message
+                required:
+                  - error
+  /exports/{id}/link:
+    get:
+      summary: Get a short-lived download link for my export
+      tags:
+        - Exports
+      description: "For the signed-in owner: a storage URL for the file, valid for 5
+        minutes, to open in a browser. The emailed link needs no session; this
+        one needs no token. Someone else's export is 404; an expired one is
+        410."
+      parameters:
+        - schema:
+            type: string
+            format: uuid
+          in: path
+          name: id
+          required: true
+          description: Resource UUID
+      responses:
+        "200":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  url:
+                    type: string
+                    description: Storage URL for the file, valid for 5 minutes.
+                  expires_at:
+                    type: string
+                    format: date-time
+                required:
+                  - url
+                  - expires_at
+        "400":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      code:
+                        type: string
+                        description: Machine-readable error code
+                      message:
+                        type: string
+                        description: Human-readable error description
+                      field:
+                        type: string
+                        description: Invalid field name if applicable
+                    required:
+                      - code
+                      - message
+                required:
+                  - error
+        "401":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      code:
+                        type: string
+                        description: Machine-readable error code
+                      message:
+                        type: string
+                        description: Human-readable error description
+                      field:
+                        type: string
+                        description: Invalid field name if applicable
+                    required:
+                      - code
+                      - message
+                required:
+                  - error
+        "404":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      code:
+                        type: string
+                        description: Machine-readable error code
+                      message:
+                        type: string
+                        description: Human-readable error description
+                      field:
+                        type: string
+                        description: Invalid field name if applicable
+                    required:
+                      - code
+                      - message
+                required:
+                  - error
+        "410":
           description: Default Response
           content:
             application/json:

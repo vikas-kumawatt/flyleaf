@@ -9,6 +9,7 @@ import { calibreConfig } from './calibre.js';
 import { openlibraryConfig } from './openlibrary.js';
 import { openreadsConfig } from './openreads.js';
 import { parseCsv } from '../parser.js';
+import { unguardCell } from '../transformers.js';
 
 export * from './goodreads.js';
 export * from './storygraph.js';
@@ -75,11 +76,15 @@ function findValueByAliases(
  */
 export function normalizeRow(
   config: SourceColumnConfig,
-  raw: Record<string, string>,
+  rawRow: Record<string, string>,
   rowNo: number,
 ): NormalizedImportRow {
   const errors: string[] = [];
   const fields = config.fields;
+  // Transforms see the cell values with the export's formula guard undone
+  // (A-12-015); import_rows.raw keeps the file as it was.
+  const raw: Record<string, string> = {};
+  for (const [k, v] of Object.entries(rawRow)) raw[k] = typeof v === 'string' ? unguardCell(v) : v;
 
   // Title (Mandatory identity field)
   const rawTitle = findValueByAliases(raw, fields.title.headers);
@@ -163,9 +168,20 @@ export function normalizeRow(
   const rawNotes = fields.notes ? findValueByAliases(raw, fields.notes.headers) : undefined;
   const notes = fields.notes ? fields.notes.transform(rawNotes, raw) : null;
 
+  const hasSpoilers = fields.hasSpoilers
+    ? fields.hasSpoilers.transform(findValueByAliases(raw, fields.hasSpoilers.headers), raw)
+    : false;
+  const excluded = fields.excluded
+    ? fields.excluded.transform(findValueByAliases(raw, fields.excluded.headers), raw)
+    : false;
+
+  // Dates the reads table and the app would never hold (A-12-019): none on a
+  // want-to-read, no finish on a book still being read, none in the future.
+  const dates = sanitizeDates(status, startedAt, finishedAt);
+
   return {
     rowNo,
-    raw,
+    raw: rawRow,
     title,
     author,
     additionalAuthors,
@@ -175,16 +191,41 @@ export function normalizeRow(
     sourceId,
     status,
     rating,
-    startedAt,
-    finishedAt,
+    startedAt: dates.startedAt,
+    finishedAt: dates.finishedAt,
     review,
     shelves,
     readCount,
     owned,
     format,
     notes,
+    hasSpoilers: Boolean(hasSpoilers),
+    excluded: Boolean(excluded),
     errors,
   };
+}
+
+/** `YYYY-MM-DD` of today in UTC, plus one day of slack for readers ahead of UTC. */
+function latestAllowedDate(): string {
+  return new Date(Date.now() + 86_400_000).toISOString().slice(0, 10);
+}
+
+export function sanitizeDates(
+  status: string,
+  startedAt: string | null,
+  finishedAt: string | null,
+): { startedAt: string | null; finishedAt: string | null } {
+  const max = latestAllowedDate();
+  let s = startedAt && startedAt <= max ? startedAt : null;
+  let f = finishedAt && finishedAt <= max ? finishedAt : null;
+  if (status === 'want') {
+    s = null;
+    f = null;
+  } else if (status === 'reading' || status === 'paused') {
+    f = null;
+  }
+  if (s && f && f < s) s = null;
+  return { startedAt: s, finishedAt: f };
 }
 
 export interface NormalizeImportResult {
@@ -210,6 +251,10 @@ export function normalizeImport(
 
   for (const r of parsed.rows) {
     const normalized = normalizeRow(config, r.data, r.rowNo);
+    if (r.malformed) {
+      normalized.malformed = true;
+      normalized.errors.push('Malformed row (unclosed quote)');
+    }
     if (normalized.errors.length > 0) {
       malformed++;
     }

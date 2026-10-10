@@ -398,6 +398,9 @@ describe('IM-06 & IM-07: Import Committer, Rating Normalisation & Activity Exclu
   // =========================================================================
   describe('Reviews and Shelves Persistence', () => {
     it('persists attached review linked to readId', async () => {
+      // Audit 12 (D-12-1): a work already in the library is not committed
+      // again, and earlier tests in this file imported Dune for this user.
+      await db.delete(reads).where(and(eq(reads.userId, testUserId), eq(reads.workId, duneWorkId)));
       await db.insert(importRows).values({
         importId: testImportId,
         rowNo: 4,
@@ -477,7 +480,10 @@ describe('IM-06 & IM-07: Import Committer, Rating Normalisation & Activity Exclu
       expect(items.length).toBeGreaterThanOrEqual(2);
     });
 
-    it('increments attempt_no on subsequent reads for the same work', async () => {
+    // Audit 12 (A-12-001, D-12-1): this test pinned "a second import of a
+    // book adds attempt_no + 1", which doubled every book on a re-import.
+    // An imported row for a work already in the library now leaves it as is.
+    it('leaves a work already in the library as it is (no attempt_no + 1)', async () => {
       // Find current max attempt for duneWorkId
       const currentReads = await db
         .select({ attemptNo: reads.attemptNo })
@@ -529,13 +535,15 @@ describe('IM-06 & IM-07: Import Committer, Rating Normalisation & Activity Exclu
         },
       });
 
-      const [newRead] = await db
-        .select()
+      expect(result.committed).toBe(false);
+      expect(result.reason).toBe('already_in_library');
+      expect(result.readId).toBeNull();
+      const after = await db
+        .select({ attemptNo: reads.attemptNo })
         .from(reads)
-        .where(eq(reads.id, result.readId!));
-
-      expect(newRead).toBeDefined();
-      expect(newRead!.attemptNo).toBe(maxAttempt + 1);
+        .where(and(eq(reads.userId, testUserId), eq(reads.workId, duneWorkId)));
+      expect(Math.max(...after.map((r) => r.attemptNo))).toBe(maxAttempt);
+      expect(after).toHaveLength(currentReads.length);
     });
   });
 
@@ -544,6 +552,9 @@ describe('IM-06 & IM-07: Import Committer, Rating Normalisation & Activity Exclu
   // =========================================================================
   describe('Batch Committer (commitImportBatch)', () => {
     it('commits matched rows in transaction and skips unmatched rows', async () => {
+      // Audit 12 (D-12-1): Dune Messiah may already be in the library from
+      // an earlier test; a work already there is not committed again.
+      await db.delete(reads).where(and(eq(reads.userId, testUserId), eq(reads.workId, messiahWorkId)));
       await db.insert(importRows).values([
         {
           importId: testImportId,

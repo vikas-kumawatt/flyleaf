@@ -14,12 +14,13 @@ import { sql, eq } from 'drizzle-orm';
 import type { Db } from '../platform/index.js';
 import { imports, importRows } from '../db/schema.js';
 import { readAll, type ObjectStorage } from '../providers/storage/index.js';
-import { parseCsv } from './parser.js';
-import { SOURCE_CONFIGS, normalizeImport } from './configs/index.js';
-import { detectSource } from './detector.js';
-import { matchImportRow, type MatchResult } from './matcher.js';
+import { parseCsv, type ParsedCsvResult } from './parser.js';
+import { SOURCE_CONFIGS, normalizeRow } from './configs/index.js';
+import { scoreHeaderMatch } from './detector.js';
+import { lookupIsbns, matchImportRow, rowIsbns, type IsbnLookup, type MatchResult } from './matcher.js';
 import { commitImportRow } from './committer.js';
 import type { ImportSource } from './index.js';
+import type { NormalizedImportRow, SourceColumnConfig } from './types.js';
 
 export interface ProcessImportOptions {
   chunkSize?: number;
@@ -99,24 +100,32 @@ export async function processImport(
       }
     }
 
-    const fileContent = fileBuffer.toString('utf-8');
-
-    // 4. Determine source configuration
-    let config = SOURCE_CONFIGS[job.source as ImportSource];
+    // 4. Parse (any encoding, A-12-004), then choose the source by the
+    // columns: the declared one unless another fits the file better
+    // (A-12-008). A file no source fits fails, naming its columns.
+    const parsed = parseCsv(fileBuffer);
+    const declared = SOURCE_CONFIGS[job.source as ImportSource];
+    const config = chooseConfig(parsed.headers, declared);
     if (!config) {
-      const parsed = parseCsv(fileContent);
-      const detected = detectSource(parsed.headers, Object.values(SOURCE_CONFIGS));
-      if (detected && SOURCE_CONFIGS[detected.source]) {
-        config = SOURCE_CONFIGS[detected.source];
-      } else {
-        throw new Error(`Unsupported or unrecognized import source: ${job.source}`);
-      }
+      const cols = parsed.headers.filter(Boolean);
+      const shown = cols.slice(0, 20).join(', ') + (cols.length > 20 ? ', …' : '');
+      throw new Error(
+        cols.length === 0
+          ? 'The file is empty.'
+          : `Unrecognised file: its columns do not match any supported export (found: ${shown}). Choose the service it came from, or export it again.`,
+      );
+    }
+    if (config.source !== job.source) {
+      await db.update(imports).set({ source: config.source, updatedAt: new Date() }).where(eq(imports.id, importId));
     }
 
     // 5. Normalize all rows
-    const normalized = normalizeImport(config, fileContent);
+    const normalized = normalizeParsed(config, parsed);
     const normalizedRows = normalized.rows;
     const totalRows = normalizedRows.length;
+    if (totalRows === 0) {
+      throw new Error('The file has no books in it, only a header row.');
+    }
 
     // 7. Update total_rows on imports record
     await db
@@ -135,68 +144,25 @@ export async function processImport(
     // Filter to remaining pending rows
     const pendingRows = normalizedRows.filter((r) => !processedRowNos.has(r.rowNo));
 
-    // 9. Chunked loop
+    // 9. Chunked loop. Matching reads the catalog outside the transaction;
+    // the chunk's reads, reviews, shelves and its import_rows commit together,
+    // so a crash resumes after the last whole chunk with no duplicate.
     for (let i = 0; i < pendingRows.length; i += chunkSize) {
       const chunk = pendingRows.slice(i, i + chunkSize);
-
-      // Match each row in the chunk
-      const matchedChunk: Array<{
-        row: (typeof pendingRows)[0];
-        match: MatchResult;
-      }> = [];
-
+      const isbnLookup = await lookupIsbns(db, chunk.flatMap(rowIsbns));
+      const matchedChunk: Array<{ row: NormalizedImportRow; match: MatchResult }> = [];
       for (const row of chunk) {
-        const match = await matchImportRow(db, row);
-        matchedChunk.push({ row, match });
+        matchedChunk.push({ row, match: await matchRow(db, row, isbnLookup) });
       }
 
-      // Commit chunk in a database transaction
-      await db.transaction(async (tx) => {
-        // A. Insert into import_rows
-        for (const item of matchedChunk) {
-          await tx
-            .insert(importRows)
-            .values({
-              importId,
-              rowNo: item.row.rowNo,
-              raw: item.row.raw,
-              state: item.match.state,
-              workId: item.match.workId,
-              editionId: item.match.editionId,
-              confidence: item.match.confidence,
-              failureReason: item.match.failureReason,
-            })
-            .onConflictDoNothing();
-
-          // B. If matched, commit to reads / reviews / shelves
-          if (item.match.state === 'matched' && item.match.workId) {
-            await commitImportRow(tx as unknown as Db, {
-              userId: job.userId,
-              importId,
-              row: item.row,
-              match: item.match,
-            });
-          }
-        }
-
-        // C. Update imports counters after this chunk
-        const [counts] = await tx
-          .select({
-            matched: sql<number>`count(*) FILTER (WHERE ${importRows.state} IN ('matched', 'resolved'))`,
-            unmatched: sql<number>`count(*) FILTER (WHERE ${importRows.state} = 'unmatched')`,
-          })
-          .from(importRows)
-          .where(eq(importRows.importId, importId));
-
-        await tx
-          .update(imports)
-          .set({
-            matched: Number(counts?.matched ?? 0),
-            unmatched: Number(counts?.unmatched ?? 0),
-            updatedAt: new Date(),
-          })
-          .where(eq(imports.id, importId));
-      });
+      try {
+        await db.transaction(async (tx) => commitChunk(tx as unknown as Db, job.userId, importId, matchedChunk, false));
+      } catch {
+        // One row the database refused (a constraint, a trigger) must not
+        // fail the import (A-12-006): redo this chunk with each row in its
+        // own savepoint, recording a refused row as commit_failed.
+        await db.transaction(async (tx) => commitChunk(tx as unknown as Db, job.userId, importId, matchedChunk, true));
+      }
     }
 
     // 10. Mark import completed
@@ -244,4 +210,102 @@ export async function processImport(
 
     throw err;
   }
+}
+
+/**
+ * The source whose columns fit the file: every required column present,
+ * best signature score, the declared source winning ties. null when none fits.
+ */
+export function chooseConfig(headers: string[], declared: SourceColumnConfig | undefined): SourceColumnConfig | null {
+  let best: { config: SourceColumnConfig; confidence: number } | null = null;
+  const ordered = declared ? [declared, ...Object.values(SOURCE_CONFIGS).filter((c) => c !== declared)] : Object.values(SOURCE_CONFIGS);
+  for (const config of ordered) {
+    const score = scoreHeaderMatch(headers, config);
+    if (score.missingRequiredHeaders.length > 0) continue;
+    if (!best || score.confidence > best.confidence) best = { config, confidence: score.confidence };
+  }
+  return best?.config ?? null;
+}
+
+function normalizeParsed(config: SourceColumnConfig, parsed: ParsedCsvResult): { rows: NormalizedImportRow[] } {
+  return {
+    rows: parsed.rows.map((r) => {
+      const row = normalizeRow(config, r.data, r.rowNo);
+      if (r.malformed) row.malformed = true;
+      return row;
+    }),
+  };
+}
+
+const unmatched = (failureReason: string): MatchResult => ({
+  state: 'unmatched',
+  workId: null,
+  editionId: null,
+  confidence: null,
+  failureReason: failureReason as MatchResult['failureReason'],
+  strategy: null,
+});
+
+/** Rows the parser or the source rule out are recorded without matching. */
+async function matchRow(db: Db, row: NormalizedImportRow, isbnLookup: IsbnLookup): Promise<MatchResult> {
+  if (row.malformed) return unmatched('malformed_row');
+  if (row.excluded) return { ...unmatched('excluded_by_source'), state: 'skipped' as MatchResult['state'] };
+  return matchImportRow(db, row, isbnLookup);
+}
+
+/**
+ * One chunk: commit each matched row, record every row's outcome in one
+ * insert, refresh the counters. `isolate`: each commit in its own savepoint.
+ */
+async function commitChunk(
+  tx: Db,
+  userId: string,
+  importId: string,
+  items: Array<{ row: NormalizedImportRow; match: MatchResult }>,
+  isolate: boolean,
+): Promise<void> {
+  const shelfCache = new Map<string, string | null>();
+  const records: Array<typeof importRows.$inferInsert> = [];
+  for (const { row, match } of items) {
+    let state: string = match.state;
+    let failureReason: string | null = match.failureReason;
+    if (match.state === 'matched' && match.workId) {
+      try {
+        const commit = (db: Db) => commitImportRow(db, { userId, importId, row, match }, { shelfCache });
+        const result = isolate ? await tx.transaction(async (sp) => commit(sp as unknown as Db)) : await commit(tx);
+        // Matched and committed rows are 'resolved'; a book already in the
+        // library is matched, with the reason it added nothing.
+        if (result.committed) state = 'resolved';
+        else failureReason = result.reason ?? null;
+      } catch (err) {
+        if (!isolate) throw err;
+        shelfCache.clear();
+        state = 'unmatched';
+        failureReason = 'commit_failed';
+      }
+    }
+    records.push({
+      importId,
+      rowNo: row.rowNo,
+      raw: row.raw,
+      state,
+      workId: match.workId,
+      editionId: match.editionId,
+      confidence: match.confidence,
+      failureReason,
+    });
+  }
+  if (records.length > 0) await tx.insert(importRows).values(records).onConflictDoNothing();
+
+  const [counts] = await tx
+    .select({
+      matched: sql<number>`count(*) FILTER (WHERE ${importRows.state} IN ('matched', 'resolved'))`,
+      unmatched: sql<number>`count(*) FILTER (WHERE ${importRows.state} = 'unmatched')`,
+    })
+    .from(importRows)
+    .where(eq(importRows.importId, importId));
+  await tx
+    .update(imports)
+    .set({ matched: Number(counts?.matched ?? 0), unmatched: Number(counts?.unmatched ?? 0), updatedAt: new Date() })
+    .where(eq(imports.id, importId));
 }

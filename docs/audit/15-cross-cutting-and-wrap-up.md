@@ -69,3 +69,10 @@ Your final chat message is that summary, shortened.
 - **`book_logged` tap counter, D-10-2 refined, A-10-003:** the clock starts at the first render of a screen offering the shelve action for a work (a search row or the book page); it carries from a search row to the book page it opens for the **same work** (that tap counts); it ends on navigation elsewhere or after **10 minutes**; it stops at **local success**, not server acknowledgement. `book_logged` is not sent at all until this exists.
 - **Rate limits (RL), A-10-029:** `POST /v1/events` (anonymous), `GET /v1/search` (a zero-result search now writes an event), `PUT /v1/me/content-settings`, `PATCH /v1/me/profile`, `PUT/DELETE /v1/me/avatar`, `GET /v1/avatars/…` (anonymous), `GET /v1/users/:id/stats`, `GET /v1/users/:id/reads`.
 - **Avatar objects, A-10-016:** a replaced avatar's object is deleted best effort; a failed delete and a deleted account's avatar belong to the retention sweep (with A-PV-008).
+
+## Handed over from Part 12 (see `findings/12-import-export.md`)
+
+- **Rate limits (RL), A-12-021:** `POST /v1/imports` 3/day and `POST /v1/exports` 2/day per account (PRD §24.4); `POST /v1/uploads` with the import limit (A-PV-007). An import retried by `upload_id` replay (200, same import) must not count twice.
+- **Retention:** deleted accounts' `uploads/<user>/` and `exports/<user>/` objects (A-PV-008, unchanged); `import_rows.raw` holds the whole file row by row after the file itself is deleted at 30 days (D-PV-3), so decide how long rows of a finished import stay (proposal: with the import, until the account is deleted; the review queue needs them).
+- **Perf comparison (laptop):** `npx tsx src/bench/import-cost.ts --rows 5000 --export` against `flyleaf` (matching at full catalog scale) and `flyleaf_dev`; apply migration 0035 to `flyleaf_dev` with the other audit migrations.
+- **§9.7 manipulation (with SL-62b):** an import can bulk-add ratings from a new or unverified account; their reviews are hidden until verification (D-05-3), their ratings are not. Decide with the §9.7 fast-follow.
