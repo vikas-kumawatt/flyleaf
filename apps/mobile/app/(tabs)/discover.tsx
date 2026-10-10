@@ -8,7 +8,7 @@
 // - Format & sort filter chips
 // - Curated shelf browsing when query is empty
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   FlatList,
   Pressable,
@@ -18,7 +18,7 @@ import {
   ActivityIndicator,
   StyleSheet,
 } from 'react-native';
-import { useRouter } from 'expo-router';
+import { useFocusEffect, useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
@@ -29,6 +29,7 @@ import { useSession } from '@/lib/session';
 import { useGuestShelf } from '@/lib/guest';
 import { useActionGate } from '@/ui/ActionGate';
 import { AddToShelfSheet, type AddToShelfWork } from '@/ui/AddToShelfSheet';
+import { budgetTracker } from '@/lib/budgetTracker';
 import {
   Card,
   Cover,
@@ -207,6 +208,22 @@ export default function DiscoverScreen() {
       return true;
     });
   });
+
+  // §4.4 taps to shelve (D-10-2): each result row is an impression of its
+  // work; leaving the screen ends them, except the row tapped open.
+  const shownIds = filteredResults.map((w) => w.id);
+  const shownKey = shownIds.join(',');
+  const shownRef = useRef(shownIds);
+  shownRef.current = shownIds;
+  useEffect(() => {
+    budgetTracker.searchRowsShown(shownRef.current);
+  }, [shownKey]);
+  useFocusEffect(
+    useCallback(() => {
+      budgetTracker.searchRowsShown(shownRef.current);
+      return () => budgetTracker.searchLeft();
+    }, []),
+  );
 
   return (
     <Screen>
@@ -747,6 +764,7 @@ export default function DiscoverScreen() {
               <Card
                 onPress={() => {
                   rememberQuery();
+                  budgetTracker.searchRowOpened(item.id);
                   router.push(`/work/${item.id}`);
                 }}
                 onLongPress={() => handleOpenShelf(item)}

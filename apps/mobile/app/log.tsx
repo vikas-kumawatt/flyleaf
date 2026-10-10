@@ -2,12 +2,13 @@
 //
 // Allows quick search to log a read, update progress, or scan a barcode.
 
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { View, TextInput, Pressable, FlatList } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { api, type Work } from '@/lib/api';
+import { budgetTracker } from '@/lib/budgetTracker';
 import { Button, Cover, Screen, Txt, sheet } from '@/ui/components';
 import { space, useTheme } from '@/ui/tokens';
 
@@ -18,6 +19,17 @@ export default function LogScreen() {
   const [q, setQ] = useState('');
   const [results, setResults] = useState<Work[]>([]);
   const [loading, setLoading] = useState(false);
+
+  // §4.4 taps to shelve (D-10-2): each result row is an impression; closing
+  // the sheet ends them, except the row tapped open.
+  useEffect(() => {
+    budgetTracker.searchRowsShown(results.map((w) => w.id));
+  }, [results]);
+  useEffect(() => () => budgetTracker.searchLeft(), []);
+  const open = (workId: string) => {
+    budgetTracker.searchRowOpened(workId);
+    router.replace(`/work/${workId}`);
+  };
 
   const handleSearch = async (text: string) => {
     setQ(text);
@@ -111,9 +123,7 @@ export default function LogScreen() {
         }
         renderItem={({ item }) => (
           <Pressable
-            onPress={() => {
-              router.replace(`/work/${item.id}`);
-            }}
+            onPress={() => open(item.id)}
             style={sheet.rowTop}
             accessibilityRole="button"
             accessibilityLabel={`Log ${item.title}`}
@@ -140,7 +150,7 @@ export default function LogScreen() {
             <Button
               label="Select"
               variant="secondary"
-              onPress={() => router.replace(`/work/${item.id}`)}
+              onPress={() => open(item.id)}
               style={{ minHeight: 36, paddingHorizontal: space[3] }}
             />
           </Pressable>

@@ -13,7 +13,22 @@
 
 import { track } from './events';
 
+/** D-10-2: an impression ends after 10 minutes. */
+export const BOOK_IMPRESSION_MS = 10 * 60 * 1000;
+
+interface BookImpression {
+  startedAt: number;
+  taps: number;
+  screen: 'search' | 'book';
+  /** Tapped open from a search row; adopted by that work's book page. */
+  carry: boolean;
+  source?: string;
+}
+
 class BudgetTracker {
+  /** Clock, replaceable in tests. */
+  now: () => number = () => Date.now();
+  private impressions = new Map<string, BookImpression>();
   private readingTabOpenTime: number | null = null;
   private finishFlowStartTimes = new Map<string, number>();
   private logSheetStartTime: number | null = null;
@@ -47,11 +62,97 @@ class BudgetTracker {
   }
 
   // ---------------------------------------------------------------- 2. Book Shelved Tap Budget
+  // The tap counter, per D-10-2 (refined; audit 15). A book's impression
+  // starts at the first render of a screen offering the shelve action for it:
+  // a search row, or the book page. Opening the book page from a search row
+  // for the same work carries the impression over, and that tap counts. It
+  // ends on navigation elsewhere or after 10 minutes, and stops at local
+  // success (the optimistic local write), when book_logged is sent with the
+  // taps counted. Counted taps are the ones on the shelve path: the row that
+  // opens the book, and the status button.
+
+  /** Search rows now showing these works (call on every render of the list). */
+  searchRowsShown(workIds: readonly string[]): void {
+    const now = this.now();
+    this.dropExpired(now);
+    for (const id of workIds) {
+      if (!this.impressions.has(id)) this.impressions.set(id, { startedAt: now, taps: 0, screen: 'search', carry: false });
+    }
+  }
+
+  /** The reader tapped a search row to open this work's book page. */
+  searchRowOpened(workId: string): void {
+    const now = this.now();
+    this.dropExpired(now);
+    let imp = this.impressions.get(workId);
+    if (!imp) {
+      imp = { startedAt: now, taps: 0, screen: 'search', carry: false };
+      this.impressions.set(workId, imp);
+    }
+    imp.taps += 1;
+    imp.carry = true;
+  }
+
+  /** The search screen lost focus: its rows' impressions end, except the one carried to a book page. */
+  searchLeft(): void {
+    for (const [id, imp] of this.impressions) {
+      if (imp.screen === 'search' && !imp.carry) this.impressions.delete(id);
+    }
+  }
+
+  /** The book page for this work is shown: adopt a carried impression, or start one. */
+  bookPageShown(workId: string): void {
+    const now = this.now();
+    this.dropExpired(now);
+    const carried = this.impressions.get(workId);
+    for (const [id, imp] of this.impressions) {
+      if (id !== workId && imp.screen === 'book') this.impressions.delete(id);
+      if (id !== workId && imp.carry) this.impressions.delete(id);
+    }
+    if (carried && carried.carry) {
+      carried.screen = 'book';
+      carried.carry = false;
+      carried.source = 'search';
+      return;
+    }
+    this.impressions.set(workId, { startedAt: now, taps: 0, screen: 'book', carry: false, source: 'work_detail' });
+  }
+
+  /** The book page for this work is gone (back, or navigation elsewhere). */
+  bookPageLeft(workId: string): void {
+    const imp = this.impressions.get(workId);
+    if (imp && imp.screen === 'book') this.impressions.delete(workId);
+  }
+
+  /** A tap on the shelve action (a status button) for this work. */
+  shelveTapped(workId: string): void {
+    const imp = this.impressions.get(workId);
+    if (imp && this.now() - imp.startedAt <= BOOK_IMPRESSION_MS) imp.taps += 1;
+  }
+
   /**
-   * Call when reader shelves a book, with the taps COUNTED since the book's
-   * impression. No call site counts them yet (audit 10: both passed a
-   * constant 2, which can never miss the budget), so nothing calls this until
-   * a tap counter exists.
+   * The shelve write succeeded locally: sends book_logged with the taps
+   * counted since the impression began, once. Nothing is sent without a live
+   * impression (no invented counts, audit 10).
+   */
+  bookShelvedLocally(workId: string, options: { targetStatus: string }): void {
+    const imp = this.impressions.get(workId);
+    if (!imp) return;
+    this.impressions.delete(workId);
+    if (this.now() - imp.startedAt > BOOK_IMPRESSION_MS || imp.taps < 1) return;
+    this.recordBookLogged({ tapCount: imp.taps, source: imp.source ?? imp.screen, targetStatus: options.targetStatus });
+  }
+
+  private dropExpired(now: number): void {
+    for (const [id, imp] of this.impressions) {
+      if (now - imp.startedAt > BOOK_IMPRESSION_MS) this.impressions.delete(id);
+    }
+  }
+
+  /**
+   * Sends one book_logged sample with a counted tapCount. Called by
+   * bookShelvedLocally; audit 10 removed the call sites that passed a
+   * constant 2, which could never miss the budget.
    */
   recordBookLogged(options: {
     tapCount: number;
@@ -159,3 +260,4 @@ class BudgetTracker {
 }
 
 export const budgetTracker = new BudgetTracker();
+export { BudgetTracker };

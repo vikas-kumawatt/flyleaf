@@ -14,7 +14,7 @@
 // queue like every other reading write (A-07-019/020), with visible errors
 // (A-07-024). A merged id shows the survivor, and writes use its id (D3).
 
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import * as SecureStore from 'expo-secure-store';
 import {
   ScrollView,
@@ -25,7 +25,7 @@ import {
   StyleSheet,
   Alert,
 } from 'react-native';
-import { useLocalSearchParams, useRouter } from 'expo-router';
+import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import { api, type Work, type Review } from '@/lib/api';
@@ -138,6 +138,16 @@ export default function WorkScreen() {
       setReviewsLoading(false);
     }
   };
+
+  // §4.4 taps to shelve (D-10-2): this page offers the shelve action for the
+  // work, so its impression runs while the page is in focus.
+  useFocusEffect(
+    useCallback(() => {
+      if (!id) return undefined;
+      budgetTracker.bookPageShown(id);
+      return () => budgetTracker.bookPageLeft(id);
+    }, [id]),
+  );
 
   useEffect(() => {
     if (activeTab === 'reviews' && id) {
@@ -255,8 +265,9 @@ export default function WorkScreen() {
   // Status control handler (SL-31, SL-32, SL-41)
   const setStatus = async (status: string) => {
     // §4.4 "+ tapped -> anything saved": the FAB's search lands here.
-    // book_logged needs counted taps, which nothing counts yet (audit 10).
     budgetTracker.recordLogSheetCompleted({ targetStatus: status });
+    // §4.4 taps to shelve (D-10-2): book_logged goes at local success below.
+    budgetTracker.shelveTapped(work.id);
 
     if (!user) {
       if (status === 'want') {
@@ -279,6 +290,7 @@ export default function WorkScreen() {
                 'Your device shelf is full. Create an account to save unlimited books across all your devices.',
             });
           } else {
+            budgetTracker.bookShelvedLocally(work.id, { targetStatus: status });
             void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
           }
         }
@@ -297,6 +309,7 @@ export default function WorkScreen() {
     setBusy(true);
     try {
       await new OfflineRepository(db, user.id).saveReadStatus(work.id, status, null, null, meta);
+      budgetTracker.bookShelvedLocally(work.id, { targetStatus: status });
       optimistic({ status });
     } catch {
       failed();

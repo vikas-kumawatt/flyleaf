@@ -9,7 +9,7 @@ import {
   clearEventQueue,
   setTelemetryTransport,
 } from '../events';
-import { budgetTracker } from '../budgetTracker';
+import { budgetTracker, BOOK_IMPRESSION_MS } from '../budgetTracker';
 
 describe('Telemetry Event Queue & Session Management (SL-80, PRD §28.1)', () => {
   beforeEach(() => {
@@ -244,5 +244,72 @@ describe('§4.4 budgets measure, never invent (audit 10)', () => {
   it('restores the clock', () => {
     Date.now = realNow;
     assert.ok(Date.now() > 1_000_000_000);
+  });
+});
+
+describe('book_logged counts taps from the impression (D-10-2, audit 15)', () => {
+  let t = 0;
+  const logged = () => getPendingEventQueue().filter((e) => e.name === 'book_logged').map(getItemProps);
+  beforeEach(() => {
+    clearEventQueue();
+    t = 5_000_000;
+    budgetTracker.now = () => t;
+    budgetTracker.searchLeft();
+    budgetTracker.bookPageLeft('w1');
+    budgetTracker.bookPageLeft('w2');
+  });
+
+  it('search row -> book page -> Want to read: 2 taps, source search (the carried row tap counts)', () => {
+    budgetTracker.searchRowsShown(['w1', 'w2']);
+    t += 3_000;
+    budgetTracker.searchRowOpened('w1');
+    budgetTracker.bookPageShown('w1');
+    budgetTracker.searchLeft();
+    budgetTracker.shelveTapped('w1');
+    budgetTracker.bookShelvedLocally('w1', { targetStatus: 'want' });
+    assert.deepEqual(logged(), [{ tap_count: 2, source: 'search', target_status: 'want' }]);
+    budgetTracker.bookShelvedLocally('w1', { targetStatus: 'want' }); // once per impression
+    assert.equal(logged().length, 1);
+  });
+
+  it('book page opened directly: 1 tap, source work_detail', () => {
+    budgetTracker.bookPageShown('w2');
+    budgetTracker.shelveTapped('w2');
+    budgetTracker.bookShelvedLocally('w2', { targetStatus: 'reading' });
+    assert.deepEqual(logged(), [{ tap_count: 1, source: 'work_detail', target_status: 'reading' }]);
+  });
+
+  it('a book page for another work does not inherit a carried impression', () => {
+    budgetTracker.searchRowsShown(['w1']);
+    budgetTracker.searchRowOpened('w1');
+    budgetTracker.bookPageShown('w2');
+    budgetTracker.shelveTapped('w2');
+    budgetTracker.bookShelvedLocally('w2', { targetStatus: 'want' });
+    budgetTracker.bookShelvedLocally('w1', { targetStatus: 'want' });
+    assert.deepEqual(logged(), [{ tap_count: 1, source: 'work_detail', target_status: 'want' }]);
+  });
+
+  it('ends after 10 minutes: nothing is sent', () => {
+    budgetTracker.bookPageShown('w1');
+    t += BOOK_IMPRESSION_MS + 1;
+    budgetTracker.shelveTapped('w1');
+    budgetTracker.bookShelvedLocally('w1', { targetStatus: 'want' });
+    assert.deepEqual(logged(), []);
+  });
+
+  it('ends on navigating away: leaving the book page, or the search screen without opening the row', () => {
+    budgetTracker.bookPageShown('w1');
+    budgetTracker.bookPageLeft('w1');
+    budgetTracker.bookShelvedLocally('w1', { targetStatus: 'want' });
+    budgetTracker.searchRowsShown(['w2']);
+    budgetTracker.searchLeft();
+    budgetTracker.bookShelvedLocally('w2', { targetStatus: 'want' });
+    assert.deepEqual(logged(), []);
+  });
+
+  it('no impression, no event (no invented counts)', () => {
+    budgetTracker.shelveTapped('nothing');
+    budgetTracker.bookShelvedLocally('nothing', { targetStatus: 'want' });
+    assert.deepEqual(logged(), []);
   });
 });
