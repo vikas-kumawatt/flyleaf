@@ -1,6 +1,6 @@
 # Audit 14 — Feed (SO-10 … SO-15), with D-11-1 and D-13-1
 
-2026-10-10 · CI: see "CI result" at the end · Tests: API **1,585 → 1,610** (+25 in the new `feed-audit.test.ts`); mobile **189 → 207** (+12 in `home-feed.test.ts`, +6 in `want-to-read.test.ts`). No test was weakened or skipped. One existing assertion pinned behaviour this part changed on an owner decision (D-13-1) and was updated with a comment (see "Behaviour changes" › "Tests changed").
+2026-10-10 · CI: **green** (sandbox, 1,078 s; details at the end) · Tests: API **1,585 → 1,610** (+25 in the new `feed-audit.test.ts`); mobile **189 → 207** (+12 in `home-feed.test.ts`, +6 in `want-to-read.test.ts`). No test was weakened or skipped. One existing assertion pinned behaviour this part changed on an owner decision (D-13-1) and was updated with a comment (see "Behaviour changes" › "Tests changed").
 
 **How this part ran.** In a cloud sandbox (Linux), not on the laptop. Overrides from the owner for this run:
 
@@ -221,4 +221,4 @@ Ratios: heavy p95 **3.1× faster**, popular 1.7×, new 2.9×; typical **1.25× s
 `FLYLEAF_TEST_WORKERS=2 node scripts/ci.mjs` in the sandbox, with Postgres 18.3 on 5432 and MinIO on 9000.
 
 - **Run 1: green in 1,119 s, exit 0**, all 9 steps: api-client build, api typecheck, spec check ("openapi.yaml is up to date", drift 0), api tests **1,610 passed / 79 files** (0 skipped: MinIO was up, so the S3 contract block ran), api build, api audit (`--audit-level=high`), mobile typecheck, mobile tests **207 passed**, migrations on a real Postgres ("migrations applied"). This run started a minute before the last code edit (A-14-020's cursor), so its typecheck step did not see it; hence run 2.
-- **Run 2 (final tree):** see below.
+- **Run 2 (final tree, commit `audit(14): findings…`): green in 1,078 s, exit 0**, all 9 steps; api tests **1,610 passed / 79 files**, mobile **207 passed**, spec drift 0, migrations applied. The A-04-006 timing test did not flake in either run.
