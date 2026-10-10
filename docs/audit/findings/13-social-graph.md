@@ -1,6 +1,6 @@
 # Audit 13 — Social graph (SO-01 … SO-06), with D-11-2 and D-12-2
 
-2026-10-10 · CI: see "CI result" · Tests: API **1,547 → 1,585** (+27 in the new `social-graph-audit.test.ts`, +10 in `slug-history.test.ts`, +1 in `import-export-audit.test.ts` for D-12-2); mobile **187 → 189** (+2 in `social-follow.test.ts`). No test was weakened or skipped. Two existing assertions pinned behaviour this part changed on an owner decision and were updated with a comment (list under "Behaviour changes" › "Tests changed").
+2026-10-10 · CI: **green in 1,057 s** (sandbox, second run; first run hit a pre-existing flake, below) · Tests: API **1,547 → 1,585** (+27 in the new `social-graph-audit.test.ts`, +10 in `slug-history.test.ts`, +1 in `import-export-audit.test.ts` for D-12-2); mobile **187 → 189** (+2 in `social-follow.test.ts`). No test was weakened or skipped. Two existing assertions pinned behaviour this part changed on an owner decision and were updated with a comment (list under "Behaviour changes" › "Tests changed").
 
 **How this part ran.** In a cloud sandbox (Linux), not on the laptop. Overrides from the owner for this run:
 
@@ -207,7 +207,10 @@ PRD budgets (p95 < 300 ms) are met with a wide margin; indicative only (sandbox,
 | Keyset paging for followers at 10× (offset 19,000 walks 19,000 index entries; ~10 ms) and the `total` count (O(followers) per page) | Not needed at today's sizes; plan: cursor `(created_at, id)` alongside `offset`, total from the counter minus the viewer's few blocked | Post-audit |
 | Owner `avatar_url` on shelves (A-11-029) | Consistency, no screen affected | Part 15 |
 | Pending requests paging (A-13-017) | Small lists today | Post-audit |
+| Flaky timing test A-04-006 in `auth-audit.test.ts` (fails 2/6 on `main` in the sandbox) | Part 04 code, not this part's | Part 15 |
 
 ## CI result
 
-(filled in below after the run)
+`FLYLEAF_TEST_WORKERS=2 node scripts/ci.mjs` in the sandbox, with Postgres 18.3 on 5432 and MinIO on 9000: **green in 1,057 s, exit 0**, all 9 steps (api-client build, api typecheck, spec check, api tests **1,585 passed / 78 files**, api build, api audit, mobile typecheck, mobile tests **189 passed**, migrations on a real Postgres). GitHub Actions (`check`) on the PR: green.
+
+The **first** run failed one test, `auth-audit.test.ts` › *login for an unknown email costs about as much as a wrong password (A-04-006)* (`expected 56.6 to be greater than 84.9`), after 1,019 s. Not this part's: it fails **2 of 6** runs alone on unmodified `main` in this sandbox and 1 of 3 on this branch; the two code paths do the same argon2 work, and the test compares the sum of 3 samples of ~30 ms on a loaded 2-worker machine. Untouched here (Part 04 code). → **Part 15:** make it robust (median of more samples, or compare argon2 calls counted instead of wall time). The rerun was green.
