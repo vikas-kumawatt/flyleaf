@@ -11,7 +11,7 @@ import type { FastifyInstance } from 'fastify';
 import { buildApp, routeLimitGroups } from '../app.js';
 import { CatalogService } from '../catalog/index.js';
 import { IdentityService } from '../identity/index.js';
-import { MemoryCache, PgRateLimiter, type Db } from '../platform/index.js';
+import { MemoryCache, PgRateLimiter, resolveRateLimitMode, type Db } from '../platform/index.js';
 import {
   LEGACY_LIMITS,
   LIMIT_GROUPS,
@@ -123,6 +123,15 @@ describe('each exact limit, on Postgres (PgRateLimiter)', () => {
 });
 
 describe('the policy', () => {
+  it('BENCH_RATE_LIMITS=legacy keeps a bench like the baseline, and is refused in production', () => {
+    expect(resolveRateLimitMode('development', undefined)).toBe('all');
+    expect(resolveRateLimitMode('production', undefined)).toBe('all');
+    expect(resolveRateLimitMode('production', 'all')).toBe('all');
+    expect(resolveRateLimitMode('development', 'legacy')).toBe('legacy');
+    expect(() => resolveRateLimitMode('production', 'legacy')).toThrow(/refused when NODE_ENV=production/);
+    expect(() => resolveRateLimitMode('development', 'off')).toThrow(/must be "all" or "legacy"/);
+  });
+
   it('a test app gets only the limits that existed before Part 15; production gets all', async () => {
     const off = new RateLimits({ exact: new MemoryRateLimiter() });
     for (const n of names) expect(off.isOn(n)).toBe(LEGACY_LIMITS.has(n));

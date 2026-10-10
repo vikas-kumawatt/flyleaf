@@ -107,6 +107,16 @@ describe('A-03-026: the nightly reconciles walk key ranges and repair the same d
       expect(fs.readFileSync(new URL(file, import.meta.url), 'utf8')).toContain(`JOB_DB_SETTINGS.${profile}`);
     }
   });
+
+  it('a finished ingest pass ANALYZEs every table the writer loads (A-06-013 hand-over)', async () => {
+    const { TABLES_LOADED } = await import('../catalog/ingest/writer.js');
+    const writer = fs.readFileSync(new URL('../catalog/ingest/writer.ts', import.meta.url), 'utf8');
+    const written = new Set([...writer.matchAll(/INSERT INTO ([a-z_]+)/g)].map((m) => m[1]!));
+    const analyzed = new Set<string>(Object.values(TABLES_LOADED).flat());
+    expect([...written].filter((t) => !analyzed.has(t))).toEqual([]);
+    const ingest = fs.readFileSync(new URL('../ingest.ts', import.meta.url), 'utf8');
+    expect(ingest).toMatch(/if \(status === 'done'\) \{\s*for \(const t of TABLES_LOADED\[args\.type\]\)/);
+  });
 });
 
 describe('§4: authors.has_works is repaired nightly', () => {
@@ -344,3 +354,58 @@ describe('A-15-001: telemetry is served where the app sends it', () => {
 
 // Fixture type use, so a refactor of the helpers is caught by the compiler here too.
 export type _U = TestUser;
+
+describe('§4: every write the offline queue sends is safe to replay (Part 07\'s table, re-run)', () => {
+  it('each queued action sent twice leaves one state and one activity row, and the second answer is one the queue treats as done', async () => {
+    const { ReadingService } = await import('../reading/index.js');
+    const { IdentityService } = await import('../identity/index.js');
+    const { PgRateLimiter } = await import('../platform/index.js');
+    const app = await buildApp({ db, identity: new IdentityService(db, new PgRateLimiter(db)), reading: new ReadingService(db) });
+    await app.ready();
+    try {
+      const reader = await user('replay');
+      const other = await user('replayo');
+      const twice = async (method: 'POST' | 'DELETE', url: string, payload?: object, as = reader) => {
+        const a = await app.inject({ method, url, headers: as.auth, payload });
+        const b = await app.inject({ method, url, headers: as.auth, payload });
+        return [a.statusCode, b.statusCode];
+      };
+      const verbs = async (id: string) => (await db.execute<{ verb: string }>(
+        sql`SELECT verb FROM activity WHERE actor_id = ${id} ORDER BY created_at, verb`)).map((r) => r.verb);
+
+      // upsert_read
+      const w1 = await makeWork(db, name('Replay one'));
+      expect((await twice('POST', '/v1/reads', { work_id: w1, status: 'reading' })).every((s) => s < 300)).toBe(true);
+      const reads1 = await db.execute<{ id: string }>(sql`SELECT id FROM reads WHERE user_id = ${reader.id} AND work_id = ${w1}`);
+      expect(reads1.length).toBe(1);
+      const r1 = reads1[0]!.id;
+      // add_progress
+      const event = { client_event_id: randomUUID(), page: 40 };
+      expect(await twice('POST', `/v1/reads/${r1}/progress`, event)).toEqual([expect.any(Number), 200]);
+      expect((await one<{ n: number }>(sql`SELECT count(*)::int AS n FROM progress_events WHERE read_id = ${r1}`)).n).toBe(1);
+      // finish_read
+      const today = new Date().toISOString().slice(0, 10);
+      expect(await twice('POST', `/v1/reads/${r1}/finish`, { finished_at: today })).toEqual([200, 200]);
+      // save_review
+      expect((await twice('POST', `/v1/reads/${r1}/review`, { body: 'A replayed review.' })).every((s) => s < 300)).toBe(true);
+      expect((await one<{ n: number }>(sql`SELECT count(*)::int AS n FROM reviews WHERE read_id = ${r1} AND deleted_at IS NULL`)).n).toBe(1);
+      // dnf_read on a second book
+      const w2 = await makeWork(db, name('Replay two'));
+      const r2 = (await app.inject({ method: 'POST', url: '/v1/reads', headers: reader.auth, payload: { work_id: w2, status: 'reading' } })).json().id;
+      expect(await twice('POST', `/v1/reads/${r2}/dnf`, { abandoned_page: 10 })).toEqual([200, 200]);
+      expect((await one<{ n: number }>(sql`SELECT count(*)::int AS n FROM reads WHERE user_id = ${reader.id} AND work_id = ${w2}`)).n).toBe(1);
+      // set_like and set_follow, by another reader
+      expect((await twice('POST', `/v1/reads/${r1}/like`, undefined, other)).every((s) => s < 300)).toBe(true);
+      expect((await one<{ n: number }>(sql`SELECT count(*)::int AS n FROM read_likes WHERE read_id = ${r1}`)).n).toBe(1);
+      expect((await twice('POST', `/v1/users/${reader.id}/follow`, undefined, other)).every((s) => s < 300)).toBe(true);
+      expect((await one<{ n: number }>(sql`SELECT count(*)::int AS n FROM follows WHERE follower_id = ${other.id}`)).n).toBe(1);
+      expect(await verbs(other.id)).toEqual(['followed']);
+      // Activity: one per state change, however many times each was sent.
+      expect((await verbs(reader.id)).sort()).toEqual(['dnf', 'finished', 'reviewed', 'started', 'started'].sort());
+      // delete_read: the replay is 404, which the queue treats as done.
+      expect(await twice('DELETE', `/v1/reads/${r2}`)).toEqual([expect.any(Number), 404]);
+    } finally {
+      await app.close();
+    }
+  });
+});

@@ -9,7 +9,7 @@
 // server never ran it.
 
 import type { PgBoss } from 'pg-boss';
-import { MemoryCache, PgRateLimiter, type Db } from './platform/index.js';
+import { config, MemoryCache, PgRateLimiter, type Db } from './platform/index.js';
 import { RateLimits } from './platform/rate-limits.js';
 import { IdentityService } from './identity/index.js';
 import { CatalogService } from './catalog/index.js';
@@ -29,10 +29,12 @@ export function serverDependencies(db: Db, boss: PgBoss, providers: Providers) {
   const limiter = new PgRateLimiter(db);
   // Every limit in RATE_LIMITS is on in production (Audit 15): exact ones
   // through Postgres, the per-request ones (Global, search, writes,
-  // progress, events) in process.
-  const rateLimits = new RateLimits({ exact: limiter, enabled: 'all' });
+  // progress, events) in process. A bench run may keep only the pre-audit
+  // ones (BENCH_RATE_LIMITS=legacy, never in production).
+  const rateLimits = new RateLimits({ exact: limiter, ...(config.rateLimitMode === 'all' ? { enabled: 'all' as const } : {}) });
   const identity = new IdentityService(db, limiter, providers.mailer);
   identity.limits = rateLimits;
+  identity.onMailError = (err) => void providers.errors.capture(err, { route: 'POST /v1/auth/forgot-password' });
   const cache = new MemoryCache(1000);
   const { storage, mailer, errors } = providers;
 

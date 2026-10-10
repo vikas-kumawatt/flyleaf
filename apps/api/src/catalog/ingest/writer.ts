@@ -95,6 +95,18 @@ export const STAGING = {
 // blank out a field an earlier, richer one filled in.
 // ---------------------------------------------------------------------------
 
+/**
+ * The tables each pass writes (Audit 15, from A-06-013's hand-over): a pass
+ * that finishes ANALYZEs them, so the planner and the admin ingest dashboard
+ * (which reads `reltuples`) see the new row counts without waiting for
+ * `--finalise` or autovacuum. `raw_payloads` is the largest of them.
+ */
+export const TABLES_LOADED = {
+  works: ['works', 'work_authors', 'pending_work_authors', 'raw_payloads'],
+  editions: ['editions', 'raw_payloads'],
+  authors: ['authors', 'raw_payloads'],
+} as const;
+
 export const MERGE_AUTHORS = `
     INSERT INTO authors (ol_author_key, name, alternate_names, sort_name, bio,
                          ol_photo_id, birth_year, death_year)

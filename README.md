@@ -4,7 +4,11 @@ A reading tracker. Log what you read, rate it in half-stars, see it on a profile
 
 **Stack:** TypeScript · Node 22 · Fastify 5 · Drizzle · Postgres 18 · pg-boss · Expo SDK 57 · React Native 0.86 · expo-sqlite. Full locked stack in [`docs/architecture.md`](docs/architecture.md) §0.
 
-**Where it is:** Phase 0 (Foundation), **Phase 1 (Solo loop)**, **Phase 2 (Shelves & lists)**, and **Phase 3 (Import & export)** are **100% complete**. All exit criteria met: 3.2M books findable, 15.4M authors indexed, relevance panel at 99.5%, cross-user authorization suite green, two books tracked end-to-end on phone, finish budget p75 < 20s, offline verified with SQLite mutation queue and crash/restart recovery, a11y pass on core flows, shelves and ranked lists with per-entry notes, reordering, starter suggestions, reference saves, discovery browse ranking, 404 obscure privacy matrix, canonical vanity web sharing (`https://flyleaf.app/u/{username}/shelves/{slug}`), visual share card preview, 738 API tests + 100 mobile tests passing, migrations clean on real Postgres, 0 OpenAPI contract drift, verified Phase 3 exit criteria (92% real library match rate, unmatched resolution, and 100% round-trip export/re-import fidelity), and verified Phase 4 social block invisibility equivalence (`SO-06`). Currently actively implementing **Phase 4 (Social)** (`SO-01` through `SO-06`, `SO-10` through `SO-15`, and `SO-20` through `SO-23` complete — next up: notifications, `SO-3x`). Live state is always [`docs/tasks.md`](docs/tasks.md).
+**Where it is:** Phases 0–3 (Foundation, Solo loop, Shelves & lists, Import & export) and Phase 4's social graph, feed, likes and comments (`SO-01`…`SO-06`, `SO-10`…`SO-15`, `SO-20`…`SO-23`) are built.
+
+A 15-part audit (25 Sep – 10 Oct 2026) re-verified every task from `FN-40` to `SO-15`. Several "complete" claims did not hold. Each one is now fixed, or recorded as deferred with an owner. Start with [`docs/audit/SUMMARY.md`](docs/audit/SUMMARY.md). Questions waiting on the owner are in [`docs/audit/DECISIONS.md`](docs/audit/DECISIONS.md). Work after the audit is in [`docs/audit/PENDING.md`](docs/audit/PENDING.md).
+
+The audit's last measurements run on the laptop (`docs/audit/15b-laptop.md`). Next after that: notifications (`SO-3x`). Live state is always [`docs/tasks.md`](docs/tasks.md).
 
 ## The documents
 
@@ -34,7 +38,7 @@ sign up / guest  →  search 3.2M books / barcode scan  →  book detail & editi
 
 **Offline-first local mirror:**
 - Optimistic writes never block the UI: all reads, progress updates, finishes, and reviews write to local SQLite first.
-- Background `mutation_queue` with strict per-entity FIFO sequencing, exponential backoff, dead-letter recovery, and idempotent 409 conflict handling.
+- Background `mutation_queue`: strict per-entity FIFO, exponential backoff and dead letters shown on a sync-issues screen. Replays are idempotent on the server, so a 409 is a real refusal, never treated as synced (Audit 07). A 429 waits for `Retry-After` (Audit 15).
 - Survived process death and database close/reopen across disk restart with zero data loss.
 
 **Guest mode:**
@@ -48,13 +52,13 @@ sign up / guest  →  search 3.2M books / barcode scan  →  book detail & editi
 
 **Admin console:** Isolated from app accounts (separate JWT audience), mandatory RFC 6238 TOTP, role-based (admin/moderator), server-rendered HTML dashboard. Dedupe review, maturity override, ingestion status, and a non-negotiable audit log on every action.
 
-**Telemetry & Budgets:** Built-in instrumentation for PRD §4.4 interaction budgets (finish p75 < 20s, progress p75 < 5s, book shelved <= 2 taps, log sheet p75 < 15s, abandonment < 8%) and Sentry integration with sensitive context redaction.
+**Telemetry & Budgets:** instrumentation for the PRD §4.4 interaction budgets: finish p75 < 20 s, progress p75 < 5 s, book shelved ≤ 2 taps (counted from the impression, D-10-2), log sheet p75 < 15 s, abandonment < 8 %. An event is a measurement or nothing; no default durations are sent (Audit 10). Events reach `POST /v1/events`; before Audit 15 they were sent to a path that did not exist. Error reporting goes through a port, with Sentry as one adapter and scrubbing before any adapter (PV-06).
 
-**Shelves & Lists (SH-01 through SH-10):** `shelves`, `shelf_items`, and `shelf_saves` tables with check constraints, denormalized counters (`item_count`, `save_count`, 4-cover mosaic), nightly reconciliation worker job, per-user unique slugs with auto-disambiguation, strict 3-tier privacy (public, followers, private) returning 404 on access denial, 30-day soft delete, mobile create/edit screens with ranked warning, shelf detail screen with ranked numbering (#1..#N), per-entry notes (up to 280 chars), 4-cover mosaic cards, interactive Add-to-Shelf sheet (`GET /v1/shelves/mine`, `DELETE /v1/shelves/:id/items/:workId`, `PATCH /v1/shelves/:id/items/:workId`) integrated into book pages, search cards, and long-press gestures, comprehensive reordering (`PUT /v1/shelves/:id/order`) with pan drag handles, step arrows, and accessible "move to position" numeric dialog (PRD §6.36, §46.2), responsive My Shelves 2-column grid with 4-cover mosaic cards, multi-criteria sorting (recent, alphabetical, book count), grid/list toggle, 1-tap starter suggestions on empty states ("Favourites of 2026", "Comfort reads", "Recommended to me") (PRD §6.33), shelf saving (`POST /v1/shelves/:id/save`, `DELETE /v1/shelves/:id/save`, `GET /v1/shelves/saved`) with reference semantics (stays live and dynamically in sync as curator adds or reorders books), forbidden own-shelf saving, mobile "Save Shelf" / "Saved to Library" button with optimistic rollback, dedicated Saved tab in the Shelves screen with curator attribution and 2-column mosaic rendering (PRD §6.34, §15.6), public shelf browsing (`GET /v1/shelves/browse`) powered by PRD §15.5 multi-signal composite ranking (`shelf_score = 0.30 * log(1 + saves) + 0.20 * log(1 + views) + 0.20 * social_proximity + 0.15 * curation_quality + 0.15 * freshness`), guest access, ILIKE search, mobile Curated / Discover Lists integration with 2-column mosaic cards and Featured/Popular/Recent sort pills, and comprehensive shelf privacy (`SH-09`) enforcing strict 3-tier privacy (`public`, `followers`, `private`), private account hierarchy (`profiles.isPrivate = true` masks all shelves with 404 and excludes from browse), 404 obscure masking (never 403), user shelves endpoint `GET /v1/shelves/mine`, and dynamic saved shelves filtering upon privacy change.
+**Shelves & Lists (SH-01 through SH-10):** `shelves`, `shelf_items`, and `shelf_saves` tables with check constraints, denormalized counters (`item_count`, `save_count`, 4-cover mosaic), nightly reconciliation worker job, per-user unique slugs with auto-disambiguation, strict 3-tier privacy (public, followers, private) returning 404 on access denial, 30-day soft delete, mobile create/edit screens with ranked warning, shelf detail screen with ranked numbering (#1..#N), per-entry notes (up to 280 chars), 4-cover mosaic cards, interactive Add-to-Shelf sheet (`GET /v1/shelves/mine`, `DELETE /v1/shelves/:id/items/:workId`, `PATCH /v1/shelves/:id/items/:workId`) integrated into book pages, search cards, and long-press gestures, comprehensive reordering (`PUT /v1/shelves/:id/order`) with pan drag handles, step arrows, and accessible "move to position" numeric dialog (PRD §6.36, §46.2), responsive My Shelves 2-column grid with 4-cover mosaic cards, multi-criteria sorting (recent, alphabetical, book count), grid/list toggle, 1-tap starter suggestions on empty states ("Favourites of 2026", "Comfort reads", "Recommended to me") (PRD §6.33), shelf saving (`POST /v1/shelves/:id/save`, `DELETE /v1/shelves/:id/save`, `GET /v1/shelves/saved`) with reference semantics (stays live and dynamically in sync as curator adds or reorders books), forbidden own-shelf saving, mobile "Save Shelf" / "Saved to Library" button with optimistic rollback, dedicated Saved tab in the Shelves screen with curator attribution and 2-column mosaic rendering (PRD §6.34, §15.6), public shelf browsing (`GET /v1/shelves/browse`) ranked by PRD §15.5's composite (`0.30·log(1+saves) + 0.20·log(1+views) + 0.20·social_proximity + 0.15·curation_quality + 0.15·freshness`; **views is always 0**: there is no view counter, `docs/audit/DECISIONS.md` 3), guest access, ILIKE search, mobile Curated / Discover Lists integration with 2-column mosaic cards and Featured/Popular/Recent sort pills, and comprehensive shelf privacy (`SH-09`) enforcing strict 3-tier privacy (`public`, `followers`, `private`), private account hierarchy (`profiles.isPrivate = true` masks all shelves with 404 and excludes from browse), 404 obscure masking (never 403), user shelves endpoint `GET /v1/shelves/mine`, and dynamic saved shelves filtering upon privacy change.
 
 **Import & Export (IM-01 through IM-12):**
 - Schema & migrations for `imports` and `import_rows` (`0014_imports.sql`) with check constraints across 6 sources (`goodreads`, `storygraph`, `librarything`, `calibre`, `openlibrary`, `openreads`) and states (`queued`, `processing`, `completed`, `failed`), non-negative counter checks, cascade deletions, and index on `(user_id, content_hash)` for duplicate import detection (IM-11).
-- Multipart file upload route `POST /v1/imports` accepting export CSVs up to 10MB (PRD §6.8), computing SHA-256 `content_hash`, persisting files via storage abstraction (`DiskFileStorage` / `MemoryFileStorage`), enqueuing background tasks to pg-boss `imports.process`, and immediately returning `{ id, job_id, state: 'queued', source, ... }` per PRD AC-9.
+- Uploads go straight to object storage through a presigned URL (`POST /v1/uploads` → PUT → `POST /v1/uploads/:id/complete`, up to 10 MB, PRD §6.8). `POST /v1/imports {upload_id, source}` then enqueues `imports.process` and returns the queued import (PV-02; the multipart route and `DiskFileStorage` are gone).
 - Status inspection `GET /v1/imports/:id` with strict 404 cross-user privacy barrier, and import history listing `GET /v1/imports`.
 - Fully typed `@flyleaf/api-client` methods (`uploadImport`, `getImport`, `listImports`, `getImportRows`, `resolveImportRow`, `skipImportRow`) supporting standard web `Blob`, `File`, and `Uint8Array`.
 - Declarative column mapping engine (`IM-03`) with zero source coupling: pure RFC 4180 CSV parser handling multiline quotes and BOM, reusable field transformers (Goodreads ISBN `=".."` cleansing, half-star rating normalisation with `0` → `null`, status mapping, flexible date parser with local calendar preservation, shelf parsing, format mapping), signature-based header auto-detection (`detectSourceFromHeaders`), and full Goodreads reference configuration.
@@ -76,11 +80,11 @@ sign up / guest  →  search 3.2M books / barcode scan  →  book detail & editi
 - Silent, low-stakes muting semantics (PRD §11.5): user muting hides activity without unfollowing; book muting removes book activity from feeds.
 - Enforced 3-tier profile privacy returning 404 Not Found (never 403) to non-followers/guests viewing private accounts (PRD §25.3, FN-72, SH-09). Auto-accepts pending requests when switching profile privacy from private to public.
 - Activity feed table & write-on-action (`SO-10`): Drizzle schema (`activity` table) and migration `0017_activity.sql` with covering index `(actor_id, created_at desc)` (Architecture §3.5, PRD §23.3) and CHECK constraints on verbs (`started`, `finished`, `rated`, `reviewed`, `dnf`, `shelved`, `followed`, `goal_reached`, `quoted`) and visibility (`public`, `followers`, `private`). Centralized `ActivityService` (`apps/api/src/activity/index.ts`) handling write-on-action logging (`recordActivity`), visibility updates (`updateActivityVisibility`), entity deletion cascading (`deleteActivity`), and retroactive privacy updates (`setAccountPrivacy`). Enforces strict import feed exclusion (IM-07, PRD §4410: `source = 'import'` generates no activity), per-item privacy exclusion (PRD §26.2: private reads, reviews, and shelves generate no activity rows), private profile restriction (`isPrivate = true` forces `followers` visibility), and retroactive account privacy toggling. Integrated across `ReadingService`, `ReviewService`, `ShelvesService`, `SocialService`, and `IdentityService`.
-- Cursor-paginated Feed Query (`SO-11`): `GET /v1/feed` and `GET /feed` supporting `tab=friends` (default, fan-out on read for followed accounts with `state = 'accepted'`, PRD §12.7, Architecture §8) and `tab=popular` (platform-wide public activities). ISO timestamp cursor pagination with `next_cursor` and `has_more`. Strict SQL exclusion filtering: bidirectional block filtering (`blocks` table) and user & book mute filtering (`mutes` table). 0 OpenAPI contract drift, 7/7 passing integration tests (`feed-query.test.ts`).
-- Feed Ranking & Diversity engine (`SO-12`): TypeScript re-ranking engine (`apps/api/src/activity/ranking.ts`) implementing composite scoring (`rank = activity_weight * recency_decay * affinity * diversity_penalty`), 36-hour exponential decay (`exp(-age_hours / 36)`), activity verb weighting (`reviewed`: 1.0, `finished`: 0.9, `rated`: 0.8, `dnf`: 0.5, `shelved`: 0.3, `started`: 0.2), and 4 hard diversity rules: max 2 consecutive cards from same actor (AC-11), max 3 cards about same book per 20-item window (AC-11), max 1 "started" card per 10-item block, min 1 low-affinity card per 10-item block. 9/9 passing tests in `feed-ranking.test.ts`.
-- Feed Activity Aggregation (`SO-13`): Aggregation engine (`aggregateFeedItems` in `apps/api/src/activity/ranking.ts`) collapsing repetitive low-weight activities by the same actor prior to ranking: shelf adds ("user A added 6 books to Monsoon Reading"), follows ("user A followed 4 readers"), and same-day book starts. High-value activities (`reviewed`, `finished`, `dnf`, `goal_reached`, `quoted`) are explicitly excluded from aggregation. 13/13 passing tests in `feed-ranking.test.ts`.
-- Feed Cold Start & Blending Engine (`SO-14`): Full cold start engine (`ActivityService.getFriendsFeed`) delivering a "Never Empty Feed" guarantee (PRD §12.5): 0 follows auto-switches to Popular feed with `cold_start_reason: 'no_follows'`, 1–3 follows blends Friends feed with Popular activities (`is_blended_popular: true`, `label: 'Popular on Flyleaf'`, `cold_start_reason: 'sparse_follows'`), >3 follows with zero recent friend activity backfills with Popular activities (`label: 'While you wait'`, `cold_start_reason: 'no_activity'`), and empty database fallback appends an editorial welcome card (`is_editorial: true`). 4/4 passing integration tests in `feed-cold-start.test.ts`, total 24/24 feed test suite assertions passing.
-- Mobile Feed Cards & Swipe Actions (`SO-15`): Interactive `FeedCard` component (`apps/mobile/src/ui/FeedCard.tsx`) rendering distinct card types (`review`, `finish`, `rated`, `dnf`, `shelved`, `followed`, `started`, `goal_reached`, `quoted`, `editorial`) with aggregated collections, spoiler blur overlays, and cold-start badge banners. Integrated `Swipeable` gesture actions (PRD §4673–4674): **Swipe Right** reveals green **"Want to read"** action with bookmark icon and toast feedback; **Swipe Left** reveals blue **"Rate & Review"** action with star icon. Accessible fallback action buttons provided for non-gesture callers and VoiceOver/TalkBack screen readers (PRD §4682). 92/92 mobile tests passing (`feed-card.test.ts`).
+- Cursor-paginated Feed Query (`SO-11`): `GET /v1/feed` (the unprefixed `/feed` was removed in Audit 05). `tab=friends` is the default: fan-out on read for accepted follows (PRD §12.7, Architecture §8). `tab=popular` serves public reviews and finishes from the last 14 days, scored by likes and comments, never by rating, with a per-card exposure cap (D-14-1, Audit 15). The cursor is opaque; every card is served exactly once (Audit 14). Strict SQL exclusion filtering: bidirectional block filtering (`blocks` table) and user & book mute filtering (`mutes` table).
+- Feed Ranking & Diversity engine (`SO-12`): TypeScript re-ranking engine (`apps/api/src/activity/ranking.ts`) implementing composite scoring (`rank = activity_weight * recency_decay * affinity * diversity_penalty`), 36-hour exponential decay (`exp(-age_hours / 36)`), activity verb weighting (`reviewed`: 1.0, `finished`: 0.9, `rated`: 0.8, `dnf`: 0.5, `shelved`: 0.3, `started`: 0.2), and 4 hard diversity rules: max 2 consecutive cards from same actor (AC-11), max 3 cards about same book per 20-item window (AC-11), max 1 "started" card per 10-item block, min 1 low-affinity card per 10-item block.
+- Feed Activity Aggregation (`SO-13`): Aggregation engine (`aggregateFeedItems` in `apps/api/src/activity/ranking.ts`) collapsing repetitive low-weight activities by the same actor prior to ranking: shelf adds ("user A added 6 books to Monsoon Reading"), follows ("user A followed 4 readers"), and same-day book starts. High-value activities (`reviewed`, `finished`, `dnf`, `goal_reached`, `quoted`) are explicitly excluded from aggregation.
+- Feed Cold Start & Blending Engine (`SO-14`): Full cold start engine (`ActivityService.getFriendsFeed`) delivering a "Never Empty Feed" guarantee (PRD §12.5): 0 follows auto-switches to Popular feed with `cold_start_reason: 'no_follows'`, 1–3 follows blends Friends feed with Popular activities (`is_blended_popular: true`, `label: 'Popular on Flyleaf'`, `cold_start_reason: 'sparse_follows'`), >3 follows with zero recent friend activity backfills with Popular activities (`label: 'While you wait'`, `cold_start_reason: 'no_activity'`), and an empty database gets an editorial welcome card on page one only (`is_editorial: true`; Audit 14).
+- Mobile Feed Cards & Swipe Actions (`SO-15`): Interactive `FeedCard` component (`apps/mobile/src/ui/FeedCard.tsx`) rendering distinct card types (`review`, `finish`, `rated`, `dnf`, `shelved`, `followed`, `started`, `goal_reached`, `quoted`, `editorial`) with aggregated collections, spoiler blur overlays, and cold-start badge banners. Integrated `Swipeable` gesture actions (PRD §4673–4674): **Swipe Right** reveals green **"Want to read"** action with bookmark icon and toast feedback; **Swipe Left** reveals blue **"Rate & Review"** action with star icon. Accessible fallback action buttons provided for non-gesture callers and VoiceOver/TalkBack screen readers (PRD §4682).
 
 **Likes, Comments & Review Ranking (SO-20 through SO-23):**
 - **Likes and comments target the read, not the review** (PRD §10.3, LOCKED) — so a finish with no review is fully likeable and commentable. Only terminal reads (`finished`, `dnf`) are social objects; anything else is `409 not_likeable` / `not_commentable`.
@@ -315,7 +319,21 @@ make ping          # or: cd apps\api ; npm run ping
 
 The worker logs `job handled` with the job id within a couple of seconds. pg-boss owns its own `pgboss` schema and migrates it itself — a deliberate exception to "drizzle is the source of truth", because those tables are library internals and hand-managing them makes every pg-boss upgrade a migration you have to get right.
 
-The `catalog.dedupe` cron job runs monthly (`0 0 1 * *`), for new duplicates only (see §2d for the backlog). Counter reconciliation runs nightly (UTC): `shelves.reconcile` 03:00, `follows.reconcile` 03:15, `reads.reconcile` 03:30, `works.reconcile` 03:40 (catalog mean rating, `work_stats`, `works.reader_count`) — each corrects drift in trigger-maintained counters. `storage.cleanup` 03:45 deletes uploads that were never used and export files past their 48 h link. To trigger dedupe manually:
+The `catalog.dedupe` cron job runs monthly (`0 0 1 * *`), for new duplicates only (see §2d for the backlog).
+
+Counter reconciliation runs nightly (UTC), each job walking its table in key ranges and correcting drift in trigger-maintained counters:
+- `shelves.reconcile` 03:00;
+- `follows.reconcile` 03:15;
+- `reads.reconcile` 03:30;
+- `works.reconcile` 03:40 (catalog mean rating, `work_stats`, `works.reader_count`).
+
+Other nightly jobs:
+- `storage.cleanup` 03:45 deletes uploads that were never used and export files past their 48 h link;
+- `activity.prune` 03:55 drops feed activity older than 180 days;
+- `authors.repair` 04:05 fixes `authors.has_works` after an ingest;
+- `retention.sweep` 04:20 applies the retention rules (Verification status).
+
+Every job process connects with its own `work_mem` and `statement_timeout` (Audit 15, `JOB_DB_SETTINGS` in `platform/index.ts`), so one job cannot take the database down. To trigger dedupe manually:
 
 ```powershell
 npm run worker -- --dedupe
@@ -596,53 +614,146 @@ flyleaf/
 
 ## Endpoints
 
-### App API (prefixed `/v1`)
+### App and admin API (prefixed `/v1`)
 
-| Method | Path | Guest? |
-|---|---|---|
-| GET | `/healthz`, `/readyz` | yes |
-| POST | `/auth/register` | — |
-| POST | `/auth/login` | — |
-| POST | `/auth/refresh` | — |
-| POST | `/auth/logout` | — |
-| POST | `/auth/verify-email` | — |
-| POST | `/auth/resend-verification` | no |
-| POST | `/auth/forgot-password` | — |
-| POST | `/auth/reset-password` | — |
-| GET | `/auth/sessions` | no |
-| DELETE | `/auth/sessions/{id}` | no |
-| POST | `/auth/logout-all` | no |
-| GET | `/me` | no |
-| POST | `/me/date-of-birth` | no — once, while `/me` says `dobConfirmed: false` |
-| GET | `/users/{id}` | **yes** |
-| GET | `/search?q=` | **yes** |
-| GET | `/works/{id}` | **yes** |
-| GET | `/editions/isbn/{isbn}` | **yes** |
-| GET | `/reads?status=` | no |
-| GET | `/reads/{id}` | no |
-| GET | `/users/{id}/reads` | **yes** |
-| POST | `/reads` | no |
-| POST | `/reads/{id}/progress` | no |
-| POST | `/reads/{id}/finish` | no |
-| POST | `/reads/{id}/dnf` | no |
-| POST | `/reads/{id}/reviews` | no |
-| GET | `/works/{id}/reviews` | **yes** |
-| POST | `/reads/{id}/like` | no — idempotent |
-| DELETE | `/reads/{id}/like` | no — idempotent |
-| GET | `/reads/{id}/likes` | **yes** |
-| GET | `/reads/{id}/comments` | **yes** |
-| POST | `/reads/{id}/comments` | no — 5/min |
-| DELETE | `/comments/{id}` | no — own only |
-| GET | `/feed?tab=friends\|popular` | friends: no · popular: **yes** |
-| GET | `/users/{id}/reviews` | **yes** |
-| POST | `/events` | **yes** |
-| GET | `/admin/telemetry/budgets` | moderator+ |
-| POST | `/shelves` | no |
-| GET | `/shelves/{id}` | **yes** |
-| PATCH | `/shelves/{id}` | no |
-| DELETE | `/shelves/{id}` | no |
-| GET | `/shelves/{id}/items` | **yes** |
-| POST | `/shelves/{id}/items` | no |
+Generated from `openapi.yaml` (Audit 15a), so it lists every route the spec has; `openapi.yaml` is the reference for bodies, responses and who may call what. Paths are relative to `/v1` except `/healthz` and `/readyz`.
+
+**Rate limits** (Audit 15a; `apps/api/src/platform/rate-limits.ts` holds every number with its PRD section). Every route except the two probes is under the **Global** tier, 1,000/hour per account and 200/hour per anonymous IP. The *Limits* column is the route's group:
+- `auth`: 30/min per IP, 20/min per anonymous IP.
+- `auth-account`: 10/min per account.
+- `search`: 60/min per account, 20/min per IP.
+- `writes`: 120/min per account. Every POST/PUT/PATCH/DELETE without another group gets this one.
+- `progress`: 300/min.
+- `events`: 120/hour.
+- `username-check`: 20/min per IP.
+
+Service-level limits:
+- login 10/min per email;
+- comments 5/min;
+- reviews 10/hour and 30/day;
+- follows 50/hour, 200/day, 3 per pair a day, 20 in a new account's first day;
+- imports 3/day, exports 2/day, upload intents 10/day;
+- username changes 1 per 30 days.
+
+A refusal is `429 rate_limited` with `Retry-After` and `X-RateLimit-*`.
+
+| Method | Path | Limits | What it is |
+|---|---|---|---|
+| GET | `/healthz` | — | Liveness probe |
+| GET | `/readyz` | — | Readiness probe |
+| POST | `/auth/register` | auth | Register account |
+| POST | `/auth/login` | auth | Sign in |
+| POST | `/auth/refresh` | auth | Rotate refresh token |
+| POST | `/auth/logout` | auth | Sign out |
+| GET | `/auth/username-available` | username-check | Check username availability |
+| POST | `/auth/verify-email` | auth | Verify email |
+| POST | `/auth/resend-verification` | auth-account | Resend email verification |
+| POST | `/auth/forgot-password` | auth | Forgot password |
+| POST | `/auth/reset-password` | auth | Reset password |
+| GET | `/auth/sessions` | auth-account | List active sessions |
+| DELETE | `/auth/sessions/{id}` | auth-account | Revoke session |
+| POST | `/auth/logout-all` | auth-account | Revoke all sessions |
+| GET | `/me` | — | Get current user |
+| POST | `/me/date-of-birth` | auth-account | Confirm date of birth |
+| PUT | `/me/content-settings` | writes | Set "Show explicit titles in search" |
+| GET | `/me/profile` | — | Get my profile |
+| PATCH | `/me/profile` | writes | Update my profile |
+| PATCH | `/me/username` | auth-account | Change my username |
+| GET | `/users/{id}` | — | Get public profile |
+| GET | `/search` | search | Search catalog |
+| GET | `/works/{id}` | — | Get book by ID |
+| GET | `/authors/{id}` | — | Get author by ID |
+| GET | `/series/{id}` | — | Get series by ID |
+| GET | `/editions/isbn/{isbn}` | — | Get edition by ISBN |
+| GET | `/me/stats` | — | Get my reading stats |
+| GET | `/users/{id}/stats` | — | Get user reading stats |
+| GET | `/reads` | — | List my reads |
+| POST | `/reads` | writes | Log or update read attempt |
+| GET | `/reads/{id}` | — | Get read attempt |
+| DELETE | `/reads/{id}` | writes | Delete a read attempt |
+| GET | `/users/{id}/reads` | — | List a user's reads, newest update first, cursor-paginated |
+| POST | `/reads/{id}/progress` | progress | Record reading progress |
+| POST | `/reads/{id}/finish` | writes | Finish reading attempt |
+| POST | `/reads/{id}/dnf` | writes | Mark read as stopped (DNF) |
+| POST | `/reads/{id}/review` | writes | Create or update review for a read |
+| GET | `/reviews/{id}` | — | Get review detail by ID |
+| PATCH | `/reviews/{id}` | writes | Update existing review |
+| DELETE | `/reviews/{id}` | writes | Delete review |
+| GET | `/works/{id}/reviews` | — | List reviews for a work with friends-first ranking |
+| POST | `/reads/{id}/like` | writes | Like a read (idempotent). Likes target the read, so a finish with no review is likeable. |
+| DELETE | `/reads/{id}/like` | writes | Remove your like from a read (idempotent) |
+| GET | `/reads/{id}/likes` | — | Readers who liked this read |
+| GET | `/reads/{id}/comments` | — | Comment thread on a read, oldest first, cursor-paginated |
+| POST | `/reads/{id}/comments` | writes | Comment on a read. Single-level; 5 per minute. |
+| DELETE | `/comments/{id}` | writes | Delete your own comment |
+| POST | `/admin/auth/login` | auth | Admin login with password and mandatory 2FA |
+| GET | `/admin/auth/me` | — | Get current admin session |
+| POST | `/admin/auth/2fa/setup` | auth-account | Initialize 2FA setup for admin account |
+| POST | `/admin/auth/2fa/verify` | auth-account | Verify and activate 2FA setup |
+| GET | `/admin/audit-log` | — | List admin audit log entries |
+| GET | `/admin/dedupe/queue` | — | List dedupe review queue |
+| GET | `/admin/dedupe/preview/{survivorId}/{loserId}` | — | Preview merge impact |
+| POST | `/admin/dedupe/queue/{id}/resolve` | writes | Resolve dedupe candidate |
+| POST | `/admin/dedupe/report` | writes | Report duplicate work (Stage 4) |
+| GET | `/admin/merges` | — | List recent merges |
+| POST | `/admin/merges/{id}/undo` | writes | Undo work merge |
+| GET | `/admin/catalog/works` | — | List catalog works for maturity review |
+| GET | `/admin/catalog/works/{id}` | — | Get work detail for maturity review |
+| POST | `/admin/catalog/works/{id}/maturity` | writes | Override work maturity classification |
+| GET | `/admin/ingest/status` | — | Get ingestion status and system telemetry |
+| POST | `/events` | events | Ingest client telemetry events (SL-80) |
+| GET | `/admin/telemetry/budgets` | — | PRD §4.4 Interaction Budgets p75 Performance (SL-81) |
+| POST | `/shelves` | writes | Create a new shelf |
+| GET | `/shelves/mine` | — | List current user shelves |
+| GET | `/shelves/saved` | — | List shelves saved by viewer |
+| GET | `/shelves/deleted` | — | List my recently deleted shelves |
+| POST | `/shelves/{id}/restore` | writes | Restore a deleted shelf |
+| GET | `/shelves/browse` | — | Browse and discover public shelves |
+| GET | `/shelves/{id}` | — | Get shelf by ID |
+| PATCH | `/shelves/{id}` | writes | Update shelf details |
+| DELETE | `/shelves/{id}` | writes | Delete a shelf |
+| GET | `/shelves/{id}/items` | — | List items in shelf |
+| POST | `/shelves/{id}/items` | writes | Add item to shelf |
+| DELETE | `/shelves/{id}/items/{workId}` | writes | Remove item from shelf |
+| PATCH | `/shelves/{id}/items/{workId}` | writes | Update shelf item note or position |
+| PUT | `/shelves/{id}/order` | writes | Reorder shelf items |
+| POST | `/shelves/{id}/save` | writes | Save a shelf to library |
+| DELETE | `/shelves/{id}/save` | writes | Unsave a shelf from library |
+| GET | `/users/{id}/shelves` | — | List user shelves by user ID |
+| GET | `/users/{username}/shelves/slug/{slug}` | — | Get shelf by username and slug |
+| GET | `/shelves/by-slug/{username}/{slug}` | — | Get shelf by username and slug (alias) |
+| POST | `/imports` | writes | Start a background import from an uploaded export file |
+| GET | `/imports` | — | List user import jobs |
+| GET | `/imports/{id}` | — | Get import job status and progress |
+| GET | `/imports/{id}/rows` | — | List import rows with optional state filter |
+| POST | `/imports/{id}/rows/{rowNo}/resolve` | writes | Resolve an unmatched import row |
+| POST | `/imports/{id}/rows/{rowNo}/skip` | writes | Skip an unmatched import row |
+| POST | `/uploads` | writes | Start an upload |
+| POST | `/uploads/{id}/complete` | writes | Confirm an upload arrived |
+| PUT | `/me/avatar` | writes | Set my avatar |
+| DELETE | `/me/avatar` | writes | Remove my avatar |
+| GET | `/avatars/uploads/{userId}/{uploadId}` | — | An avatar image |
+| POST | `/exports` | writes | Request full reading library export |
+| GET | `/exports` | — | List user library exports |
+| GET | `/exports/{id}` | — | Get export job status |
+| GET | `/exports/{id}/download` | — | Download exported library file |
+| GET | `/exports/{id}/link` | — | Get a short-lived download link for my export |
+| POST | `/users/{id}/follow` | writes | Follow or request to follow a user |
+| DELETE | `/users/{id}/follow` | writes | Unfollow user or cancel pending request |
+| GET | `/me/follow-requests` | — | List incoming pending follow requests |
+| POST | `/me/follow-requests/{requesterId}/accept` | writes | Accept an incoming pending follow request |
+| POST | `/me/follow-requests/{requesterId}/reject` | writes | Reject an incoming pending follow request |
+| POST | `/users/{id}/block` | writes | Block a user |
+| DELETE | `/users/{id}/block` | writes | Unblock a user |
+| GET | `/me/blocks` | — | List users blocked by viewer |
+| POST | `/users/{id}/mute` | writes | Mute a user |
+| DELETE | `/users/{id}/mute` | writes | Unmute a user |
+| POST | `/works/{id}/mute` | writes | Mute a book |
+| DELETE | `/works/{id}/mute` | writes | Unmute a book |
+| GET | `/me/mutes` | — | List muted users and muted books |
+| GET | `/users/{id}/followers` | — | List followers of a user |
+| GET | `/users/{id}/following` | — | List users followed by a user |
+| GET | `/feed` | — |  |
 
 ### Email links and App Links (no prefix)
 
@@ -656,26 +767,6 @@ Server-rendered, for the links in verification and reset emails (`APP_BASE_URL/v
 | GET | `/.well-known/apple-app-site-association` | iOS Universal Links. 404 unless `IOS_TEAM_ID` and `IOS_BUNDLE_ID` are set |
 
 A malformed value in any of those four stops the API at start-up. To open the pages from a phone in development, set `APP_BASE_URL=http://<your-LAN-IP>:3000` so the emails link to the API.
-
-### Admin API (prefixed `/admin`)
-
-| Method | Path | Role |
-|---|---|---|
-| POST | `/auth/login` | — |
-| GET | `/auth/me` | moderator+ |
-| POST | `/auth/2fa/setup` | admin |
-| POST | `/auth/2fa/verify` | admin |
-| GET | `/audit-log` | moderator+ |
-| GET | `/dedupe/queue` | moderator+ |
-| GET | `/dedupe/preview/{survivorId}/{loserId}` | moderator+ |
-| POST | `/dedupe/queue/{id}/resolve` | admin |
-| POST | `/dedupe/report` | moderator+ |
-| GET | `/merges` | moderator+ |
-| POST | `/merges/{id}/undo` | admin |
-| GET | `/catalog/works` | moderator+ |
-| GET | `/catalog/works/{id}` | moderator+ |
-| POST | `/catalog/works/{id}/maturity` | admin |
-| GET | `/ingest/status` | moderator+ |
 
 ### Admin HTML console
 
@@ -730,36 +821,31 @@ These are not prototype shortcuts. Changing them costs far more later.
 | 4 screens, no design system | Full mobile experience with tabs, FAB, and design system — **done** (`SL-0x` to `SL-8x`) |
 | No barcode scanner | Camera + ISBN lookup + manual fallback — **done** (`SL-44`) |
 | No shelves/lists | `shelves` + `shelf_items` + `shelf_saves` schema and counters — **done** (`SH-01`) |
-| Shelves UI and CRUD | Create, edit, browse, and reorder shelves — in progress (`SH-02` to `SH-10`) |
+| Shelves UI and CRUD | Create, edit, browse, and reorder shelves — **done** (`SH-02` to `SH-10`, audited in Part 11) |
 | No reading goals | Reading goals and annual challenge tracking — `Phase 4` |
 
-Already replaced: container-init schema → drizzle migrations (`FN-01`) · opaque session tokens → JWT + rotating refresh with reuse detection (`FN-63/64`) · 102 books from a CSV → the full Open Library ingest (`FN-2x`) · no rate limiting or request logging → `FN-30`, `FN-03` · no CI → GitHub Actions (`FN-05`) · Expo Go → a development build · no duplicate detection → stage 1–4 dedupe pipeline (`FN-5x`) · no ISBN lookup → exact edition path + bidirectional conversion (`FN-42`) · no cross-user access control → `canView()` with full test suite (`FN-7x`) · no typed API contract → Fastify route schemas + OpenAPI + typed client (`FN-8x`) · no admin tooling → isolated admin console with 2FA, dedupe review, maturity override, and audit log (`FN-9x`) · mobile prototype → full offline-first mobile app with complete reading lifecycle, reviews, diary, wall, stats, and telemetry budgets (`Phase 1`).
+Already replaced: container-init schema → drizzle migrations (`FN-01`) · opaque session tokens → JWT + rotating refresh with reuse detection (`FN-63/64`) · 102 books from a CSV → the full Open Library ingest (`FN-2x`) · no rate limiting or request logging → `FN-30` (outbound), one inbound limiter layer (Audit 15, `platform/rate-limits.ts`), `FN-03` · no CI → GitHub Actions (`FN-05`) · Expo Go → a development build · no duplicate detection → stage 1–4 dedupe pipeline (`FN-5x`) · no ISBN lookup → exact edition path + bidirectional conversion (`FN-42`) · no cross-user access control → `canView()` with full test suite (`FN-7x`) · no typed API contract → Fastify route schemas + OpenAPI + typed client (`FN-8x`) · no admin tooling → isolated admin console with 2FA, dedupe review, maturity override, and audit log (`FN-9x`) · mobile prototype → full offline-first mobile app with complete reading lifecycle, reviews, diary, wall, stats, and telemetry budgets (`Phase 1`).
 
 ---
 
 ## Verification status
 
+Refreshed by the audit (Part 15a, 2026-10-10). Every figure below names where it was measured. **TBD in 15b** marks figures that need the laptop's databases (`docs/audit/15b-laptop.md`).
+
 | Check | Result |
 |---|---|
-| CI | **green** on every push — GitHub Actions / `node scripts/ci.mjs`, ~225 s |
-| `tsc --noEmit` (API) | pass — TypeScript strict, `noUncheckedIndexedAccess` |
-| `tsc --noEmit` (Mobile) | pass — TypeScript strict, 0 errors |
-| `vitest run` (API) | **738 tests** across **45 test files** — including read-interactions-migration (10), read-likes (17), read-comments (16), review-ranking (21). earlier suites: identity (47), schema (29), search (33), ingest (65), outbound (27), jobs (10), relevance (10), dedupe (38), ISBN (18), authorization (43), contract (8), hooks (17), admin (22), admin-catalog (7), reading (10), reviews (12), profile-stats (8), telemetry (7), shelves-migration (11), shelves (36), shelves-privacy (20), imports-migration (12), imports (16), import-mapping (37), import-matcher (12), import-committer (14), import-processor (4), social-schema (4), social-follow (8), social-block (6), social-mutes (5), social-lists (5), social-block-equivalence (8). Every suite that touches SQL runs against **PGlite** (Postgres compiled to WASM) |
-| Mobile test runner | **100 tests** across **24 test suites** — including interactions (8) and feed cards. earlier: offline queue (7), auth validation (10), guest mode & migration (7), reading velocity (5), profile & stats (9), telemetry budgets (5), Phase 1 exit criteria (4), shelf validation, sorting, sharing & starter helpers (36) |
-| OpenAPI drift | **0** — `spec:check` runs in CI and fails the build on any divergence |
-| Relevance panel | **216/217 (99.5%)** over a 2,071-work slice of the real catalog. Exact titles must rank **#1**; prefixes, authors and typos must make the top 5. Floor set at 0.98 |
-| Cross-user suite | **43 tests green** — 404 not 403, canView covers public/followers/private/blocked/guest, viewer enforcement on every repository method |
-| Catalog | **3,203,575 works · 15,409,896 authors · 3,791,016 authorship links · 2.18M covers** |
-| Author aliases | **1,661,072 credited authors** re-ingested with `alternate_names`, which is what makes `murakami` → 村上春樹 work |
-| Popularity | **3,203,476 works scored**. Most-logged: Atomic Habits, 64,006 |
-| Search latency | **47–85 ms warm** on the full catalog (was 40 s). Cold, after a restart, 430–815 ms |
-| ISBN lookup | **18 tests** — ISBN-10/13 validation, bidirectional conversion, exact edition resolution, search prioritization |
-| Dedupe pipeline | **38 tests** — stage 1–4 detection, merge with collision handling, 30-day undo, preview, admin queue |
-| Background jobs | pg-boss worker; `smoke.ping` + `catalog.dedupe` monthly cron + `shelves.reconcile` / `follows.reconcile` / `reads.reconcile` nightly crons + `imports.process` / `exports.process`; transactional enqueue test |
-| Admin console | **29 tests** (22 admin + 7 admin-catalog) — 2FA, token isolation, role enforcement, audit recording, maturity override, ingestion dashboard |
-| Mobile offline mirror | **pass** — SQLite mirror, optimistic writes, per-entity FIFO queue, exponential backoff, dead-letter queue, 409 conflict handling |
-| Phase 1 Exit Criteria | **100% verified** — two books tracked end-to-end on phone, finish budget p75 < 20s (measured ~11.2s), offline verified across simulated crash/restart, a11y pass on core flows |
-| Migrations | **19 migrations** (`0000_phase0_catalog` through `0018_read_interactions`) apply cleanly on an empty database and run in CI against real Postgres 18 |
+| CI | `node scripts/ci.mjs` runs 9 steps, the same ones GitHub Actions runs: api-client build, api typecheck, spec check, api tests, api build, `npm audit --audit-level=high`, mobile typecheck, mobile tests, and migrations on a real Postgres 18. Last full run: see `docs/audit/findings/15-cross-cutting.md` › CI result. |
+| API tests (`vitest`) | **CI_API_AFTER tests in CI_API_FILES files**. Every suite that touches SQL runs against **PGlite** (Postgres in WASM). PGlite timestamps have millisecond resolution, so cursor precision is also checked on a real server (`src/bench/cursor-sweep.ts`). |
+| Mobile tests (`node --test`) | **CI_MOBILE_AFTER tests**: offline queue, auth, guest, reading rules, stats, telemetry budgets, feed cards, shelves, social and interactions |
+| Audit | 15 parts, all in `docs/audit/`: findings per part, `SUMMARY.md`, and open questions in `DECISIONS.md` |
+| OpenAPI drift | **0**. `spec:check` fails the build on any divergence. |
+| Migrations | **42** (`0000_phase0_catalog` … `0041_retention`). They apply cleanly to an empty database in the test suite and to a real Postgres in CI. They are hand-written and idempotent from `0019` on. |
+| Rate limits | One layer, PRD §24.4 / §11.7 / §10.6. Exact limits are kept in Postgres, per-request ones in process. Measured cost (sandbox): `docs/audit/perf/15a-rate-limit-overhead-sandbox.md`. Laptop: TBD in 15b. |
+| Performance vs the Part 01 baseline | `docs/audit/perf/comparison.md`: **TBD in 15b** |
+| Relevance panel | PGlite corpus **216/217** (floor 0.98). Real catalog **214/214** after Part 02d's popularity weight. |
+| Catalog | **3,203,575 works · 15,409,896 authors · 3,791,016 authorship links · 2.18M covers** (`flyleaf`, Phase 0 ingest) |
+| Background jobs | pg-boss worker. Monthly: `catalog.dedupe` (sliced stages). Nightly, UTC: `shelves.reconcile` 03:00, `follows.reconcile` 03:15, `reads.reconcile` 03:30, `works.reconcile` 03:40, `storage.cleanup` 03:45, `activity.prune` 03:55, `authors.repair` 04:05, `retention.sweep` 04:20. Weekly: `search.suggestions.refresh` (Sun 04:00), `search.zero.summary` (Mon 04:30). On demand: `imports.process`, `exports.process`. Each batch process connects with its own `work_mem` and `statement_timeout` (`JOB_DB_SETTINGS`). |
+| Retention | Raw events 13 months. Zero-result searches 30 days, then a weekly summary only. Soft-deleted shelves, reviews and comments, and deleted accounts, are hard-deleted after 30 days. Import files are deleted after 30 days. Export files are deleted 48 h after the link. |
 
 ---
 

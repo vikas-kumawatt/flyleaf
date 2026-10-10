@@ -43,13 +43,15 @@ if (TEST_WORKERS !== undefined && !/^[1-9]\d*$/.test(TEST_WORKERS)) {
  * typecheck before tests because it takes two seconds and catches the whole
  * class of mistake that would make the test run meaningless anyway.
  *
- * `audit --audit-level=high` rather than `moderate`: as of today the tree
- * carries 4 moderate advisories, all one esbuild dev-server issue reached
- * through drizzle-kit's loader. drizzle-kit is a devDependency, `dist/` is
- * built by tsc and never includes it, and the advisory needs you to be
- * running an esbuild dev server. Gating on `moderate` would mean a red build
- * every day for something that cannot affect us, and a check that is always
- * red is a check nobody reads.
+ * `audit --audit-level=high` rather than `moderate`. Recounted 10 Oct 2026
+ * (Audit 15), after `npm audit fix` moved fast-uri to its fixed releases:
+ * 7 moderate advisories, all in devDependencies.
+ * - esbuild's dev-server issue, reached through drizzle-kit's loader (4);
+ * - autocannon → hyperid → uuid, the bench (3).
+ * `npm audit --omit=dev` finds 0, and `dist/` is built by tsc and contains
+ * neither. Gating on `moderate` would mean a red build every day for
+ * something that cannot affect us, and a check that is always red is a
+ * check nobody reads.
  */
 const STEPS = [
   {

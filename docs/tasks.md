@@ -47,6 +47,7 @@
   - `make ping` enqueues one `smoke.ping`. A smoke job nobody can trigger is not a smoke test, and "is anything consuming?" is otherwise a surprisingly hard question to answer.
   - Note for future job tests: on PGlite the FIRST `send` to a queue resolves queue metadata on pg-boss's own connection, which deadlocks against an open transaction because PGlite has exactly one. One prior send warms the cache. Production pools, so it never happens there.
 - [x] **FN-06** ⚠️ `RateLimiter` / `Cache` interfaces + `PgRateLimiter` and `MemoryCache` — carried from Phase −1 — 0.5d
+  - **Audit 15a (2026-10-10):** ✅ the `RateLimiter` interface now backs one layer for every limit (`platform/rate-limits.ts`: one table with PRD refs, route groups + a hook, `enforce()` in services, 429 + `Retry-After`); exact limits through `PgRateLimiter`, per-request ones in process (measured; A-15-002). `rate_limits` rows expire and are swept (0038).
 - [x] **FN-05** CI: vitest, `tsc --noEmit`, `npm audit --audit-level=high`, migrations on a real Postgres 18 service, build, **plus the mobile typecheck** — 0.5d
   - The checks live in `scripts/ci.mjs`, and `.github/workflows/ci.yml` calls it rather than restating them in YAML. `make ci` therefore runs exactly what Actions runs; the two cannot drift. `--strict` (CI only) makes the migration step mandatory instead of skipping it when no database is up.
   - `--audit-level=high`, not `moderate`: the tree carries 4 moderates, all one esbuild dev-server advisory reached through drizzle-kit's loader — a devDependency that never reaches `dist/`. A check that is always red is a check nobody reads.
@@ -72,9 +73,12 @@
 - [x] **FN-21** JSON → row normaliser for works, editions, authors. Tested against **ten real OL records**, not imagined ones — `parseYear` handles `c1999`, `[1999]`, `June 1999`, `{type,value}`; ISBNs de-hyphenated; 99,999-page OCR errors rejected — 1d
 - [x] **FN-22** ⚠️ Filter rule: title AND author at the work level, (ISBN OR cover ID) at the edition level — ISBNs live on editions, so the rule splits across the two passes — 0.5d
 - [x] **FN-23** `COPY` batch writer, 5k batches, staging table + `ON CONFLICT` merge on the OL key. **DEVIATION:** no `pg-copy-streams` — that is a `pg` package and postgres.js has COPY FROM STDIN built in — 0.5d
+  - **Audit 15a (2026-10-10):** ✅ the merge no longer credits a work twice under one author name (A-03-027 → A-15-006); existing duplicates: `DECISIONS.md` 4.
 - [x] **FN-24** ⚠️ Maturity classification from subjects + imprints. `unclassified` is never treated as a synonym for `general`; children's classification beats a mature keyword — 1d
 - [x] **FN-25** ⚠️ Raw payload persistence + hash-skip, so the monthly re-ingest does not rewrite unchanged rows and a classifier fix is a reprocess rather than a 12 GB re-download — 0.5d
 - [x] **FN-26** `--finalise` pass: cover backfill, default editions, ANALYZE. `--seed` takes the popularity slice from the **reading-log dump (65 MB)** rather than guessing from edition counts — 0.5d
+  - **Audit 15a (2026-10-10):** ⚠️ `--finalise` no longer sets `work_mem = 256MB` or runs `MARK_CREDITED_AUTHORS` over 15.4M authors in one statement: it walks author ranges with `repair_author_has_works` (0040), under the ingest profile (64 MB, 1 h) (A-15-004, -005, -007). Full-catalog timing: 15b.
+  - **Audit 15a:** every finished pass (works, editions, authors) now ANALYZEs the tables it loaded, `raw_payloads` included (A-15-021).
 
 > ⚠️ **Correction, FN-43:** `works.alternate_titles` is never populated by the works pass — OL work records carry none of the three source fields (0 in 1,053,422 sampled records). The column and its weight-C term are sound; their source has to be **edition titles**, not the works dump. See FN-43 below.
 >
@@ -163,6 +167,7 @@
   - **Decision D1 (2026-09-25, Audit 03b):** only unambiguous pairs auto-merge. Stage 1: same ISBN-13 **and** same normalised title **and** a shared author. Stage 2: same normalised title and a shared author **and** matching subtitles (both absent, or both present and equal). Everything else goes to the review queue (migration `0021`: `dedupe_queue` takes stages 1–4 and gains `impact`), highest impact first: pairs where either work has reads, reviews, shelf items or favourites. At most 200 merges per run. Dismissed pairs are never re-queued or merged; a pair whose merge was undone is never auto-merged again. PRD §40.3 amended with the evidence.
   - **Audit 03b (2026-09-25):** ✅ — D1 implemented; auto-merge is **off by default** (`DEDUPE_AUTO_MERGE=true` / `--auto-merge`); TS and SQL normalisation are locale-independent and agree on all 3,203,575 catalog titles and every code point of planes 0–3 on the real server (was 50,622 disagreements); see A-03-004, A-03-005, A-03-014, A-03-021, A-03-022.
   - **Audit 03c (2026-09-27):** ✅ — D5 implemented (auto-merge only groups of exactly two, no series-position, volume-marker or >25% page-count difference; mutation-checked): full catalog 283,908 → 94,086 auto pairs, samples 25/25 and 25/25 the same book; the D6 backlog command (`--backlog`, batches of 5,000 with a 25-pair sample) walks authors in batches after the first version's whole-catalog query was OOM-killed on the full database; see A-03-025, A-03-026.
+  - **Audit 15a (2026-10-10):** ⚠️ stages 1–2 run in ISBN ranges and author batches, stage 3 in peer chunks, with the same output (equivalence test); the dedupe process has its own `work_mem`/`statement_timeout` (A-03-026 → A-15-004, -005). Full-catalog dry run under the new container limit: 15b.
 - [x] **FN-51** Stage 3–4 queue; 30-day undo; admin review UI — 1d
   - Migration `0008_dedupe_queue.sql` introduces `dedupe_queue` table with foreign keys, checks, and unique indexes preventing duplicate reviews.
   - Stage 3 detection (`findStage3Candidates` / `queueStage3Candidates`): Trigram title similarity > 0.85 (~~on the raw title~~ now the normalised title, A-03-007; cannot run on the full catalog, A-03-006), author similarity > 0.9, first publication year ±2. Never auto-merges; always enqueues for human review (PRD §40.3).
@@ -182,6 +187,7 @@
   - Verified job registration, handler execution, and full lifecycle in `apps/api/src/test/jobs.test.ts`. Complete monorepo CI green.
   - **Audit (2026-09-25):** ⚠️ — scheduled and registered as claimed, and `--dry-run` writes nothing (counter diff on the full catalog); but the 15-minute pg-boss expiry was shorter than one pass (7.5 min of detection alone) and stage 3 ran before the merges (both fixed); see A-03-011, A-03-012.
   - **Audit 03b (2026-09-25):** ✅ — the scheduled job no longer merges unless the worker runs with `DEDUPE_AUTO_MERGE=true` (the job payload cannot switch it on); off, it detects and queues; tested both ways; see A-03-021.
+  - **Audit 15a (2026-10-10):** ✅ the monthly job runs on its own one-connection pool with the dedupe profile (64 MB, 30 min).
 
 ### Auth — `FN-6x` · 5d
   - **Audit 03c (2026-09-27):** ✅ — the monthly job's 200-merge cap is documented as for NEW duplicates; the backlog is cleared by hand with `npm run dedupe -- --backlog` (README §2d); the monthly pass itself still runs the whole-catalog stage 1–2 query (→ Part 15, A-03-026).
@@ -195,6 +201,7 @@
 - [x] **FN-62** Register, login, DOB age gate — 1d
   - `isAtLeast13` rejects registration for users under 13 years old per PRD §26.6. `IdentityService.register` and `login` return full user + profile context with ~~rate-limited login~~ login limited per email only (10/min; no per-IP limit, A-04-017).
   - **Audit (2026-09-25):** ⚠️ — the gate let impossible dates through to a 500 and accepted pre-1900 and server-time-zone-dependent ages (fixed), login timing revealed whether an email had an account (fixed with a dummy verify), deleted users could log in (fixed), reserved usernames were mobile-only (fixed); see A-04-006, A-04-007, A-04-008, A-04-010.
+  - **Audit 15a (2026-10-10):** ✅ register and login are in the PRD §24.4 auth tier (30/min per IP, 20/min anonymous IP); login keeps 10/min per email (A-04-017, -018).
 - [x] **FN-63** **JWT 15m (`jose`) + opaque rotating refresh, hashed, `family_id`** — 1d
   - 15-minute HS256 JWT evaluated statelessly by Fastify's `onRequest` hook. 256-bit cryptographically secure opaque refresh tokens stored as SHA-256 hashes with 60-day expiry.
   - **Audit (2026-09-25):** ❌ — an admin JWT authenticated app routes, `alg` was not pinned and a token without `exp` was accepted (all fixed: `aud`/`iss` required, HS256 pinned); the hook also runs an admin verify on every bearer token (~119 µs, left as is); see A-04-003, A-04-004, A-04-023.
@@ -208,6 +215,7 @@
   - Registration automatically dispatches a 24-hour verification token.
   - Updated Fastify route schemas, regenerated `openapi.yaml` with 0 drift, and added typed methods to `@flyleaf/api-client`. ~~42 tests in `identity.test.ts`, 289 tests passing across full suite in CI.~~ (stale counts)
   - **Audit (2026-09-25):** ⚠️ — tokens, expiry, single use, supersession and family revocation on reset verified by test; links were hard-coded to `https://flyleaf.app` (now `APP_BASE_URL`), a reset token could be spent twice concurrently (fixed), forgot-password is limited per email only (A-04-020); unverified accounts are not restricted (D-04-1); see A-04-013, A-04-014, A-04-016, A-04-024.
+  - **Audit 15a (2026-10-10):** ✅ verify, reset and the emailed-link pages are in the auth tier; resend and forgot keep their numbers; every 429 has `Retry-After` (A-04-019 … -021, A-07-037) Forgot-password no longer waits for the mail, so with SMTP its timing does not reveal a registered email (A-04-024 → A-15-023).
 - [x] **FN-66** Session list + per-device revoke — 0.5d
   - Added `sessionSchema`, `sessionListResponseSchema`, and `revokeSessionResponseSchema` in `apps/api/src/contract/schemas.ts`.
   - Device info captured via `User-Agent` request header on register/login and preserved during refresh token rotation.
@@ -283,6 +291,7 @@
   - Audit log query API (`GET /v1/admin/audit-log`) with filtering by `action`, `actorId`, and pagination.
   - HTML audit trail viewer at `/admin/audit-log` with formatted JSON payloads and chronological history.
   - 22 dedicated test cases in `apps/api/src/test/admin.test.ts`. 100% test coverage for 2FA, token isolation, role enforcement, and audit recording.
+  - **Audit 15a (2026-10-10):** ✅ merge, dismiss and undo now write their audit row in the same transaction as the action; a failed audit insert rolls the action back (A-06-026 → A-15-020).
 
 ### Providers — `PV-0x` · 5d
 - [x] **PV-01** ⚠️ **Object-storage port.** `ObjectStorage` in `src/providers/storage/`: `createUpload({key, contentType, maxBytes, expiresIn})` → `{url, method, headers, fields?}` (covers S3 PUT, S3 POST policy and Cloudinary-style signed form posts), `createDownloadUrl(key, {expiresIn, filename})`, `head(key)` → `{size, contentType, etag} | null`, `getStream(key)`, `put(key, body, contentType)` (server-generated files only), `delete(key)`. Adapters: `disk` (dev: HMAC-signed local URLs served by a small route, so the presigned flow is exercised locally), `memory` (tests), `s3` (any S3-compatible: AWS, R2, B2, MinIO). One shared contract test suite runs against every adapter. `FileStorage` is deleted — 1.5d
@@ -291,6 +300,7 @@
   - One key rule for every adapter (`assertValidKey`: no `..`, empty or absolute segments). `put()` is used only for exports.
   - Contract suite `src/test/storage-contract.test.ts`: 10 cases × memory, disk, s3 with a mocked client (the fake re-signs every presigned URL with the SDK, so a wrong type, length, key or expiry is refused as S3 would), and s3 against the local MinIO when `flyleaf-minio` is reachable. Removing `signableHeaders` makes the MinIO wrong-type case fail (checked).
   - `FileStorage` (`imports/storage.ts`) deleted; imports, exports and the job handlers use `ObjectStorage`.
+  - **Audit PV (2026-09-26):** ✅ built; contract suite runs memory, disk, s3 (mocked) and s3 against MinIO (`findings/PV-providers.md`). **Audit 15a:** deleted accounts' objects are removed by the retention sweep before the account (A-PV-008 → A-15-008).
 
 - [x] **PV-02** ⚠️ **Presigned upload flow.** `uploads` table (id, user_id, purpose, key, content_type, max_bytes, status `pending|uploaded|consumed|expired`, expires_at). `POST /v1/uploads` {purpose, content_type, size} → upload id + presigned target, limits per purpose from one policy table (PRD numbers with section refs). Client uploads directly. `POST /v1/uploads/:id/complete` → server `head()`s the object, checks owner, size, declared type and magic bytes (ranged read), marks `uploaded`. Consumers take `upload_id` (imports first), mark it `consumed` in the same transaction as the job enqueue. Exports: worker `put()`s, client downloads via short-lived `createDownloadUrl`. Daily cleanup job deletes expired/unconsumed uploads and their objects. Remove `@fastify/multipart` and the multipart route. Idempotent `complete`; another user's upload id → 404 — 1.5d
   - Migration `0024_uploads.sql` (+ `uploads` in `schema.ts`): `size` (declared, exact), `max_bytes`, `filename`, `sha256`, `completed_at`, `consumed_at`; the cleanup index is partial on live rows.
@@ -302,6 +312,7 @@
   - Import files are deleted 30 days after the import finishes (D-PV-3; there is no undo window to wait for). A deleted account's files → Part 15 retention sweep (account deletion is not built). `complete` hashes while streaming; the disk adapter now streams too (D-PV-2).
   - `@fastify/multipart` removed. An unparseable Content-Type is now 415 `unsupported_media_type` (it was an unhandled 500).
   - Tests: `uploads.test.ts` (17) and `imports.test.ts`, `import-duplicate.test.ts`, `export.test.ts`, `import-real-library.test.ts`, `server-wiring.test.ts` rewritten for the flow. Seen failing with the guard removed: PDF-as-CSV, NUL bytes, and a file replaced after `complete`.
+  - **Audit 15a (2026-10-10):** ✅ upload intents limited to 10/day per account (A-PV-007, D-15-2); orphaned avatar uploads deleted a day later (A-10-016).
 
 - [x] **PV-03** api-client + mobile: `uploadFile(purpose, file, {onProgress})` does intent → direct upload → complete, with retry of the upload step only; import screen switched; export download uses the presigned URL; pending uploads cleared per user on logout — 0.5d
   - api-client: `createUpload`, `completeUpload`, `uploadFile(purpose, body, {contentType, filename?, onProgress?, attempts?})` (intent, then the direct PUT/POST, retried up to 3 times only on a network error, 408, 429 or 5xx, then complete), `createImport({upload_id, source, force?})`, `cancelPendingUploads()`. ~~`uploadImport`~~ is removed. Sizes are counted in UTF-8 bytes. Progress uses XHR where it exists.
@@ -309,15 +320,18 @@
   - Mobile: the import screen uploads the pasted CSV with progress (`Uploading N%`), then calls `createImport`. "Import anyway" after a 409 duplicate reuses the same upload with `force: true`, so nothing is sent again. `api.logout()` calls `cancelPendingUploads()` first.
   - Export download: `download_url` is still the emailed API link, which now 302s to the short-lived storage URL, so `Linking.openURL` ends at the presigned URL with no mobile change.
   - Tests: `apps/api/src/test/api-client-upload.test.ts` (6) runs the built client against the real app: call order, no token to storage, 503 retried and 403 not, a 415 surfaced before any upload, cancel-on-logout. Mobile typecheck and 100 offline tests green.
+  - **Audit PV (2026-09-26):** ✅ built; the client is tested against the real app (`findings/PV-providers.md`).
 - [x] **PV-04** Email port: `EmailSender` moves to `src/providers/email/`, adds one real adapter (SMTP via nodemailer, or Resend/SES/Postmark) selected by `EMAIL_DRIVER`; templates stay in app code — 0.25d
   - `platform/mail.ts` moved to `src/providers/email/local.ts` (`EmailSender`, `console`, `memory`), with no re-export left in `platform`; all 18 importers now point at `providers/email/index.js`. New `smtp.ts`: `SmtpEmailSender` on nodemailer 10.0.10 (it ships its own types, so no `@types/nodemailer`). Any vendor with an SMTP relay (Postmark, SES, Resend, Mailgun) is a `SMTP_URL`, not code.
   - `EMAIL_DRIVER=console|memory|smtp` (+ `SMTP_URL`, `EMAIL_FROM`) through `createMailer()`. The API and the worker both use it (the worker used a console mailer of its own before). Templates stay in `identity/` and `exports/`.
   - Contract suite `src/test/email-contract.test.ts`: memory, console and smtp (nodemailer's real message builder over its JSON transport, no network); a provider refusal rejects; a CR/LF in the subject adds no header on the wire.
+  - **Audit PV (2026-09-26):** ✅ SMTP adapter (nodemailer); fail-fast in production (A-PV-001).
 - [x] **PV-05** Push port: `PushSender` interface + Expo push adapter + memory adapter, so SO-30 builds on it — 0.25d
   - `src/providers/push/index.ts`: `PushSender.send(messages)` returns one `PushResult` per message, in order, and never throws for a single bad message. Failures are named for what SO-30 must do: `device_not_registered` (delete the token), `invalid_token`, `message_too_big`, `rate_limited`, `provider_error`.
   - Adapters: `memory` (tests and development) and `expo`, which is Expo's push HTTPS API through `fetch` with a 10 s timeout, batches of 100 and an optional `EXPO_ACCESS_TOKEN`. There is no `expo-server-sdk` dependency. `PUSH_DRIVER=memory|expo` via `createPush()`; production requires `expo`.
   - Only push *tickets*: reading Expo's delivery *receipts* (a second call, minutes later) is left to SO-30, which owns the token table it would update.
   - Contract suite `src/test/push-contract.test.ts` (12): memory, and expo against a fake of Expo's API (the documented ticket shapes, DeviceNotRegistered, the 100-per-request limit); a 503 or 429 or an unreachable host marks the batch instead of throwing.
+  - **Audit PV (2026-09-26):** ✅ send only (tickets); delivery receipts are SO-30's.
 - [x] **PV-06** Error-reporting port: `ErrorReporter` interface; Sentry becomes one adapter; `noop` default; PII scrubbing (`sanitizeContext`) stays outside the adapter — 0.25d
   - `src/providers/errors/index.ts`: `ErrorReporter.capture(error, context)` returns an event id or null and never throws. Adapters: `noop` (the default, allowed in production), `memory` (tests), and `sentry` (the existing store-endpoint call moved into an adapter, now with a 5 s timeout, `environment` and `release`, and the DSN validated at startup). `ERROR_DRIVER=noop|memory|sentry` + `SENTRY_DSN`, `SENTRY_ENVIRONMENT`, `SENTRY_RELEASE`.
   - `telemetry/sentry.ts` renamed to `telemetry/errors.ts`: `sanitizeContext` stays there, and `reportApiError(reporter, …)` scrubs *before* any adapter sees the context. The 500 handler (`registerCoreHooks`) reports through the injected reporter.
@@ -329,6 +343,7 @@
   - `GapFillService(db, source)`: the OL search, `parseOlSearch` and the URL moved into the adapter. `persist()` and its licensing rule stay in `catalog/gapfill.ts` (the licensing test still reads that file).
   - Only `search` has a production caller today; the lookups exist for the declared scope and are exercised by the contract suite only.
   - Contract suite `catalog-source-contract.test.ts` (9): a fake openlibrary.org serving the real fixture records, a real `OutboundClient`, ISBN-10/13/hyphenated, full and bare keys, source down, and a drained limiter means no request.
+  - **Audit PV (2026-09-26):** ✅ built; only `search` has a production caller, the lookups are exercised by the contract suite.
 - [x] **PV-08** Wiring + guard rails: one `providers/index.ts` factory reads `STORAGE_DRIVER`, `EMAIL_DRIVER`, `PUSH_DRIVER`, `ERROR_DRIVER` and fails fast on missing credentials in production; `serverDependencies()` and the worker both use it; ESLint `no-restricted-imports` forbids vendor SDKs (`@aws-sdk/*`, `@sentry/*`, `nodemailer`, `expo-server-sdk`, …) outside `src/providers/`; README gets a "Swapping a provider" section; architecture.md updated — 0.5d
   - `providers/index.ts`: `createProviders(env)` → `{storage, mailer, push, errors, catalog}`, built from `createStorage`, `createMailer`, `createPush`, `createErrorReporter` and `createCatalogSource`. An unset driver in production is a refusal (`ERROR_DRIVER` falls back to `noop`), as are a dev adapter (`disk`, `memory`, `console`), a missing or blank credential (every missing variable is named), an invalid Sentry DSN, and an unknown driver. Credentials are also required outside production (`s3` without a bucket is a mistake anywhere).
   - `server.ts` and `worker.ts` call it **first, before the database**, so a bad config exits at once instead of after 15 s of DB retries. `serverDependencies(db, boss, providers)` hands the app storage, mailer, the error reporter and the catalog source. The worker's handlers get the same storage and mailer: they used to default to a local disk and a console mailer of their own.
@@ -363,6 +378,7 @@
 - [x] **SL-11** ⚠️ **Mutation queue: persist, replay, backoff, dead-letter** — 2d
   - **Audit (2026-09-26):** ❌ — any 409 was treated as synced, 4xx were retried, offline dead-lettered everything within minutes, dead letters were never shown, queues replayed across accounts, flushes ran concurrently, and reads created offline never got their server id; all fixed, with a Couldn't sync screen; see A-07-001, A-07-002, A-07-005, A-07-008.
   - **Audit (2026-09-26, Part 07b):** ✅ — likes and follows are now queued as desired states; an opposite write still waiting cancels it (like then unlike offline sends nothing); a row being sent is claimed and never cancelled; a 429 burst on replay is a Part 15 item; see A-07-034, A-07-039.
+  - **Audit 15a (2026-10-10):** ✅ a 429 holds the entity's writes until `Retry-After` without using an attempt (A-07-039 → A-15-015). Replay of every queued action re-checked against the server (A-15-016).
 - [x] **SL-12** ⚠️ `client_event_id` generation + idempotent replay — 0.5d
   - **Audit (2026-09-26):** ⚠️ — client correct; the server accepted an id reused on another read or user as success; now 409 `client_event_conflict`; see A-07-015.
 - [x] **SL-13** ⚠️ **Offline queue test suite incl. simulated process death** — 1.5d
@@ -439,6 +455,7 @@
   - **Audit (2026-09-30):** ⚠️ — the SQL aggregates are right (Part 08); the duplicate TS recompute and formula were dead weight and are gone; §9.7 exclusion not built (fast-follow, tracked below); re-reads count per attempt in the rating aggregates (decided: each user's latest rating → Part 09b, with ten half-star histogram buckets); see A-09-018, A-09-021, A-09-027, A-09-028.
   - **Audit (2026-09-30, Part 09b):** ✅ — the rating aggregates, C and the book histogram now count each reader once at their latest rated attempt (one view, `latest_ratings`, migration 0029, on both databases, every `work_stats` row recomputed in batches; trigger and nightly reconcile agree on every row); `rating_distribution` is ten half-star buckets (§9.6); the three works with no stats row were reads written before 0011 existed, never backfilled, copied by `devdb:build` with triggers off (it now reconciles and checks; verified on a throwaway 20k-work build, which also exposed and fixed a `devdb:build` failure present since 0026); see A-09-036 … A-09-038, A-09-044.
   - [ ] **SL-62b** §9.7 manipulation prevention: ratings from accounts under 7 days old or with fewer than 5 ratings excluded from every aggregate (trigger, histogram, reconcile), with a daily job for accounts crossing 7 days and a recompute when a user crosses 5 ratings. PRD P1 (first fast-follow); deferred by the owner on 2026-09-30. Plan in A-09-021; the launch-week effect needs a product answer first.
+    - **Audit 09 (2026-09-30):** deferred as the PRD's fast-follow (A-09-021). **Audit 15a:** imported ratings from new or unverified accounts belong to the same rule (`DECISIONS.md` 2).
 - [x] **SL-63** Review composer: autosave every 3s, spoiler, visibility — 1.5d
   - Review composer modal screen at `apps/mobile/app/review/compose/[id].tsx` with 3-second debounce autosave to `expo-secure-store`.
   - Spoiler toggle switch with optional starting page threshold (`spoiler_after_page`), visibility selector (`public`, `followers`, `private`), and live character counter with soft warning at 5,000 and hard cap at 10,000 characters.
@@ -509,6 +526,7 @@
     - AppState lifecycle hook flushing events when app moves to background.
     - Offline resilience: retained events on network failure (prepended up to 200 items).
   - **Audit (2026-10-06):** ❌ — the anonymous endpoint stored any name, any properties and any timestamp, and took the **user id from the body** (fixed: taxonomy, shape caps, token-only user); no rate limit (Part 15) and no retention (decision needed); see A-10-017, A-10-025, A-10-029.
+  - **Audit 15a (2026-10-10):** ❌→✅ the telemetry routes were mounted at the root, so the app's `POST /v1/events` was a **404** and no event ever arrived; now under `/v1` (A-15-001). Guest batches 120/hour (D-15-2). Retention: raw events 13 months, zero-result queries 30 days, weekly summary with k ≥ 5 (D-10-1, D-10-3 → A-15-008, -009).
 - [x] **SL-81** ⚠️ **Instrument the §4.4 budgets**: progress duration, finish duration, tap counts, abandonment — 1d
   - Built real-time budget instrumenter in `apps/mobile/src/lib/budgetTracker.ts` measuring the 5 non-negotiable PRD §4.4 interaction budgets:
     1. `progress_updated`: duration from Reading tab focus to save (budget: p75 < 5s). Integrated into slider release, quick add, and progress sheet.
@@ -519,6 +537,7 @@
   - Admin budget analytics endpoint `GET /v1/admin/telemetry/budgets` computing PostgreSQL `percentile_cont(0.75)` for progress, finish, and log sheet durations, tap counts, and flow abandonment rate.
   - 10 mobile unit tests covering event queuing, session rotation, and all 5 budget events in `apps/mobile/src/lib/__tests__/telemetry-budgets.test.ts`.
   - **Audit (2026-10-06):** ❌ — false green at both ends: the app invented in-budget durations when no clock ran and re-anchored the progress clock at each save, and the report read all time and said "passing" with no samples; one malformed event broke it (fixed; `book_logged` deferred); see A-10-003, A-10-004.
+  - **Audit 15a (2026-10-10):** ✅ `book_logged` is sent, with taps counted from the impression per D-10-2 (search row → book page carry-over, 10-minute expiry, stops at local success) (A-15-010).
 - [x] **SL-82** Sentry, app + API — 0.5d
   - ~~API Sentry integration in `apps/api/src/telemetry/sentry.ts` and `apps/api/src/app.ts`: custom Fastify 500 error hook capturing unhandled exceptions~~ The hook never sent anything: `initSentry()` had no caller, so capture was a no-op whatever `SENTRY_DSN` said. Now an `ErrorReporter` port chosen by `ERROR_DRIVER` (PV-06, A-PV-003); the redaction stays in `telemetry/errors.ts`. with automatic redaction of sensitive headers (`authorization`, `cookie`, `secret`, `password`, `token`, `totp`).
   - Mobile Sentry wrapper in `apps/mobile/src/lib/sentry.ts` with exception formatting, platform tagging, and graceful fallback. (Its event ids were not valid Sentry ids, it had no release tag, and despite its header it scrubbed nothing; fixed, A-10-019.)
@@ -553,6 +572,7 @@
   - Comprehensive test suite: 12 tests in `apps/api/src/test/shelves.test.ts` and 9 validation unit tests in `apps/mobile/src/lib/__tests__/shelves.test.ts`. CI pipeline 100% green.
   - **Audit (2026-10-10):** ❌ — a privacy change or delete never reached the feed, so a private shelf's books stayed in followers' feeds (P0, fixed); the 30-day soft delete had no way to restore (now `GET /v1/shelves/deleted`, `POST /v1/shelves/:id/restore`, and a Recently deleted screen; purge → Part 15); no 200-shelf cap (fixed); concurrent same-name creates 409'd (fixed); non-Latin names slugged to `shelf` (fixed); renames break share links (DECISION NEEDED); see A-11-001, A-11-003 … A-11-007, A-11-028.
   - **Audit (2026-10-10, Part 13):** D-11-2 built: a renamed shelf keeps its old slugs (reserved to it, `301` to the current slug on every slug route, back on restore); see findings/13-social-graph.md A-13-020.
+  - **Audit 15a (2026-10-10):** ✅ shelves deleted more than 30 days ago are purged by the retention sweep (A-11-033 → A-15-008); shelf writes are in the 120/min writes tier (A-11-031).
 - [x] **SH-03** Shelf detail: ranked numbering, per-entry notes, mosaic cover — 1.5d
   - Backend `ShelvesService` (`getItems`, `addItem`) and Fastify endpoints `GET /v1/shelves/:id/items` and `POST /v1/shelves/:id/items` with 3-tier privacy authorization (404 on access denial).
   - Enhanced `GET /v1/shelves/:id` resolving `cover_ids` (OpenLibrary integer covers) and viewer save state `is_saved`.
@@ -665,6 +685,7 @@
   - Verification:
     - 7 dedicated backend integration tests in `apps/api/src/test/shelves.test.ts` verifying public-only filtering, private/followers/soft-deleted exclusion, guest browsing, ILIKE search, PRD §15.5 curation quality ranking, social proximity boosting, popular/recent sorting, pagination, and save state.
   - **Audit (2026-10-10):** ⚠️ — the `views` term is always 0 (no view counter; spec gap, Part 15); the whole candidate set was loaded and scored in Node (26 statements; now 1, scored in SQL); mutes were ignored, `%`/`_` were wildcards, sorts had no id tie-break (all fixed); 10× plan recorded; see A-11-017 … A-11-020, A-11-024, A-11-032.
+  - **Audit 15a (2026-10-10):** the `views` term stays 0: the counter is recorded as a decision (D-15-7, `DECISIONS.md` 3), not built.
 - [x] **SH-09** ⚠️ **Shelf privacy on every read path + tests — 404 not 403, private account hierarchy** — 1d
   - Security Principle & Obscurity (Architecture §4, PRD §15.2, §26.1):
     - Enforced strict 3-tier privacy authorization (`public`, `followers`, `private`) on every read path via centralized `canView()` and `assertCanView()`.
@@ -924,6 +945,7 @@
   - Mobile UI integration: interactive follow toggle with haptics and "Follows you" mutual indicator on `UserProfileScreen` (`apps/mobile/app/user/[id].tsx`), and incoming requests manager screen `FollowRequestsScreen` (`apps/mobile/app/profile/requests.tsx`).
   - 8 integration tests in `apps/api/src/test/social-follow.test.ts` and mobile unit tests in `apps/mobile/src/lib/__tests__/social-follow.test.ts` passing. 100% green CI pipeline.
   - **Audit (2026-10-10):** ⚠️ — every state transition verified; but unfollow/mute of a user who blocked you answered 200 (block confirmable, P0), a follow racing a block survived it, deleted accounts could be accepted and were listed, no §11.7 limits (→ Part 15); fixed except limits; see A-13-005, A-13-006, A-13-007, A-13-008, A-13-011, D-13-1, D-13-2.
+  - **Audit 15a (2026-10-10):** ✅ PRD §11.7 limits enforced in the follow's transaction: 50/hour, 200/day, 3 per pair per day (a re-request after a reject counts), 20 in a new account's first 24 h; a replay is not counted (A-13-007, -008 → A-15-002). The 15 legacy alias routes are removed (A-15-012).
 - [x] **SO-03** ⚠️ **Block: bidirectional, complete, silent, severs follows** — 1.5d
   - Built block/unblock service methods and Fastify routes in `apps/api/src/social/index.ts` (`POST /v1/users/:id/block`, `DELETE /v1/users/:id/block`, `GET /v1/me/blocks`, plus `/v1/blocks/:userId` and `/v1/blocks` aliases).
   - Enforced complete, bidirectional, silent block semantics (PRD §11.4, §26.3): blocking immediately severs existing follows in BOTH directions, with Postgres DB triggers (`follows_counter_trigger_fn`) updating `follower_count` and `following_count` automatically.
@@ -982,6 +1004,7 @@
   - Synchronized OpenAPI 3.1.0 specifications (`openapi.yaml`) with 0 contract drift (`npm run spec:check`).
   - Comprehensive integration test suite `apps/api/src/test/feed-query.test.ts` (7/7 tests passing) asserting reverse-chronological order, ~~ISO timestamp cursor pagination~~ (the cursor lost and repeated cards once ranking reordered a page; now an opaque `(created_at µs, id, deferred ids)` cursor, A-14-001), bidirectional block filtering, user mute filtering, work mute filtering, popular feed querying, and 401 guest rejection for friends feed.
   - **Audit (2026-10-10):** ❌ — pagination lost and repeated cards and a bad cursor served page one (fixed: exactly once, 400 `invalid_cursor`); "followed" cards showed people in a block with the viewer (P0, fixed); the friends query seq-scanned `activity` and sorted to disk for a heavy follower (fixed: p95 494 → 161 ms, sandbox); Popular has no popularity signal (D-14-1); see A-14-001, A-14-004, A-14-008, A-14-009.
+  - **Audit 15a (2026-10-10):** ✅ cursor paging re-checked on a real Postgres with rows a microsecond apart: friends, popular, comments and a user's reads each serve every row once (A-14-020 → A-15-014).
 - [x] **SO-12** Ranking + diversity constraints in TypeScript — 1.5d
   - Created feed ranking & diversity engine in `apps/api/src/activity/ranking.ts` implementing PRD §12.2–12.4 and Architecture §8 specifications.
   - Scoring formula: `rank = activity_weight * recency_decay(age_hours) * affinity(viewer, actor) * diversity_penalty`.
@@ -1015,6 +1038,7 @@
     4. **Never Empty Guarantee**: If `items.length === 0` (fresh DB with zero platform activity), appends an editorial welcome card (`is_editorial: true`).
   - Unit & integration tests in `apps/api/src/test/feed-cold-start.test.ts` (4/4 tests passing) covering all 4 cold start scenarios. All 24 feed test assertions green across `feed-cold-start.test.ts`, `feed-ranking.test.ts`, and `feed-query.test.ts`.
   - **Audit (2026-10-10):** ❌ — the 1–3-follows feed never ended and could repeat a followed reader's card, the editorial card closed every feed, `following_count` counted deleted accounts; all fixed; see A-14-001, A-14-003.
+  - **Audit 15a (2026-10-10):** ✅ D-14-1 built: Popular = public reviews and finishes from 14 days, scored by likes and comments (never rating), §12.4 diversity, per-card exposure cap, keyset paging (A-15-003, migration 0039).
 - [x] SO-15 Feed card types + swipe actions — 0.5d
   - Created feed card helper library `apps/mobile/src/lib/feedCard.ts` for card type resolution (`review`, `finish`, `rated`, `dnf`, `shelved`, `followed`, `started`, `goal_reached`, `quoted`, `editorial`), activity headline formatting (including aggregated cards), and swipe action configuration.
   - Implemented interactive `FeedCard` component (`apps/mobile/src/ui/FeedCard.tsx`) using `Swipeable` from `react-native-gesture-handler`:
@@ -1058,6 +1082,7 @@
   - Mobile: comment thread screen `apps/mobile/app/read/[id]/comments.tsx` (flat list, delete-own with confirmation and rollback, tombstone banner when locked, 2,000-char counter from 1,800, guest action gate, reader-facing copy for every API refusal) and a Comment button on Review Detail. Pure helpers in `src/lib/comments.ts`.
   - 16 tests in `read-comments.test.ts` (rate limit exercised against the **real** Postgres limiter); 8 mobile tests in `src/lib/__tests__/interactions.test.ts`.
   - Open item: PRD §6.4 says unverified accounts cannot comment. Not enforced here because reviews and follows do not enforce it either — gating one of the three would be inconsistent. Belongs with SO-41 (automated layer 1) or LA-03.
+  - **Audit 15a (2026-10-10):** ✅ comments moved onto the shared layer with the same bucket name and numbers (no behaviour change; tested).
 - [x] SO-23 Review ranking: social proximity dominant, exploration boost — 0.75d
   - Full PRD §10.7 formula in `apps/api/src/reviews/index.ts`: `0.35·proximity + 0.20·log-likes + 0.10·log-comments + 0.15·exp(−age/45d) + 0.10·credibility + 0.10·length − 0.10·report`, with weights exported as `REVIEW_RANKING_WEIGHTS`.
   - **Social proximity is now three-tier**: 1.0 you follow them (or it is you) · **0.6 follower-of-follower** (new; one query over accepted edges, scoped to this list's authors) · 0.2 otherwise.
@@ -1108,6 +1133,7 @@
 ## Phase 6 — Launch readiness · `LA` · 15d
 
 - [ ] **LA-01** ⚠️ **Account deletion**: password re-entry, 30-day grace, export offer, hard delete job — 1.5d
+  - **Audit 15a (2026-10-10):** the hard-delete step exists: the daily retention sweep deletes an account 30 days after deletion, its stored objects first (A-15-008). Password re-entry, the export offer and the UI remain.
 - [ ] LA-02 Settings: privacy, notifications, content, libraries, appearance, blocked, about — 2d
 - [ ] LA-03 Onboarding polish; import-first ordering; skip everywhere — 1.5d
 - [ ] LA-04 Every empty, loading and error state audited — 1.5d

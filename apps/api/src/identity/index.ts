@@ -287,6 +287,12 @@ export class IdentityService {
    * server wiring; default none.
    */
   limits: RateLimits = RateLimits.off();
+  /**
+   * Where a reset email that failed to send is reported (A-04-024, Audit 15).
+   * The send is not awaited, so it never reaches the caller; production sets
+   * this to the error reporter.
+   */
+  onMailError: (err: Error) => void = (err) => console.error('[identity] reset email failed:', err.message);
 
   constructor(
     private db: Db,
@@ -1035,11 +1041,14 @@ export class IdentityService {
         });
       });
 
-      await this.mailer.send({
+      // Not awaited (A-04-024): with a network mailer, waiting here made the
+      // response time say whether the email is registered, which this
+      // endpoint promises not to reveal. A failure is reported, not returned.
+      void this.mailer.send({
         to: user.email,
         subject: 'Reset your Flyleaf password',
         text: `You requested a password reset for your Flyleaf account.\nUse this token to reset your password:\n${rawToken}\n\nOr click: ${config.appBaseUrl}/reset-password?token=${rawToken}\n\nThis link is single-use and expires in 60 minutes.\nIf you did not request this, you can safely ignore this email.`,
-      });
+      }).catch((err: unknown) => this.onMailError(err instanceof Error ? err : new Error(String(err))));
     }
 
     return {

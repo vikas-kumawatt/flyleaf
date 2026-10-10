@@ -36,6 +36,7 @@ import {
 import {
   createStaging, dropStaging, writeAuthors, writeWorks, writeEditions, writeRawPayloads,
   RESOLVE_PENDING_WORK_AUTHORS,
+  TABLES_LOADED,
 } from './catalog/ingest/writer.js';
 
 // architecture.md §5.1 says 5,000. That is right for the COPY itself, but
@@ -541,6 +542,16 @@ async function main() {
       WHERE id = ${runId}`);
     await dropStaging(client);
 
+    // Fresh statistics for what this pass loaded (Audit 15): an interrupted
+    // pass resumes and analyzes when it finishes.
+    if (status === 'done') {
+      for (const t of TABLES_LOADED[args.type]) {
+        const t0 = Date.now();
+        await db.execute(sql.raw(`ANALYZE ${t}`));
+        console.log(`ANALYZE ${t} (${Math.round((Date.now() - t0) / 1000)}s)`);
+      }
+    }
+
     const seconds = Math.round((Date.now() - started) / 1000);
     const human = seconds >= 3600
       ? `${Math.floor(seconds / 3600)}h${String(Math.round((seconds % 3600) / 60)).padStart(2, '0')}m`
@@ -854,7 +865,7 @@ async function finalise(db: ReturnType<typeof makeDb>) {
   }
 
   console.log('ANALYZE…');
-  for (const t of ['works', 'editions', 'authors', 'work_authors']) {
+  for (const t of ['works', 'editions', 'authors', 'work_authors', 'pending_work_authors', 'raw_payloads']) {
     await db.execute(sql.raw(`ANALYZE ${t}`));
   }
 

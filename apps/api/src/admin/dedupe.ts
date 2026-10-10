@@ -186,27 +186,31 @@ export function adminDedupeRoutes(db: Db) {
         const typed = body.reason?.trim();
         const rule = ruleReason(item.stage);
         const reason = typed || !rule ? typedReason(typed, `a ${body.action === 'merge' ? 'manual merge' : 'dismissal'}`) : rule;
-        const result = await resolveQueueItem(db, req.params.id, body.action, {
-          reviewerUserId: admin.id,
-          reason,
-        });
+        // The action and its audit row commit together (A-06-026): the
+        // service's own transaction becomes a savepoint inside this one.
+        return db.transaction(async (tx) => {
+          const result = await resolveQueueItem(tx as unknown as Db, req.params.id, body.action, {
+            reviewerUserId: admin.id,
+            reason,
+          });
 
-        // Audit log action (FN-93)
-        await logAdminAction(db, {
-          actorId: admin.id,
-          action: body.action === 'merge' ? 'catalog.merge' : 'catalog.dismiss_duplicate',
-          subjectType: 'dedupe_queue',
-          subjectId: req.params.id,
-          reason,
-          payload: {
-            queueId: req.params.id,
-            action: body.action,
-            mergeId: result.merge_id ?? result.mergeId,
-          },
-          ...auditContext(req),
-        });
+          // Audit log action (FN-93)
+          await logAdminAction(tx, {
+            actorId: admin.id,
+            action: body.action === 'merge' ? 'catalog.merge' : 'catalog.dismiss_duplicate',
+            subjectType: 'dedupe_queue',
+            subjectId: req.params.id,
+            reason,
+            payload: {
+              queueId: req.params.id,
+              action: body.action,
+              mergeId: result.merge_id ?? result.mergeId,
+            },
+            ...auditContext(req),
+          });
 
-        return result;
+          return result;
+        });
       },
     );
 
@@ -323,21 +327,25 @@ export function adminDedupeRoutes(db: Db) {
       async (req) => {
         const admin = requireAdmin(req);
         const reason = typedReason(undoBody.parse(req.body)?.reason, 'an undo');
-        const result = await undoMerge(db, req.params.id);
+        // The undo and its audit row commit together (A-06-026).
+        const result = await db.transaction(async (tx) => {
+          const undone = await undoMerge(tx as unknown as Db, req.params.id);
 
-        // Audit log action (FN-93)
-        await logAdminAction(db, {
-          actorId: admin.id,
-          action: 'catalog.undo_merge',
-          subjectType: 'work',
-          subjectId: result.survivor_id,
-          reason,
-          payload: {
-            mergeId: req.params.id,
-            loserId: result.loser_id,
-            restored: result.restored,
-          },
-          ...auditContext(req),
+          // Audit log action (FN-93)
+          await logAdminAction(tx, {
+            actorId: admin.id,
+            action: 'catalog.undo_merge',
+            subjectType: 'work',
+            subjectId: undone.survivor_id,
+            reason,
+            payload: {
+              mergeId: req.params.id,
+              loserId: undone.loser_id,
+              restored: undone.restored,
+            },
+            ...auditContext(req),
+          });
+          return undone;
         });
 
         return result;

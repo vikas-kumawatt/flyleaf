@@ -27,6 +27,7 @@ export const config = {
   env: process.env.NODE_ENV ?? 'development',
   logLevel: process.env.LOG_LEVEL ?? (process.env.NODE_ENV === 'production' ? 'info' : 'debug'),
   jwtSecret: resolveJwtSecret(process.env.NODE_ENV, process.env.JWT_SECRET),
+  rateLimitMode: resolveRateLimitMode(process.env.NODE_ENV, process.env.BENCH_RATE_LIMITS),
   trustProxy: parseTrustProxy(process.env.TRUST_PROXY),
   // Base of the links in verification and reset emails.
   appBaseUrl: APP_BASE_URL,
@@ -98,6 +99,20 @@ export function resolveJwtSecret(env: string | undefined, secret: string | undef
     );
   }
   return secret;
+}
+
+/**
+ * Which rate limits the API server enforces (Audit 15). 'all' unless
+ * BENCH_RATE_LIMITS=legacy, which keeps only the limits that existed when the
+ * Part 01 baseline was measured, so a bench "after" compares like with like
+ * (the bench's 10 connections would otherwise meet the Global tier within
+ * seconds). Refused when NODE_ENV=production: production enforces every limit.
+ */
+export function resolveRateLimitMode(env: string | undefined, value: string | undefined): 'all' | 'legacy' {
+  if (value === undefined || value === '' || value === 'all') return 'all';
+  if (value !== 'legacy') throw new Error(`BENCH_RATE_LIMITS must be "all" or "legacy", got ${JSON.stringify(value)}.`);
+  if (env === 'production') throw new Error('BENCH_RATE_LIMITS=legacy is for bench runs only; it is refused when NODE_ENV=production.');
+  return 'legacy';
 }
 
 /**

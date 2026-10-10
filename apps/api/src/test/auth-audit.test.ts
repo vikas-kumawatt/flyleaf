@@ -230,6 +230,34 @@ describe('IdentityService edge cases (Part 04)', () => {
     expect(rejected.reason).toMatchObject({ status: 403, code: 'token_reused' });
   });
 
+  it('forgot-password does not wait for the mail, so its time does not say the email exists; a failed send is reported (A-04-024, Audit 15)', async () => {
+    await service.register('slowmail@example.com', 'slowmail_u', 'goodpassword123', '1990-01-01');
+    const sent: string[] = [];
+    let release!: () => void;
+    const gate = new Promise<void>((r) => { release = r; });
+    const slow = new IdentityService(db, new PgRateLimiter(db), {
+      send: async (m) => { await gate; sent.push(m.to); },
+    } as MemoryEmailSender);
+    // The mailer never finishes until released: the call must return anyway.
+    const outcome = await Promise.race([
+      slow.forgotPassword('slowmail@example.com').then(() => 'returned'),
+      new Promise((r) => setTimeout(() => r('waited for the mailer'), 2_000)),
+    ]);
+    expect(outcome).toBe('returned');
+    release();
+    await new Promise((r) => setTimeout(r, 0));
+    expect(sent).toEqual(['slowmail@example.com']);
+
+    const failures: string[] = [];
+    const failing = new IdentityService(db, new PgRateLimiter(db), {
+      send: async () => { throw new Error('smtp down'); },
+    } as unknown as MemoryEmailSender);
+    failing.onMailError = (err) => failures.push(err.message);
+    await expect(failing.forgotPassword('slowmail@example.com')).resolves.toMatchObject({ status: 'ok' });
+    await new Promise((r) => setTimeout(r, 0));
+    expect(failures).toEqual(['smtp down']);
+  });
+
   it('a password reset token can be spent only once under concurrency (A-04-013)', async () => {
     await service.register('rr@example.com', 'rr_user', 'goodpassword123', '1990-01-01');
     await service.forgotPassword('rr@example.com');

@@ -117,6 +117,78 @@ The instrumentation that finally found the first one — a `beforeExit` handler 
 
 ---
 
+## Audit addendum: the patterns behind most findings
+
+Written 10 October 2026, at the end of the 15-part audit (`docs/audit/SUMMARY.md` has the numbers). Most of the findings are instances of a few patterns.
+
+### 1. A feature added after a subsystem was written was never wired into it
+
+The feature worked and had tests, but the code that should have called it never did:
+
+| Instance | Effect |
+|---|---|
+| The server never passed a job queue to the import and export services (L-03) | Every real import sat in `queued` forever |
+| `initSentry()` had no caller (PV) | Error reporting was never on |
+| The feed ranker was never given affinity (A-14-002) | One of its four diversity rules never ran |
+| Telemetry routes were mounted at the root while the app posted to `/v1/events` (A-15-001) | No event ever arrived |
+| A shelf's privacy change and a review's visibility never reached the feed copies (A-11-001, Part 09's P0s) | Private content stayed in the public feed |
+| PRD §24.4's limits | Four call sites existed, out of about thirty that were needed |
+
+### 2. The test built its own app, so it proved the feature but not the wiring
+
+Almost every instance of pattern 1 passed its tests, because each test called `buildApp` with exactly what it needed:
+- an injected queue;
+- a telemetry route registered at the root;
+- a ranker handed affinity directly.
+
+The tests that caught these drove the production wiring (`server-wiring.ts`) or the real client against the real app.
+
+**Rule:** at least one test per feature goes through the same constructor production uses.
+
+### 3. A false green is worse than a red
+
+- The budget tracker sent made-up, in-budget durations when it had no clock (Audit 10).
+- Both call sites of the tap budget passed a constant 2, which can never miss a "≤ 2" budget.
+- Tests asserted what they had just set (A-07-026).
+- A 409 from a refused write was counted as "synced" (A-07-001).
+
+Each of these made a report look healthy precisely when nothing was being measured. This is Phase 0's lesson again, now in the product:
+
+> If this were completely broken, what would I see?
+
+**Rule:** for a metric, the answer has to be "no data".
+
+### 4. Toy data hid the cost, and the toy database hid the bug
+
+| What the small database hid | What happened at scale |
+|---|---|
+| The whole-catalog statements | A dedupe statement was OOM-killed on the full catalog and took Postgres down with it (A-03-026) |
+| The feed's sequential scan | The feed scanned every activity of 1,158 followees for a page of 20 (A-14-008) |
+| Search's trigram arm | It saturated under 10 connections (Part 02) |
+| Timestamp precision | PGlite's millisecond clock made a microsecond cursor bug impossible to see in tests (A-14-020) |
+
+The sandbox parts kept every latency labelled "sandbox, synthetic" for this reason.
+
+**Rule:**
+- a batch statement is sized by the largest table it can touch, not by the test fixture;
+- anything precision- or plan-sensitive is checked once on the real server.
+
+### 5. Every write happens twice, eventually
+
+Offline replay, double taps, retries after a lost response, a second device. The audit found writes that were wrong the second time:
+- a replayed follow demoted an accepted follow (A-05-012);
+- a replayed finish wrote a second activity row (A-07-023);
+- a re-import doubled a library (A-12-001);
+- a rate-limited write would have been dead-lettered (A-07-039).
+
+**Rule:** a mutation's test sends it twice. The second answer must be one the client treats as done.
+
+### The audit's one-line version
+
+The code was mostly right where it had been looked at, and wrong where two pieces met: a feature and the subsystem it joined, a test and the wiring it skipped, a metric and the clock it never had.
+
+---
+
 ## Actions taken
 
 - [x] Search field moved out of `ListHeaderComponent`
