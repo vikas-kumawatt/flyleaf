@@ -8,6 +8,7 @@
 //   - DB triggers automatically maintain profiles.follower_count and following_count.
 //   - Complete block invisibility: follow operations targeting a blocked user return 404.
 
+import { RateLimits } from '../platform/rate-limits.js';
 import type { FastifyInstance, FastifyPluginAsync } from 'fastify';
 import { and, desc, eq, isNull, or, sql } from 'drizzle-orm';
 import type { Db } from '../platform/index.js';
@@ -109,8 +110,30 @@ import { ActivityService } from '../activity/index.js';
 export class SocialService {
   private activityService: ActivityService;
 
-  constructor(private readonly db: Db) {
+  constructor(
+    private readonly db: Db,
+    /** §11.7 follow limits (Audit 15). Default: none, as before. */
+    private readonly limits: RateLimits = RateLimits.off(),
+  ) {
     this.activityService = new ActivityService(db);
+  }
+
+  /**
+   * PRD §11.7 / §24.4 follow limits, checked only for a follow or request
+   * that creates a row: a replay of an accepted or pending follow (the
+   * offline queue resends desired state) costs nothing. A request re-sent
+   * after a reject creates a row again, so it counts toward the pair's 3 a
+   * day (A-13-008).
+   */
+  async #enforceFollowLimits(t: Db, viewer: string, target: string): Promise<void> {
+    if (this.limits.isOn('follow:new')) {
+      const [u] = await t.execute<{ is_new: boolean }>(sql`
+        SELECT created_at > now() - interval '24 hours' AS is_new FROM users WHERE id = ${viewer}::uuid`);
+      if (u?.is_new) await this.limits.enforce('follow:new', viewer, t);
+    }
+    await this.limits.enforce('follow:pair', `${viewer}:${target}`, t);
+    await this.limits.enforce('follow:h', viewer, t);
+    await this.limits.enforce('follow:d', viewer, t);
   }
 
   /**
@@ -166,6 +189,7 @@ export class SocialService {
       // accepted follow to a request (the account may have gone private since),
       // and records no second 'followed' activity (Audit 05).
       if (rel.followStatus === 'accepted') return 'accepted' as const;
+      if (rel.followStatus === 'none') await this.#enforceFollowLimits(t, viewer, targetUserId);
 
       const wanted: FollowState = rel.isOwnerPrivate ? 'pending' : 'accepted';
       // RETURNING only when this statement made (or changed) the row: a follow
@@ -691,10 +715,11 @@ export async function lockPair(tx: Db, a: string, b: string): Promise<void> {
 export interface SocialPluginOptions {
   db: Db;
   prefix?: string;
+  limits?: RateLimits;
 }
 
 export const socialPlugin: FastifyPluginAsync<SocialPluginOptions> = async (app, options) => {
-  const service = new SocialService(options.db);
+  const service = new SocialService(options.db, options.limits);
 
   // Follow / request to follow
   const followHandler = async (req: any) => {

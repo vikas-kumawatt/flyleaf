@@ -521,7 +521,9 @@ export const rateLimits = pgTable('rate_limits', {
   bucket: text('bucket').primaryKey(),
   count: integer('count').notNull().default(0),
   windowStart: timestamp('window_start', { withTimezone: true }).notNull().defaultNow(),
-});
+  /** When the current window ends; the nightly sweep deletes ended buckets (0038). */
+  expiresAt: timestamp('expires_at', { withTimezone: true }),
+}, (t) => [index('rate_limits_expires_idx').on(t.expiresAt)]);
 
 /**
  * Ingest checkpoints (FN-20).
@@ -813,7 +815,17 @@ export const activity = pgTable('activity', {
   index('activity_actor_idx').on(t.actorId, t.createdAt.desc()),
   index('activity_visibility_idx').on(t.visibility, t.createdAt.desc()),
   index('activity_work_idx').on(t.workId, t.createdAt.desc()),
+  // D-14-1 (0039): Popular's candidates, public reviews and finishes by time.
+  index('activity_popular_idx')
+    .on(t.createdAt.desc(), t.id.desc())
+    .where(sql`${t.visibility} = 'public' AND ${t.verb} IN ('reviewed', 'finished')`),
 ]);
+
+/** D-14-1 (0039): how many Popular pages served each card; the exposure ceiling reads it. */
+export const popularExposures = pgTable('popular_exposures', {
+  activityId: uuid('activity_id').primaryKey().references(() => activity.id, { onDelete: 'cascade' }),
+  served: integer('served').notNull().default(0),
+});
 
 export type Activity = typeof activity.$inferSelect;
 export type NewActivity = typeof activity.$inferInsert;

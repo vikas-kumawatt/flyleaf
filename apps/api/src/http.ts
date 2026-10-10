@@ -22,6 +22,9 @@ export const ERROR_SHAPE = {
 
 /** Thrown anywhere; the global handler turns it into the standard envelope. */
 export class ApiError extends Error {
+  /** Set on a 429: sent as `Retry-After` (Audit 15). */
+  retryAfterSeconds?: number;
+
   constructor(
     public status: number,
     public code: string,
@@ -114,6 +117,7 @@ export function requireModerator(req: FastifyRequest): AdminViewer {
 }
 
 export function sendError(reply: FastifyReply, err: ApiError) {
+  if (err.retryAfterSeconds !== undefined) reply.header('retry-after', String(err.retryAfterSeconds));
   return reply.status(err.status).send({
     error: { code: err.code, message: err.message, ...(err.field ? { field: err.field } : {}) },
   });

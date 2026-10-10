@@ -12,6 +12,7 @@ import { z } from 'zod';
 import type { FastifyInstance } from 'fastify';
 
 import { config, type Db, type RateLimiter } from '../platform/index.js';
+import { enforceWith, RATE_LIMITS, RateLimits, rateLimitedError } from '../platform/rate-limits.js';
 import { type EmailSender, ConsoleEmailSender } from '../providers/email/index.js';
 import { users, profiles, works, follows, blocks, refreshTokens, emailVerificationTokens, passwordResetTokens, usernameClaims } from '../db/schema.js';
 import { ApiError, requireViewer } from '../http.js';
@@ -268,6 +269,13 @@ import { ActivityService } from '../activity/index.js';
 export class IdentityService {
   private activityService: ActivityService;
 
+  /**
+   * The policy for limits beyond the legacy ones this service always enforced
+   * through `limiter` (Audit 15): today the username-change limit. Set by the
+   * server wiring; default none.
+   */
+  limits: RateLimits = RateLimits.off();
+
   constructor(
     private db: Db,
     private limiter: RateLimiter,
@@ -385,8 +393,7 @@ export class IdentityService {
   }
 
   async login(email: string, password: string, device?: string) {
-    const allowed = await this.limiter.allow(`login:${normaliseEmail(email)}`, 10, 60);
-    if (!allowed) throw ApiError.rateLimited();
+    await enforceWith(this.limiter, 'login', normaliseEmail(email));
 
     const [row] = await this.db
       .select({
@@ -841,8 +848,12 @@ export class IdentityService {
       throw ApiError.unprocessable('invalid_field', parsed.error.issues[0]?.message ?? 'Check that.', 'username');
     }
     try {
-      // The claim trigger (0037) refuses a name another account has or had.
-      await this.db.update(profiles).set({ username }).where(eq(profiles.userId, userId));
+      await this.db.transaction(async (tx) => {
+        const t = tx as unknown as Db;
+        if (this.limits.isOn('username')) await this.#enforceUsernameLimit(t, userId, username);
+        // The claim trigger (0037) refuses a name another account has or had.
+        await t.update(profiles).set({ username }).where(eq(profiles.userId, userId));
+      });
     } catch (err) {
       if (uniqueViolationField(err) === 'username') {
         throw new ApiError(409, 'username_taken', 'That username is taken.', 'username');
@@ -852,6 +863,37 @@ export class IdentityService {
     const updated = await this.getProfile(userId, userId);
     if (!updated) throw ApiError.notFound('Profile not found.');
     return updated;
+  }
+
+  /**
+   * A-13-021: one new username per 30 days (RATE_LIMITS.username). Counted
+   * from the claims table, not a limiter bucket, so only a change that
+   * happened counts (a 409 `username_taken` costs nothing) and taking back a
+   * name the account already holds is always allowed (it reserves nothing
+   * new). The account's first claim (its signup name, or the 0037 backfill)
+   * is not a change. The profile row lock serialises two changes at once.
+   */
+  async #enforceUsernameLimit(t: Db, userId: string, username: string): Promise<void> {
+    const rule = RATE_LIMITS.username;
+    const [row] = await t.execute<{ own: boolean; recent: number; retry: number | null }>(sql`
+      WITH me AS (SELECT user_id FROM profiles WHERE user_id = ${userId}::uuid FOR UPDATE),
+      first AS (
+        SELECT username FROM username_claims WHERE user_id = ${userId}::uuid
+        ORDER BY created_at, username LIMIT 1
+      ),
+      recent AS (
+        SELECT created_at FROM username_claims
+        WHERE user_id = ${userId}::uuid
+          AND created_at > now() - make_interval(secs => ${rule.windowSeconds})
+          AND username <> (SELECT username FROM first)
+      )
+      SELECT
+        EXISTS (SELECT 1 FROM username_claims WHERE username = ${username} AND user_id = ${userId}::uuid) AS own,
+        (SELECT count(*)::int FROM recent) AS recent,
+        (SELECT ceil(extract(epoch FROM min(created_at) + make_interval(secs => ${rule.windowSeconds}) - now()))::int FROM recent) AS retry,
+        (SELECT count(*) FROM me) AS locked`);
+    if (!row || row.own) return;
+    if (Number(row.recent) >= rule.limit) throw rateLimitedError('username', Math.max(1, Number(row.retry ?? rule.windowSeconds)));
   }
 
   async sendVerificationEmail(userId: string, email: string): Promise<void> {
@@ -926,7 +968,8 @@ export class IdentityService {
         )
         .limit(1);
       if (!user) return;
-      if (!(await this.limiter.allow(`resend_verification:${user.id}`, 1, 60))) return;
+      const rule = RATE_LIMITS.resend_verification;
+      if (!(await this.limiter.allow(`resend_verification:${user.id}`, rule.limit, rule.windowSeconds))) return;
       await this.sendVerificationEmail(user.id, user.email);
     } catch {
       // A failed resend must not turn a 409 into a 500 (or reveal anything).
@@ -934,10 +977,7 @@ export class IdentityService {
   }
 
   async resendVerification(userId: string): Promise<{ status: 'ok'; message: string }> {
-    const allowed = await this.limiter.allow(`resend_verification:${userId}`, 1, 60);
-    if (!allowed) {
-      throw ApiError.rateLimited('Please wait a minute before requesting another verification email.');
-    }
+    await enforceWith(this.limiter, 'resend_verification', userId);
 
     const [user] = await this.db
       .select({ id: users.id, email: users.email, emailVerifiedAt: users.emailVerifiedAt })
@@ -957,10 +997,7 @@ export class IdentityService {
 
   async forgotPassword(email: string): Promise<{ status: 'ok'; message: string }> {
     const normalized = normaliseEmail(email);
-    const allowed = await this.limiter.allow(`forgot_pwd:${normalized}`, 5, 900);
-    if (!allowed) {
-      throw ApiError.rateLimited('Too many password reset requests. Please try again later.');
-    }
+    await enforceWith(this.limiter, 'forgot_pwd', normalized);
 
     const [user] = await this.db
       .select({ id: users.id, email: users.email })

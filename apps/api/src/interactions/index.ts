@@ -19,6 +19,7 @@ import type { FastifyPluginAsync } from 'fastify';
 import { and, eq, sql } from 'drizzle-orm';
 import type { Db, RateLimiter } from '../platform/index.js';
 import { PgRateLimiter } from '../platform/index.js';
+import { enforceWith, RATE_LIMITS } from '../platform/rate-limits.js';
 import { reads, readLikes, readComments, profiles } from '../db/schema.js';
 import { ApiError, requireViewer } from '../http.js';
 import { avatarUrl } from '../uploads/index.js';
@@ -43,7 +44,11 @@ export const INTERACTIVE_STATUSES = ['finished', 'dnf'] as const;
 export const INTERACTIVE_VERBS = ['finished', 'dnf', 'reviewed'] as const;
 
 /** PRD §6.28, §11.7, §24 rate-limit table: 5 comments per minute. */
-export const COMMENT_RATE_LIMIT = { limit: 5, windowSeconds: 60 } as const;
+/** PRD §24.4 / §11.7: 5 per minute; the number lives in RATE_LIMITS (Audit 15). */
+export const COMMENT_RATE_LIMIT = {
+  limit: RATE_LIMITS.comments.limit,
+  windowSeconds: RATE_LIMITS.comments.windowSeconds,
+} as const;
 
 export const COMMENT_MAX_LENGTH = 2000;
 
@@ -390,12 +395,7 @@ export class InteractionService {
     }
     // Counted only for comments that would otherwise be written, so a user
     // who fat-fingers a locked thread is not also throttled for it.
-    const allowed = await this.limiter.allow(
-      `comments:${viewer}`,
-      COMMENT_RATE_LIMIT.limit,
-      COMMENT_RATE_LIMIT.windowSeconds,
-    );
-    if (!allowed) throw ApiError.rateLimited('You are commenting too quickly. Try again in a minute.');
+    await enforceWith(this.limiter, 'comments', viewer);
 
     const id = randomUUID();
     const [inserted] = await this.db

@@ -494,7 +494,8 @@ describe('every admin route × {guest, app user, moderator, admin} (FN-91, FN-92
     { method: 'GET', name: '/v1/admin/catalog/works/:a', url: () => `/v1/admin/catalog/works/${workA}`, expect: [401, 401, 200, 200] },
     { method: 'POST', name: '/v1/admin/catalog/works/:a/maturity', url: () => `/v1/admin/catalog/works/${workA}/maturity`, payload: () => ({ maturity: 'general', reason: 'matrix' }), expect: [401, 401, 403, 200] },
     { method: 'GET', name: '/v1/admin/ingest/status', url: () => '/v1/admin/ingest/status', expect: [401, 401, 200, 200] },
-    { method: 'GET', name: '/admin/telemetry/budgets', url: () => '/admin/telemetry/budgets', expect: [401, 401, 200, 200] },
+    // Audit 15 (A-15-001): the telemetry plugin is mounted under /v1 now; at the root it was 404 for the client.
+    { method: 'GET', name: '/v1/admin/telemetry/budgets', url: () => '/v1/admin/telemetry/budgets', expect: [401, 401, 200, 200] },
   ];
   const roles = ['guest', 'user', 'moderator', 'admin'] as const;
 

@@ -137,6 +137,8 @@ export class FlyleafApiError extends Error {
     message: string,
     public field?: string,
     public status?: number,
+    /** From `Retry-After` on a 429: how long the server asks the client to wait (Audit 15). */
+    public retryAfterSeconds?: number,
   ) {
     super(message);
     this.name = 'FlyleafApiError';
@@ -208,11 +210,13 @@ export class FlyleafClient {
 
     if (!res.ok) {
       const err = (body as ApiErrorResponse | null)?.error;
+      const retryAfter = Number(res.headers?.get?.('retry-after'));
       throw new FlyleafApiError(
         err?.code ?? 'unknown_error',
         err?.message ?? `Request failed with status ${res.status}`,
         err?.field,
         res.status,
+        Number.isFinite(retryAfter) && retryAfter > 0 ? retryAfter : undefined,
       );
     }
 

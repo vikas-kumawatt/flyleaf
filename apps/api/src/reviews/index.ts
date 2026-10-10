@@ -5,6 +5,7 @@
 //   - PRD §10.1–§10.7 (Review ranking algorithm, content requirements, likes)
 //   - Architecture §3.1, §3.5, §3.7 (reviews, read_likes, follows tables)
 
+import { RateLimits } from '../platform/rate-limits.js';
 import { sql, eq, and, desc, asc, isNull, inArray, type SQL } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import type { Cache, Db } from '../platform/index.js';
@@ -474,6 +475,8 @@ export class ReviewService {
   constructor(
     private readonly db: Db,
     private readonly cache?: Cache,
+    /** PRD §10.6 review limits (Audit 15). Default: none, as before. */
+    private readonly limits: RateLimits = RateLimits.off(),
   ) {}
 
   /**
@@ -537,6 +540,12 @@ export class ReviewService {
       // Publishing a review (new, or reviving a deleted one) needs a verified
       // email (D-04-1); editing a live review does not. Checked before any write.
       if (!live) await requireVerified(tx, userId);
+      // PRD §10.6: 10 reviews an hour, 30 a day. Publishing (new or revived)
+      // counts; an edit is a Write (§24.4), counted by the route hook.
+      if (!live) {
+        await this.limits.enforce('reviews:hour', userId, tx as unknown as Db);
+        await this.limits.enforce('reviews:day', userId, tx as unknown as Db);
+      }
 
       const spoilers = resolveSpoilers(input, live, read.page_count);
       const visibility = input.visibility ?? (live?.visibility as Visibility | undefined) ?? 'public';
@@ -1043,8 +1052,8 @@ export class ReviewService {
 /**
  * Fastify routes plugin for ratings and reviews.
  */
-export async function reviewsPlugin(app: FastifyInstance, opts: { db: Db; cache?: Cache }) {
-  const service = new ReviewService(opts.db, opts.cache);
+export async function reviewsPlugin(app: FastifyInstance, opts: { db: Db; cache?: Cache; limits?: RateLimits }) {
+  const service = new ReviewService(opts.db, opts.cache, opts.limits);
 
   // POST /v1/reads/:id/review — write or edit a review for a read
   app.post<{

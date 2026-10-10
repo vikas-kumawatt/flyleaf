@@ -180,6 +180,20 @@ export async function waitForDb(db: Db, attempts = 15): Promise<void> {
 export interface RateLimiter {
   /** Returns true when the action is allowed. */
   allow(bucket: string, limit: number, windowSeconds: number): Promise<boolean>;
+  /**
+   * The same check, with what a 429 needs: the count so far in this window and
+   * the seconds until it ends (Retry-After). Optional so a test double can
+   * implement `allow` alone (then Retry-After is the whole window).
+   */
+  hit?(bucket: string, limit: number, windowSeconds: number): Promise<RateLimitHit>;
+}
+
+export interface RateLimitHit {
+  allowed: boolean;
+  /** Attempts counted in the current window, this one included. */
+  count: number;
+  /** Seconds until the window ends (≥ 1). */
+  retryAfterSeconds: number;
 }
 
 export interface Cache {
@@ -230,19 +244,33 @@ export class PgRateLimiter implements RateLimiter {
   constructor(private db: Db) {}
 
   async allow(bucket: string, limit: number, windowSeconds: number): Promise<boolean> {
-    const rows = await this.db.execute<{ count: number }>(sql`
-      INSERT INTO rate_limits (bucket, count, window_start)
-      VALUES (${bucket}, 1, now())
+    return (await this.hit(bucket, limit, windowSeconds)).allowed;
+  }
+
+  /**
+   * One upsert: a fixed window per bucket, restarted when it has ended.
+   * `expires_at` is when the window ends, so the nightly sweep can delete
+   * finished buckets whatever their length (Audit 15, A-04-022).
+   */
+  async hit(bucket: string, limit: number, windowSeconds: number): Promise<RateLimitHit> {
+    const rows = await this.db.execute<{ count: number; retry: number }>(sql`
+      INSERT INTO rate_limits (bucket, count, window_start, expires_at)
+      VALUES (${bucket}, 1, now(), now() + make_interval(secs => ${windowSeconds}))
       ON CONFLICT (bucket) DO UPDATE SET
         count = CASE
           WHEN rate_limits.window_start < now() - make_interval(secs => ${windowSeconds})
           THEN 1 ELSE rate_limits.count + 1 END,
         window_start = CASE
           WHEN rate_limits.window_start < now() - make_interval(secs => ${windowSeconds})
-          THEN now() ELSE rate_limits.window_start END
-      RETURNING count
+          THEN now() ELSE rate_limits.window_start END,
+        expires_at = CASE
+          WHEN rate_limits.window_start < now() - make_interval(secs => ${windowSeconds})
+          THEN now() + make_interval(secs => ${windowSeconds})
+          ELSE rate_limits.window_start + make_interval(secs => ${windowSeconds}) END
+      RETURNING count,
+        greatest(1, ceil(extract(epoch FROM (expires_at - now()))))::int AS retry
     `);
     const count = Number(rows[0]?.count ?? 1);
-    return count <= limit;
+    return { allowed: count <= limit, count, retryAfterSeconds: Number(rows[0]?.retry ?? windowSeconds) };
   }
 }

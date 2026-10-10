@@ -36,7 +36,8 @@ import { exportsPlugin } from './exports/index.js';
 import { socialPlugin } from './social/index.js';
 import { activityPlugin } from './activity/index.js';
 import { interactionsPlugin } from './interactions/index.js';
-import type { Cache, RateLimiter } from './platform/index.js';
+import { PgRateLimiter, type Cache, type RateLimiter } from './platform/index.js';
+import { RateLimits, registerRateLimitHook, type LimitGroup } from './platform/rate-limits.js';
 import type { EmailSender } from './providers/email/index.js';
 import { queryCountingEnabled, registerQueryCounter } from './bench/query-counter.js';
 import { registerSwagger } from './contract/index.js';
@@ -323,6 +324,12 @@ export interface BuildAppOptions {
   cache?: Cache;
   /** Shared limiter for write throttles (comments). Defaults to Postgres-backed. */
   limiter?: RateLimiter;
+  /**
+   * The rate-limit policy (Audit 15). Default: the limits that existed before
+   * Part 15 only (LEGACY_LIMITS, on the `limiter` above). Production passes
+   * one with every limit on (`server-wiring.ts`).
+   */
+  rateLimits?: RateLimits;
   logger?: FastifyServerOptions['logger'];
   /** Off by default: see `parseTrustProxy` in platform. */
   trustProxy?: FastifyServerOptions['trustProxy'];
@@ -334,6 +341,53 @@ export interface BuildAppOptions {
   spec?: boolean;
   /** What /.well-known serves for App Links (D-07-1). Default: from the environment. */
   appLinks?: AppLinks;
+}
+
+/** Routes whose group is not the default for their method (Audit 15, §1). */
+const ROUTE_LIMIT_GROUPS: Record<string, readonly LimitGroup[]> = {
+  // PRD §24.4 Auth endpoints a guest can call.
+  'POST /v1/auth/register': ['auth'],
+  'POST /v1/auth/login': ['auth'],
+  'POST /v1/auth/refresh': ['auth'],
+  'POST /v1/auth/logout': ['auth'],
+  'POST /v1/auth/forgot-password': ['auth'],
+  'POST /v1/auth/reset-password': ['auth'],
+  'POST /v1/auth/verify-email': ['auth'],
+  'GET /verify-email': ['auth'],
+  'POST /verify-email': ['auth'],
+  'GET /reset-password': ['auth'],
+  'POST /reset-password': ['auth'],
+  'POST /v1/admin/auth/login': ['auth'],
+  'POST /admin/login': ['auth'],
+  // Auth endpoints that need a session.
+  'POST /v1/auth/logout-all': ['auth-account'],
+  'POST /v1/auth/resend-verification': ['auth-account'],
+  'GET /v1/auth/sessions': ['auth-account'],
+  'DELETE /v1/auth/sessions/:id': ['auth-account'],
+  'POST /v1/me/date-of-birth': ['auth-account'],
+  'PATCH /v1/me/username': ['auth-account'],
+  'POST /v1/admin/auth/2fa/setup': ['auth-account'],
+  'POST /v1/admin/auth/2fa/verify': ['auth-account'],
+  'POST /v1/admin/auth/logout': ['auth-account'],
+  'POST /admin/logout': ['auth-account'],
+  'GET /v1/auth/username-available': ['username-check'],
+  'GET /v1/search': ['search'],
+  'POST /v1/reads/:id/progress': ['progress'],
+  'POST /v1/events': ['events'],
+};
+
+const UNSAFE_METHODS = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
+
+/**
+ * The rate-limit groups of a route: its entry above, else **writes** for any
+ * state-changing method (PRD §24.4 "Writes (reads, reviews, shelves)": every
+ * POST/PUT/PATCH/DELETE counts, so a route added later is covered without an
+ * entry), else none (reads are under the Global tier only).
+ */
+export function routeLimitGroups(method: string, url: string): readonly LimitGroup[] {
+  const explicit = ROUTE_LIMIT_GROUPS[`${method} ${url}`];
+  if (explicit) return explicit;
+  return UNSAFE_METHODS.has(method) ? ['writes'] : [];
 }
 
 /**
@@ -370,11 +424,26 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
   // so the auth hook's queries are counted.
   if (queryCountingEnabled) registerQueryCounter(app);
 
+  // Rate limits (Audit 15, §1). Every route gets its groups from
+  // `routeLimitGroups` unless it declares its own; the hook then checks the
+  // Global tier and those groups before validation.
+  const limiter = options.limiter ?? (options.db ? new PgRateLimiter(options.db) : { allow: async () => true });
+  const rateLimits = options.rateLimits ?? new RateLimits({ exact: limiter });
+  app.addHook('onRoute', (route) => {
+    const methods = Array.isArray(route.method) ? route.method : [route.method];
+    route.config = { ...route.config };
+    if (route.url === '/healthz' || route.url === '/readyz') route.config.noGlobalLimit = true;
+    if (route.config.limits === undefined) route.config.limits = routeLimitGroups(methods[0] ?? 'GET', route.url);
+  });
+
   registerCoreHooks(app, {
     identityLookup: options.identity ? (token) => options.identity!.lookup(token) : undefined,
     adminLookup: options.db ? (token) => lookupAdmin(options.db!, token) : undefined,
     errorReporter: options.errorReporter,
   });
+
+  // After the auth hook (it needs the viewer), before validation.
+  registerRateLimitHook(app, rateLimits);
 
   if (options.db) {
     const db = options.db;
@@ -425,35 +494,41 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
     await app.register(readingRoutes(options.reading), { prefix: '/v1' });
   }
   if (options.db) {
-    await app.register(reviewsPlugin, { db: options.db, cache: options.cache });
+    await app.register(reviewsPlugin, { db: options.db, cache: options.cache, limits: rateLimits });
     await app.register(interactionsPlugin, {
       prefix: '/v1',
       db: options.db,
-      limiter: options.limiter,
+      limiter,
     });
     await app.register(adminAuthRoutes(options.db));
     await app.register(adminDedupeRoutes(options.db));
     await app.register(adminCatalogRoutes(options.db));
-    await app.register(telemetryRoutes(options.db));
+    // Under /v1 like every API route: the app posts to /v1/events and the
+    // client reads /v1/admin/telemetry/budgets. Mounted at the root, both
+    // were 404 in production, and every test mounted the plugin under /v1
+    // itself, so none saw it (Audit 15, A-15-001).
+    await app.register(telemetryRoutes(options.db), { prefix: '/v1' });
     await app.register(shelvesPlugin, { prefix: '/v1', db: options.db });
     await app.register(shelvesWebPlugin, { db: options.db });
-    await app.register(importsPlugin, { prefix: '/v1', db: options.db, boss: options.boss });
+    await app.register(importsPlugin, { prefix: '/v1', db: options.db, boss: options.boss, limits: rateLimits });
     if (options.storage) {
       const storage = options.storage;
       // disk/memory only: the signed route that stands in for a provider.
       if (storage instanceof LocalObjectStorage) await app.register(localStorageRoutes(storage));
-      await app.register(uploadsPlugin, { prefix: '/v1', db: options.db, storage });
+      await app.register(uploadsPlugin, { prefix: '/v1', db: options.db, storage, limits: rateLimits });
       await app.register(exportsPlugin, {
         prefix: '/v1',
         db: options.db,
         boss: options.boss,
         storage,
         mailer: options.mailer,
+        limits: rateLimits,
       });
     }
     await app.register(socialPlugin, {
       prefix: '/v1',
       db: options.db,
+      limits: rateLimits,
     });
     await app.register(activityPlugin, {
       prefix: '/v1',

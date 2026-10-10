@@ -5,6 +5,7 @@
 // secure download links, and redirects an authorized download to a short-lived
 // object-storage URL (PV-02): the API never streams the file itself.
 
+import { RateLimits } from '../platform/rate-limits.js';
 import crypto from 'node:crypto';
 import type { FastifyPluginAsync } from 'fastify';
 import { eq, desc, and } from 'drizzle-orm';
@@ -84,6 +85,9 @@ export interface CreateExportInput {
 }
 
 export class ExportService {
+  /** PRD §24.4 Export 2/day (Audit 15). Set by the plugin; default none, as before. */
+  limits: RateLimits = RateLimits.off();
+
   constructor(
     private db: Db,
     private storage: ObjectStorage,
@@ -103,6 +107,7 @@ export class ExportService {
     }
 
     const format = rawFormat as ExportFormat;
+    await this.limits.enforce('exports', userId);
     const expiresAt = new Date(Date.now() + EXPORT_LINK_TTL_MS);
 
     // The row and its job in one transaction (A-12-020, as A-PV-004 for
@@ -317,6 +322,7 @@ export interface ExportsPluginOptions {
   storage: ObjectStorage;
   mailer?: EmailSender;
   boss?: PgBoss;
+  limits?: RateLimits;
 }
 
 /**
@@ -325,6 +331,7 @@ export interface ExportsPluginOptions {
 export const exportsPlugin: FastifyPluginAsync<ExportsPluginOptions> = async (fastify, opts) => {
   const mailer = opts.mailer ?? new ConsoleEmailSender();
   const service = new ExportService(opts.db, opts.storage, mailer, opts.boss);
+  if (opts.limits) service.limits = opts.limits;
 
   // POST /v1/exports (PRD §3424, IM-10)
   fastify.post(

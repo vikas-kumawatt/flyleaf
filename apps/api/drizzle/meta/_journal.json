@@ -267,6 +267,20 @@
       "when": 1789200000000,
       "tag": "0037_slug_history",
       "breakpoints": true
+    },
+    {
+      "idx": 38,
+      "version": "7",
+      "when": 1789210000000,
+      "tag": "0038_rate_limit_expiry",
+      "breakpoints": true
+    },
+    {
+      "idx": 39,
+      "version": "7",
+      "when": 1789220000000,
+      "tag": "0039_popular_feed",
+      "breakpoints": true
     }
   ]
 }

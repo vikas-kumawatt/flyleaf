@@ -151,7 +151,11 @@ describe('A-14-001: cursor pagination serves every eligible activity exactly onc
     const pages = await walk(null, 'tab=popular&limit=20');
     const seen = pages.flatMap((p) => p.items.flatMap(idsOf));
     expect(seen.length).toBe(new Set(seen).size);
-    for (const id of expected) expect(seen).toContain(id);
+    // D-14-1 (owner, 2026-10-10; Audit 15): Popular is reviews and finishes
+    // only, so the walk serves exactly those of the stream (was: every card).
+    const popular = await db.select({ id: activity.id }).from(activity)
+      .where(and(inArray(activity.id, expected), inArray(activity.verb, ['reviewed', 'finished'])));
+    expect([...seen].filter((id) => expected.includes(id)).sort()).toEqual(popular.map((r) => r.id).sort());
   });
 
   it('a malformed cursor is 400 invalid_cursor, not page 1 again', async () => {
