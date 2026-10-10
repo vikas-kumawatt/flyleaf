@@ -76,3 +76,10 @@ Your final chat message is that summary, shortened.
 - **Retention:** deleted accounts' `uploads/<user>/` and `exports/<user>/` objects (A-PV-008, unchanged); `import_rows.raw` holds the whole file row by row after the file itself is deleted at 30 days (D-PV-3), so decide how long rows of a finished import stay (proposal: with the import, until the account is deleted; the review queue needs them).
 - **Perf comparison (laptop):** `npx tsx src/bench/import-cost.ts --rows 5000 --export` against `flyleaf` (matching at full catalog scale) and `flyleaf_dev`; apply migration 0035 to `flyleaf_dev` with the other audit migrations.
 - **§9.7 manipulation (with SL-62b):** an import can bulk-add ratings from a new or unverified account; their reviews are hidden until verification (D-05-3), their ratings are not. Decide with the §9.7 fast-follow.
+
+## Handed over from Part 14 (see `findings/14-feed.md`)
+
+- **Perf comparison (laptop):** `npm run bench -- --only feed` against `flyleaf_dev` (API with `BENCH_COUNT_QUERIES=1`) and `EXPLAIN (ANALYZE, BUFFERS)` of the friends query for `heavy`; Part 14's numbers are sandbox, synthetic. Record whether the §12.7 trigger (feed p95 > 200 ms) is hit. Part 14 adds **no migration**.
+- **Planning cost:** each feed statement spends ~5–8 ms planning (~10 relations); consider named prepared statements in the driver, platform-wide.
+- **PGlite timestamps have millisecond resolution** (A-14-020): any cursor test on PGlite cannot catch a precision bug. Sweep the remaining cursors against a real server.
+- **D-14-1** (what makes Popular popular) if the owner has decided by then.
