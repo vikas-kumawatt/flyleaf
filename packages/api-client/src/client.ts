@@ -94,6 +94,7 @@ import type {
   ReorderShelfResponse,
   SaveShelfResponse,
   SavedShelvesResponse,
+  DeletedShelvesResponse,
   BrowseShelvesQuery,
   BrowseShelvesResponse,
   UserShelvesResponse,
@@ -838,10 +839,23 @@ export class FlyleafClient {
     });
   }
 
-  async getSavedShelves(): Promise<SavedShelvesResponse> {
-    return this.request<SavedShelvesResponse>('/shelves/saved', {
+  async getSavedShelves(params?: { limit?: number; offset?: number }): Promise<SavedShelvesResponse> {
+    const q = new URLSearchParams();
+    if (params?.limit != null) q.set('limit', String(params.limit));
+    if (params?.offset != null) q.set('offset', String(params.offset));
+    const qs = q.toString() ? `?${q.toString()}` : '';
+    return this.request<SavedShelvesResponse>(`/shelves/saved${qs}`, {
       method: 'GET',
     });
+  }
+
+  /** The viewer's shelves deleted in the last 30 days (restorable). */
+  async getDeletedShelves(): Promise<DeletedShelvesResponse> {
+    return this.request<DeletedShelvesResponse>('/shelves/deleted', { method: 'GET' });
+  }
+
+  async restoreShelf(id: string): Promise<ShelfResponse> {
+    return this.request<ShelfResponse>(`/shelves/${encodeURIComponent(id)}/restore`, { method: 'POST' });
   }
 
   async browseShelves(params?: BrowseShelvesQuery): Promise<BrowseShelvesResponse> {

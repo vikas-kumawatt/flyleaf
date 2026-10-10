@@ -9367,7 +9367,8 @@ paths:
       tags:
         - Shelves
       description: Creates a user-curated shelf with name, description, privacy, and
-        ranked list toggle (SH-02).
+        ranked list toggle (SH-02). 409 shelf_limit_reached at 200 live shelves
+        (PRD §15.6).
       requestBody:
         required: true
         content:
@@ -9505,6 +9506,30 @@ paths:
                 required:
                   - error
         "401":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      code:
+                        type: string
+                        description: Machine-readable error code
+                      message:
+                        type: string
+                        description: Human-readable error description
+                      field:
+                        type: string
+                        description: Invalid field name if applicable
+                    required:
+                      - code
+                      - message
+                required:
+                  - error
+        "409":
           description: Default Response
           content:
             application/json:
@@ -9671,7 +9696,25 @@ paths:
       summary: List shelves saved by viewer
       tags:
         - Shelves
-      description: Returns shelves saved/bookmarked by the authenticated user (SH-07).
+      description: Returns shelves saved/bookmarked by the authenticated user, newest
+        save first, paged (SH-07). Shelves the viewer can no longer see are left
+        out.
+      parameters:
+        - schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 50
+          in: query
+          name: limit
+          required: false
+        - schema:
+            type: integer
+            minimum: 0
+            default: 0
+          in: query
+          name: offset
+          required: false
       responses:
         "200":
           description: Default Response
@@ -9758,9 +9801,315 @@ paths:
                         - save_count
                         - created_at
                         - owner
+                  total:
+                    type: integer
+                    minimum: 0
+                required:
+                  - shelves
+                  - total
+        "401":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      code:
+                        type: string
+                        description: Machine-readable error code
+                      message:
+                        type: string
+                        description: Human-readable error description
+                      field:
+                        type: string
+                        description: Invalid field name if applicable
+                    required:
+                      - code
+                      - message
+                required:
+                  - error
+  /shelves/deleted:
+    get:
+      summary: List my recently deleted shelves
+      tags:
+        - Shelves
+      description: The viewer's shelves deleted in the last 30 days, which can still
+        be restored (PRD §15.6).
+      responses:
+        "200":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  shelves:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: string
+                          format: uuid
+                        user_id:
+                          type: string
+                          format: uuid
+                        name:
+                          type: string
+                        slug:
+                          type: string
+                        description:
+                          type:
+                            - "null"
+                            - string
+                        is_ranked:
+                          type: boolean
+                        privacy:
+                          type: string
+                          enum:
+                            - public
+                            - followers
+                            - private
+                        cover_work_ids:
+                          type: array
+                          items:
+                            type: string
+                            format: uuid
+                        cover_ids:
+                          type: array
+                          items:
+                            type:
+                              - "null"
+                              - integer
+                        item_count:
+                          type: integer
+                        save_count:
+                          type: integer
+                        is_saved:
+                          type: boolean
+                        created_at:
+                          type: string
+                          format: date-time
+                        owner:
+                          type: object
+                          properties:
+                            id:
+                              type: string
+                              format: uuid
+                            username:
+                              type: string
+                            displayName:
+                              type:
+                                - "null"
+                                - string
+                            avatarKey:
+                              type:
+                                - "null"
+                                - string
+                          required:
+                            - id
+                            - username
+                        deleted_at:
+                          type: string
+                          format: date-time
+                        purge_after:
+                          type: string
+                          format: date-time
+                          description: After this the shelf can no longer be restored.
+                      required:
+                        - id
+                        - user_id
+                        - name
+                        - slug
+                        - is_ranked
+                        - privacy
+                        - cover_work_ids
+                        - item_count
+                        - save_count
+                        - created_at
+                        - owner
+                        - deleted_at
+                        - purge_after
                 required:
                   - shelves
         "401":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      code:
+                        type: string
+                        description: Machine-readable error code
+                      message:
+                        type: string
+                        description: Human-readable error description
+                      field:
+                        type: string
+                        description: Invalid field name if applicable
+                    required:
+                      - code
+                      - message
+                required:
+                  - error
+  /shelves/{id}/restore:
+    post:
+      summary: Restore a deleted shelf
+      tags:
+        - Shelves
+      description: Undoes a delete within 30 days (PRD §15.6). Its feed activity is
+        not restored. 404 for a shelf that is not the viewer's, not deleted, or
+        deleted over 30 days ago; 409 at the 200-shelf limit.
+      parameters:
+        - schema:
+            type: string
+            format: uuid
+          in: path
+          name: id
+          required: true
+          description: Resource UUID
+      responses:
+        "200":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  shelf:
+                    type: object
+                    properties:
+                      id:
+                        type: string
+                        format: uuid
+                      user_id:
+                        type: string
+                        format: uuid
+                      name:
+                        type: string
+                      slug:
+                        type: string
+                      description:
+                        type:
+                          - "null"
+                          - string
+                      is_ranked:
+                        type: boolean
+                      privacy:
+                        type: string
+                        enum:
+                          - public
+                          - followers
+                          - private
+                      cover_work_ids:
+                        type: array
+                        items:
+                          type: string
+                          format: uuid
+                      cover_ids:
+                        type: array
+                        items:
+                          type:
+                            - "null"
+                            - integer
+                      item_count:
+                        type: integer
+                      save_count:
+                        type: integer
+                      is_saved:
+                        type: boolean
+                      created_at:
+                        type: string
+                        format: date-time
+                      owner:
+                        type: object
+                        properties:
+                          id:
+                            type: string
+                            format: uuid
+                          username:
+                            type: string
+                          displayName:
+                            type:
+                              - "null"
+                              - string
+                          avatarKey:
+                            type:
+                              - "null"
+                              - string
+                        required:
+                          - id
+                          - username
+                    required:
+                      - id
+                      - user_id
+                      - name
+                      - slug
+                      - is_ranked
+                      - privacy
+                      - cover_work_ids
+                      - item_count
+                      - save_count
+                      - created_at
+                      - owner
+                required:
+                  - shelf
+        "401":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      code:
+                        type: string
+                        description: Machine-readable error code
+                      message:
+                        type: string
+                        description: Human-readable error description
+                      field:
+                        type: string
+                        description: Invalid field name if applicable
+                    required:
+                      - code
+                      - message
+                required:
+                  - error
+        "404":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      code:
+                        type: string
+                        description: Machine-readable error code
+                      message:
+                        type: string
+                        description: Human-readable error description
+                      field:
+                        type: string
+                        description: Invalid field name if applicable
+                    required:
+                      - code
+                      - message
+                required:
+                  - error
+        "409":
           description: Default Response
           content:
             application/json:
@@ -10456,8 +10805,9 @@ paths:
       summary: Add item to shelf
       tags:
         - Shelves
-      description: Appends a book to the shelf with an optional note and position.
-        Only owner can add items.
+      description: Appends a book to the shelf with an optional note, or inserts it at
+        `position` (the items from there down shift). 409 for a book already on
+        the shelf or a full shelf (1,000 books). Only owner can add items.
       requestBody:
         required: true
         content:
@@ -10752,8 +11102,8 @@ paths:
       summary: Update shelf item note or position
       tags:
         - Shelves
-      description: Updates note (up to 280 chars) or position for an existing item on
-        the shelf. Only owner can update.
+      description: Updates the note (up to 280 chars) or moves the item to a position;
+        the other items shift so positions stay 1..n. Only owner can update.
       requestBody:
         required: true
         content:
@@ -10960,8 +11310,9 @@ paths:
       summary: Reorder shelf items
       tags:
         - Shelves
-      description: Updates sequential positions for items in a shelf. Only the shelf
-        owner can reorder items (SH-05).
+      description: Sets positions 1..n in the order given. work_ids must list exactly
+        the books on the shelf (409 order_mismatch otherwise; reload and retry).
+        Only the shelf owner can reorder items (SH-05).
       requestBody:
         required: true
         content:
@@ -10975,6 +11326,7 @@ paths:
                     type: string
                     format: uuid
                   minItems: 1
+                  maxItems: 1000
               required:
                 - work_ids
       parameters:
@@ -11055,6 +11407,30 @@ paths:
                 required:
                   - error
         "404":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      code:
+                        type: string
+                        description: Machine-readable error code
+                      message:
+                        type: string
+                        description: Human-readable error description
+                      field:
+                        type: string
+                        description: Invalid field name if applicable
+                    required:
+                      - code
+                      - message
+                required:
+                  - error
+        "409":
           description: Default Response
           content:
             application/json:

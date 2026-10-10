@@ -339,3 +339,56 @@ describe('Shelf Sharing Helpers (SH-10, PRD §6.34, §15.2, §29.1)', () => {
 
 
 
+
+// ---------------------------------------------------------------- audit 11
+import { fetchAllShelfItems, isAlreadyOnShelf, charLength, findNameCollision } from '../shelfValidation.js';
+
+describe('Audit 11 · shelf helpers', () => {
+  test('fetchAllShelfItems pages by 100 until it has every item (A-11-012)', async () => {
+    const all = Array.from({ length: 250 }, (_, i) => ({ work_id: `w${i}` }));
+    const calls: [number, number][] = [];
+    const items = await fetchAllShelfItems(async ({ limit, offset }) => {
+      calls.push([offset, limit]);
+      return { data: all.slice(offset, offset + limit), total: all.length };
+    });
+    assert.equal(items.length, 250);
+    assert.deepEqual(items.map((i) => i.work_id), all.map((i) => i.work_id));
+    assert.deepEqual(calls, [[0, 100], [100, 100], [200, 100]]);
+    // Never asks for more than the API allows.
+    assert.ok(calls.every(([, limit]) => limit <= 100));
+  });
+
+  test('fetchAllShelfItems stops on a short page even if total is stale', async () => {
+    let n = 0;
+    const items = await fetchAllShelfItems(async ({ offset }) => {
+      n++;
+      return { data: offset === 0 ? [{ work_id: 'a' }] : [], total: 5 };
+    });
+    assert.equal(items.length, 1);
+    assert.equal(n, 1);
+  });
+
+  test('isAlreadyOnShelf: a duplicate add means the book is on the shelf (A-11-025)', () => {
+    assert.equal(isAlreadyOnShelf({ status: 409, code: 'duplicate_shelf_item' }), true);
+    assert.equal(isAlreadyOnShelf({ status: 409, code: 'shelf_full' }), false);
+    assert.equal(isAlreadyOnShelf(new Error('network')), false);
+    assert.equal(isAlreadyOnShelf(null), false);
+  });
+
+  test('name and note limits count characters as the server does (A-11-007)', () => {
+    assert.equal(charLength('📚'.repeat(60)), 60);
+    assert.equal(validateShelfName('📚'.repeat(60)).isValid, true);
+    assert.equal(validateShelfName('📚'.repeat(61)).isValid, false);
+    assert.equal(validateShelfForm({ name: '📚'.repeat(60) }).isValid, true);
+    assert.equal(validateShelfNote('é'.repeat(280)).isValid, true);
+    assert.equal(validateShelfNote('📚'.repeat(280)).isValid, true);
+    assert.equal(validateShelfNote('📚'.repeat(281)).isValid, false);
+  });
+
+  test('findNameCollision: same name ignoring case and spaces is a collision (A-11-026)', () => {
+    assert.equal(findNameCollision('  comfort READS ', ['Comfort reads', 'Other']), 'Comfort reads');
+    assert.equal(findNameCollision('Comfort', ['Comfort reads']), null);
+    assert.equal(findNameCollision('', ['']), null);
+    assert.equal(findNameCollision('Книги', ['книги']), 'книги');
+  });
+});

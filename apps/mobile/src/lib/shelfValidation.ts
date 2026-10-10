@@ -7,6 +7,14 @@ export interface ShelfFormValues {
   is_ranked: boolean;
 }
 
+/**
+ * Length in characters (code points), as the server and the database count
+ * it. `.length` counts UTF-16 units, so an emoji counted twice (audit 11).
+ */
+export function charLength(s: string): number {
+  return [...s].length;
+}
+
 export interface ShelfFormErrors {
   name?: string;
   description?: string;
@@ -22,11 +30,11 @@ export function validateShelfForm(values: Partial<ShelfFormValues>): {
 
   if (!trimmedName) {
     errors.name = 'Shelf name is required.';
-  } else if (trimmedName.length > 60) {
+  } else if (charLength(trimmedName) > 60) {
     errors.name = 'Shelf name cannot exceed 60 characters.';
   }
 
-  if (values.description && values.description.length > 2000) {
+  if (values.description && charLength(values.description.trim()) > 2000) {
     errors.description = 'Description cannot exceed 2000 characters.';
   }
 
@@ -45,7 +53,7 @@ export function validateShelfForm(values: Partial<ShelfFormValues>): {
 
 export function validateShelfNote(note?: string | null): { isValid: boolean; error?: string } {
   if (!note) return { isValid: true };
-  if (note.length > 280) {
+  if (charLength(note.trim()) > 280) {
     return { isValid: false, error: 'Note cannot exceed 280 characters.' };
   }
   return { isValid: true };
@@ -65,7 +73,7 @@ export function validateShelfName(name?: string | null): { isValid: boolean; err
   if (!trimmed) {
     return { isValid: false, error: 'Shelf name is required.' };
   }
-  if (trimmed.length > 60) {
+  if (charLength(trimmed) > 60) {
     return { isValid: false, error: 'Shelf name cannot exceed 60 characters.' };
   }
   return { isValid: true };
@@ -205,3 +213,44 @@ export function getShelfShareMessage(shelf: {
 
 
 
+
+/** The API's largest page of shelf items. */
+export const SHELF_ITEMS_PAGE = 100;
+
+/**
+ * Every item of a shelf, a page of 100 at a time (the API's maximum; the
+ * reorder screen asked for 200 in one call and got a 422, audit 11 A-11-012).
+ * Stops on a short page, so a stale `total` cannot loop.
+ */
+export async function fetchAllShelfItems<T>(
+  fetchPage: (page: { limit: number; offset: number }) => Promise<{ data: T[]; total: number }>,
+): Promise<T[]> {
+  const all: T[] = [];
+  // A shelf holds at most 1,000 books (PRD §15.6); the bound is a backstop.
+  for (let offset = 0; offset <= 1000; offset += SHELF_ITEMS_PAGE) {
+    const page = await fetchPage({ limit: SHELF_ITEMS_PAGE, offset });
+    all.push(...page.data);
+    if (page.data.length < SHELF_ITEMS_PAGE || all.length >= page.total) break;
+  }
+  return all;
+}
+
+/**
+ * True when an add failed only because the book is already on the shelf:
+ * the state the user asked for, so the optimistic toggle stays on (A-11-025).
+ */
+export function isAlreadyOnShelf(err: unknown): boolean {
+  return Boolean(err && typeof err === 'object' && (err as { code?: unknown }).code === 'duplicate_shelf_item');
+}
+
+/**
+ * The existing shelf name a new name collides with (same letters, ignoring
+ * case and surrounding space), or null. PRD §6.35: a collision is allowed but
+ * warned (audit 11, A-11-026).
+ */
+export function findNameCollision(name: string, existing: readonly string[]): string | null {
+  const key = (s: string) => s.trim().normalize('NFC').toLocaleLowerCase();
+  const k = key(name);
+  if (!k) return null;
+  return existing.find((e) => key(e) === k) ?? null;
+}

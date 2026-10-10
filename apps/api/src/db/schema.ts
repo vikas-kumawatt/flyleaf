@@ -857,6 +857,12 @@ export const shelves = pgTable('shelves', {
   index('shelves_user_idx').on(t.userId, t.createdAt),
   index('shelves_privacy_idx').on(t.privacy),
   index('shelves_save_count_idx').on(t.saveCount),
+  // Audit 11 (0034).
+  check('shelves_name_not_blank_ck', sql`char_length(btrim(${t.name})) >= 1`),
+  check('shelves_description_length_ck', sql`${t.description} IS NULL OR char_length(${t.description}) <= 2000`),
+  index('shelves_name_trgm_idx').using('gin', sql`${t.name} gin_trgm_ops`),
+  index('shelves_description_trgm_idx').using('gin', sql`${t.description} gin_trgm_ops`),
+  index('shelves_deleted_idx').on(t.userId, t.deletedAt.desc()).where(sql`${t.deletedAt} IS NOT NULL`),
 ]);
 
 export const shelfItems = pgTable('shelf_items', {
@@ -871,6 +877,7 @@ export const shelfItems = pgTable('shelf_items', {
   check('shelf_items_note_length_ck', sql`${t.note} IS NULL OR char_length(${t.note}) <= 280`),
   index('shelf_items_order_idx').on(t.shelfId, t.position),
   index('shelf_items_work_idx').on(t.workId),
+  index('shelf_items_noted_idx').on(t.shelfId).where(sql`${t.note} IS NOT NULL`), // audit 11 (0034)
 ]);
 
 export const shelfSaves = pgTable('shelf_saves', {

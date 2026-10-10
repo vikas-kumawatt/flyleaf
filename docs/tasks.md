@@ -542,6 +542,7 @@
   - Denormalized counter triggers: `update_shelf_item_count_and_covers()` maintaining `item_count` and up to 4-cover mosaic `cover_work_ids`, and `update_shelf_save_count()` maintaining `save_count`.
   - Nightly reconciliation procedure `reconcile_shelf_counters()` and scheduled background job `QUEUES.reconcileShelves` (`shelves.reconcile`) in `apps/api/src/jobs/index.ts`.
   - 11 database tests in `apps/api/src/test/shelves-migration.test.ts` and 2 background job tests in `apps/api/src/test/jobs.test.ts`. 100% green CI pipeline on real PostgreSQL.
+  - **Audit (2026-10-10):** ⚠️ — counters were correct, but the row-level trigger recounted the shelf once per changed row (a 1,190-book reorder: 1,190 recounts, 1.56 s → 35 ms as a statement-level trigger in 0034), the reconcile rewrote every shelf nightly and returned nothing (now drift-only, returns the count), and name non-blank / description ≤ 2,000 were API-only (now `NOT VALID` checks); see A-11-010, A-11-021, A-11-023.
 - [x] **SH-02** Create/edit: name, description, privacy, ranked toggle — 1d
   - Backend `ShelvesService` (`create`, `get`, `update`, `delete`, `generateUniqueSlug`) and Fastify route plugin registered at `/v1/shelves`.
   - Enforced per-user unique URL slugs with collision disambiguation (`slug`, `slug-1`, `slug-2`) per PRD §15.2.
@@ -550,6 +551,7 @@
   - Full OpenAPI contract synchronization with schemas in `apps/api/src/contract/schemas.ts`, updated `openapi.yaml` (0 drift), and typed client methods in `@flyleaf/api-client` (`createShelf`, `getShelf`, `updateShelf`, `deleteShelf`).
   - Native mobile screens in `apps/mobile/app/shelf/create.tsx` and `apps/mobile/app/shelf/[id]/edit.tsx` with name (1–60 chars), description (<= 2000 chars), privacy radio picker, ranked toggle with warning confirmation on unranking, and 30-day soft deletion flow.
   - Comprehensive test suite: 12 tests in `apps/api/src/test/shelves.test.ts` and 9 validation unit tests in `apps/mobile/src/lib/__tests__/shelves.test.ts`. CI pipeline 100% green.
+  - **Audit (2026-10-10):** ❌ — a privacy change or delete never reached the feed, so a private shelf's books stayed in followers' feeds (P0, fixed); the 30-day soft delete had no way to restore (now `GET /v1/shelves/deleted`, `POST /v1/shelves/:id/restore`, and a Recently deleted screen; purge → Part 15); no 200-shelf cap (fixed); concurrent same-name creates 409'd (fixed); non-Latin names slugged to `shelf` (fixed); renames break share links (DECISION NEEDED); see A-11-001, A-11-003 … A-11-007, A-11-028.
 - [x] **SH-03** Shelf detail: ranked numbering, per-entry notes, mosaic cover — 1.5d
   - Backend `ShelvesService` (`getItems`, `addItem`) and Fastify endpoints `GET /v1/shelves/:id/items` and `POST /v1/shelves/:id/items` with 3-tier privacy authorization (404 on access denial).
   - Enhanced `GET /v1/shelves/:id` resolving `cover_ids` (OpenLibrary integer covers) and viewer save state `is_saved`.
@@ -558,6 +560,7 @@
   - Full OpenAPI contract synchronization with schemas in `apps/api/src/contract/schemas.ts`, updated `openapi.yaml` (0 drift), and typed client methods in `@flyleaf/api-client` (`getShelfItems`, `addShelfItem`).
   - Native Shelf Detail screen in `apps/mobile/app/shelf/[id].tsx` with 4-cover mosaic card preview, ranked numbering pills (`#1..#N`), per-entry notes in styled callouts, owner actions (Edit Shelf), reader actions (Save/Saved toggle, Share), and contextual empty states.
   - Comprehensive test suite: 17 tests in `apps/api/src/test/shelves.test.ts` and 12 mobile unit tests in `apps/mobile/src/lib/__tests__/shelves.test.ts`. CI pipeline 100% green.
+  - **Audit (2026-10-10):** ⚠️ — ratings averaged every attempt and private read (now the work page's `work_stats` value); the app showed only the first 100 books (now pages); ranked numbers had gaps after a removal (now 1..n); see A-11-011, A-11-012, A-11-013.
 - [x] **SH-04** Add-to-shelf from book page, search, long-press — 1d
   - Backend `ShelvesService` (`getMyShelves`, `removeItem`, `updateItem`) and Fastify endpoints:
     - `GET /v1/shelves/mine`: Retrieves viewer's active shelves with optional `?work_id=:uuid` membership filter (`contains_work: boolean`, `item_note: string | null`, `position: number | null`).
@@ -575,6 +578,7 @@
     - Discover search results (`apps/mobile/app/(tabs)/discover.tsx`): `onLongPress` gesture on book cards and bookmark shortcut button.
     - `Card` component (`apps/mobile/src/ui/components.tsx`): `onLongPress` prop support.
   - Comprehensive test suite: 20 tests in `apps/api/src/test/shelves.test.ts` (442 API tests passing) and 14 tests in `apps/mobile/src/lib/__tests__/shelves.test.ts` (66 mobile tests passing). CI pipeline 100% green.
+  - **Audit (2026-10-10):** ❌ — adding the 101st book answered 500 after committing it; no 1,000-book cap; concurrent adds all took position 1 on real Postgres; a duplicate add un-ticked the sheet; a merged work id showed no membership; all fixed; see A-11-002, A-11-003, A-11-009, A-11-014, A-11-025.
 - [x] SH-05 Reorder: drag + **"move to position" alternative** — 1d
   - Backend API: `PUT /v1/shelves/:id/order` taking `{ work_ids: string[] }`, updating `shelf_items.position` sequentially (1..N) within a single transaction, rejecting duplicate work IDs (400), strictly enforcing owner authorization (404 on non-owner/missing), and triggering DB triggers to recompute `cover_work_ids` (4-cover mosaic).
   - Schema & Typed Client: Added `reorderShelfBodySchema` and `reorderShelfResponseSchema` in Fastify contract, regenerated `openapi.yaml` (0 contract drift verified), and exposed `client.reorderShelf(id, { work_ids })` in `@flyleaf/api-client`.
@@ -585,6 +589,7 @@
     - Owner trigger: "Reorder" button on `apps/mobile/app/shelf/[id].tsx` in action row and section header when `item_count >= 2`, auto-reloading shelf data via `useFocusEffect` upon returning.
     - Stack route registered in `apps/mobile/app/_layout.tsx`.
   - Comprehensive test suite: 21 tests in `apps/api/src/test/shelves.test.ts` (443 API tests passing) and 21 tests in `apps/mobile/src/lib/__tests__/shelves.test.ts` (73 mobile tests passing). CI pipeline 100% green.
+  - **Audit (2026-10-10):** ❌ — duplicates were rejected (400), but a partial or padded list was accepted (two books at one rank) at any length, and the reorder screen asked for `limit=200` (422), so it never opened; now the exact set or `409 order_mismatch`, ≤ 1,000 ids, one UPDATE, PATCH position is a move; see A-11-008, A-11-010, A-11-011, A-11-012.
 - [x] SH-06 My shelves grid; three starter suggestions on empty — 1d
   - Mobile Shelves Screen (`apps/mobile/app/(tabs)/shelves.tsx`):
     - Transformed Tab 4 from static placeholder to live user-curated collections screen connected to `api.getMyShelves()`.
@@ -601,6 +606,7 @@
     - Preserved guest mode device shelf (20-book Want-to-Read cap) with contextual auth prompt.
   - Helpers & Starter Definitions (`apps/mobile/src/lib/shelfValidation.ts`):
     - Exported `StarterShelfSuggestion` interface, `STARTER_SHELVES` constant, and `sortShelves<T>()` sorting helper.
+  - **Audit (2026-10-10):** ⚠️ — works; the PRD §6.35 duplicate-name warning was missing (added on create); see A-11-026.
 - [x] SH-07 Save someone's shelf (reference, stays in sync) — 0.5d
   - Backend endpoints & reference semantics (`apps/api/src/shelves/index.ts`):
     - `POST /v1/shelves/:id/save`: Idempotently saves another reader's shelf as a reference record in `shelf_saves(shelf_id, user_id)` (PRD §6.34, §15.6). Rejects self-saves with HTTP 400 (`cannot_save_own_shelf`). Unauthorized viewing returns HTTP 404 to prevent resource enumeration.
@@ -627,6 +633,7 @@
   - Verification:
     - Comprehensive backend integration tests in `apps/api/src/test/shelves.test.ts` (unauthenticated rejection, self-save prohibition, private shelf isolation, idempotency, counter trigger, dynamic book sync verification).
     - 444 API tests passing, 77 mobile tests passing. Full 9-step CI pipeline green.
+  - **Audit (2026-10-10):** ⚠️ — reference sync and dynamic privacy hold; unsave answered 200 with a hidden shelf's save count (P0, now the random-id 404); the saved list was one statement per owner with a fake `@user` fallback, now one statement, paged (`limit`/`offset`/`total`); see A-11-015, A-11-016.
 - [x] **SH-08** Browse public shelves; ranking formula — 1.5d
   - Contract & Schema (`apps/api/src/contract/schemas.ts`):
     - `browseShelvesQuerySchema`: validates optional `query` (max 100 chars), `sort` (`'ranked' | 'popular' | 'recent'`, default `'ranked'`), `limit` (1..50, default 20), and `offset` (minimum 0).
@@ -638,7 +645,7 @@
     - Strictly filters candidate shelves to `privacy = 'public'` and `deleted_at IS NULL`.
     - Guest-accessible: viewer is optional; guests browse with 0 authentication required and `is_saved = false`.
     - Case-insensitive search on `name` and `description` via ILIKE wildcard matching.
-    - Implemented PRD §15.5 multi-signal composite ranking formula:
+    - ~~Implemented PRD §15.5 multi-signal composite ranking formula:~~ Audit 11: the formula below is implemented with `views` = 0 for every shelf (there is no view counter; spec gap, A-11-024), so its `0.20 * log(1 + views)` term contributes nothing. Since audit 11 it is computed in SQL.
       `shelf_score = 0.30 * log(1 + saves) + 0.20 * log(1 + views) + 0.20 * social_proximity_to_owner + 0.15 * curation_quality + 0.15 * freshness`
       - `curation_quality`: boosts annotated shelves (has description +0.25, has notes +0.25, optimal book count 5–100 +0.30, complete covers +0.20) and downranks unannotated raw dumps (>100 items with no notes or empty lists).
       - `social_proximity`: boosts followed creators (1.0) and own shelves (0.5).
@@ -656,6 +663,7 @@
       - Live search for curated lists when search query is active; browse mode shows featured community lists.
   - Verification:
     - 7 dedicated backend integration tests in `apps/api/src/test/shelves.test.ts` verifying public-only filtering, private/followers/soft-deleted exclusion, guest browsing, ILIKE search, PRD §15.5 curation quality ranking, social proximity boosting, popular/recent sorting, pagination, and save state.
+  - **Audit (2026-10-10):** ⚠️ — the `views` term is always 0 (no view counter; spec gap, Part 15); the whole candidate set was loaded and scored in Node (26 statements; now 1, scored in SQL); mutes were ignored, `%`/`_` were wildcards, sorts had no id tie-break (all fixed); 10× plan recorded; see A-11-017 … A-11-020, A-11-024, A-11-032.
 - [x] **SH-09** ⚠️ **Shelf privacy on every read path + tests — 404 not 403, private account hierarchy** — 1d
   - Security Principle & Obscurity (Architecture §4, PRD §15.2, §26.1):
     - Enforced strict 3-tier privacy authorization (`public`, `followers`, `private`) on every read path via centralized `canView()` and `assertCanView()`.
@@ -681,6 +689,7 @@
   - Comprehensive Test Matrix:
     - 20 comprehensive unit tests in `apps/api/src/test/shelves-privacy.test.ts` covering public/followers/private tiers, private account hierarchy, soft-deleted shelves, items endpoint, profile shelves, browse discovery, saved shelves dynamic privacy, and write mutations.
     - 472 API tests passing, 77 mobile tests passing. Full 9-step CI pipeline green.
+  - **Audit (2026-10-10):** ✅ — every read path, both slug aliases, user list, saved, browse and both share pages are in the Part 05 matrix (60/60 re-run); one write leaked (unsave, A-11-015) and two matrix rows were added (unsave of a hidden shelf, restore); see A-11-015.
 - [x] **SH-10** Share a shelf — 1d
   - Canonical Vanity Web URLs & Routing (`apps/api/src/shelves/index.ts`):
     - Added vanity slug resolution: `GET /v1/users/:username/shelves/slug/:slug` (and alias `GET /v1/shelves/by-slug/:username/:slug`) resolving public and authorized shelves by user handle and shelf slug (PRD §15.2, §29.1).
@@ -698,6 +707,7 @@
     - 5 tests in `apps/api/src/test/shelves.test.ts` verifying slug lookups, privacy authorization, and HTML landing pages.
     - 6 unit tests in `apps/mobile/src/lib/__tests__/shelves.test.ts` verifying canonical URL generation and share messages.
     - 477 API tests passing, 83 mobile tests passing. Full 9-gate CI pipeline 100% green.
+  - **Audit (2026-10-10):** ⚠️ — escaping was complete; the base URL was hard-coded, there was no canonical link and no cache policy (fixed); renames and username changes break vanity links (DECISION NEEDED); `https://flyleaf.app/u/…` does not open the app (native, after Part 14); see A-11-022, A-11-028, A-11-030.
 
 **Phase 2 Exit Criteria Verified** (100% complete):
 - [x] A ranked list with notes can be built, reordered and shared (`SH-02`, `SH-03`, `SH-05`, `SH-10`).
@@ -982,7 +992,7 @@
 - [x] SO-15 Feed card types + swipe actions — 0.5d
   - Created feed card helper library `apps/mobile/src/lib/feedCard.ts` for card type resolution (`review`, `finish`, `rated`, `dnf`, `shelved`, `followed`, `started`, `goal_reached`, `quoted`, `editorial`), activity headline formatting (including aggregated cards), and swipe action configuration.
   - Implemented interactive `FeedCard` component (`apps/mobile/src/ui/FeedCard.tsx`) using `Swipeable` from `react-native-gesture-handler`:
-    - **Swipe Right** (reveals left action): Green **"Want to read"** action with bookmark icon, haptics, and toast notification (`POST /v1/shelves/want-to-read/items`).
+    - **Swipe Right** (reveals left action): Green **"Want to read"** action with bookmark icon, haptics, and toast notification (~~`POST /v1/shelves/want-to-read/items`~~ no such route exists; want-to-read is a read status, not a shelf: per D-11-1 the swipe uses `POST /v1/reads {status: 'want'}` only when the viewer has no read of the work, wiring → Part 14).
     - **Swipe Left** (reveals right action): Blue **"Rate & Review"** action with star icon, haptics, and navigation to review composer (`/log?workId=...`).
     - Non-gesture accessibility buttons & overflow shortcuts for VoiceOver/TalkBack and web visitors (PRD §4682).
     - Spoiler blur overlay toggle ("Contains spoilers - Tap to reveal") (PRD §10.4).
