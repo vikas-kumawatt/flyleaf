@@ -532,3 +532,27 @@ describe('SO-12 ranking properties', () => {
     expect(page2.deferred).toEqual([]);
   });
 });
+
+// ---------------------------------------------------------------------------
+describe('A-14-020: the comment thread cursor keeps microseconds', () => {
+  it('walks a thread page by page: every comment once', async () => {
+    const [owner, other] = [await user('co'), await user('cc')];
+    const read = await makeRead(db, owner.id, await makeWork(db, 'Talked about'));
+    const posted: string[] = [];
+    for (let i = 0; i < 7; i++) {
+      const res = await app.inject({ method: 'POST', url: `/v1/reads/${read}/comments`, headers: (i % 2 ? owner : other).auth, payload: { body: `c${i}` } });
+      expect(res.statusCode).toBe(201);
+      posted.push(res.json().id);
+    }
+    const seen: string[] = [];
+    let cursor: string | null = null;
+    for (let i = 0; i < 10; i++) {
+      const res: any = await app.inject({ method: 'GET', url: `/v1/reads/${read}/comments?limit=2${cursor ? `&cursor=${cursor}` : ''}`, headers: owner.auth });
+      expect(res.statusCode).toBe(200);
+      seen.push(...res.json().comments.map((c: any) => c.id));
+      cursor = res.json().next_cursor;
+      if (!cursor) break;
+    }
+    expect(seen).toEqual(posted);
+  });
+});
