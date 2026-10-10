@@ -107,9 +107,37 @@ export interface SwipeActionConfig {
   type: 'want_to_read' | 'rate_and_review';
   label: string;
   icon: 'bookmark' | 'star';
-  color: string;
-  backgroundColor: string;
+  /** Theme token names (design rule: no hard-coded colours; audit 14, A-14-014). */
+  color: 'surface';
+  backgroundColor: 'positive' | 'accent';
   workId: string | null;
+}
+
+/** The never-empty fallback card (PRD §12.5): no profile, no like, no swipe. */
+export function isEditorial(item: FeedActivityItem): boolean {
+  return Boolean(item.metadata?.is_editorial);
+}
+
+/**
+ * The review text a card shows. The API writes `snippet` (the first 200
+ * characters) on review cards; the older names are kept for fixtures.
+ */
+export function cardText(item: FeedActivityItem): string | null {
+  const meta = item.metadata ?? {};
+  const text = meta.snippet ?? meta.review_text ?? meta.review_body ?? meta.text ?? meta.description;
+  return typeof text === 'string' && text.trim() !== '' ? text : null;
+}
+
+/** Spoiler flag: the API writes `hasSpoilers` on review cards (audit 14, A-14-013). */
+export function cardHasSpoilers(item: FeedActivityItem): boolean {
+  const meta = item.metadata ?? {};
+  return Boolean(meta.hasSpoilers ?? meta.has_spoilers);
+}
+
+/** The shelf name: the shelves service writes `shelfName`; aggregates carry `shelf_name`. */
+function shelfNameOf(meta: Record<string, any>): string | null {
+  const name = meta.shelf_name ?? meta.shelfName;
+  return typeof name === 'string' && name !== '' ? name : null;
 }
 
 /**
@@ -123,7 +151,7 @@ export function getCardType(item: FeedActivityItem): FeedCardType {
   const meta = item.metadata ?? {};
   const verb = item.verb;
 
-  if (verb === 'reviewed' || (verb === 'finished' && (meta.review_text || meta.review_body))) {
+  if (verb === 'reviewed' || (verb === 'finished' && (meta.snippet || meta.review_text || meta.review_body))) {
     return 'review';
   }
   if (verb === 'finished') {
@@ -171,7 +199,8 @@ export function formatActivityHeadline(item: FeedActivityItem): string {
       return `followed ${count} ${count === 1 ? 'reader' : 'readers'}`;
     }
     if (item.verb === 'shelved') {
-      const shelfName = meta.shelf_name ? ` "${meta.shelf_name}"` : '';
+      const name = shelfNameOf(meta);
+      const shelfName = name ? ` "${name}"` : '';
       return `added ${count} ${count === 1 ? 'book' : 'books'} to${shelfName}`;
     }
     if (item.verb === 'started') {
@@ -188,14 +217,18 @@ export function formatActivityHeadline(item: FeedActivityItem): string {
       return `rated ${meta.rating ?? ''} ★`.trim();
     case 'dnf':
       return "DNF'd";
-    case 'shelved':
-      return meta.shelf_name ? `added to "${meta.shelf_name}"` : 'shelved a book';
+    case 'shelved': {
+      const name = shelfNameOf(meta);
+      return name ? `added to "${name}"` : 'shelved a book';
+    }
     case 'followed':
-      return 'followed a reader';
+      // The API names the target (audit 14, A-14-004).
+      return meta.target_username ? `followed @${meta.target_username}` : 'followed a reader';
     case 'started':
       return 'started reading';
     case 'goal_reached':
-      return `reached 2026 reading goal! 🎉`;
+      // The goal's year, not a year written into the code.
+      return `reached ${meta.year ?? new Date(item.created_at).getUTCFullYear()} reading goal! 🎉`;
     case 'quoted':
       return 'saved a quote';
     default:
@@ -207,6 +240,7 @@ export function formatActivityHeadline(item: FeedActivityItem): string {
   * Resolves Swipe Right action configuration ("Want to read").
   */
 export function getSwipeRightAction(item: FeedActivityItem): SwipeActionConfig | null {
+  if (isEditorial(item)) return null;
   const workId = item.work_id || item.metadata?.work_id || null;
   if (!workId) return null;
 
@@ -214,8 +248,8 @@ export function getSwipeRightAction(item: FeedActivityItem): SwipeActionConfig |
     type: 'want_to_read',
     label: 'Want to read',
     icon: 'bookmark',
-    color: '#FFFFFF',
-    backgroundColor: '#10B981', // Success Emerald / Accent
+    color: 'surface',
+    backgroundColor: 'positive',
     workId,
   };
 }
@@ -224,6 +258,7 @@ export function getSwipeRightAction(item: FeedActivityItem): SwipeActionConfig |
   * Resolves Swipe Left action configuration ("Rate & Review").
   */
 export function getSwipeLeftAction(item: FeedActivityItem): SwipeActionConfig | null {
+  if (isEditorial(item)) return null;
   const workId = item.work_id || item.metadata?.work_id || null;
   if (!workId) return null;
 
@@ -231,8 +266,8 @@ export function getSwipeLeftAction(item: FeedActivityItem): SwipeActionConfig | 
     type: 'rate_and_review',
     label: 'Rate & Review',
     icon: 'star',
-    color: '#FFFFFF',
-    backgroundColor: '#3B82F6', // Primary Blue
+    color: 'surface',
+    backgroundColor: 'accent',
     workId,
   };
 }

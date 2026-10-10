@@ -1,6 +1,6 @@
 // FeedCard component supporting all activity card types and swipe actions (SO-15, PRD §12.2, §46.2).
 
-import React, { useState } from 'react';
+import React, { useRef, useState } from 'react';
 import { View, Pressable, StyleSheet, Animated as RNAnimated } from 'react-native';
 import { Swipeable } from 'react-native-gesture-handler';
 import { Ionicons } from '@expo/vector-icons';
@@ -22,6 +22,9 @@ import {
   getSwipeLeftAction,
   getCardBadgeLabel,
   getCardInteraction,
+  cardText,
+  cardHasSpoilers,
+  isEditorial,
 } from '../lib/feedCard';
 import { nextLikeState } from '../lib/comments';
 import { useSession } from '../lib/session';
@@ -54,6 +57,9 @@ export function FeedCard({
   const { promptAuth } = useActionGate();
   const { setLiked } = useOfflineSync();
   const [showSpoilers, setShowSpoilers] = useState(false);
+  const swipeable = useRef<Swipeable>(null);
+  const editorial = isEditorial(item);
+  const text = cardText(item);
   const interaction = getCardInteraction(item);
   const [likeState, setLikeState] = useState({
     liked: interaction?.liked ?? false,
@@ -100,6 +106,7 @@ export function FeedCard({
   };
 
   const handleWantToRead = () => {
+    swipeable.current?.close();
     void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     if (workId) {
       if (onWantToRead) {
@@ -111,6 +118,7 @@ export function FeedCard({
   };
 
   const handleRateAndReview = () => {
+    swipeable.current?.close();
     void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     if (workId) {
       if (onRateAndReview) {
@@ -138,7 +146,7 @@ export function FeedCard({
         onPress={handleRateAndReview}
         style={{
           width: 90,
-          backgroundColor: '#3B82F6', // Primary Blue
+          backgroundColor: c[rightActionConfig.backgroundColor === 'accent' ? 'accent' : 'positive'],
           justifyContent: 'center',
           alignItems: 'center',
           borderRadius: 16,
@@ -148,8 +156,8 @@ export function FeedCard({
         accessibilityLabel="Rate and Review book"
       >
         <RNAnimated.View style={{ transform: [{ translateX: trans }], alignItems: 'center', gap: space[1] }}>
-          <Ionicons name="star" size={24} color="#FFFFFF" />
-          <Txt variant="caption" color="ground" style={{ fontWeight: '700' }}>
+          <Ionicons name="star" size={24} color={c.surface} />
+          <Txt variant="caption" color="surface" style={{ fontWeight: '700' }}>
             Rate & Review
           </Txt>
         </RNAnimated.View>
@@ -174,7 +182,7 @@ export function FeedCard({
         onPress={handleWantToRead}
         style={{
           width: 90,
-          backgroundColor: '#10B981', // Emerald / Accent Green
+          backgroundColor: c.positive,
           justifyContent: 'center',
           alignItems: 'center',
           borderRadius: 16,
@@ -184,8 +192,8 @@ export function FeedCard({
         accessibilityLabel="Save book to Want to Read"
       >
         <RNAnimated.View style={{ transform: [{ translateX: trans }], alignItems: 'center', gap: space[1] }}>
-          <Ionicons name="bookmark" size={24} color="#FFFFFF" />
-          <Txt variant="caption" color="ground" style={{ fontWeight: '700' }}>
+          <Ionicons name="bookmark" size={24} color={c.surface} />
+          <Txt variant="caption" color="surface" style={{ fontWeight: '700' }}>
             Want to Read
           </Txt>
         </RNAnimated.View>
@@ -195,6 +203,7 @@ export function FeedCard({
 
   return (
     <Swipeable
+      ref={swipeable}
       renderLeftActions={renderLeftActions}
       renderRightActions={renderRightActions}
       friction={2}
@@ -234,13 +243,16 @@ export function FeedCard({
         {/* Card Header: Actor Avatar, Handle, Action Headline */}
         <View style={[sheet.row, { justifyContent: 'space-between', marginBottom: space[2] }]}>
           <Pressable
+            // The editorial card has no author: its nil actor id is not a profile (audit 14, A-14-012).
+            disabled={editorial}
             onPress={() => {
+              if (editorial) return;
               if (item.actor_id && onPressActor) onPressActor(item.actor_id);
               else if (item.actor_id) router.push(`/user/${item.actor_id}`);
             }}
-            style={sheet.row}
-            accessibilityRole="button"
-            accessibilityLabel={`User ${item.actor.username}`}
+            style={[sheet.row, { minHeight: 44 }]}
+            accessibilityRole={editorial ? 'text' : 'button'}
+            accessibilityLabel={editorial ? 'Flyleaf' : `User ${item.actor.username}`}
           >
             <View
               style={{
@@ -308,9 +320,9 @@ export function FeedCard({
         )}
 
         {/* Review / Quote Text Content */}
-        {(meta.review_text || meta.review_body || meta.text || meta.description) && (
+        {text && (
           <View style={{ marginVertical: space[2] }}>
-            {meta.has_spoilers && !showSpoilers ? (
+            {cardHasSpoilers(item) && !showSpoilers ? (
               <Pressable
                 onPress={() => setShowSpoilers(true)}
                 style={{
@@ -328,8 +340,8 @@ export function FeedCard({
                 </Txt>
               </Pressable>
             ) : (
-              <Txt variant="bodyL" color="ink" numberOfLines={cardType === 'review' ? 6 : 3}>
-                {meta.review_text || meta.review_body || meta.text || meta.description}
+              <Txt variant="bodyL" color="ink" numberOfLines={3}>
+                {text}
               </Txt>
             )}
           </View>
@@ -365,7 +377,7 @@ export function FeedCard({
                 <Ionicons
                   name={liked ? 'heart' : 'heart-outline'}
                   size={20}
-                  color={liked ? '#EF4444' : c.muted}
+                  color={liked ? c.heart : c.muted}
                 />
                 <Txt variant="caption" color={liked ? 'ink' : 'muted'} style={{ fontWeight: '600' }}>
                   {likeCount}
@@ -420,7 +432,12 @@ export function FeedCard({
 }
 
 const styles = StyleSheet.create({
+  // 44 dp targets (design accessibility rule; audit 14, A-14-014).
   actionButton: {
+    minWidth: 44,
+    minHeight: 44,
+    alignItems: 'center',
+    justifyContent: 'center',
     paddingHorizontal: space[2],
     paddingVertical: space[1],
     borderRadius: 8,
