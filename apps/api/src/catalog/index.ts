@@ -6,9 +6,10 @@
 // What this phase is testing: whether the work/edition split is workable in a
 // real UI, or whether it forces an edition picker into every flow.
 
+import { searcherKey } from '../jobs/retention.js';
 import { sql, eq, desc, asc } from 'drizzle-orm';
 import { z } from 'zod';
-import type { FastifyInstance } from 'fastify';
+import type { FastifyInstance, FastifyRequest } from 'fastify';
 
 import type { Cache, Db } from '../platform/index.js';
 import type { GapFillService } from './gapfill.js';
@@ -494,7 +495,13 @@ export class CatalogService {
    * live Open Library lookup, and a search that ends with no results is
    * logged as `search_zero_results{query}`.
    */
-  async searchPage(viewer: string | null, q: string, limit = 20): Promise<{ data: Work[]; suggestion: string | null }> {
+  async searchPage(
+    viewer: string | null,
+    q: string,
+    limit = 20,
+    /** Who searched, for the zero-result searcher key only (D-10-3): account id, guest session id or IP. Never stored as is. */
+    searcher?: string,
+  ): Promise<{ data: Work[]; suggestion: string | null }> {
     const query = cleanQuery(q);
     if (Array.from(query).length < 2) return { data: [], suggestion: null };
 
@@ -542,8 +549,14 @@ export class CatalogService {
       // Reviewed weekly as catalog-quality input (§14.7), capped at the event
       // property limit. Never linked to the viewer: search queries are
       // personal data (PRD §23.5), and the weekly review needs the query, not
-      // who typed it.
-      await recordEvents(this.db, [{ name: 'search_zero_results', properties: { query: query.slice(0, 200) } }], null);
+      // who typed it. The searcher key (D-10-3) is an hmac under this week's
+      // salt, only so the weekly summary can count distinct searchers; the
+      // salt is deleted when that summary is written (jobs/retention.ts).
+      const key = searcher ? (await searcherKey(this.db, searcher)).key : null;
+      await recordEvents(this.db, [{
+        name: 'search_zero_results',
+        properties: { query: query.slice(0, 200), ...(key ? { searcher: key } : {}) },
+      }], null);
       return { data: [], suggestion };
     }
 
@@ -979,6 +992,23 @@ import {
 // limit is range-checked and coerced by searchQuerySchema before this runs.
 const searchQuery = z.object({ q: z.string().optional(), limit: z.number().int().optional() });
 
+/** The app's guest session id (the one it sends with telemetry), on search only (D-10-3, D-15-4). */
+export const SESSION_HEADER = 'x-flyleaf-session';
+const UUID_SHAPE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * Who a search is from, for the zero-result searcher key (D-10-3): the
+ * account when signed in; else the guest session id the app sends in
+ * x-flyleaf-session; else the client IP (an old app or another client).
+ * Prefixed so an account id can never equal a session id.
+ */
+export function searcherOf(req: FastifyRequest): string {
+  if (req.viewer) return `account:${req.viewer}`;
+  const session = req.headers[SESSION_HEADER];
+  if (typeof session === 'string' && UUID_SHAPE.test(session)) return `session:${session.toLowerCase()}`;
+  return `ip:${req.ip}`;
+}
+
 export function catalogRoutes(service: CatalogService) {
   return async (app: FastifyInstance) => {
     // Both routes are readable by guests (PRD §4.2).
@@ -988,7 +1018,7 @@ export function catalogRoutes(service: CatalogService) {
         schema: {
           tags: ['Catalog'],
           summary: 'Search catalog',
-          description: 'Searches works by title, subtitle, author, or alternate titles. Guest readable. Explicit works are excluded unless the viewer is 18+ and has opted in (PRD §7.8), an exact ISBN included (the scan endpoint always resolves).',
+          description: 'Searches works by title, subtitle, author, or alternate titles. Guest readable. Explicit works are excluded unless the viewer is 18+ and has opted in (PRD §7.8), an exact ISBN included (the scan endpoint always resolves). A guest app sends its telemetry session id in the `x-flyleaf-session` header; a search with no results then counts its searcher for the weekly zero-result summary under a weekly-rotated hmac (D-10-3), never the id itself.',
           querystring: searchQuerySchema,
           response: {
             200: searchResponseSchema,
@@ -997,7 +1027,7 @@ export function catalogRoutes(service: CatalogService) {
       },
       async (req) => {
         const { q, limit } = searchQuery.parse(req.query);
-        return service.searchPage(req.viewer, q ?? '', limit);
+        return service.searchPage(req.viewer, q ?? '', limit, searcherOf(req));
       },
     );
 

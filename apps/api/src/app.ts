@@ -500,7 +500,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
       db: options.db,
       limiter,
     });
-    await app.register(adminAuthRoutes(options.db));
+    await app.register(adminAuthRoutes(options.db, rateLimits));
     await app.register(adminDedupeRoutes(options.db));
     await app.register(adminCatalogRoutes(options.db));
     // Under /v1 like every API route: the app posts to /v1/events and the

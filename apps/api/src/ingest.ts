@@ -26,7 +26,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { sql } from 'drizzle-orm';
-import { config, makeDb, waitForDb, closeDb } from './platform/index.js';
+import { config, makeDb, waitForDb, closeDb, JOB_DB_SETTINGS } from './platform/index.js';
 import { readDump, popularWorkKeys, workPopularity, DUMP_URLS, type DumpType, type DumpProgress } from './catalog/ingest/dump.js';
 import {
   normaliseAuthor, normaliseWork, normaliseEdition,
@@ -206,7 +206,7 @@ async function main() {
   // tries to write to it, which a long UPDATE does not do until it finishes.
   console.log(`connecting to ${config.databaseUrl.replace(/:[^:@]*@/, ':***@')}…`);
 
-  const db = makeDb(config.databaseUrl, { max: 1, quiet: true });
+  const db = makeDb(config.databaseUrl, { max: 1, quiet: true, settings: JOB_DB_SETTINGS.ingest });
   await waitForDb(db);
 
   // Anything already running is either another ingest or the remains of one

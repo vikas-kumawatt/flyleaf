@@ -60,6 +60,11 @@ export const RATE_LIMITS = {
     source: 'PRD §24.4 Auth endpoints, 10/min per account (keyed by the email: login has no account yet)',
     message: 'Too many attempts. Try again shortly.',
   },
+  'admin-login': {
+    limit: 10, windowSeconds: MINUTE, store: 'exact',
+    source: 'PRD §24.4 Auth endpoints, 10/min per account, for the admin console login (A-06-RL1; keyed by the email)',
+    message: 'Too many attempts. Try again shortly.',
+  },
   'auth:ip': {
     limit: 30, windowSeconds: MINUTE, store: 'exact',
     source: 'PRD §24.4 Auth endpoints, 30/min per IP (signed in)',

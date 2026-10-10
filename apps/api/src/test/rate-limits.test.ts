@@ -378,6 +378,24 @@ describe('over HTTP, every limit on', () => {
     expect((await app.inject({ method: 'POST', url: '/v1/events', remoteAddress: ip, payload: body })).statusCode).toBe(429);
   });
 
+  it('A-06-RL1: admin login, 10 a minute per account whatever the IP; the form login too', async () => {
+    const email = `nobody_${Date.now()}@example.com`;
+    for (let i = 0; i < 10; i++) {
+      const r = await app.inject({ method: 'POST', url: '/v1/admin/auth/login', remoteAddress: `198.18.0.${i}`, payload: { email, password: 'wrong-password-123', totp_code: '000000' } });
+      expect(r.statusCode).toBe(401);
+    }
+    const r = await app.inject({ method: 'POST', url: '/v1/admin/auth/login', remoteAddress: '198.18.0.99', payload: { email, password: 'wrong-password-123', totp_code: '000000' } });
+    expect(r.statusCode).toBe(429);
+    const form = await app.inject({
+      method: 'POST', url: '/admin/login', remoteAddress: '198.18.1.1',
+      headers: { 'content-type': 'application/x-www-form-urlencoded' },
+      payload: `email=${encodeURIComponent(email)}&password=wrong-password-123&totp_code=000000`,
+    });
+    expect(form.statusCode).toBe(429);
+    expect(form.headers['content-type']).toMatch(/text\/html/);
+    expect(form.headers['retry-after']).toBeDefined();
+  });
+
   it('comments keep their bucket name and numbers (no behaviour change)', async () => {
     const me = await makeUser(db, `com_${Date.now()}`);
     const readId = await makeRead(db, me.id, await makeWork(db, `Commented ${Date.now()}`));

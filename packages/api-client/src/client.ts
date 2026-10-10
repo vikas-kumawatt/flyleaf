@@ -372,18 +372,22 @@ export class FlyleafClient {
 
   // ---------------------------------------------------------------- Catalog
 
-  async search(q: string, limit = 20): Promise<Work[]> {
-    const query = new URLSearchParams({ q, limit: String(limit) });
-    const res = await this.request<SearchResponse>(`/search?${query.toString()}`, {
-      method: 'GET',
-    });
-    return res.data;
+  /**
+   * `sessionId`: a guest app's telemetry session id, sent as
+   * `x-flyleaf-session` so a search with no results counts its searcher in
+   * the weekly zero-result summary (D-10-3). Never stored as sent.
+   */
+  async search(q: string, limit = 20, sessionId?: string): Promise<Work[]> {
+    return (await this.searchWithSuggestion(q, limit, sessionId)).data;
   }
 
   /** search() plus the "Did you mean …?" suggestion when nothing was found (PRD §14.7). */
-  async searchWithSuggestion(q: string, limit = 20): Promise<SearchResponse> {
+  async searchWithSuggestion(q: string, limit = 20, sessionId?: string): Promise<SearchResponse> {
     const query = new URLSearchParams({ q, limit: String(limit) });
-    return this.request<SearchResponse>(`/search?${query.toString()}`, { method: 'GET' });
+    return this.request<SearchResponse>(`/search?${query.toString()}`, {
+      method: 'GET',
+      ...(sessionId ? { headers: { 'x-flyleaf-session': sessionId } } : {}),
+    });
   }
 
   async getWork(id: string): Promise<Work> {

@@ -116,9 +116,59 @@ export const TRIGRAM_THRESHOLD = 0.45;
 
 export type Db = ReturnType<typeof makeDb>;
 
+/**
+ * Per-process database limits for batch work (Audit 15, A-03-026). A Part 03c
+ * dedupe statement was OOM-killed by the kernel; Postgres then dropped every
+ * connection and ran crash recovery: an outage caused by one maintenance job.
+ * Batch processes now connect with their own `work_mem` (memory per sort or
+ * hash, before it spills to disk), `statement_timeout` (nothing runs
+ * unbounded), at most one parallel worker per query, and an idle-in-transaction
+ * cap, sent in the connection's startup packet. The API keeps the server
+ * defaults (work_mem 4 MB), and its requests are short.
+ *
+ * Memory budget, the arithmetic behind the numbers (docker-compose.yml sets a
+ * container limit of 3 GB): shared_buffers 512 MB + API 10 connections × 4 MB
+ * × hash_mem_multiplier 2 × ~3 nodes (≈ 240 MB) + worker 4 × 32 MB × 2 × 2
+ * workers × ~3 nodes (≈ 1.5 GB worst case, typically one job at a time) +
+ * dedupe or ingest (one connection) 64 MB × 2 × 2 × ~3 (≈ 770 MB). A job
+ * that needs more spills to disk; it cannot take the server down.
+ */
+export interface JobDbSettings {
+  work_mem: string;
+  /** Milliseconds. */
+  statement_timeout: number;
+  max_parallel_workers_per_gather: string;
+  /** Milliseconds. */
+  idle_in_transaction_session_timeout: number;
+}
+
+export const JOB_DB_SETTINGS = {
+  /** The worker's pool: reconciles, prunes, retention, storage cleanup, suggestions, imports and exports. */
+  worker: {
+    work_mem: '32MB',
+    statement_timeout: 600_000,
+    max_parallel_workers_per_gather: '1',
+    idle_in_transaction_session_timeout: 900_000,
+  },
+  /** The monthly dedupe pass and the backlog CLI: long, but batched (A-03-025/026). */
+  dedupe: {
+    work_mem: '64MB',
+    statement_timeout: 1_800_000,
+    max_parallel_workers_per_gather: '1',
+    idle_in_transaction_session_timeout: 1_800_000,
+  },
+  /** Ingest, its --popularity and --finalise passes, devdb:build. Index builds use maintenance_work_mem. */
+  ingest: {
+    work_mem: '64MB',
+    statement_timeout: 3_600_000,
+    max_parallel_workers_per_gather: '1',
+    idle_in_transaction_session_timeout: 3_600_000,
+  },
+} as const satisfies Record<string, JobDbSettings>;
+
 export function makeDb(
   url: string = config.databaseUrl,
-  opts: { max?: number; quiet?: boolean } = {},
+  opts: { max?: number; quiet?: boolean; settings?: JobDbSettings } = {},
 ) {
   const client = postgres(url, {
     max: opts.max ?? 10,
@@ -127,7 +177,10 @@ export function makeDb(
     // the `ALTER DATABASE` in migrate.ts surviving. A database restored from
     // a dump or recreated loses that setting silently, and at pg_trgm's 0.3
     // default the trigram arm reads ~10x the heap (audit 02, A-02-009).
-    connection: { 'pg_trgm.similarity_threshold': String(TRIGRAM_THRESHOLD) },
+    // A batch process adds its own memory and time limits the same way
+    // (JOB_DB_SETTINGS, Audit 15 A-03-026), so every statement on every
+    // connection of its pool runs under them, transactions included.
+    connection: { 'pg_trgm.similarity_threshold': String(TRIGRAM_THRESHOLD), ...opts.settings },
     // Batch jobs run `CREATE TABLE IF NOT EXISTS` on every start, and the
     // resulting NOTICE for each one buries the actual progress output.
     ...(opts.quiet ? { onnotice: () => {} } : {}),

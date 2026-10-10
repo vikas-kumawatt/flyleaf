@@ -848,6 +848,30 @@ export const events = pgTable('events', {
 }, (t) => [
   index('events_name_at_idx').on(t.name, t.at),
   index('events_user_at_idx').on(t.userId, t.at),
+  // The retention sweep deletes by age (0041, D-10-1).
+  index('events_at_idx').on(t.at),
+]);
+
+/**
+ * D-10-3 (0041): one salt per week for the zero-result searcher key,
+ * deleted in the transaction that writes that week's summary.
+ */
+export const searchWeekSalts = pgTable('search_week_salts', {
+  week: date('week').primaryKey(),
+  salt: text('salt').notNull(),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+/** D-10-3 (0041): the weekly zero-result summary; `query` only with ≥ 5 distinct searchers. */
+export const searchZeroSummaries = pgTable('search_zero_summaries', {
+  week: date('week').notNull(),
+  query: text('query'),
+  searches: integer('searches').notNull(),
+  distinctSearchers: integer('distinct_searchers').notNull(),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [
+  // NULLS NOT DISTINCT in 0041 (drizzle cannot spell it): one counts-only row per week.
+  uniqueIndex('search_zero_summaries_week_query_uq').on(t.week, t.query),
 ]);
 
 // ---------------------------------------------------------------------------
