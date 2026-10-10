@@ -1868,6 +1868,8 @@ export const reorderShelfBodySchema = {
       type: 'array',
       items: { type: 'string', format: 'uuid' },
       minItems: 1,
+      // The shelf's whole order, so never more than a shelf holds (PRD §15.6).
+      maxItems: 1000,
     },
   },
   required: ['work_ids'],
@@ -1893,12 +1895,40 @@ export const saveShelfResponseSchema = {
   required: ['saved', 'shelf_id', 'save_count'],
 } as const;
 
+export const savedShelvesQuerySchema = {
+  type: 'object',
+  properties: {
+    limit: { type: 'integer', minimum: 1, maximum: 100, default: 50 },
+    offset: { type: 'integer', minimum: 0, default: 0 },
+  },
+} as const;
+
 export const savedShelvesResponseSchema = {
   type: 'object',
   properties: {
     shelves: {
       type: 'array',
       items: shelfSchema,
+    },
+    total: { type: 'integer', minimum: 0 },
+  },
+  required: ['shelves', 'total'],
+} as const;
+
+export const deletedShelvesResponseSchema = {
+  type: 'object',
+  properties: {
+    shelves: {
+      type: 'array',
+      items: {
+        ...shelfSchema,
+        properties: {
+          ...shelfSchema.properties,
+          deleted_at: { type: 'string', format: 'date-time' },
+          purge_after: { type: 'string', format: 'date-time', description: 'After this the shelf can no longer be restored.' },
+        },
+        required: [...shelfSchema.required, 'deleted_at', 'purge_after'],
+      },
     },
   },
   required: ['shelves'],

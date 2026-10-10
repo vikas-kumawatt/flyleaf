@@ -1032,6 +1032,17 @@ export interface SaveShelfResponse {
 
 export interface SavedShelvesResponse {
   shelves: Shelf[];
+  total: number;
+}
+
+export interface DeletedShelf extends Shelf {
+  deleted_at: string;
+  /** After this the shelf can no longer be restored (30 days, PRD §15.6). */
+  purge_after: string;
+}
+
+export interface DeletedShelvesResponse {
+  shelves: DeletedShelf[];
 }
 
 export interface BrowseShelvesQuery {

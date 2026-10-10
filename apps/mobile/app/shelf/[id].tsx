@@ -30,6 +30,7 @@ import { useActionGate } from '@/ui/ActionGate';
 import { track } from '@/lib/events';
 import { Button, Card, Cover, Screen, Stars, Txt } from '@/ui/components';
 import { ShareShelfModal } from '@/ui/ShareShelfModal';
+import { SHELF_ITEMS_PAGE } from '@/lib/shelfValidation';
 import { radius, space, useTheme } from '@/ui/tokens';
 
 export default function ShelfDetailScreen() {
@@ -44,6 +45,10 @@ export default function ShelfDetailScreen() {
   const [refreshing, setRefreshing] = useState(false);
   const [shelf, setShelf] = useState<Shelf | null>(null);
   const [items, setItems] = useState<ShelfItem[]>([]);
+  // Items come a page of 100 at a time (the API's maximum); a 1,000-book
+  // shelf used to stop at the first 100 (audit 11).
+  const [itemsTotal, setItemsTotal] = useState(0);
+  const [loadingMore, setLoadingMore] = useState(false);
   const [isSaved, setIsSaved] = useState(false);
   const [saveCount, setSaveCount] = useState(0);
   const [saving, setSaving] = useState(false);
@@ -56,10 +61,11 @@ export default function ShelfDetailScreen() {
     try {
       const [shelfRes, itemsRes] = await Promise.all([
         api.getShelf(id),
-        api.getShelfItems(id, { limit: 100 }),
+        api.getShelfItems(id, { limit: SHELF_ITEMS_PAGE }),
       ]);
       setShelf(shelfRes.shelf);
       setItems(itemsRes.data);
+      setItemsTotal(itemsRes.total);
       setIsSaved(Boolean(shelfRes.shelf.is_saved));
       setSaveCount(shelfRes.shelf.save_count || 0);
 
@@ -83,6 +89,23 @@ export default function ShelfDetailScreen() {
       void loadData();
     }, [loadData]),
   );
+
+  const loadMoreItems = async () => {
+    if (!id || loadingMore) return;
+    try {
+      setLoadingMore(true);
+      const page = await api.getShelfItems(id, { limit: SHELF_ITEMS_PAGE, offset: items.length });
+      setItems((prev) => {
+        const seen = new Set(prev.map((i) => i.work_id));
+        return [...prev, ...page.data.filter((i) => !seen.has(i.work_id))];
+      });
+      setItemsTotal(page.total);
+    } catch (err: any) {
+      Alert.alert('Could not load more books', err?.message || 'Please try again.');
+    } finally {
+      setLoadingMore(false);
+    }
+  };
 
   const onRefresh = () => {
     setRefreshing(true);
@@ -464,6 +487,14 @@ export default function ShelfDetailScreen() {
                   </View>
                 );
               })}
+              {items.length < itemsTotal && (
+                <Button
+                  label={loadingMore ? 'Loading…' : `Show more (${itemsTotal - items.length} more)`}
+                  onPress={() => void loadMoreItems()}
+                  disabled={loadingMore}
+                  style={{ marginTop: space[3] }}
+                />
+              )}
             </View>
           )}
         </View>

@@ -9,11 +9,11 @@
 // 6. Per-entry notes (up to 280 characters).
 
 import { FastifyInstance, FastifyPluginAsync } from 'fastify';
-import { and, eq, sql, inArray, or } from 'drizzle-orm';
-import { Db } from '../platform/index.js';
+import { and, eq, sql, inArray, type SQL } from 'drizzle-orm';
+import { config, Db } from '../platform/index.js';
 import { ApiError, requireViewer } from '../http.js';
 import { resolveWorkId } from '../catalog/resolve.js';
-import { canViewSql, canViewWith, loadRelationship } from '../authorization/index.js';
+import { canViewSql, canViewWith, loadRelationship, type Visibility } from '../authorization/index.js';
 import {
   shelves,
   shelfItems,
@@ -47,7 +47,9 @@ import {
   reorderShelfBodySchema,
   reorderShelfResponseSchema,
   saveShelfResponseSchema,
+  savedShelvesQuerySchema,
   savedShelvesResponseSchema,
+  deletedShelvesResponseSchema,
   browseShelvesQuerySchema,
   browseShelvesResponseSchema,
   userShelvesResponseSchema,
@@ -140,21 +142,40 @@ export interface UpdateShelfItemInput {
   position?: number;
 }
 
+/** PRD §15.6. */
+export const MAX_SHELVES_PER_USER = 200;
+export const MAX_ITEMS_PER_SHELF = 1000;
+/** PRD §15.6: a deleted shelf can be restored for 30 days. */
+export const SHELF_RECOVERY_DAYS = 30;
+
 /**
- * Normalizes shelf title to URL-safe slug.
+ * Length in characters (code points), as `char_length` and the request
+ * schema count it. JS `.length` counts UTF-16 units, so an emoji is 2
+ * (audit 11, A-11-007).
+ */
+function charLength(s: string): number {
+  return [...s].length;
+}
+
+/**
+ * Normalizes a shelf title to a URL-safe slug. Letters and digits of every
+ * script are kept (`Книги 2026` → `книги-2026`); only Latin diacritics are
+ * folded (`Café` → `cafe`). A name with no letters or digits is `shelf`.
  */
 export function slugify(name: string): string {
   const slug = name
-    .toLowerCase()
     .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/([A-Za-z])[̀-ͯ]+/g, '$1')
+    .normalize('NFC')
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}\p{M}]+/gu, '-')
     .replace(/^-+|-+$/g, '');
   return slug || 'shelf';
 }
 
 /**
  * Generates a unique slug for a user, appending -1, -2 etc on collision.
+ * Deleted shelves keep their slug (they can be restored), so it stays taken.
  */
 export async function generateUniqueSlug(
   db: Db,
@@ -188,6 +209,98 @@ export async function generateUniqueSlug(
   return `${baseSlug}-${counter}`;
 }
 
+/** A unique violation (SQLSTATE 23505), through Drizzle's `cause` wrapping. */
+function isUniqueViolation(err: unknown): boolean {
+  let node: unknown = err;
+  for (let depth = 0; depth < 5 && node; depth++) {
+    if ((node as { code?: unknown }).code === '23505') return true;
+    node = (node as { cause?: unknown }).cause;
+  }
+  return false;
+}
+
+/** Serializes one user's shelf creates, renames and restores (limit and slug). */
+async function lockUserShelves(tx: Db, userId: string): Promise<void> {
+  await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtextextended(${`shelves:${userId}`}, 0))`);
+}
+
+const uuidArray = (ids: string[]) =>
+  ids.length === 0 ? sql`'{}'::uuid[]` : sql`ARRAY[${sql.join(ids.map((id) => sql`${id}`), sql`, `)}]::uuid[]`;
+
+/** A shelf row as the card queries return it: the shelf, its owner and its covers. */
+type ShelfCardRow = {
+  id: string;
+  user_id: string;
+  name: string;
+  slug: string;
+  description: string | null;
+  is_ranked: boolean;
+  privacy: string;
+  cover_work_ids: string[] | string | null;
+  cover_ids: (number | null)[] | string | null;
+  item_count: number;
+  save_count: number;
+  created_at: string | Date;
+  deleted_at?: string | Date | null;
+  username: string;
+  display_name: string | null;
+  avatar_key: string | null;
+  is_saved: boolean;
+  total?: number | string;
+};
+
+/** `{a,b}` text arrays (a driver that does not parse uuid[]) or real arrays. */
+function pgArray<T>(v: T[] | string | null | undefined, parse: (s: string) => T): T[] {
+  if (Array.isArray(v)) return v;
+  if (!v || v === '{}') return [];
+  return v.slice(1, -1).split(',').map((s) => parse(s));
+}
+
+/**
+ * The columns every shelf card needs, in one row: the owner from profiles and
+ * the cover ids in mosaic order. Replaces a query per owner and a query for
+ * the covers (L-10, audit 11).
+ */
+function shelfCardColumns(viewer: string | null) {
+  return sql`
+    s.id, s.user_id, s.name, s.slug, s.description, s.is_ranked, s.privacy,
+    s.cover_work_ids, s.item_count, s.save_count, s.created_at, s.deleted_at,
+    p.username, p.display_name, p.avatar_key,
+    ARRAY(
+      SELECT cw.ol_cover_id
+      FROM unnest(s.cover_work_ids) WITH ORDINALITY AS c(work_id, ord)
+      LEFT JOIN works cw ON cw.id = c.work_id
+      ORDER BY c.ord
+    ) AS cover_ids,
+    ${viewer
+      ? sql`EXISTS (SELECT 1 FROM shelf_saves vs WHERE vs.shelf_id = s.id AND vs.user_id = ${viewer}::uuid)`
+      : sql`false`} AS is_saved`;
+}
+
+function cardFromRow(r: ShelfCardRow): ShelfDetail {
+  return {
+    id: r.id,
+    user_id: r.user_id,
+    name: r.name,
+    slug: r.slug,
+    description: r.description,
+    is_ranked: r.is_ranked,
+    privacy: r.privacy as ShelfDetail['privacy'],
+    cover_work_ids: pgArray(r.cover_work_ids, (s) => s),
+    cover_ids: pgArray(r.cover_ids, (s) => (s === 'NULL' ? null : Number(s))).map((c) => (c === null ? null : Number(c))),
+    item_count: Number(r.item_count),
+    save_count: Number(r.save_count),
+    is_saved: Boolean(r.is_saved),
+    created_at: new Date(r.created_at).toISOString(),
+    owner: {
+      id: r.user_id,
+      username: r.username,
+      displayName: r.display_name,
+      avatarKey: r.avatar_key,
+    },
+  };
+}
+
 import { ActivityService } from '../activity/index.js';
 
 export class ShelvesService {
@@ -197,37 +310,133 @@ export class ShelvesService {
     this.activityService = new ActivityService(db);
   }
 
-  async create(viewer: string, input: CreateShelfInput): Promise<ShelfDetail> {
-    const trimmedName = input.name?.trim();
-    if (!trimmedName || trimmedName.length > 60) {
+  /** A transaction as a Db (the services' common type), as elsewhere in the codebase. */
+  #tx<T>(fn: (tx: Db) => Promise<T>): Promise<T> {
+    return this.db.transaction((t) => fn(t as unknown as Db));
+  }
+
+  #validName(name: string | undefined): string {
+    const trimmed = name?.trim();
+    if (!trimmed || charLength(trimmed) > 60) {
       throw new ApiError(400, 'invalid_shelf_name', 'Shelf name must be between 1 and 60 characters.', 'name');
     }
+    return trimmed;
+  }
 
-    if (input.description && input.description.length > 2000) {
+  #checkDescription(description: string | null | undefined): void {
+    if (description && charLength(description.trim()) > 2000) {
       throw new ApiError(400, 'invalid_description', 'Description cannot exceed 2000 characters.', 'description');
     }
+  }
+
+  #checkNote(note: string | null | undefined): void {
+    if (note && charLength(note.trim()) > 280) {
+      throw new ApiError(400, 'invalid_note', 'Note cannot exceed 280 characters.', 'note');
+    }
+  }
+
+  async #assertUnderShelfLimit(tx: Db, viewer: string): Promise<void> {
+    const [row] = await tx.execute<{ n: number }>(sql`
+      SELECT count(*)::int AS n FROM shelves WHERE user_id = ${viewer}::uuid AND deleted_at IS NULL`);
+    if (Number(row?.n ?? 0) >= MAX_SHELVES_PER_USER) {
+      throw new ApiError(409, 'shelf_limit_reached', `You can have up to ${MAX_SHELVES_PER_USER} shelves. Delete one to make room.`);
+    }
+  }
+
+  /**
+   * Runs a write that picks a slug. The user lock serializes this user's
+   * creates and renames; a unique violation can still come from a write that
+   * does not take it, so the slug is recomputed and the write retried
+   * (A-11-005).
+   */
+  async #withSlugRetry<T>(fn: () => Promise<T>): Promise<T> {
+    for (let attempt = 1; ; attempt++) {
+      try {
+        return await fn();
+      } catch (err) {
+        if (attempt < 4 && isUniqueViolation(err)) continue;
+        throw err;
+      }
+    }
+  }
+
+  /** The viewer's live shelf, row-locked for this transaction; anyone else's is 404. */
+  async #lockOwnShelf(tx: Db, viewer: string, shelfId: string): Promise<Shelf> {
+    const [shelf] = await tx
+      .select()
+      .from(shelves)
+      .where(and(eq(shelves.id, shelfId), sql`${shelves.deletedAt} IS NULL`))
+      .for('update')
+      .limit(1);
+    if (!shelf || shelf.userId !== viewer) {
+      throw ApiError.notFound('Shelf not found.');
+    }
+    return shelf;
+  }
+
+  /** Positions 1..n in the given order, in one statement (one counter refresh). */
+  async #writeOrder(tx: Db, shelfId: string, workIds: string[]): Promise<void> {
+    if (workIds.length === 0) return;
+    await tx.execute(sql`
+      UPDATE shelf_items si SET position = o.ord
+      FROM unnest(${uuidArray(workIds)}) WITH ORDINALITY AS o(work_id, ord)
+      WHERE si.shelf_id = ${shelfId}::uuid AND si.work_id = o.work_id
+        AND si.position IS DISTINCT FROM o.ord::int`);
+  }
+
+  /** The shelf's books in display order. */
+  async #currentOrder(tx: Db, shelfId: string): Promise<string[]> {
+    const rows = await tx.execute<{ work_id: string }>(sql`
+      SELECT work_id FROM shelf_items WHERE shelf_id = ${shelfId}::uuid
+      ORDER BY position, added_at, work_id`);
+    return rows.map((r) => r.work_id);
+  }
+
+  /**
+   * The feed visibility of a shelf's activity: the shelf's privacy, narrowed
+   * to followers on a private account (as recordActivity writes it).
+   */
+  async #activityVisibility(tx: Db, ownerId: string, privacy: string): Promise<Visibility> {
+    if (privacy === 'private') return 'private';
+    const [p] = await tx
+      .select({ isPrivate: profiles.isPrivate })
+      .from(profiles)
+      .where(eq(profiles.userId, ownerId))
+      .limit(1);
+    return p?.isPrivate ? 'followers' : (privacy as Visibility);
+  }
+
+  async create(viewer: string, input: CreateShelfInput): Promise<ShelfDetail> {
+    const trimmedName = this.#validName(input.name);
+    this.#checkDescription(input.description);
 
     const privacy = input.privacy ?? 'public';
     if (!['public', 'followers', 'private'].includes(privacy)) {
       throw new ApiError(400, 'invalid_privacy', 'Privacy must be public, followers, or private.', 'privacy');
     }
 
-    const slug = await generateUniqueSlug(this.db, viewer, trimmedName);
-
-    const [inserted] = await this.db
-      .insert(shelves)
-      .values({
-        userId: viewer,
-        name: trimmedName,
-        slug,
-        description: input.description?.trim() || null,
-        isRanked: Boolean(input.is_ranked),
-        privacy,
-        coverWorkIds: [],
-        itemCount: 0,
-        saveCount: 0,
-      })
-      .returning();
+    const inserted = await this.#withSlugRetry(() =>
+      this.#tx(async (tx) => {
+        await lockUserShelves(tx, viewer);
+        await this.#assertUnderShelfLimit(tx, viewer);
+        const slug = await generateUniqueSlug(tx, viewer, trimmedName);
+        const [row] = await tx
+          .insert(shelves)
+          .values({
+            userId: viewer,
+            name: trimmedName,
+            slug,
+            description: input.description?.trim() || null,
+            isRanked: Boolean(input.is_ranked),
+            privacy,
+            coverWorkIds: [],
+            itemCount: 0,
+            saveCount: 0,
+          })
+          .returning();
+        return row;
+      }),
+    );
 
     if (!inserted) {
       throw new ApiError(500, 'shelf_create_failed', 'Failed to create shelf.');
@@ -285,75 +494,190 @@ export class ShelvesService {
   }
 
   async update(viewer: string, id: string, input: UpdateShelfInput): Promise<ShelfDetail> {
-    const [existing] = await this.db
-      .select()
-      .from(shelves)
-      .where(and(eq(shelves.id, id), sql`${shelves.deletedAt} IS NULL`))
-      .limit(1);
-
-    if (!existing || existing.userId !== viewer) {
-      throw ApiError.notFound('Shelf not found.');
-    }
-
-    let nextName = existing.name;
-    let nextSlug = existing.slug;
-
-    if (input.name !== undefined) {
-      const trimmedName = input.name.trim();
-      if (!trimmedName || trimmedName.length > 60) {
-        throw new ApiError(400, 'invalid_shelf_name', 'Shelf name must be between 1 and 60 characters.', 'name');
-      }
-      nextName = trimmedName;
-      if (trimmedName !== existing.name) {
-        nextSlug = await generateUniqueSlug(this.db, viewer, trimmedName, existing.id);
-      }
-    }
-
-    if (input.description !== undefined && input.description && input.description.length > 2000) {
-      throw new ApiError(400, 'invalid_description', 'Description cannot exceed 2000 characters.', 'description');
-    }
+    const nextName = input.name !== undefined ? this.#validName(input.name) : undefined;
+    this.#checkDescription(input.description);
 
     if (input.privacy !== undefined && !['public', 'followers', 'private'].includes(input.privacy)) {
       throw new ApiError(400, 'invalid_privacy', 'Privacy must be public, followers, or private.', 'privacy');
     }
 
-    const [updated] = await this.db
-      .update(shelves)
-      .set({
-        name: nextName,
-        slug: nextSlug,
-        description: input.description !== undefined ? input.description?.trim() || null : existing.description,
-        isRanked: input.is_ranked !== undefined ? Boolean(input.is_ranked) : existing.isRanked,
-        privacy: input.privacy ?? existing.privacy,
-      })
-      .where(eq(shelves.id, id))
-      .returning();
+    await this.#withSlugRetry(() =>
+      this.#tx(async (tx) => {
+        const existing = await this.#lockOwnShelf(tx, viewer, id);
 
-    if (!updated) {
-      throw new ApiError(500, 'shelf_update_failed', 'Failed to update shelf.');
-    }
+        let nextSlug = existing.slug;
+        if (nextName !== undefined && nextName !== existing.name) {
+          await lockUserShelves(tx, viewer);
+          nextSlug = await generateUniqueSlug(tx, viewer, nextName, existing.id);
+        }
+        const nextPrivacy = input.privacy ?? existing.privacy;
 
-    const owner = await this.getOwnerProfile(viewer);
+        await tx
+          .update(shelves)
+          .set({
+            name: nextName ?? existing.name,
+            slug: nextSlug,
+            description: input.description !== undefined ? input.description?.trim() || null : existing.description,
+            isRanked: input.is_ranked !== undefined ? Boolean(input.is_ranked) : existing.isRanked,
+            privacy: nextPrivacy,
+          })
+          .where(eq(shelves.id, id));
+
+        // The shelf's feed activity follows its privacy: private removes it,
+        // followers narrows it (A-11-001), as a read's does (PRD §26.2).
+        if (nextPrivacy !== existing.privacy) {
+          await this.activityService.updateActivityVisibility(
+            tx, 'shelf_item', id, await this.#activityVisibility(tx, viewer, nextPrivacy));
+        }
+        if (nextSlug !== existing.slug || (nextName !== undefined && nextName !== existing.name)) {
+          await tx.execute(sql`
+            UPDATE activity
+            SET metadata = metadata || jsonb_build_object('shelfName', ${nextName ?? existing.name}::text, 'shelfSlug', ${nextSlug}::text)
+            WHERE object_type = 'shelf_item' AND object_id = ${id}::uuid`);
+        }
+      }),
+    );
+
     return this.getById(viewer, id);
   }
 
   async delete(viewer: string, id: string): Promise<{ deleted: true; id: string }> {
-    const [existing] = await this.db
-      .select({ id: shelves.id, userId: shelves.userId })
-      .from(shelves)
-      .where(and(eq(shelves.id, id), sql`${shelves.deletedAt} IS NULL`))
-      .limit(1);
-
-    if (!existing || existing.userId !== viewer) {
-      throw ApiError.notFound('Shelf not found.');
-    }
-
-    await this.db
-      .update(shelves)
-      .set({ deletedAt: new Date() })
-      .where(eq(shelves.id, id));
+    await this.#tx(async (tx) => {
+      await this.#lockOwnShelf(tx, viewer, id);
+      await tx.update(shelves).set({ deletedAt: new Date() }).where(eq(shelves.id, id));
+      // A deleted shelf leaves the feed with it (A-11-001).
+      await this.activityService.deleteActivity(tx, 'shelf_item', id);
+    });
 
     return { deleted: true, id };
+  }
+
+  /** The viewer's shelves deleted in the last 30 days, newest deletion first (A-11-004). */
+  async listDeleted(viewer: string): Promise<{ shelves: (ShelfDetail & { deleted_at: string; purge_after: string })[] }> {
+    const rows = await this.db.execute<ShelfCardRow>(sql`
+      SELECT ${shelfCardColumns(viewer)}
+      FROM shelves s
+      JOIN profiles p ON p.user_id = s.user_id
+      WHERE s.user_id = ${viewer}::uuid
+        AND s.deleted_at IS NOT NULL
+        AND s.deleted_at > now() - make_interval(days => ${SHELF_RECOVERY_DAYS})
+      ORDER BY s.deleted_at DESC, s.id DESC`);
+    return {
+      shelves: rows.map((r) => {
+        const deletedAt = new Date(r.deleted_at as string | Date);
+        return {
+          ...cardFromRow(r),
+          deleted_at: deletedAt.toISOString(),
+          purge_after: new Date(deletedAt.getTime() + SHELF_RECOVERY_DAYS * 86_400_000).toISOString(),
+        };
+      }),
+    };
+  }
+
+  /**
+   * Undoes a delete within 30 days (PRD §15.6). The slug was never released,
+   * so share links work again. Feed activity removed at deletion stays gone.
+   */
+  async restore(viewer: string, id: string): Promise<ShelfDetail> {
+    await this.#tx(async (tx) => {
+      await lockUserShelves(tx, viewer);
+      const [row] = await tx.execute<{ id: string }>(sql`
+        SELECT id FROM shelves
+        WHERE id = ${id}::uuid AND user_id = ${viewer}::uuid
+          AND deleted_at IS NOT NULL
+          AND deleted_at > now() - make_interval(days => ${SHELF_RECOVERY_DAYS})
+        FOR UPDATE`);
+      if (!row) throw ApiError.notFound('Shelf not found.');
+      await this.#assertUnderShelfLimit(tx, viewer);
+      await tx.update(shelves).set({ deletedAt: null }).where(eq(shelves.id, id));
+    });
+    return this.getById(viewer, id);
+  }
+
+  /** Item rows with their work, in display order; `workId` selects one. */
+  async #itemRows(
+    viewer: string | null,
+    shelfId: string,
+    page: { limit: number; offset: number } | { workId: string },
+  ): Promise<ShelfItemDetail[]> {
+    const rows = await this.db.execute<{
+      shelf_id: string;
+      work_id: string;
+      position: number;
+      note: string | null;
+      added_at: string;
+      title: string;
+      author_name: string | null;
+      first_publish_year: number | null;
+      cover_id: number | null;
+      log_count: number;
+      rating: string | null;
+      user_status: string | null;
+      user_rating: string | null;
+      user_hearted: boolean | null;
+    }>(sql`
+      SELECT
+        si.shelf_id,
+        si.work_id,
+        si.position,
+        si.note,
+        si.added_at,
+        w.title,
+        w.first_publish_year,
+        w.ol_cover_id as cover_id,
+        w.log_count,
+        (SELECT a.name
+           FROM work_authors wa JOIN authors a ON a.id = wa.author_id
+          WHERE wa.work_id = w.id
+          ORDER BY wa.position, a.name
+          LIMIT 1) AS author_name,
+        -- The work page's rating (work_stats), not an average over every
+        -- attempt and private read (A-11-013).
+        round(ws.avg_rating, 1)::text AS rating,
+        ${viewer ? sql`ur.status` : sql`NULL`} AS user_status,
+        ${viewer ? sql`ur.rating::text` : sql`NULL`} AS user_rating,
+        ${viewer ? sql`ur.hearted` : sql`NULL`} AS user_hearted
+      FROM shelf_items si
+      JOIN works w ON w.id = si.work_id
+      LEFT JOIN work_stats ws ON ws.work_id = w.id
+      ${viewer ? sql`
+        LEFT JOIN LATERAL (
+          SELECT r.status, r.rating, r.hearted
+          FROM reads r
+          WHERE r.user_id = ${viewer}::uuid AND r.work_id = w.id
+          ORDER BY r.updated_at DESC
+          LIMIT 1
+        ) ur ON true
+      ` : sql``}
+      WHERE si.shelf_id = ${shelfId}::uuid
+      ${'workId' in page ? sql`AND si.work_id = ${page.workId}::uuid` : sql``}
+      ORDER BY si.position ASC, si.added_at ASC, si.work_id ASC
+      ${'workId' in page ? sql`` : sql`LIMIT ${page.limit} OFFSET ${page.offset}`}
+    `);
+
+    return rows.map((r) => ({
+      shelf_id: r.shelf_id,
+      work_id: r.work_id,
+      position: r.position,
+      note: r.note,
+      added_at: new Date(r.added_at).toISOString(),
+      work: {
+        id: r.work_id,
+        title: r.title,
+        author_name: r.author_name ?? 'Unknown',
+        cover_id: r.cover_id,
+        first_publish_year: r.first_publish_year,
+        log_count: Number(r.log_count),
+        rating: r.rating ? parseFloat(r.rating) : null,
+        your_read: r.user_status
+          ? {
+              status: r.user_status,
+              rating: r.user_rating ? parseFloat(r.user_rating) : null,
+              hearted: Boolean(r.user_hearted),
+            }
+          : null,
+      },
+    }));
   }
 
   async getItems(
@@ -388,170 +712,75 @@ export class ShelvesService {
     `);
     const total = countRow ? parseInt(countRow.count, 10) : 0;
 
-    const rows = await this.db.execute<{
-      shelf_id: string;
-      work_id: string;
-      position: number;
-      note: string | null;
-      added_at: string;
-      title: string;
-      author_name: string | null;
-      first_publish_year: number | null;
-      cover_id: number | null;
-      log_count: number;
-      rating: string | null;
-      user_status: string | null;
-      user_rating: string | null;
-      user_hearted: boolean | null;
-    }>(sql`
-      SELECT
-        si.shelf_id,
-        si.work_id,
-        si.position,
-        si.note,
-        si.added_at,
-        w.title,
-        w.first_publish_year,
-        w.ol_cover_id as cover_id,
-        w.log_count,
-        (SELECT a.name
-           FROM work_authors wa JOIN authors a ON a.id = wa.author_id
-          WHERE wa.work_id = w.id
-          ORDER BY wa.position, a.name
-          LIMIT 1) AS author_name,
-        (SELECT round(avg(r.rating)::numeric, 1)::text
-           FROM reads r
-          WHERE r.work_id = w.id AND r.rating IS NOT NULL) AS rating,
-        ${viewer ? sql`ur.status` : sql`NULL`} AS user_status,
-        ${viewer ? sql`ur.rating::text` : sql`NULL`} AS user_rating,
-        ${viewer ? sql`ur.hearted` : sql`NULL`} AS user_hearted
-      FROM shelf_items si
-      JOIN works w ON w.id = si.work_id
-      ${viewer ? sql`
-        LEFT JOIN LATERAL (
-          SELECT r.status, r.rating, r.hearted
-          FROM reads r
-          WHERE r.user_id = ${viewer}::uuid AND r.work_id = w.id
-          ORDER BY r.updated_at DESC
-          LIMIT 1
-        ) ur ON true
-      ` : sql``}
-      WHERE si.shelf_id = ${shelfId}::uuid
-      ORDER BY si.position ASC, si.added_at ASC
-      LIMIT ${limit} OFFSET ${offset}
-    `);
-
-    const data: ShelfItemDetail[] = rows.map((r) => ({
-      shelf_id: r.shelf_id,
-      work_id: r.work_id,
-      position: r.position,
-      note: r.note,
-      added_at: new Date(r.added_at).toISOString(),
-      work: {
-        id: r.work_id,
-        title: r.title,
-        author_name: r.author_name ?? 'Unknown',
-        cover_id: r.cover_id,
-        first_publish_year: r.first_publish_year,
-        log_count: Number(r.log_count),
-        rating: r.rating ? parseFloat(r.rating) : null,
-        your_read: r.user_status
-          ? {
-              status: r.user_status,
-              rating: r.user_rating ? parseFloat(r.user_rating) : null,
-              hearted: Boolean(r.user_hearted),
-            }
-          : null,
-      },
-    }));
-
+    const data = await this.#itemRows(viewer, shelfId, { limit, offset });
     return { data, total };
   }
 
   async addItem(viewer: string, shelfId: string, input: AddShelfItemInput): Promise<ShelfItemDetail> {
-    const [shelf] = await this.db
-      .select()
-      .from(shelves)
-      .where(and(eq(shelves.id, shelfId), sql`${shelves.deletedAt} IS NULL`))
-      .limit(1);
+    this.#checkNote(input.note);
 
-    if (!shelf || shelf.userId !== viewer) {
-      throw ApiError.notFound('Shelf not found.');
-    }
+    // One transaction under the shelf's row lock: the cap, the position and
+    // the insert cannot race another add, a reorder or a move (A-11-009).
+    const workId = await this.#tx(async (tx) => {
+      const shelf = await this.#lockOwnShelf(tx, viewer, shelfId);
 
-    if (input.note && input.note.trim().length > 280) {
-      throw new ApiError(400, 'invalid_note', 'Note cannot exceed 280 characters.', 'note');
-    }
+      // D3: a merged work's id shelves the survivor. Resolved under the
+      // merge's lock, so a shelf add racing a merge cannot land on the tombstone.
+      const resolved = await resolveWorkId(tx, input.work_id, { lock: true });
+      if (!resolved) throw ApiError.notFound('Work not found.');
 
-    let nextPos = input.position;
-    if (!nextPos) {
-      const [maxPos] = await this.db.execute<{ max_pos: number | null }>(sql`
-        SELECT max(position) as max_pos FROM shelf_items WHERE shelf_id = ${shelfId}::uuid
-      `);
-      nextPos = (maxPos?.max_pos ?? 0) + 1;
-    }
-
-    // D3: a merged work's id shelves the survivor. Resolved under the merge's
-    // lock, in the insert's transaction, so a shelf add racing a merge cannot
-    // land on the tombstone.
-    let workId = input.work_id;
-    try {
-      workId = await this.db.transaction(async (tx) => {
-        const resolved = await resolveWorkId(tx as unknown as Db, input.work_id, { lock: true });
-        if (!resolved) throw ApiError.notFound('Work not found.');
-        await tx
-          .insert(shelfItems)
-          .values({
-            shelfId,
-            workId: resolved,
-            position: nextPos,
-            note: input.note?.trim() || null,
-            addedBy: viewer,
-          });
-        return resolved;
-      });
-    } catch (err: any) {
-      if (err instanceof ApiError) throw err;
-      let node: any = err;
-      let isDuplicate = false;
-      for (let depth = 0; depth < 5 && node; depth++) {
-        if (
-          node.code === '23505' ||
-          String(node.constraint_name || '').includes('shelf_items') ||
-          String(node.message || '').includes('duplicate key')
-        ) {
-          isDuplicate = true;
-          break;
-        }
-        node = node.cause;
-      }
-      if (isDuplicate) {
+      const [state] = await tx.execute<{ n: number; max_pos: number | null; present: boolean }>(sql`
+        SELECT count(*)::int AS n, max(position) AS max_pos,
+               bool_or(work_id = ${resolved}::uuid) AS present
+        FROM shelf_items WHERE shelf_id = ${shelfId}::uuid`);
+      const n = Number(state?.n ?? 0);
+      if (state?.present) {
         throw new ApiError(409, 'duplicate_shelf_item', 'This book is already on the shelf.', 'work_id');
       }
-      throw err;
-    }
+      if (n >= MAX_ITEMS_PER_SHELF) {
+        throw new ApiError(409, 'shelf_full', `A shelf can hold up to ${MAX_ITEMS_PER_SHELF} books.`, 'work_id');
+      }
 
-    const items = await this.getItems(viewer, shelfId, { limit: 100 });
-    const created = items.data.find((item) => item.work_id === workId);
+      let position = Number(state?.max_pos ?? 0) + 1;
+      if (input.position && input.position <= n) {
+        // Insert at that rank: everything from there down moves one place.
+        position = input.position;
+        await tx.execute(sql`
+          UPDATE shelf_items SET position = position + 1
+          WHERE shelf_id = ${shelfId}::uuid AND position >= ${position}`);
+      }
+
+      await tx.insert(shelfItems).values({
+        shelfId,
+        workId: resolved,
+        position,
+        note: input.note?.trim() || null,
+        addedBy: viewer,
+      });
+
+      await this.activityService.recordActivity(tx, {
+        actorId: viewer,
+        verb: 'shelved',
+        workId: resolved,
+        objectType: 'shelf_item',
+        objectId: shelfId,
+        metadata: {
+          shelfId,
+          shelfName: shelf.name,
+          shelfSlug: shelf.slug,
+          note: input.note?.trim() || null,
+        },
+        visibility: shelf.privacy,
+      });
+      return resolved;
+    });
+
+    // The item itself, wherever it sits: the old code looked for it in the
+    // first 100 items and answered 500 for the 101st (A-11-002).
+    const [created] = await this.#itemRows(viewer, shelfId, { workId });
     if (!created) {
       throw new ApiError(500, 'shelf_item_create_failed', 'Failed to retrieve created shelf item.');
     }
-
-    await this.activityService.recordActivity(this.db, {
-      actorId: viewer,
-      verb: 'shelved',
-      workId,
-      objectType: 'shelf_item',
-      objectId: shelfId,
-      metadata: {
-        shelfId,
-        shelfName: shelf.name,
-        shelfSlug: shelf.slug,
-        note: input.note?.trim() || null,
-      },
-      visibility: shelf.privacy,
-    });
-
     return created;
   }
 
@@ -567,6 +796,10 @@ export class ShelvesService {
     }
 
     const owner = await this.getOwnerProfile(viewer);
+
+    // D3: a merged work's id asks about the survivor, which the merge moved
+    // the items to (A-11-014).
+    if (workId) workId = (await resolveWorkId(this.db, workId)) ?? workId;
 
     let workMembershipMap = new Map<string, { note: string | null; position: number }>();
     if (workId) {
@@ -630,24 +863,29 @@ export class ShelvesService {
   async removeItem(viewer: string, shelfId: string, workId: string): Promise<{ deleted: true; shelf_id: string; work_id: string }> {
     // D3: the merge moved the item to the survivor.
     workId = (await resolveWorkId(this.db, workId)) ?? workId;
-    const [shelf] = await this.db
-      .select({ id: shelves.id, userId: shelves.userId })
-      .from(shelves)
-      .where(and(eq(shelves.id, shelfId), sql`${shelves.deletedAt} IS NULL`))
-      .limit(1);
 
-    if (!shelf || shelf.userId !== viewer) {
-      throw ApiError.notFound('Shelf not found.');
-    }
+    await this.#tx(async (tx) => {
+      await this.#lockOwnShelf(tx, viewer, shelfId);
 
-    const deleted = await this.db
-      .delete(shelfItems)
-      .where(and(eq(shelfItems.shelfId, shelfId), eq(shelfItems.workId, workId)))
-      .returning({ workId: shelfItems.workId });
+      const deleted = await tx
+        .delete(shelfItems)
+        .where(and(eq(shelfItems.shelfId, shelfId), eq(shelfItems.workId, workId)))
+        .returning({ position: shelfItems.position });
 
-    if (deleted.length === 0) {
-      throw ApiError.notFound('Book not found in shelf.');
-    }
+      if (deleted.length === 0) {
+        throw ApiError.notFound('Book not found in shelf.');
+      }
+
+      // Close the gap, so a ranked shelf still reads #1..#n.
+      await tx.execute(sql`
+        UPDATE shelf_items SET position = position - 1
+        WHERE shelf_id = ${shelfId}::uuid AND position > ${deleted[0]!.position}`);
+
+      // The book is no longer on the shelf, so neither is its feed card.
+      await tx.execute(sql`
+        DELETE FROM activity
+        WHERE object_type = 'shelf_item' AND object_id = ${shelfId}::uuid AND work_id = ${workId}::uuid`);
+    });
 
     return { deleted: true, shelf_id: shelfId, work_id: workId };
   }
@@ -660,42 +898,35 @@ export class ShelvesService {
   ): Promise<ShelfItemDetail> {
     // D3: the merge moved the item to the survivor.
     workId = (await resolveWorkId(this.db, workId)) ?? workId;
-    const [shelf] = await this.db
-      .select({ id: shelves.id, userId: shelves.userId })
-      .from(shelves)
-      .where(and(eq(shelves.id, shelfId), sql`${shelves.deletedAt} IS NULL`))
-      .limit(1);
+    this.#checkNote(input.note);
 
-    if (!shelf || shelf.userId !== viewer) {
-      throw ApiError.notFound('Shelf not found.');
-    }
+    await this.#tx(async (tx) => {
+      await this.#lockOwnShelf(tx, viewer, shelfId);
 
-    if (input.note && input.note.trim().length > 280) {
-      throw new ApiError(400, 'invalid_note', 'Note cannot exceed 280 characters.', 'note');
-    }
-
-    const updates: Partial<{ note: string | null; position: number }> = {};
-    if (input.note !== undefined) {
-      updates.note = input.note?.trim() || null;
-    }
-    if (input.position !== undefined) {
-      updates.position = input.position;
-    }
-
-    if (Object.keys(updates).length > 0) {
-      const updated = await this.db
-        .update(shelfItems)
-        .set(updates)
-        .where(and(eq(shelfItems.shelfId, shelfId), eq(shelfItems.workId, workId)))
-        .returning();
-
-      if (updated.length === 0) {
+      const order = await this.#currentOrder(tx, shelfId);
+      const from = order.indexOf(workId);
+      if (from === -1) {
         throw ApiError.notFound('Book not found in shelf.');
       }
-    }
 
-    const items = await this.getItems(viewer, shelfId, { limit: 100 });
-    const item = items.data.find((i) => i.work_id === workId);
+      if (input.note !== undefined) {
+        await tx
+          .update(shelfItems)
+          .set({ note: input.note?.trim() || null })
+          .where(and(eq(shelfItems.shelfId, shelfId), eq(shelfItems.workId, workId)));
+      }
+
+      // A position is a move: the others shift, so the shelf stays 1..n
+      // (A-11-011). Past the end means the end.
+      if (input.position !== undefined) {
+        const to = Math.min(Math.max(input.position, 1), order.length) - 1;
+        order.splice(from, 1);
+        order.splice(to, 0, workId);
+        await this.#writeOrder(tx, shelfId, order);
+      }
+    });
+
+    const [item] = await this.#itemRows(viewer, shelfId, { workId });
     if (!item) {
       throw ApiError.notFound('Book not found in shelf.');
     }
@@ -707,40 +938,32 @@ export class ShelvesService {
     shelfId: string,
     workIds: string[],
   ): Promise<{ reordered: true; shelf_id: string; count: number }> {
-    const [shelf] = await this.db
-      .select({ id: shelves.id, userId: shelves.userId })
-      .from(shelves)
-      .where(and(eq(shelves.id, shelfId), sql`${shelves.deletedAt} IS NULL`))
-      .limit(1);
+    await this.#tx(async (tx) => {
+      await this.#lockOwnShelf(tx, viewer, shelfId);
 
-    if (!shelf || shelf.userId !== viewer) {
-      throw ApiError.notFound('Shelf not found.');
-    }
+      // D3: an order sent with a merged work's id moves the survivor's item,
+      // which is where the merge put it. One query for the whole list.
+      const merged = workIds.length === 0 ? [] : await tx.execute<{ id: string; survivor: string }>(sql`
+        SELECT id, merged_into_id AS survivor FROM works
+        WHERE id = ANY (${uuidArray(workIds)})
+          AND merged_into_id IS NOT NULL`);
+      const survivorOf = new Map(merged.map((m) => [m.id, m.survivor]));
+      workIds = workIds.map((w) => survivorOf.get(w) ?? w);
 
-    // D3: an order sent with a merged work's id moves the survivor's item,
-    // which is where the merge put it. One query for the whole list.
-    const merged = workIds.length === 0 ? [] : await this.db.execute<{ id: string; survivor: string }>(sql`
-      SELECT id, merged_into_id AS survivor FROM works
-      WHERE id IN (${sql.join(workIds.map((w) => sql`${w}::uuid`), sql`, `)})
-        AND merged_into_id IS NOT NULL`);
-    const survivorOf = new Map(merged.map((m) => [m.id, m.survivor]));
-    workIds = workIds.map((w) => survivorOf.get(w) ?? w);
-
-    const uniqueIds = new Set(workIds);
-    if (uniqueIds.size !== workIds.length) {
-      throw new ApiError(400, 'duplicate_work_ids', 'work_ids array cannot contain duplicate IDs.', 'work_ids');
-    }
-
-    await this.db.transaction(async (tx) => {
-      for (let i = 0; i < workIds.length; i++) {
-        const wid = workIds[i];
-        if (wid) {
-          await tx
-            .update(shelfItems)
-            .set({ position: i + 1 })
-            .where(and(eq(shelfItems.shelfId, shelfId), eq(shelfItems.workId, wid)));
-        }
+      const uniqueIds = new Set(workIds);
+      if (uniqueIds.size !== workIds.length) {
+        throw new ApiError(400, 'duplicate_work_ids', 'work_ids array cannot contain duplicate IDs.', 'work_ids');
       }
+
+      // Exactly the books on the shelf: a missing one kept its old position
+      // (two books at #1) and an extra one was ignored (A-11-008). A client
+      // with a stale list reloads and tries again.
+      const current = await this.#currentOrder(tx, shelfId);
+      if (current.length !== workIds.length || current.some((w) => !uniqueIds.has(w))) {
+        throw new ApiError(409, 'order_mismatch', 'The order must list exactly the books on the shelf. Reload and try again.', 'work_ids');
+      }
+
+      await this.#writeOrder(tx, shelfId, workIds);
     });
 
     return { reordered: true, shelf_id: shelfId, count: workIds.length };
@@ -777,12 +1000,21 @@ export class ShelvesService {
     };
   }
 
+  /**
+   * Removes the viewer's save. A shelf they can no longer see (made private,
+   * a block, deleted) still loses the save, but answers the random-id 404 and
+   * no save count (A-11-015).
+   */
   async unsave(
     viewer: string,
     shelfId: string,
   ): Promise<{ saved: false; shelf_id: string; save_count: number }> {
+    await this.db
+      .delete(shelfSaves)
+      .where(and(eq(shelfSaves.shelfId, shelfId), eq(shelfSaves.userId, viewer)));
+
     const [shelf] = await this.db
-      .select({ id: shelves.id, saveCount: shelves.saveCount })
+      .select({ id: shelves.id, userId: shelves.userId, privacy: shelves.privacy, saveCount: shelves.saveCount })
       .from(shelves)
       .where(and(eq(shelves.id, shelfId), sql`${shelves.deletedAt} IS NULL`))
       .limit(1);
@@ -790,105 +1022,57 @@ export class ShelvesService {
     if (!shelf) {
       throw ApiError.notFound('Shelf not found.');
     }
-
-    await this.db
-      .delete(shelfSaves)
-      .where(and(eq(shelfSaves.shelfId, shelfId), eq(shelfSaves.userId, viewer)));
-
-    const [updated] = await this.db
-      .select({ saveCount: shelves.saveCount })
-      .from(shelves)
-      .where(eq(shelves.id, shelfId))
-      .limit(1);
+    const rel = await loadRelationship(this.db, viewer, shelf.userId);
+    if (!canViewWith(viewer, shelf.userId, rel, shelf.privacy)) throw ApiError.notFound('Shelf not found.');
 
     return {
       saved: false,
       shelf_id: shelfId,
-      save_count: updated?.saveCount ?? Math.max(0, shelf.saveCount - 1),
+      save_count: shelf.saveCount,
     };
   }
 
-  async getSavedShelves(viewer: string): Promise<{ shelves: ShelfDetail[] }> {
-    const rows = await this.db
-      .select({
-        shelf: shelves,
-        savedAt: shelfSaves.createdAt,
-      })
-      .from(shelfSaves)
-      .innerJoin(shelves, eq(shelfSaves.shelfId, shelves.id))
-      .where(
-        and(
-          eq(shelfSaves.userId, viewer),
-          sql`${shelves.deletedAt} IS NULL`,
-          // Blocks, deleted owners, private accounts: canView() in SQL (Audit 05).
-          canViewSql(viewer, {
-            ownerId: shelves.userId,
-            visibility: shelves.privacy,
-            ownerIsPrivate: sql`COALESCE((SELECT sp.is_private FROM profiles sp WHERE sp.user_id = ${shelves.userId}), true)`,
-          }),
-        ),
-      )
-      .orderBy(sql`${shelfSaves.createdAt} DESC`);
-
-    if (rows.length === 0) {
-      return { shelves: [] };
-    }
-
-    const allCoverWorkIds = new Set<string>();
-    const ownerIds = new Set<string>();
-    for (const r of rows) {
-      ownerIds.add(r.shelf.userId);
-      if (r.shelf.coverWorkIds) {
-        for (const wid of r.shelf.coverWorkIds) {
-          allCoverWorkIds.add(wid);
-        }
-      }
-    }
-
-    const coversMap = new Map<string, number | null>();
-    if (allCoverWorkIds.size > 0) {
-      const coverRows = await this.db
-        .select({ id: works.id, coverId: works.olCoverId })
-        .from(works)
-        .where(inArray(works.id, Array.from(allCoverWorkIds)));
-      for (const cr of coverRows) {
-        coversMap.set(cr.id, cr.coverId);
-      }
-    }
-
-    const ownersMap = new Map<string, ShelfOwner & { isPrivate: boolean }>();
-    for (const ownerId of ownerIds) {
-      try {
-        const owner = await this.getOwnerProfile(ownerId);
-        ownersMap.set(ownerId, owner);
-      } catch {
-        ownersMap.set(ownerId, {
-          id: ownerId,
-          username: 'user',
-          displayName: null,
-          avatarKey: null,
-          isPrivate: false,
-        });
-      }
-    }
-
-    const result: ShelfDetail[] = [];
-    for (const r of rows) {
-      const shelf = r.shelf;
-      const owner = ownersMap.get(shelf.userId) || {
-        id: shelf.userId,
-        username: 'user',
-        displayName: null,
-        avatarKey: null,
-        isPrivate: false,
-      };
-      const coverIds = (shelf.coverWorkIds || []).map((wid) => coversMap.get(wid) ?? null);
-      result.push(this.formatShelf(shelf, owner, true, coverIds));
-    }
-
-    return { shelves: result };
+  /** The total for a page with no rows to carry it: 0 on the first page, else counted. */
+  async #count(fromWhere: SQL, offset: number): Promise<number> {
+    if (offset === 0) return 0;
+    const [c] = await this.db.execute<{ n: number }>(sql`SELECT count(*)::int AS n ${fromWhere}`);
+    return Number(c?.n ?? 0);
   }
 
+  /**
+   * The viewer's saved shelves, newest save first, in one statement: owners
+   * and covers are joined, not fetched per owner (L-10, A-11-016).
+   */
+  async getSavedShelves(
+    viewer: string,
+    options: { limit?: number; offset?: number } = {},
+  ): Promise<{ shelves: ShelfDetail[]; total: number }> {
+    const limit = Math.min(Math.max(options.limit ?? 50, 1), 100);
+    const offset = Math.max(options.offset ?? 0, 0);
+
+    const fromWhere = sql`
+      FROM shelf_saves ss
+      JOIN shelves s ON s.id = ss.shelf_id AND s.deleted_at IS NULL
+      JOIN profiles p ON p.user_id = s.user_id
+      WHERE ss.user_id = ${viewer}::uuid
+        -- Blocks, deleted owners, private accounts: canView() in SQL (Audit 05).
+        AND ${canViewSql(viewer, { ownerId: sql`s.user_id`, visibility: sql`s.privacy`, ownerIsPrivate: sql`p.is_private` })}`;
+
+    const rows = await this.db.execute<ShelfCardRow>(sql`
+      SELECT ${shelfCardColumns(viewer)}, count(*) OVER () AS total
+      ${fromWhere}
+      ORDER BY ss.created_at DESC, s.id DESC
+      LIMIT ${limit} OFFSET ${offset}`);
+
+    const total = rows.length ? Number(rows[0]!.total) : await this.#count(fromWhere, offset);
+    return { shelves: rows.map(cardFromRow), total };
+  }
+
+  /**
+   * Public shelves of public, live accounts, ranked by the PRD §15.5 formula
+   * (or by saves / recency), in one statement: candidates, score, sort, page
+   * and total are all computed in SQL (L-18, A-11-019).
+   */
   async browse(
     viewer: string | null,
     input: BrowseShelvesInput,
@@ -898,235 +1082,89 @@ export class ShelvesService {
     const sort = input.sort ?? 'ranked';
     const query = input.query?.trim();
 
-    // 1. Fetch candidate public shelves that are not soft-deleted and belong to public profiles
-    const whereConditions = [
-      eq(shelves.privacy, 'public'),
-      sql`${shelves.deletedAt} IS NULL`,
-      eq(profiles.isPrivate, false),
-      // Deleted accounts are hidden platform-wide (PRD §25.4).
-      sql`EXISTS (SELECT 1 FROM users bu WHERE bu.id = ${shelves.userId} AND bu.deleted_at IS NULL)`,
-    ];
+    // % _ and \ are literal in the search, not wildcards (A-11-018).
+    const pattern = query ? `%${query.replace(/[\\%_]/g, '\\$&')}%` : null;
 
-    if (query && query.length > 0) {
-      const pattern = `%${query}%`;
-      whereConditions.push(
-        sql`(${shelves.name} ILIKE ${pattern} OR (${shelves.description} IS NOT NULL AND ${shelves.description} ILIKE ${pattern}))`,
-      );
-    }
+    // PRD §15.5:
+    //   0.30·ln(1+saves) + 0.20·ln(1+views) + 0.20·social_proximity
+    //   + 0.15·curation_quality + 0.15·freshness
+    // views: there is no view counter, so the term is 0 for every shelf
+    // (A-11-024, a recorded spec gap).
+    // social_proximity: 1.0 for a followed owner, 0.5 for the viewer's own.
+    // curation_quality: description +0.25, per-entry notes +0.25, 5–100 books
+    // +0.30 (1–4: +0.15, >100: +0.10), a full mosaic +0.20.
+    // freshness: 1 / (1 + age_days / 30).
+    const score = sql`round((
+      0.30 * ln(1 + greatest(s.save_count, 0))
+      + 0.20 * 0
+      + 0.20 * ${viewer
+        ? sql`(CASE WHEN s.user_id = ${viewer}::uuid THEN 0.5
+                    WHEN EXISTS (SELECT 1 FROM follows f
+                                 WHERE f.follower_id = ${viewer}::uuid AND f.followee_id = s.user_id
+                                   AND f.state = 'accepted') THEN 1.0
+                    ELSE 0 END)`
+        : sql`0`}
+      + 0.15 * (
+          (CASE WHEN s.description ~ '\\S' THEN 0.25 ELSE 0 END)
+        + (CASE WHEN EXISTS (SELECT 1 FROM shelf_items n WHERE n.shelf_id = s.id AND n.note IS NOT NULL)
+                THEN 0.25 ELSE 0 END)
+        + (CASE WHEN s.item_count BETWEEN 5 AND 100 THEN 0.30
+                WHEN s.item_count BETWEEN 1 AND 4 THEN 0.15
+                WHEN s.item_count > 100 THEN 0.10
+                ELSE 0 END)
+        + (CASE WHEN cardinality(s.cover_work_ids) >= least(4, greatest(1, s.item_count)) THEN 0.20 ELSE 0 END))
+      + 0.15 * (1.0 / (1 + greatest(0, extract(epoch FROM now() - s.created_at)) / 86400.0 / 30.0))
+    )::numeric, 4)`;
 
-    const candidateShelvesRows = await this.db
-      .select({ shelf: shelves })
-      .from(shelves)
-      .innerJoin(profiles, eq(shelves.userId, profiles.userId))
-      .where(and(...whereConditions));
-    let candidateShelves = candidateShelvesRows.map((r) => r.shelf);
-    if (viewer) {
-      const blockRows = await this.db
-        .select({ blockerId: blocks.blockerId, blockedId: blocks.blockedId })
-        .from(blocks)
-        .where(or(eq(blocks.blockerId, viewer), eq(blocks.blockedId, viewer)));
-      const blockedSet = new Set<string>();
-      for (const b of blockRows) {
-        blockedSet.add(b.blockerId === viewer ? b.blockedId : b.blockerId);
-      }
-      candidateShelves = candidateShelves.filter((s) => !blockedSet.has(s.userId));
-    }
+    // Every order ends on id, so pages never overlap or skip (A-11-020).
+    const orderBy = (t: string) => {
+      const c = sql.raw(t);
+      return sort === 'popular' ? sql`${c}.save_count DESC, ${c}.created_at DESC, ${c}.id DESC`
+        : sort === 'recent' ? sql`${c}.created_at DESC, ${c}.id DESC`
+        : sql`${c}.score DESC, ${c}.save_count DESC, ${c}.created_at DESC, ${c}.id DESC`;
+    };
 
-    if (candidateShelves.length === 0) {
-      return { shelves: [], total: 0 };
-    }
+    const fromWhere = sql`
+      FROM shelves s
+      JOIN profiles p ON p.user_id = s.user_id AND p.is_private = false
+      -- Deleted accounts are hidden platform-wide (PRD §25.4).
+      JOIN users u ON u.id = s.user_id AND u.deleted_at IS NULL
+      WHERE s.privacy = 'public'
+        AND s.deleted_at IS NULL
+        ${pattern
+          ? sql`AND (s.name ILIKE ${pattern} ESCAPE '\\' OR s.description ILIKE ${pattern} ESCAPE '\\')`
+          : sql``}
+        ${viewer ? sql`
+          -- Blocks either way (PRD §11.4) and the viewer's mutes (A-11-017).
+          AND s.user_id NOT IN (
+            SELECT b.blocked_id FROM blocks b WHERE b.blocker_id = ${viewer}::uuid
+            UNION ALL
+            SELECT b.blocker_id FROM blocks b WHERE b.blocked_id = ${viewer}::uuid
+            UNION ALL
+            SELECT m.target_id FROM mutes m WHERE m.user_id = ${viewer}::uuid AND m.target_type = 'user'
+          )` : sql``}`;
 
-    const shelfIds = candidateShelves.map((s) => s.id);
-    const ownerIds = Array.from(new Set(candidateShelves.map((s) => s.userId)));
+    // Rank and page on the bare rows, then build cards for the page only:
+    // the window total makes Postgres project every candidate, so the cover
+    // and saved lookups must not be in that projection.
+    const rows = await this.db.execute<ShelfCardRow>(sql`
+      SELECT ${shelfCardColumns(viewer)}, x.total
+      FROM (
+        SELECT c.* FROM (
+          SELECT s.id, s.save_count, s.created_at,
+                 ${sort === 'ranked' ? score : sql`0`} AS score,
+                 count(*) OVER () AS total
+          ${fromWhere}
+        ) c
+        ORDER BY ${orderBy('c')}
+        LIMIT ${limit} OFFSET ${offset}
+      ) x
+      JOIN shelves s ON s.id = x.id
+      JOIN profiles p ON p.user_id = s.user_id
+      ORDER BY ${orderBy('x')}`);
 
-    // 2. Fetch social proximity (if viewer is authenticated)
-    const followedOwners = new Set<string>();
-    if (viewer) {
-      const followedRows = await this.db
-        .select({ followeeId: follows.followeeId })
-        .from(follows)
-        .where(
-          and(
-            eq(follows.followerId, viewer),
-            eq(follows.state, 'accepted'),
-            inArray(follows.followeeId, ownerIds),
-          ),
-        );
-      for (const r of followedRows) {
-        followedOwners.add(r.followeeId);
-      }
-    }
-
-    // 3. Fetch note presence to compute curation quality
-    const notesRows = await this.db
-      .select({ shelfId: shelfItems.shelfId })
-      .from(shelfItems)
-      .where(
-        and(
-          inArray(shelfItems.shelfId, shelfIds),
-          sql`${shelfItems.note} IS NOT NULL AND char_length(trim(${shelfItems.note})) > 0`,
-        ),
-      )
-      .groupBy(shelfItems.shelfId);
-    const shelvesWithNotes = new Set(notesRows.map((r) => r.shelfId));
-
-    // 4. Compute scores and sort
-    const scoredShelves = candidateShelves.map((shelf) => {
-      // Social proximity
-      let socialProximity = 0;
-      if (viewer) {
-        if (shelf.userId === viewer) {
-          socialProximity = 0.5;
-        } else if (followedOwners.has(shelf.userId)) {
-          socialProximity = 1.0;
-        }
-      }
-
-      // Curation quality composite (PRD §15.5):
-      // - has description (+0.25)
-      // - has per-entry notes (+0.25)
-      // - item count between 5 and 100 (+0.30; 1–4 items: +0.15; >100 items: +0.10)
-      // - cover art completeness (+0.20)
-      let curationQuality = 0;
-      if (shelf.description && shelf.description.trim().length > 0) {
-        curationQuality += 0.25;
-      }
-      if (shelvesWithNotes.has(shelf.id)) {
-        curationQuality += 0.25;
-      }
-      if (shelf.itemCount >= 5 && shelf.itemCount <= 100) {
-        curationQuality += 0.30;
-      } else if (shelf.itemCount >= 1 && shelf.itemCount < 5) {
-        curationQuality += 0.15;
-      } else if (shelf.itemCount > 100) {
-        curationQuality += 0.10;
-      }
-      const coverCount = shelf.coverWorkIds?.length ?? 0;
-      if (coverCount >= Math.min(4, Math.max(1, shelf.itemCount))) {
-        curationQuality += 0.20;
-      }
-
-      // Freshness: rational decay over 30 days
-      const ageInDays = Math.max(0, (Date.now() - shelf.createdAt.getTime()) / (1000 * 60 * 60 * 24));
-      const freshness = 1 / (1 + ageInDays / 30);
-
-      // Saves and views
-      const savesScore = Math.log1p(Math.max(0, shelf.saveCount));
-      const viewsScore = 0;
-
-      // Formula from PRD §15.5
-      const shelfScore =
-        0.30 * savesScore +
-        0.20 * viewsScore +
-        0.20 * socialProximity +
-        0.15 * curationQuality +
-        0.15 * freshness;
-
-      return {
-        shelf,
-        shelfScore,
-      };
-    });
-
-    if (sort === 'popular') {
-      scoredShelves.sort((a, b) => {
-        if (b.shelf.saveCount !== a.shelf.saveCount) {
-          return b.shelf.saveCount - a.shelf.saveCount;
-        }
-        return b.shelf.createdAt.getTime() - a.shelf.createdAt.getTime();
-      });
-    } else if (sort === 'recent') {
-      scoredShelves.sort((a, b) => b.shelf.createdAt.getTime() - a.shelf.createdAt.getTime());
-    } else {
-      // 'ranked' (PRD §15.5)
-      scoredShelves.sort((a, b) => {
-        if (Math.abs(b.shelfScore - a.shelfScore) > 0.0001) {
-          return b.shelfScore - a.shelfScore;
-        }
-        if (b.shelf.saveCount !== a.shelf.saveCount) {
-          return b.shelf.saveCount - a.shelf.saveCount;
-        }
-        return b.shelf.createdAt.getTime() - a.shelf.createdAt.getTime();
-      });
-    }
-
-    const total = scoredShelves.length;
-    const paged = scoredShelves.slice(offset, offset + limit);
-
-    if (paged.length === 0) {
-      return { shelves: [], total };
-    }
-
-    // 5. Hydrate covers, owners, and is_saved for paged shelves
-    const pagedCoverWorkIds = new Set<string>();
-    const pagedOwnerIds = new Set<string>();
-    const pagedShelfIds = paged.map((p) => p.shelf.id);
-
-    for (const p of paged) {
-      pagedOwnerIds.add(p.shelf.userId);
-      if (p.shelf.coverWorkIds) {
-        for (const wid of p.shelf.coverWorkIds) {
-          pagedCoverWorkIds.add(wid);
-        }
-      }
-    }
-
-    const coversMap = new Map<string, number | null>();
-    if (pagedCoverWorkIds.size > 0) {
-      const coverRows = await this.db
-        .select({ id: works.id, coverId: works.olCoverId })
-        .from(works)
-        .where(inArray(works.id, Array.from(pagedCoverWorkIds)));
-      for (const cr of coverRows) {
-        coversMap.set(cr.id, cr.coverId);
-      }
-    }
-
-    const ownersMap = new Map<string, ShelfOwner>();
-    for (const ownerId of pagedOwnerIds) {
-      try {
-        const owner = await this.getOwnerProfile(ownerId);
-        ownersMap.set(ownerId, owner);
-      } catch {
-        ownersMap.set(ownerId, {
-          id: ownerId,
-          username: 'reader',
-          displayName: null,
-          avatarKey: null,
-        });
-      }
-    }
-
-    const savedShelfIds = new Set<string>();
-    if (viewer) {
-      const savedRows = await this.db
-        .select({ shelfId: shelfSaves.shelfId })
-        .from(shelfSaves)
-        .where(
-          and(
-            eq(shelfSaves.userId, viewer),
-            inArray(shelfSaves.shelfId, pagedShelfIds),
-          ),
-        );
-      for (const sr of savedRows) {
-        savedShelfIds.add(sr.shelfId);
-      }
-    }
-
-    const result: ShelfDetail[] = [];
-    for (const p of paged) {
-      const shelf = p.shelf;
-      const owner = ownersMap.get(shelf.userId) || {
-        id: shelf.userId,
-        username: 'reader',
-        displayName: null,
-        avatarKey: null,
-      };
-      const coverIds = (shelf.coverWorkIds || []).map((wid) => coversMap.get(wid) ?? null);
-      result.push(this.formatShelf(shelf, owner, savedShelfIds.has(shelf.id), coverIds));
-    }
-
-    return { shelves: result, total };
+    const total = rows.length ? Number(rows[0]!.total) : await this.#count(fromWhere, offset);
+    return { shelves: rows.map(cardFromRow), total };
   }
 
   async getUserShelves(
@@ -1331,12 +1369,13 @@ export const shelvesPlugin: FastifyPluginAsync<{ db: Db }> = async (fastify, opt
       schema: {
         tags: ['Shelves'],
         summary: 'Create a new shelf',
-        description: 'Creates a user-curated shelf with name, description, privacy, and ranked list toggle (SH-02).',
+        description: 'Creates a user-curated shelf with name, description, privacy, and ranked list toggle (SH-02). 409 shelf_limit_reached at 200 live shelves (PRD §15.6).',
         body: createShelfBodySchema,
         response: {
           201: shelfResponseSchema,
           400: errorResponseSchema,
           401: errorResponseSchema,
+          409: errorResponseSchema,
         },
       },
     },
@@ -1375,7 +1414,8 @@ export const shelvesPlugin: FastifyPluginAsync<{ db: Db }> = async (fastify, opt
       schema: {
         tags: ['Shelves'],
         summary: 'List shelves saved by viewer',
-        description: 'Returns shelves saved/bookmarked by the authenticated user (SH-07).',
+        description: 'Returns shelves saved/bookmarked by the authenticated user, newest save first, paged (SH-07). Shelves the viewer can no longer see are left out.',
+        querystring: savedShelvesQuerySchema,
         response: {
           200: savedShelvesResponseSchema,
           401: errorResponseSchema,
@@ -1384,8 +1424,51 @@ export const shelvesPlugin: FastifyPluginAsync<{ db: Db }> = async (fastify, opt
     },
     async (request, reply) => {
       const viewer = requireViewer(request);
-      const result = await service.getSavedShelves(viewer);
+      const { limit, offset } = (request.query as { limit?: number; offset?: number }) || {};
+      const result = await service.getSavedShelves(viewer, { limit, offset });
       return reply.send(result);
+    },
+  );
+
+  fastify.get(
+    '/shelves/deleted',
+    {
+      schema: {
+        tags: ['Shelves'],
+        summary: 'List my recently deleted shelves',
+        description: 'The viewer\'s shelves deleted in the last 30 days, which can still be restored (PRD §15.6).',
+        response: {
+          200: deletedShelvesResponseSchema,
+          401: errorResponseSchema,
+        },
+      },
+    },
+    async (request, reply) => {
+      const viewer = requireViewer(request);
+      return reply.send(await service.listDeleted(viewer));
+    },
+  );
+
+  fastify.post(
+    '/shelves/:id/restore',
+    {
+      schema: {
+        tags: ['Shelves'],
+        summary: 'Restore a deleted shelf',
+        description: 'Undoes a delete within 30 days (PRD §15.6). Its feed activity is not restored. 404 for a shelf that is not the viewer\'s, not deleted, or deleted over 30 days ago; 409 at the 200-shelf limit.',
+        params: idParamSchema,
+        response: {
+          200: shelfResponseSchema,
+          401: errorResponseSchema,
+          404: errorResponseSchema,
+          409: errorResponseSchema,
+        },
+      },
+    },
+    async (request, reply) => {
+      const viewer = requireViewer(request);
+      const { id } = request.params as { id: string };
+      return reply.send({ shelf: await service.restore(viewer, id) });
     },
   );
 
@@ -1513,7 +1596,7 @@ export const shelvesPlugin: FastifyPluginAsync<{ db: Db }> = async (fastify, opt
       schema: {
         tags: ['Shelves'],
         summary: 'Add item to shelf',
-        description: 'Appends a book to the shelf with an optional note and position. Only owner can add items.',
+        description: 'Appends a book to the shelf with an optional note, or inserts it at `position` (the items from there down shift). 409 for a book already on the shelf or a full shelf (1,000 books). Only owner can add items.',
         params: idParamSchema,
         body: addShelfItemBodySchema,
         response: {
@@ -1562,7 +1645,7 @@ export const shelvesPlugin: FastifyPluginAsync<{ db: Db }> = async (fastify, opt
       schema: {
         tags: ['Shelves'],
         summary: 'Update shelf item note or position',
-        description: 'Updates note (up to 280 chars) or position for an existing item on the shelf. Only owner can update.',
+        description: 'Updates the note (up to 280 chars) or moves the item to a position; the other items shift so positions stay 1..n. Only owner can update.',
         params: shelfItemParamSchema,
         body: updateShelfItemBodySchema,
         response: {
@@ -1588,7 +1671,7 @@ export const shelvesPlugin: FastifyPluginAsync<{ db: Db }> = async (fastify, opt
       schema: {
         tags: ['Shelves'],
         summary: 'Reorder shelf items',
-        description: 'Updates sequential positions for items in a shelf. Only the shelf owner can reorder items (SH-05).',
+        description: 'Sets positions 1..n in the order given. work_ids must list exactly the books on the shelf (409 order_mismatch otherwise; reload and retry). Only the shelf owner can reorder items (SH-05).',
         params: idParamSchema,
         body: reorderShelfBodySchema,
         response: {
@@ -1596,6 +1679,7 @@ export const shelvesPlugin: FastifyPluginAsync<{ db: Db }> = async (fastify, opt
           400: errorResponseSchema,
           401: errorResponseSchema,
           404: errorResponseSchema,
+          409: errorResponseSchema,
           422: errorResponseSchema,
         },
       },
@@ -1732,8 +1816,8 @@ function escapeHtml(str: string): string {
 /**
  * Renders server-side HTML page with Open Graph and Twitter Card tags for public link sharing (PRD §6.45, §29.1).
  */
-export function renderShelfHtml(shelf: ShelfDetail, baseUrl = 'https://flyleaf.app'): string {
-  const canonicalUrl = `${baseUrl}/u/${encodeURIComponent(shelf.owner.username)}/shelves/${encodeURIComponent(shelf.slug)}`;
+export function renderShelfHtml(shelf: ShelfDetail, baseUrl = config.appBaseUrl): string {
+  const canonicalUrl = escapeHtml(`${baseUrl}/u/${encodeURIComponent(shelf.owner.username)}/shelves/${encodeURIComponent(shelf.slug)}`);
   const title = `${escapeHtml(shelf.name)} — Curated by @${escapeHtml(shelf.owner.username)}`;
   const description = shelf.description
     ? escapeHtml(shelf.description)
@@ -1746,6 +1830,7 @@ export function renderShelfHtml(shelf: ShelfDetail, baseUrl = 'https://flyleaf.a
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>${title} | Flyleaf</title>
   <meta name="description" content="${description}" />
+  <link rel="canonical" href="${canonicalUrl}" />
 
   <!-- Open Graph / Social Sharing -->
   <meta property="og:site_name" content="Flyleaf" />
@@ -1760,9 +1845,9 @@ export function renderShelfHtml(shelf: ShelfDetail, baseUrl = 'https://flyleaf.a
   <meta name="twitter:description" content="${description}" />
 
   <!-- Mobile App Links -->
-  <meta property="al:ios:url" content="flyleaf://shelf/${shelf.id}" />
+  <meta property="al:ios:url" content="flyleaf://shelf/${escapeHtml(shelf.id)}" />
   <meta property="al:ios:app_name" content="Flyleaf" />
-  <meta property="al:android:url" content="flyleaf://shelf/${shelf.id}" />
+  <meta property="al:android:url" content="flyleaf://shelf/${escapeHtml(shelf.id)}" />
   <meta property="al:android:package" content="app.flyleaf.skeleton" />
   <meta property="al:android:app_name" content="Flyleaf" />
 
@@ -1856,7 +1941,7 @@ export function renderShelfHtml(shelf: ShelfDetail, baseUrl = 'https://flyleaf.a
       Curated by <b>@${escapeHtml(shelf.owner.username)}</b> · ${shelf.item_count} book${shelf.item_count === 1 ? '' : 's'}${shelf.is_ranked ? ' · Ranked list' : ''}
     </div>
     ${shelf.description ? `<div class="desc">${escapeHtml(shelf.description)}</div>` : ''}
-    <a href="flyleaf://shelf/${shelf.id}" class="app-button">Open in Flyleaf App</a>
+    <a href="flyleaf://shelf/${escapeHtml(shelf.id)}" class="app-button">Open in Flyleaf App</a>
     <div class="footer">flyleaf.app — A social reading tracker</div>
   </div>
 </body>
@@ -1870,6 +1955,16 @@ export function renderShelfHtml(shelf: ShelfDetail, baseUrl = 'https://flyleaf.a
 const SHARE_PAGE_CSP =
   "default-src 'none'; style-src 'unsafe-inline'; img-src https: data:; base-uri 'none'; form-action 'none'; frame-ancestors 'none'";
 
+/**
+ * What a guest may see of a public shelf can be cached briefly by link
+ * previewers and CDNs; anything that depended on who asked never is
+ * (A-11-022). Five minutes bounds how long a shelf made private stays
+ * visible in a shared cache (PRD §34.3).
+ */
+function shareCacheControl(viewer: string | null, shelf: ShelfDetail): string {
+  return viewer === null && shelf.privacy === 'public' ? 'public, max-age=300' : 'private, no-store';
+}
+
 export const shelvesWebPlugin: FastifyPluginAsync<{ db: Db }> = async (fastify, opts) => {
   const service = new ShelvesService(opts.db);
 
@@ -1881,9 +1976,13 @@ export const shelvesWebPlugin: FastifyPluginAsync<{ db: Db }> = async (fastify, 
       const { username, slug } = request.params;
       const shelf = await service.getBySlug(request.viewer, username, slug);
       if (request.headers.accept?.includes('application/json')) {
-        return reply.send({ shelf });
+        return reply.header('cache-control', shareCacheControl(request.viewer, shelf)).send({ shelf });
       }
-      return reply.type('text/html').header('content-security-policy', SHARE_PAGE_CSP).send(renderShelfHtml(shelf));
+      return reply
+        .type('text/html')
+        .header('content-security-policy', SHARE_PAGE_CSP)
+        .header('cache-control', shareCacheControl(request.viewer, shelf))
+        .send(renderShelfHtml(shelf));
     },
   );
 
@@ -1894,9 +1993,13 @@ export const shelvesWebPlugin: FastifyPluginAsync<{ db: Db }> = async (fastify, 
       const { id } = request.params;
       const shelf = await service.getById(request.viewer, id);
       if (request.headers.accept?.includes('application/json')) {
-        return reply.send({ shelf });
+        return reply.header('cache-control', shareCacheControl(request.viewer, shelf)).send({ shelf });
       }
-      return reply.type('text/html').header('content-security-policy', SHARE_PAGE_CSP).send(renderShelfHtml(shelf));
+      return reply
+        .type('text/html')
+        .header('content-security-policy', SHARE_PAGE_CSP)
+        .header('cache-control', shareCacheControl(request.viewer, shelf))
+        .send(renderShelfHtml(shelf));
     },
   );
 };

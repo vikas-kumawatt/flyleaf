@@ -21,7 +21,7 @@ import * as Haptics from 'expo-haptics';
 import { BottomSheet, Txt, Button, Cover, Skeleton } from './components';
 import { useTheme, space, radius } from './tokens';
 import { api, type ShelfWithWorkState } from '../lib/api';
-import { validateShelfNote, validateShelfName } from '../lib/shelfValidation';
+import { validateShelfNote, validateShelfName, isAlreadyOnShelf } from '../lib/shelfValidation';
 
 export interface AddToShelfWork {
   id: string;
@@ -116,6 +116,13 @@ export function AddToShelfSheet({
       }
       onShelfChanged?.(shelf.id, nextState);
     } catch (err: any) {
+      // Already on the shelf (a double tap, another device): that is the state
+      // asked for, so keep it (audit 11, A-11-025).
+      if (nextState && isAlreadyOnShelf(err)) {
+        setShelves((prev) => prev.map((s) => (s.id === shelf.id ? { ...s, item_count: shelf.item_count } : s)));
+        onShelfChanged?.(shelf.id, true);
+        return;
+      }
       // Revert on error
       setShelves((prev) =>
         prev.map((s) =>

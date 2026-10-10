@@ -239,6 +239,13 @@
       "when": 1789160000000,
       "tag": "0033_avatar_uploads",
       "breakpoints": true
+    },
+    {
+      "idx": 34,
+      "version": "7",
+      "when": 1789170000000,
+      "tag": "0034_shelves_audit",
+      "breakpoints": true
     }
   ]
 }

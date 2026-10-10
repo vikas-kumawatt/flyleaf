@@ -6,7 +6,7 @@
 // - Privacy: public, followers, private
 // - Ranked list toggle
 
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   View,
   ScrollView,
@@ -23,7 +23,7 @@ import { useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as Haptics from 'expo-haptics';
 import { api, type ShelfPrivacy } from '@/lib/api';
-import { validateShelfForm } from '@/lib/shelfValidation';
+import { findNameCollision, validateShelfForm } from '@/lib/shelfValidation';
 import { track } from '@/lib/events';
 import { Button, Screen, Txt } from '@/ui/components';
 import { radius, space, useTheme } from '@/ui/tokens';
@@ -39,6 +39,12 @@ export default function CreateShelfScreen() {
   const [isRanked, setIsRanked] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [nameTouched, setNameTouched] = useState(false);
+  // The viewer's shelf names, to warn on a duplicate (PRD §6.35, audit 11).
+  const [existingNames, setExistingNames] = useState<string[]>([]);
+
+  useEffect(() => {
+    api.getMyShelves().then((res) => setExistingNames(res.shelves.map((s) => s.name))).catch(() => {});
+  }, []);
 
   const validation = validateShelfForm({
     name,
@@ -47,13 +53,25 @@ export default function CreateShelfScreen() {
     is_ranked: isRanked,
   });
 
-  const handleCreate = async () => {
+  const handleCreate = () => {
     setNameTouched(true);
     if (!validation.isValid) {
       void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
       return;
     }
+    // Allowed but warned (PRD §6.35): the server gives it its own link.
+    const clash = findNameCollision(name, existingNames);
+    if (clash) {
+      Alert.alert('You already have this shelf', `You already have a shelf called "${clash}". Create another one with the same name?`, [
+        { text: 'Cancel', style: 'cancel' },
+        { text: 'Create anyway', onPress: () => void createShelf() },
+      ]);
+      return;
+    }
+    void createShelf();
+  };
 
+  const createShelf = async () => {
     try {
       setSubmitting(true);
       void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);

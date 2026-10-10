@@ -419,6 +419,9 @@ const WRITES: WriteRow[] = [
   { name: 'DELETE /v1/reads/:id/like (hidden read)', method: 'DELETE', url: (o) => `/v1/reads/${o.read.private}/like`, randomUrl: () => `/v1/reads/${R()}/like`, vis: ['private'] },
   { name: 'POST /v1/reads/:id/comments (hidden read)', method: 'POST', url: (o) => `/v1/reads/${o.read.private}/comments`, randomUrl: () => `/v1/reads/${R()}/comments`, body: () => ({ body: 'hi' }), vis: ['private'] },
   { name: 'POST /v1/shelves/:id/save (hidden shelf)', method: 'POST', url: (o) => `/v1/shelves/${o.shelf.private.id}/save`, randomUrl: () => `/v1/shelves/${R()}/save`, vis: ['private'] },
+  // Audit 11 (A-11-015): unsaving answered 200 with the hidden shelf's save count.
+  { name: 'DELETE /v1/shelves/:id/save (hidden shelf)', method: 'DELETE', url: (o) => `/v1/shelves/${o.shelf.private.id}/save`, randomUrl: () => `/v1/shelves/${R()}/save`, vis: ['private'] },
+  { name: 'POST /v1/shelves/:id/restore', method: 'POST', url: (o, v) => `/v1/shelves/${o.shelf[v].id}/restore`, randomUrl: () => `/v1/shelves/${R()}/restore` },
 ];
 
 /** Signed-in non-owners, verified, with every relationship to the owner. */

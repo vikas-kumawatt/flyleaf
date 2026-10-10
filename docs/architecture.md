@@ -702,7 +702,7 @@ Author names are searched via a join plus the trigram index rather than being de
 | `work_stats.*` | Trigger on `reads` | Hourly job |
 | `reads.like_count`, `comment_count` | Trigger | Nightly |
 | `profiles.follower_count`, `following_count` | Trigger on `follows` | Nightly |
-| `shelves.item_count`, `save_count` | Trigger | Nightly |
+| `shelves.item_count`, `save_count`, `cover_work_ids` | Trigger (items: statement-level since audit 11, one recount per touched shelf per statement) | Nightly (`reconcile_shelf_counters()`, drift-only, returns the count) |
 | `works.log_count` | Trigger on `reads` insert | Nightly |
 
 **Every counter has a reconciliation job.** Triggers drift; reconciliation is what makes drift survivable.

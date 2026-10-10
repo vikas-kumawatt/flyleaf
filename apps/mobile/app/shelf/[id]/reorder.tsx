@@ -29,7 +29,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import { api, type Shelf, type ShelfItem } from '@/lib/api';
-import { moveItemInArray, repositionItem, formatShelfRank } from '@/lib/shelfValidation';
+import { moveItemInArray, repositionItem, formatShelfRank, fetchAllShelfItems } from '@/lib/shelfValidation';
 import { track } from '@/lib/events';
 import { Button, Cover, Screen, Txt } from '@/ui/components';
 import { radius, space, useTheme } from '@/ui/tokens';
@@ -209,13 +209,14 @@ export default function ReorderShelfScreen() {
     if (!id) return;
     try {
       setLoading(true);
-      const [shelfRes, itemsRes] = await Promise.all([
+      // Every item: the order sent back must list the whole shelf (audit 11).
+      const [shelfRes, allItems] = await Promise.all([
         api.getShelf(id),
-        api.getShelfItems(id, { limit: 200 }),
+        fetchAllShelfItems((page) => api.getShelfItems(id, page)),
       ]);
       setShelf(shelfRes.shelf);
-      setItems(itemsRes.data);
-      setInitialOrder(itemsRes.data.map((it) => it.work_id));
+      setItems(allItems);
+      setInitialOrder(allItems.map((it) => it.work_id));
     } catch (err: any) {
       Alert.alert('Error', err?.message || 'Failed to load shelf items for reordering.');
       router.back();
@@ -306,6 +307,13 @@ export default function ReorderShelfScreen() {
       void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       router.back();
     } catch (err: any) {
+      if (err?.code === 'order_mismatch') {
+        // The shelf changed since this screen loaded (another device added or
+        // removed a book). Reload rather than overwrite.
+        Alert.alert('Shelf Changed', 'This shelf changed while you were reordering. It has been reloaded.');
+        void loadShelfData();
+        return;
+      }
       Alert.alert('Reorder Failed', err?.message || 'Could not update shelf order. Please try again.');
     } finally {
       setSaving(false);

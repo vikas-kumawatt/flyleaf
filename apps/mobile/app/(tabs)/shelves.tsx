@@ -48,6 +48,9 @@ import {
 } from '@/ui/components';
 import { space, radius, useTheme } from '@/ui/tokens';
 
+/** Saved shelves per page (the API allows up to 100). */
+const SAVED_PAGE = 50;
+
 export default function ShelvesScreen() {
   const c = useTheme();
   const router = useRouter();
@@ -64,6 +67,9 @@ export default function ShelvesScreen() {
   const [shelves, setShelves] = useState<ShelfWithWorkState[]>([]);
   const [loading, setLoading] = useState(false);
   const [savedShelves, setSavedShelves] = useState<Shelf[]>([]);
+  // Saved shelves are paged by the API (audit 11).
+  const [savedTotal, setSavedTotal] = useState(0);
+  const [savedLoadingMore, setSavedLoadingMore] = useState(false);
   const [savedLoading, setSavedLoading] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [sortBy, setSortBy] = useState<ShelfSortOption>('updated');
@@ -98,9 +104,10 @@ export default function ShelvesScreen() {
     if (!user) return;
     try {
       setSavedLoading(true);
-      const res = await api.getSavedShelves();
+      const res = await api.getSavedShelves({ limit: SAVED_PAGE });
       setSavedShelves(res.shelves || []);
-      track('shelves_viewed', { tab: 'saved', count: res.shelves?.length ?? 0 });
+      setSavedTotal(res.total ?? res.shelves?.length ?? 0);
+      track('shelves_viewed', { tab: 'saved', count: res.total ?? res.shelves?.length ?? 0 });
     } catch {
       // Fallback silently if network offline
     } finally {
@@ -108,6 +115,23 @@ export default function ShelvesScreen() {
       setRefreshing(false);
     }
   }, [user]);
+
+  const loadMoreSavedShelves = useCallback(async () => {
+    if (!user || savedLoadingMore) return;
+    try {
+      setSavedLoadingMore(true);
+      const res = await api.getSavedShelves({ limit: SAVED_PAGE, offset: savedShelves.length });
+      setSavedShelves((prev) => {
+        const seen = new Set(prev.map((x) => x.id));
+        return [...prev, ...(res.shelves || []).filter((x) => !seen.has(x.id))];
+      });
+      setSavedTotal(res.total ?? 0);
+    } catch {
+      // Keep what is shown; the button stays for a retry.
+    } finally {
+      setSavedLoadingMore(false);
+    }
+  }, [user, savedLoadingMore, savedShelves.length]);
 
   // Load curated public shelves (SH-08)
   const loadBrowseShelves = useCallback(
@@ -815,6 +839,16 @@ export default function ShelvesScreen() {
                 )}
               </View>
             )}
+            {user && (
+              // Deleted shelves can be restored for 30 days (PRD §15.6, audit 11).
+              <Pressable
+                accessibilityRole="link"
+                onPress={() => router.push('/shelf/deleted' as any)}
+                style={{ alignSelf: 'center', paddingVertical: space[3] }}
+              >
+                <Txt variant="caption" color="muted">Recently deleted shelves</Txt>
+              </Pressable>
+            )}
           </>
         )}
 
@@ -878,7 +912,7 @@ export default function ShelvesScreen() {
                 {/* Controls Bar: Count and View Mode */}
                 <View style={styles.controlsBar}>
                   <Txt style={{ color: c.muted, fontSize: 13, fontWeight: '600' }}>
-                    {savedShelves.length} {savedShelves.length === 1 ? 'saved shelf' : 'saved shelves'}
+                    {savedTotal} {savedTotal === 1 ? 'saved shelf' : 'saved shelves'}
                   </Txt>
 
                   <View style={{ flexDirection: 'row', alignItems: 'center', gap: space[2] }}>
@@ -1134,6 +1168,14 @@ export default function ShelvesScreen() {
                       );
                     })}
                   </View>
+                )}
+                {savedShelves.length < savedTotal && (
+                  <Button
+                    label={savedLoadingMore ? 'Loading…' : 'Show more saved shelves'}
+                    onPress={() => void loadMoreSavedShelves()}
+                    disabled={savedLoadingMore}
+                    variant="secondary"
+                  />
                 )}
               </View>
             )}

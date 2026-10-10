@@ -739,7 +739,9 @@ describe('SH-03: Shelf Detail & Items (GET /v1/shelves/:id/items, POST /v1/shelv
     });
     expect(patchRes.statusCode).toBe(200);
     expect(patchRes.json().item.note).toBe('Revised note with profound insight');
-    expect(patchRes.json().item.position).toBe(5);
+    // A position is a move within 1..n (audit 11, A-11-011): past the end of
+    // a one-book shelf is #1. It used to store 5 and leave a gap.
+    expect(patchRes.json().item.position).toBe(1);
 
     // Reject note > 280 characters
     const longNoteRes = await app.inject({
