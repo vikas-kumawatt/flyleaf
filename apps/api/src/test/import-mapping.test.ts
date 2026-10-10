@@ -603,13 +603,13 @@ describe('IM-04: Calibre Source Normalization Pipeline', () => {
     expect(result.total).toBe(3);
     expect(result.valid).toBe(3);
 
-    // Row 1: Finished with rating and series in shelves
+    // Row 1: rated, no read tag → want (D-12-2, audit 13: was finished), series in shelves
     const r1 = result.rows[0]!;
     expect(r1.title).toBe('Foundation');
     expect(r1.author).toBe('Isaac Asimov');
     expect(r1.isbn13).toBe('9780553293357');
     expect(r1.rating).toBe(5.0);
-    expect(r1.status).toBe('finished');
+    expect(r1.status).toBe('want');
     expect(r1.format).toBe('ebook');
     expect(r1.shelves).toContain('sci-fi');
     expect(r1.shelves).toContain('foundation, #1');

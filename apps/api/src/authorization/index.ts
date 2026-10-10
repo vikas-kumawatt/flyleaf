@@ -131,6 +131,8 @@ export interface Relationship {
   ownerExists: boolean;
   isOwnerPrivate: boolean;
   isBlocked: boolean;
+  /** The owner blocked the viewer (one direction of isBlocked; audit 13: the viewer's own block may be undone, theirs may not be revealed). */
+  blockedByOwner: boolean;
   /** Viewer → owner. Only 'accepted' counts as following, anywhere. */
   followStatus: 'none' | 'pending' | 'accepted' | 'self';
   /** Owner → viewer, accepted. */
@@ -143,6 +145,7 @@ export async function loadRelationship(db: Db, viewer: string | null, ownerId: s
   const [row] = await db.execute<{
     is_private: boolean;
     blocked: boolean;
+    blocked_by_owner: boolean;
     follow_state: string | null;
     followed_by: boolean;
     verified: boolean;
@@ -153,6 +156,9 @@ export async function loadRelationship(db: Db, viewer: string | null, ownerId: s
         WHERE (b.blocker_id = ${viewer}::uuid AND b.blocked_id = u.id)
            OR (b.blocker_id = u.id AND b.blocked_id = ${viewer}::uuid)
       )`} AS blocked,
+      ${viewer === null ? sql`false` : sql`EXISTS (
+        SELECT 1 FROM blocks b WHERE b.blocker_id = u.id AND b.blocked_id = ${viewer}::uuid
+      )`} AS blocked_by_owner,
       ${viewer === null ? sql`NULL::text` : sql`(
         SELECT f.state FROM follows f WHERE f.follower_id = ${viewer}::uuid AND f.followee_id = u.id
       )`} AS follow_state,
@@ -166,13 +172,14 @@ export async function loadRelationship(db: Db, viewer: string | null, ownerId: s
   `);
 
   if (!row) {
-    return { ownerExists: false, isOwnerPrivate: false, isBlocked: false, followStatus: 'none', followedBy: false, ownerVerified: false };
+    return { ownerExists: false, isOwnerPrivate: false, isBlocked: false, blockedByOwner: false, followStatus: 'none', followedBy: false, ownerVerified: false };
   }
   const self = viewer !== null && viewer === ownerId;
   return {
     ownerExists: true,
     isOwnerPrivate: Boolean(row.is_private),
     isBlocked: !self && Boolean(row.blocked),
+    blockedByOwner: !self && Boolean(row.blocked_by_owner),
     followStatus: self
       ? 'self'
       : row.follow_state === 'accepted'

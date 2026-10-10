@@ -379,6 +379,8 @@ export const users = pgTable('users', {
   deletedAt: timestamp('deleted_at', { withTimezone: true }),
 }, (t) => [
   check('users_role_ck', sql`${t.role} IN ('user','moderator','admin')`),
+  // Audit 13 (0036): the small set of soft-deleted accounts, which lists leave out.
+  index('users_deleted_idx').on(t.id).where(sql`${t.deletedAt} IS NOT NULL`),
 ]);
 
 export const profiles = pgTable('profiles', {
@@ -769,6 +771,9 @@ export const follows = pgTable('follows', {
   check('follows_state_ck', sql`${t.state} IN ('pending','accepted')`),
   index('follows_follower_idx').on(t.followerId, t.state),
   index('follows_followee_idx').on(t.followeeId, t.state),
+  // Audit 13 (0036): followers / following pages in list order.
+  index('follows_followee_list_idx').on(t.followeeId, t.createdAt.desc(), t.followerId.desc()).where(sql`${t.state} = 'accepted'`),
+  index('follows_follower_list_idx').on(t.followerId, t.createdAt.desc(), t.followeeId.desc()).where(sql`${t.state} = 'accepted'`),
 ]);
 
 export const blocks = pgTable('blocks', {
@@ -863,6 +868,35 @@ export const shelves = pgTable('shelves', {
   index('shelves_name_trgm_idx').using('gin', sql`${t.name} gin_trgm_ops`),
   index('shelves_description_trgm_idx').using('gin', sql`${t.description} gin_trgm_ops`),
   index('shelves_deleted_idx').on(t.userId, t.deletedAt.desc()).where(sql`${t.deletedAt} IS NOT NULL`),
+]);
+
+/**
+ * Every slug a shelf has had, its current one included (audit 13, D-11-2;
+ * 0037). Written by a trigger on shelves. An old slug stays with its shelf
+ * (another shelf of the same user cannot take it) and redirects to the
+ * current one.
+ */
+export const shelfSlugs = pgTable('shelf_slugs', {
+  userId: uuid('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  slug: text('slug').notNull(),
+  shelfId: uuid('shelf_id').notNull().references(() => shelves.id, { onDelete: 'cascade' }),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [
+  primaryKey({ columns: [t.userId, t.slug] }),
+  index('shelf_slugs_shelf_idx').on(t.shelfId),
+]);
+
+/**
+ * Every username an account has had, its current one included (audit 13,
+ * D-11-2; 0037). Written by a trigger on profiles. A name stays with its
+ * account for the account's lifetime and redirects to the current one.
+ */
+export const usernameClaims = pgTable('username_claims', {
+  username: text('username').primaryKey(),
+  userId: uuid('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [
+  index('username_claims_user_idx').on(t.userId),
 ]);
 
 export const shelfItems = pgTable('shelf_items', {

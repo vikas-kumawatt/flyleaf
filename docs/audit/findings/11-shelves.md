@@ -284,10 +284,10 @@ Both decided by the owner on 2026-10-10 (recorded at the start of Part 12):
 | Purge shelves deleted > 30 days (A-11-033) | Retention sweep is built once | Part 15 |
 | Rate limits on shelf writes (A-11-031) | One limiter layer | Part 15 |
 | Log `reconcile_shelf_counters()`'s count in the job | One line; with the job pass | Part 15 |
-| Owner `avatar_url` on shelves (A-11-029) | Consistency, no screen affected | Part 13 |
+| Owner `avatar_url` on shelves (A-11-029) | Consistency, no screen affected | ~~Part 13~~ Part 15 (moved by Part 13: no screen affected) |
 | App Links for shelf URLs (A-11-030) | Native change | After Part 14 (batched rebuild) |
 | Want-to-read swipe wiring per D-11-1 | Swipe belongs to Part 14 | Part 14 |
-| Slug history with 301s (D-11-2), with username history | Owner chose (b); one design for shelves and profiles | Part 13 |
+| ~~Slug history with 301s (D-11-2), with username history~~ **Built in Part 13** (0037; `findings/13-social-graph.md` A-13-020) | Owner chose (b); one design for shelves and profiles | Part 13 |
 
 ## CI result
 

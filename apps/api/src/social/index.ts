@@ -9,7 +9,7 @@
 //   - Complete block invisibility: follow operations targeting a blocked user return 404.
 
 import type { FastifyInstance, FastifyPluginAsync } from 'fastify';
-import { and, desc, eq, inArray, or, sql } from 'drizzle-orm';
+import { and, desc, eq, isNull, or, sql } from 'drizzle-orm';
 import type { Db } from '../platform/index.js';
 import { users, profiles, follows, blocks, mutes, works } from '../db/schema.js';
 import { ApiError, requireViewer } from '../http.js';
@@ -131,6 +131,18 @@ export class SocialService {
   }
 
   /**
+   * The (viewer, target) relationship for a write aimed at another user. A
+   * missing or soft-deleted user, and one blocked either way, are the same
+   * 404 as a random id (PRD §11.4): a 200 for "exists but blocked" would
+   * confirm the block (audit 13, A-13-005).
+   */
+  async #requireReachable(db: Db, viewer: string, targetUserId: string) {
+    const rel = await loadRelationship(db, viewer, targetUserId);
+    if (!rel.ownerExists || rel.isBlocked) throw ApiError.notFound('User not found.');
+    return rel;
+  }
+
+  /**
    * Follow a user (or request to follow if target account is private).
    */
   async followUser(viewer: string, targetUserId: string): Promise<FollowResult> {
@@ -141,44 +153,44 @@ export class SocialService {
       throw ApiError.badRequest('cannot_follow_self', 'You cannot follow yourself.');
     }
 
-    // Missing, deleted and blocked (either way) are indistinguishable (PRD §11.4).
-    const rel = await loadRelationship(this.db, viewer, targetUserId);
-    if (!rel.ownerExists || rel.isBlocked) {
-      throw ApiError.notFound('User not found.');
-    }
+    // One transaction under the pair lock (audit 13, A-13-006): a follow
+    // racing a block can no longer land after the block severed follows, and
+    // the follow and its activity are written together.
+    const state = await this.db.transaction(async (tx) => {
+      const t = tx as unknown as Db;
+      await lockPair(t, viewer, targetUserId);
+      // Missing, deleted and blocked (either way) are indistinguishable (PRD §11.4).
+      const rel = await this.#requireReachable(t, viewer, targetUserId);
 
-    // Idempotent: a replayed or double-submitted follow never demotes an
-    // accepted follow to a request (the account may have gone private since),
-    // and records no second 'followed' activity (Audit 05).
-    if (rel.followStatus === 'accepted') {
-      return { status: 'accepted', follower_id: viewer, followee_id: targetUserId };
-    }
+      // Idempotent: a replayed or double-submitted follow never demotes an
+      // accepted follow to a request (the account may have gone private since),
+      // and records no second 'followed' activity (Audit 05).
+      if (rel.followStatus === 'accepted') return 'accepted' as const;
 
-    const state: FollowState = rel.isOwnerPrivate ? 'pending' : 'accepted';
+      const wanted: FollowState = rel.isOwnerPrivate ? 'pending' : 'accepted';
+      // RETURNING only when this statement made (or changed) the row: a follow
+      // that is already accepted returns nothing, so a concurrent duplicate
+      // writes no second activity.
+      const [row] = await t.execute<{ state: FollowState }>(sql`
+        INSERT INTO follows (follower_id, followee_id, state)
+        VALUES (${viewer}::uuid, ${targetUserId}::uuid, ${wanted})
+        ON CONFLICT (follower_id, followee_id) DO UPDATE SET state = EXCLUDED.state
+        WHERE follows.state <> 'accepted'
+        RETURNING state`);
+      if (!row) return 'accepted' as const;
 
-    await this.db
-      .insert(follows)
-      .values({
-        followerId: viewer,
-        followeeId: targetUserId,
-        state,
-      })
-      .onConflictDoUpdate({
-        target: [follows.followerId, follows.followeeId],
-        // Never downgrade a follow accepted by a concurrent request.
-        set: { state: sql`CASE WHEN ${follows.state} = 'accepted' THEN 'accepted' ELSE excluded.state END` },
-      });
-
-    if (state === 'accepted') {
-      await this.activityService.recordActivity(this.db, {
-        actorId: viewer,
-        verb: 'followed',
-        objectType: 'user',
-        objectId: targetUserId,
-        metadata: { followeeId: targetUserId },
-        visibility: 'public',
-      });
-    }
+      if (row.state === 'accepted') {
+        await this.activityService.recordActivity(t, {
+          actorId: viewer,
+          verb: 'followed',
+          objectType: 'user',
+          objectId: targetUserId,
+          metadata: { followeeId: targetUserId },
+          visibility: 'public',
+        });
+      }
+      return row.state;
+    });
 
     return {
       status: state,
@@ -195,23 +207,17 @@ export class SocialService {
       throw ApiError.badRequest('cannot_unfollow_self', 'You cannot unfollow yourself.');
     }
 
-    const [targetUser] = await this.db
-      .select({ id: users.id })
-      .from(users)
-      .where(eq(users.id, targetUserId))
-      .limit(1);
-
-    if (!targetUser) {
-      throw ApiError.notFound('User not found.');
-    }
-
-    await this.db
-      .delete(follows)
-      .where(
-        and(eq(follows.followerId, viewer), eq(follows.followeeId, targetUserId)),
-      );
-
-    await this.activityService.deleteFollowActivity(this.db, viewer, targetUserId);
+    // The follow row and its activity go together (audit 13, A-13-006).
+    await this.db.transaction(async (tx) => {
+      const t = tx as unknown as Db;
+      await this.#requireReachable(t, viewer, targetUserId);
+      await t
+        .delete(follows)
+        .where(
+          and(eq(follows.followerId, viewer), eq(follows.followeeId, targetUserId)),
+        );
+      await this.activityService.deleteFollowActivity(t, viewer, targetUserId);
+    });
 
     return {
       status: 'none',
@@ -237,9 +243,10 @@ export class SocialService {
       .innerJoin(users, eq(follows.followerId, users.id))
       .innerJoin(profiles, eq(users.id, profiles.userId))
       .where(
-        and(eq(follows.followeeId, viewer), eq(follows.state, 'pending')),
+        // A deleted account is hidden everywhere (PRD §25.4; audit 13, A-13-011).
+        and(eq(follows.followeeId, viewer), eq(follows.state, 'pending'), isNull(users.deletedAt)),
       )
-      .orderBy(sql`${follows.createdAt} DESC`);
+      .orderBy(desc(follows.createdAt), desc(follows.followerId));
 
     return rows.map((r) => ({
       id: r.id,
@@ -255,31 +262,17 @@ export class SocialService {
    * Accept a pending follow request.
    */
   async acceptFollowRequest(viewer: string, requesterId: string): Promise<FollowResult> {
-    const [existing] = await this.db
-      .select()
-      .from(follows)
-      .where(
-        and(
-          eq(follows.followerId, requesterId),
-          eq(follows.followeeId, viewer),
-          eq(follows.state, 'pending'),
-        ),
-      )
-      .limit(1);
-
-    if (!existing) {
-      throw ApiError.notFound('Pending follow request not found.');
-    }
-
-    await this.db
-      .update(follows)
-      .set({ state: 'accepted' })
-      .where(
-        and(
-          eq(follows.followerId, requesterId),
-          eq(follows.followeeId, viewer),
-        ),
-      );
+    await this.db.transaction(async (tx) => {
+      const t = tx as unknown as Db;
+      // Under the pair lock, so an accept cannot race a block (A-13-006).
+      await lockPair(t, viewer, requesterId);
+      const [row] = await t.execute<{ follower_id: string }>(sql`
+        UPDATE follows SET state = 'accepted'
+        WHERE follower_id = ${requesterId}::uuid AND followee_id = ${viewer}::uuid AND state = 'pending'
+          AND EXISTS (SELECT 1 FROM users u WHERE u.id = ${requesterId}::uuid AND u.deleted_at IS NULL)
+        RETURNING follower_id`);
+      if (!row) throw ApiError.notFound('Pending follow request not found.');
+    });
 
     return {
       status: 'accepted',
@@ -318,36 +311,38 @@ export class SocialService {
       throw ApiError.badRequest('cannot_block_self', 'You cannot block yourself.');
     }
 
-    // Verify target user exists
-    const [targetUser] = await this.db
-      .select({ id: users.id })
-      .from(users)
-      .where(eq(users.id, targetUserId))
-      .limit(1);
+    await this.db.transaction(async (tx) => {
+      const t = tx as unknown as Db;
+      await lockPair(t, viewer, targetUserId);
+      // A missing or deleted user, and one who has blocked the viewer, are the
+      // same 404 as a random id: a 200 would confirm the account exists behind
+      // their block (audit 13, A-13-005). The viewer's own block stays
+      // idempotent. Their block already hides both ways (PRD §11.4).
+      const rel = await loadRelationship(t, viewer, targetUserId);
+      if (!rel.ownerExists || rel.blockedByOwner) throw ApiError.notFound('User not found.');
 
-    if (!targetUser) {
-      throw ApiError.notFound('User not found.');
-    }
+      await t
+        .insert(blocks)
+        .values({
+          blockerId: viewer,
+          blockedId: targetUserId,
+        })
+        .onConflictDoNothing();
 
-    // Insert block record
-    await this.db
-      .insert(blocks)
-      .values({
-        blockerId: viewer,
-        blockedId: targetUserId,
-      })
-      .onConflictDoNothing();
-
-    // Sever existing follows in BOTH directions (PRD §11.4)
-    // Note: DB trigger follows_counter_trigger_fn automatically updates follower_count & following_count
-    await this.db
-      .delete(follows)
-      .where(
-        or(
-          and(eq(follows.followerId, viewer), eq(follows.followeeId, targetUserId)),
-          and(eq(follows.followerId, targetUserId), eq(follows.followeeId, viewer)),
-        ),
-      );
+      // Sever existing follows and requests in BOTH directions (PRD §11.4);
+      // the counter trigger updates follower_count and following_count.
+      await t
+        .delete(follows)
+        .where(
+          or(
+            and(eq(follows.followerId, viewer), eq(follows.followeeId, targetUserId)),
+            and(eq(follows.followerId, targetUserId), eq(follows.followeeId, viewer)),
+          ),
+        );
+      // ... and the 'followed' cards they made, as an unfollow does (A-13-004).
+      await this.activityService.deleteFollowActivity(t, viewer, targetUserId);
+      await this.activityService.deleteFollowActivity(t, targetUserId, viewer);
+    });
 
     return {
       status: 'blocked',
@@ -392,8 +387,8 @@ export class SocialService {
       .from(blocks)
       .innerJoin(users, eq(blocks.blockedId, users.id))
       .innerJoin(profiles, eq(users.id, profiles.userId))
-      .where(eq(blocks.blockerId, viewer))
-      .orderBy(sql`${blocks.createdAt} DESC`);
+      .where(and(eq(blocks.blockerId, viewer), isNull(users.deletedAt)))
+      .orderBy(desc(blocks.createdAt), desc(blocks.blockedId));
 
     return rows.map((r) => ({
       id: r.id,
@@ -413,15 +408,8 @@ export class SocialService {
       throw ApiError.badRequest('cannot_mute_self', 'You cannot mute yourself.');
     }
 
-    const [targetUser] = await this.db
-      .select({ id: users.id })
-      .from(users)
-      .where(eq(users.id, targetUserId))
-      .limit(1);
-
-    if (!targetUser) {
-      throw ApiError.notFound('User not found.');
-    }
+    // Missing, deleted and blocked either way: the same 404 (A-13-005).
+    await this.#requireReachable(this.db, viewer, targetUserId);
 
     await this.db
       .insert(mutes)
@@ -534,8 +522,8 @@ export class SocialService {
       .from(mutes)
       .innerJoin(users, eq(mutes.targetId, users.id))
       .innerJoin(profiles, eq(users.id, profiles.userId))
-      .where(and(eq(mutes.userId, viewer), eq(mutes.targetType, 'user')))
-      .orderBy(sql`${mutes.createdAt} DESC`);
+      .where(and(eq(mutes.userId, viewer), eq(mutes.targetType, 'user'), isNull(users.deletedAt)))
+      .orderBy(desc(mutes.createdAt), desc(mutes.targetId));
 
     const workMuteRows = await this.db
       .select({
@@ -554,7 +542,7 @@ export class SocialService {
       .from(mutes)
       .innerJoin(works, eq(mutes.targetId, works.id))
       .where(and(eq(mutes.userId, viewer), eq(mutes.targetType, 'work')))
-      .orderBy(sql`${mutes.createdAt} DESC`);
+      .orderBy(desc(mutes.createdAt), desc(mutes.targetId));
 
     return {
       users: userMuteRows.map((r) => ({
@@ -584,101 +572,7 @@ export class SocialService {
     targetUserId: string,
     opts?: { limit?: number; offset?: number },
   ): Promise<FollowUserListResponse> {
-    const limit = Math.min(Math.max(opts?.limit ?? 50, 1), 100);
-    const offset = Math.max(opts?.offset ?? 0, 0);
-
-    // 1–3. One relationship query; missing, deleted, blocked and private
-    // (non-follower) are the same 404, never 403 (Audit 05).
-    const rel = await loadRelationship(this.db, viewer, targetUserId);
-    if (!canViewWith(viewer, targetUserId, rel)) throw ApiError.notFound('User not found.');
-
-    // 4. Fetch list of accepted followers
-    const allRows = await this.db
-      .select({
-        id: users.id,
-        username: profiles.username,
-        displayName: profiles.displayName,
-        avatarKey: profiles.avatarKey,
-        isPrivate: profiles.isPrivate,
-        followedAt: follows.createdAt,
-      })
-      .from(follows)
-      .innerJoin(users, eq(follows.followerId, users.id))
-      .innerJoin(profiles, eq(users.id, profiles.userId))
-      .where(
-        and(
-          eq(follows.followeeId, targetUserId),
-          eq(follows.state, 'accepted'),
-        ),
-      )
-      .orderBy(desc(follows.createdAt));
-
-    // 5. Exclude blocked users relative to viewer
-    let filteredRows = allRows;
-    if (viewer !== null) {
-      const viewerBlockRows = await this.db
-        .select({
-          blockerId: blocks.blockerId,
-          blockedId: blocks.blockedId,
-        })
-        .from(blocks)
-        .where(or(eq(blocks.blockerId, viewer), eq(blocks.blockedId, viewer)));
-
-      const blockedUserIds = new Set<string>();
-      for (const b of viewerBlockRows) {
-        blockedUserIds.add(b.blockerId === viewer ? b.blockedId : b.blockerId);
-      }
-      filteredRows = allRows.filter((r) => !blockedUserIds.has(r.id));
-    }
-
-    const total = filteredRows.length;
-    const paginatedRows = filteredRows.slice(offset, offset + limit);
-
-    // 6. Resolve followedByViewer and followsViewer flags for paginated batch
-    const itemUserIds = paginatedRows.map((r) => r.id);
-    let viewerFollowingSet = new Set<string>();
-    let viewerFollowedBySet = new Set<string>();
-
-    if (viewer !== null && itemUserIds.length > 0) {
-      const relationshipRows = await this.db
-        .select({
-          followerId: follows.followerId,
-          followeeId: follows.followeeId,
-        })
-        .from(follows)
-        .where(
-          and(
-            eq(follows.state, 'accepted'),
-            or(
-              and(eq(follows.followerId, viewer), inArray(follows.followeeId, itemUserIds)),
-              and(inArray(follows.followerId, itemUserIds), eq(follows.followeeId, viewer)),
-            ),
-          ),
-        );
-
-      for (const rel of relationshipRows) {
-        if (rel.followerId === viewer) {
-          viewerFollowingSet.add(rel.followeeId);
-        }
-        if (rel.followeeId === viewer) {
-          viewerFollowedBySet.add(rel.followerId);
-        }
-      }
-    }
-
-    return {
-      users: paginatedRows.map((r) => ({
-        id: r.id,
-        username: r.username,
-        displayName: r.displayName,
-        avatarKey: r.avatarKey,
-        isPrivate: r.isPrivate,
-        followedByViewer: viewer !== null ? (r.id === viewer ? false : viewerFollowingSet.has(r.id)) : false,
-        followsViewer: viewer !== null ? (r.id === viewer ? false : viewerFollowedBySet.has(r.id)) : false,
-        followedAt: r.followedAt.toISOString(),
-      })),
-      total,
-    };
+    return this.#followList('followers', viewer, targetUserId, opts);
   }
 
   /**
@@ -691,102 +585,96 @@ export class SocialService {
     targetUserId: string,
     opts?: { limit?: number; offset?: number },
   ): Promise<FollowUserListResponse> {
+    return this.#followList('following', viewer, targetUserId, opts);
+  }
+
+  /**
+   * One page of a followers / following list, paged in SQL (audit 13,
+   * A-13-010). It used to load every follower, filter blocks in memory and
+   * slice: a 2,000-follower account read and sorted 2,000 joined rows for
+   * every page. Now: the page's ids from the list index (newest first, ties
+   * broken by id, so pages never overlap or skip), then their profiles and
+   * the viewer's two indicators in the same statement; the total is one
+   * count over the same filter. Deleted accounts and anyone blocked either
+   * way with the viewer are left out of both.
+   */
+  async #followList(
+    kind: 'followers' | 'following',
+    viewer: string | null,
+    targetUserId: string,
+    opts?: { limit?: number; offset?: number },
+  ): Promise<FollowUserListResponse> {
     const limit = Math.min(Math.max(opts?.limit ?? 50, 1), 100);
     const offset = Math.max(opts?.offset ?? 0, 0);
 
-    // 1–3. One relationship query; missing, deleted, blocked and private
+    // One relationship query; missing, deleted, blocked and private
     // (non-follower) are the same 404, never 403 (Audit 05).
     const rel = await loadRelationship(this.db, viewer, targetUserId);
     if (!canViewWith(viewer, targetUserId, rel)) throw ApiError.notFound('User not found.');
 
-    // 4. Fetch list of users targetUserId is following (state = 'accepted')
-    const allRows = await this.db
-      .select({
-        id: users.id,
-        username: profiles.username,
-        displayName: profiles.displayName,
-        avatarKey: profiles.avatarKey,
-        isPrivate: profiles.isPrivate,
-        followedAt: follows.createdAt,
-      })
-      .from(follows)
-      .innerJoin(users, eq(follows.followeeId, users.id))
-      .innerJoin(profiles, eq(users.id, profiles.userId))
-      .where(
-        and(
-          eq(follows.followerId, targetUserId),
-          eq(follows.state, 'accepted'),
-        ),
-      )
-      .orderBy(desc(follows.createdAt));
+    // The list's own end of the edge, and the other one (the listed user).
+    const [own, other] = kind === 'followers'
+      ? [sql.raw('f.followee_id'), sql.raw('f.follower_id')]
+      : [sql.raw('f.follower_id'), sql.raw('f.followee_id')];
+    const filter = sql`
+      ${own} = ${targetUserId}::uuid AND f.state = 'accepted'
+      AND NOT EXISTS (SELECT 1 FROM users d WHERE d.id = ${other} AND d.deleted_at IS NOT NULL)
+      ${viewer === null ? sql`` : sql`AND ${other} NOT IN (
+        SELECT b.blocked_id FROM blocks b WHERE b.blocker_id = ${viewer}::uuid
+        UNION ALL
+        SELECT b.blocker_id FROM blocks b WHERE b.blocked_id = ${viewer}::uuid
+      )`}`;
+    const flags = viewer === null
+      ? sql`false AS followed_by_viewer, false AS follows_viewer`
+      : sql`
+        (page.id <> ${viewer}::uuid AND EXISTS (SELECT 1 FROM follows v
+          WHERE v.follower_id = ${viewer}::uuid AND v.followee_id = page.id AND v.state = 'accepted')) AS followed_by_viewer,
+        (page.id <> ${viewer}::uuid AND EXISTS (SELECT 1 FROM follows v
+          WHERE v.follower_id = page.id AND v.followee_id = ${viewer}::uuid AND v.state = 'accepted')) AS follows_viewer`;
 
-    // 5. Exclude blocked users relative to viewer
-    let filteredRows = allRows;
-    if (viewer !== null) {
-      const viewerBlockRows = await this.db
-        .select({
-          blockerId: blocks.blockerId,
-          blockedId: blocks.blockedId,
-        })
-        .from(blocks)
-        .where(or(eq(blocks.blockerId, viewer), eq(blocks.blockedId, viewer)));
-
-      const blockedUserIds = new Set<string>();
-      for (const b of viewerBlockRows) {
-        blockedUserIds.add(b.blockerId === viewer ? b.blockedId : b.blockerId);
-      }
-      filteredRows = allRows.filter((r) => !blockedUserIds.has(r.id));
-    }
-
-    const total = filteredRows.length;
-    const paginatedRows = filteredRows.slice(offset, offset + limit);
-
-    // 6. Resolve followedByViewer and followsViewer flags for paginated batch
-    const itemUserIds = paginatedRows.map((r) => r.id);
-    let viewerFollowingSet = new Set<string>();
-    let viewerFollowedBySet = new Set<string>();
-
-    if (viewer !== null && itemUserIds.length > 0) {
-      const relationshipRows = await this.db
-        .select({
-          followerId: follows.followerId,
-          followeeId: follows.followeeId,
-        })
-        .from(follows)
-        .where(
-          and(
-            eq(follows.state, 'accepted'),
-            or(
-              and(eq(follows.followerId, viewer), inArray(follows.followeeId, itemUserIds)),
-              and(inArray(follows.followerId, itemUserIds), eq(follows.followeeId, viewer)),
-            ),
-          ),
-        );
-
-      for (const rel of relationshipRows) {
-        if (rel.followerId === viewer) {
-          viewerFollowingSet.add(rel.followeeId);
-        }
-        if (rel.followeeId === viewer) {
-          viewerFollowedBySet.add(rel.followerId);
-        }
-      }
-    }
+    const [rows, [count]] = await Promise.all([
+      this.db.execute<{
+        id: string; username: string; display_name: string | null; avatar_key: string | null;
+        is_private: boolean; followed_at: string | Date; followed_by_viewer: boolean; follows_viewer: boolean;
+      }>(sql`
+        WITH page AS (
+          SELECT ${other} AS id, f.created_at
+          FROM follows f
+          WHERE ${filter}
+          ORDER BY f.created_at DESC, ${other} DESC
+          LIMIT ${limit} OFFSET ${offset}
+        )
+        SELECT page.id, p.username, p.display_name, p.avatar_key, p.is_private,
+          page.created_at AS followed_at, ${flags}
+        FROM page JOIN profiles p ON p.user_id = page.id
+        ORDER BY page.created_at DESC, page.id DESC`),
+      this.db.execute<{ total: number }>(sql`SELECT count(*)::int AS total FROM follows f WHERE ${filter}`),
+    ]);
 
     return {
-      users: paginatedRows.map((r) => ({
+      users: rows.map((r) => ({
         id: r.id,
         username: r.username,
-        displayName: r.displayName,
-        avatarKey: r.avatarKey,
-        isPrivate: r.isPrivate,
-        followedByViewer: viewer !== null ? (r.id === viewer ? false : viewerFollowingSet.has(r.id)) : false,
-        followsViewer: viewer !== null ? (r.id === viewer ? false : viewerFollowedBySet.has(r.id)) : false,
-        followedAt: r.followedAt.toISOString(),
+        displayName: r.display_name,
+        avatarKey: r.avatar_key,
+        isPrivate: Boolean(r.is_private),
+        followedByViewer: Boolean(r.followed_by_viewer),
+        followsViewer: Boolean(r.follows_viewer),
+        followedAt: new Date(r.followed_at).toISOString(),
       })),
-      total,
+      total: Number(count?.total ?? 0),
     };
   }
+}
+
+/**
+ * Serializes writes between two users, in either direction (audit 13,
+ * A-13-006): a follow, an accept and a block of the same pair take the same
+ * lock, so a follow can never commit after a block severed the pair's follows.
+ */
+export async function lockPair(tx: Db, a: string, b: string): Promise<void> {
+  const key = a < b ? `${a}:${b}` : `${b}:${a}`;
+  await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtextextended(${`social:${key}`}, 0))`);
 }
 
 export interface SocialPluginOptions {

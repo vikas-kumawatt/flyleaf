@@ -50,3 +50,22 @@ export function formatFollowCount(count: number): string {
   }
   return String(count);
 }
+
+/** Followers / following page size: the API's default (SO-05). */
+export const FOLLOW_PAGE_SIZE = 50;
+
+/**
+ * The next page appended to the rows already shown (audit 13, A-13-013: the
+ * screens showed the first 50 and no more). The list is offset-paged, so a
+ * follow made between two pages shifts the next page by one; a row seen
+ * already is not shown twice.
+ */
+export function appendFollowPage<T extends { id: string }>(shown: T[], page: T[]): T[] {
+  const seen = new Set(shown.map((u) => u.id));
+  return [...shown, ...page.filter((u) => !seen.has(u.id))];
+}
+
+/** More to load: fewer shown than the total, and the last page was not empty. */
+export function hasMoreFollows(shown: number, total: number, lastPageSize: number): boolean {
+  return lastPageSize > 0 && shown < total;
+}

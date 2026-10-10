@@ -552,6 +552,7 @@
   - Native mobile screens in `apps/mobile/app/shelf/create.tsx` and `apps/mobile/app/shelf/[id]/edit.tsx` with name (1–60 chars), description (<= 2000 chars), privacy radio picker, ranked toggle with warning confirmation on unranking, and 30-day soft deletion flow.
   - Comprehensive test suite: 12 tests in `apps/api/src/test/shelves.test.ts` and 9 validation unit tests in `apps/mobile/src/lib/__tests__/shelves.test.ts`. CI pipeline 100% green.
   - **Audit (2026-10-10):** ❌ — a privacy change or delete never reached the feed, so a private shelf's books stayed in followers' feeds (P0, fixed); the 30-day soft delete had no way to restore (now `GET /v1/shelves/deleted`, `POST /v1/shelves/:id/restore`, and a Recently deleted screen; purge → Part 15); no 200-shelf cap (fixed); concurrent same-name creates 409'd (fixed); non-Latin names slugged to `shelf` (fixed); renames break share links (DECISION NEEDED); see A-11-001, A-11-003 … A-11-007, A-11-028.
+  - **Audit (2026-10-10, Part 13):** D-11-2 built: a renamed shelf keeps its old slugs (reserved to it, `301` to the current slug on every slug route, back on restore); see findings/13-social-graph.md A-13-020.
 - [x] **SH-03** Shelf detail: ranked numbering, per-entry notes, mosaic cover — 1.5d
   - Backend `ShelvesService` (`getItems`, `addItem`) and Fastify endpoints `GET /v1/shelves/:id/items` and `POST /v1/shelves/:id/items` with 3-tier privacy authorization (404 on access denial).
   - Enhanced `GET /v1/shelves/:id` resolving `cover_ids` (OpenLibrary integer covers) and viewer save state `is_saved`.
@@ -708,6 +709,7 @@
     - 6 unit tests in `apps/mobile/src/lib/__tests__/shelves.test.ts` verifying canonical URL generation and share messages.
     - 477 API tests passing, 83 mobile tests passing. Full 9-gate CI pipeline 100% green.
   - **Audit (2026-10-10):** ⚠️ — escaping was complete; the base URL was hard-coded, there was no canonical link and no cache policy (fixed); renames and username changes break vanity links (DECISION NEEDED); `https://flyleaf.app/u/…` does not open the app (native, after Part 14); see A-11-022, A-11-028, A-11-030.
+  - **Audit (2026-10-10, Part 13):** D-11-2 built: old slugs and old usernames answer `301` to the current address (only for a shelf the viewer may see; otherwise the random 404); `PATCH /v1/me/username` added; see A-13-020.
 
 **Phase 2 Exit Criteria Verified** (100% complete):
 - [x] A ranked list with notes can be built, reordered and shared (`SH-02`, `SH-03`, `SH-05`, `SH-10`).
@@ -763,6 +765,7 @@
   - Source config registry and normalization pipeline in `apps/api/src/imports/configs/index.ts` (`normalizeRow`, `normalizeImport`).
 - [x] **IM-04** Six source maps: Goodreads, StoryGraph, LibraryThing, Calibre, OpenLibrary, OpenReads — 1.5d
   - **Audit (2026-10-10):** ❌ — checked against the exporters' own code: OpenReads imported to-read books as finished, Open Library every book as want-to-read and unrated, Calibre published the book blurb as the reader's review, Goodreads spoilers were unflagged; fixed; LibraryThing unverifiable (no public exporter; TSV unsupported); see A-12-007, A-12-008, A-12-009, A-12-011, A-12-029.
+  - **Audit (2026-10-10, Part 13):** D-12-2 decided (b): a Calibre book imports as want-to-read unless a whole tag says read, reading or DNF; built; see findings/12-import-export.md › D-12-2.
   - Delivered production-grade declarative source configs for all 6 major book tracking and catalog platforms:
     - `goodreads` (`apps/api/src/imports/configs/goodreads.ts`): 16 fields, formula syntax (`="0441478123"`), unrated 0 -> NULL, exclusive shelf mapping.
     - `storygraph` (`apps/api/src/imports/configs/storygraph.ts`): Quarter-star rounding to nearest half-star (3.25 -> 3.5, 3.75 -> 4.0, PRD §6.28, §51.2), unrated 0 -> NULL, `Dates Read` range parsing, format normalization (`digital` -> `ebook`, `audio` -> `audiobook`, `print` -> `print`), `Owned?` boolean flag, and tag extraction.
@@ -905,43 +908,48 @@
 ## Phase 4 — Social · `SO` · 20d
 
 - [x] **SO-01** follows, blocks, mutes migrations + counters — 0.5d
-  - Created migration `0016_social_graph.sql` and journal entry in `apps/api/drizzle/meta/_journal.json`.
+  - Created migration `0016_social_graph.sql` and journal entry in `apps/api/drizzle/meta/_journal.json`. ~~(follows)~~ `follows` was created in **0011** (audit 13); 0016 added `blocks`, `mutes` and the counters.
   - Defined social graph schema in `apps/api/src/db/schema.ts`:
-    - `follows`: Tracks asymmetric user follow relationships (`follower_id`, `following_id`, `state IN ('pending', 'accepted')`, `created_at`, `updated_at`). Enforces `follower_id <> following_id` check constraint and composite primary key `(follower_id, following_id)`.
+    - ~~`follows`: Tracks asymmetric user follow relationships (`follower_id`, `following_id`, `state IN ('pending', 'accepted')`, `created_at`, `updated_at`). Enforces `follower_id <> following_id` check constraint and composite primary key `(follower_id, following_id)`.~~ Actual (audit 13, A-13-003): `follows(follower_id, followee_id, state IN ('pending','accepted'), created_at)`, no `updated_at`, PK `(follower_id, followee_id)`, `follower_id <> followee_id`.
     - `blocks`: Tracks bidirectional user blocks (`blocker_id`, `blocked_id`, `created_at`). Enforces `blocker_id <> blocked_id` check constraint and composite primary key `(blocker_id, blocked_id)`.
-    - `mutes`: Tracks muted users and books (`muter_id`, `muted_id`, `target_work_id`, `created_at`). Enforces target type check constraints (`(muted_id IS NOT NULL AND target_work_id IS NULL) OR (muted_id IS NULL AND target_work_id IS NOT NULL)`).
-  - Postgres DB trigger function `follows_counter_trigger_fn` in migration `0016_social_graph.sql` dynamically maintains atomic `follower_count` and `following_count` on `profiles` when follow records are inserted, updated, or deleted into/from `state = 'accepted'`.
+    - ~~`mutes`: Tracks muted users and books (`muter_id`, `muted_id`, `target_work_id`, `created_at`). Enforces target type check constraints (`(muted_id IS NOT NULL AND target_work_id IS NULL) OR (muted_id IS NULL AND target_work_id IS NOT NULL)`).~~ Actual (audit 13, A-13-003): `mutes(user_id, target_type IN ('user','work'), target_id, created_at)`, PK `(user_id, target_type, target_id)`, no FK on `target_id`.
+  - Postgres DB trigger function `follows_counter_trigger_fn` in migration `0016_social_graph.sql` dynamically maintains ~~atomic~~ `follower_count` and `following_count` on `profiles` when follow records are inserted, updated, or deleted into/from `state = 'accepted'`. Not atomic under concurrency: it recounted per row and lost concurrent updates (50 follows → 2) and deadlocked mutual follows; now incremental with ordered locks (0036, audit 13, A-13-001).
   - Exported Drizzle models and TypeScript types (`Follow`, `NewFollow`, `Block`, `NewBlock`, `Mute`, `NewMute`).
+  - **Audit (2026-10-10):** ⚠️ — documented schema did not exist (corrected above); counters lost concurrent updates and deadlocked mutual follows, the reconcile rewrote every profile and reported nothing; fixed in 0036; see A-13-001, A-13-002, A-13-003.
 - [x] **SO-02** Follow/unfollow; private accounts; pending requests — 1.5d
   - Built `SocialService` and Fastify `socialPlugin` in `apps/api/src/social/index.ts` with follow/unfollow and pending request endpoints (`POST /v1/users/:id/follow`, `DELETE /v1/users/:id/follow`, `GET /v1/me/follow-requests`, `POST /v1/me/follow-requests/:requesterId/accept`, `POST /v1/me/follow-requests/:requesterId/reject`).
   - Private accounts create `state = 'pending'` follows; public accounts create `state = 'accepted'`. Automatic profile follower and following counts maintained via Postgres DB triggers.
-  - Enforced 3-tier privacy authorization in `IdentityService.getProfile` ~~returning 404 Not Found for non-followers viewing private profiles~~ — signed-in non-followers now get the header only (`isRestricted`), guests 404 (AC-13, §16.3; Audit 05, A-05-006, D-05-2) (PRD §25.3, FN-72, SH-09). Switching profile from private to public automatically accepts pending follow requests.
+  - Enforced 3-tier privacy authorization in `IdentityService.getProfile` ~~returning 404 Not Found for non-followers viewing private profiles~~ — signed-in non-followers now get the header only (`isRestricted`), guests 404 (AC-13, §16.3; Audit 05, A-05-006, D-05-2) (PRD §25.3, FN-72, SH-09). Switching profile from private to public automatically accepts pending follow requests (verified, counters included; no `followed` cards are written for accepted requests, D-13-1).
   - OpenAPI 3.1.0 specification synchronized with 0 contract drift and typed methods in `@flyleaf/api-client`.
   - Mobile UI integration: interactive follow toggle with haptics and "Follows you" mutual indicator on `UserProfileScreen` (`apps/mobile/app/user/[id].tsx`), and incoming requests manager screen `FollowRequestsScreen` (`apps/mobile/app/profile/requests.tsx`).
   - 8 integration tests in `apps/api/src/test/social-follow.test.ts` and mobile unit tests in `apps/mobile/src/lib/__tests__/social-follow.test.ts` passing. 100% green CI pipeline.
+  - **Audit (2026-10-10):** ⚠️ — every state transition verified; but unfollow/mute of a user who blocked you answered 200 (block confirmable, P0), a follow racing a block survived it, deleted accounts could be accepted and were listed, no §11.7 limits (→ Part 15); fixed except limits; see A-13-005, A-13-006, A-13-007, A-13-008, A-13-011, D-13-1, D-13-2.
 - [x] **SO-03** ⚠️ **Block: bidirectional, complete, silent, severs follows** — 1.5d
   - Built block/unblock service methods and Fastify routes in `apps/api/src/social/index.ts` (`POST /v1/users/:id/block`, `DELETE /v1/users/:id/block`, `GET /v1/me/blocks`, plus `/v1/blocks/:userId` and `/v1/blocks` aliases).
   - Enforced complete, bidirectional, silent block semantics (PRD §11.4, §26.3): blocking immediately severs existing follows in BOTH directions, with Postgres DB triggers (`follows_counter_trigger_fn`) updating `follower_count` and `following_count` automatically.
-  - Complete obscure privacy masking: profile lookups, follow attempts, and reading stats targeting a blocked account return **404 Not Found** (never 403 Forbidden), rendering blocked accounts completely indistinguishable from non-existent accounts.
+  - Complete obscure privacy masking: profile lookups, follow attempts, and reading stats targeting a blocked account return **404 Not Found** (never 403 Forbidden), rendering blocked accounts ~~completely~~ indistinguishable from non-existent accounts on reads; ~~completely~~ not on writes: unfollow, mute and block of a user who blocked you answered 200 until audit 13 (A-13-005).
   - Excluded reviews written by blocked users from `listWorkReviews` in `apps/api/src/reviews/index.ts`.
   - Self-block prevention: returns HTTP 400 Bad Request (`cannot_block_self`).
   - OpenAPI 3.1.0 contract synchronized with 0 drift and typed methods in `@flyleaf/api-client`.
   - Mobile UI integration: added "Block" action with confirmation dialog to `UserProfileScreen` (`apps/mobile/app/user/[id].tsx`), created `BlockedUsersScreen` (`apps/mobile/app/profile/blocked.tsx`) with 1-tap unblock action, and added "Blocked Accounts" entry in Profile settings (`apps/mobile/app/(tabs)/profile.tsx`).
   - Integration test suite `apps/api/src/test/social-block.test.ts` (6/6 tests passing) verifying self-block rejection, bidirectional follow severing, counter updates, 404 obscure masking, unblock behavior, and blocked list retrieval.
+  - **Audit (2026-10-10):** ⚠️ — severs follows and pending requests both ways (verified); but the pair's `followed` cards survived, blocking someone who blocked you answered 200, 19–33 % of follows racing a block survived it, and a blocked profile's 404 ran one statement more than a random id's; all fixed; see A-13-004, A-13-005, A-13-006, A-13-012.
 - [x] **SO-04** Mute user and **mute book** — 0.5d
   - Built mute/unmute service methods for users and books in `apps/api/src/social/index.ts` (`POST /v1/users/:id/mute`, `DELETE /v1/users/:id/mute`, `POST /v1/works/:id/mute`, `DELETE /v1/works/:id/mute`, `GET /v1/me/mutes`, plus `/v1/mutes/users/:userId`, `/v1/mutes/works/:workId`, `/v1/mutes` aliases).
   - Silent, low-stakes muting semantics (PRD §11.5, §5289, §5290): muting a user hides their activity from feeds without unfollowing; muting a book removes the book from activity feeds and recommendations ("hyped release" filter).
   - Self-mute prevention: returns HTTP 400 Bad Request (`cannot_mute_self`).
   - OpenAPI 3.1.0 contract synchronized with 0 drift and typed methods in `@flyleaf/api-client`.
   - Mobile UI integration: added "Mute" action to `UserProfileScreen` (`apps/mobile/app/user/[id].tsx`), added "Mute book" action to `WorkScreen` (`apps/mobile/app/work/[id].tsx`), created `MutedItemsScreen` (`apps/mobile/app/profile/muted.tsx`) with segmented tabs for Users and Books with 1-tap unmute actions, and added "Muted Content" entry in Profile settings (`apps/mobile/app/(tabs)/profile.tsx`).
+  - **Audit (2026-10-10):** ✅ — idempotent, silent (byte-identical view for the muted user), random targets 404 with no row, merged works resolve; the unmute tests could not fail and a deleted account was mutable and listed (fixed); see A-13-005, A-13-011, A-13-014, A-13-015.
 - [x] **SO-05** Followers/following lists — 0.5d
-  - Built follower and following list service methods and Fastify routes in `apps/api/src/social/index.ts` (`GET /v1/users/:id/followers`, `GET /v1/users/:id/following`, plus `/v1/followers/:userId` and `/v1/following/:userId` aliases) supporting limit/offset pagination and total counts.
+  - Built follower and following list service methods and Fastify routes in `apps/api/src/social/index.ts` (`GET /v1/users/:id/followers`, `GET /v1/users/:id/following`, plus `/v1/followers/:userId` and `/v1/following/:userId` aliases) supporting limit/offset pagination and total counts (~~paginated~~ sliced in memory after loading every follower until audit 13, A-13-010).
   - Strict privacy enforcement (PRD §11.1, §25.3, §26.1): non-followers and guests viewing a private profile's follower/following list receive **404 Not Found** (`not_found`), never 403 Forbidden.
   - Complete block protection: requesting follower/following lists of a blocked account returns 404 Not Found. Any third-party blocked users relative to the caller are silently excluded from returned lists.
   - Rich relationship indicators: each list entry populates `followedByViewer` and `followsViewer` for the caller.
   - OpenAPI 3.1.0 contract synchronized with 0 drift and typed methods `getFollowers` and `getFollowing` exposed in `@flyleaf/api-client` and `apps/mobile/src/lib/api.ts`.
   - Mobile UI integration: created `FollowersScreen` (`apps/mobile/app/user/[id]/followers.tsx`) and `FollowingScreen` (`apps/mobile/app/user/[id]/following.tsx`) with 1-tap follow toggles, user avatars, private indicators, and pressable follower/following count headers on profile screens.
   - Integration test suite `apps/api/src/test/social-lists.test.ts` (5/5 tests passing) verifying public listing, 404 private account protection, 404 block masking, third-party block filtering, and mutual follow indicators.
+  - **Audit (2026-10-10):** ⚠️ — privacy and indicators correct; every page loaded and sorted all followers in memory (10,090 buffers for 2,010 followers), ties were unordered, deleted accounts listed, and the app showed only the first 50; fixed (SQL paging on new indexes, 2.3–2.8× faster, 'Show more'); see A-13-010, A-13-011, A-13-013.
 - [x] **SO-06** ⚠️ **Block/private tests: blocked view ≡ non-existent account** — 0.5d
   - Authored comprehensive integration test suite `apps/api/src/test/social-block-equivalence.test.ts` (8/8 tests passing) verifying complete structural and semantic equivalence between a blocked user's view and a non-existent account (`404 Not Found`, `{ error: { code: 'not_found', message: '...' } }`).
   - Exhaustively verified 8 key endpoints/surfaces under block conditions:
@@ -955,6 +963,7 @@
     8. `GET /v1/works/:id/reviews` — reviews written by blocker are silently omitted when requested by blocked user.
   - OpenAPI contract check (`npm run spec:check`) verified with 0 drift.
   - 100% green CI pipeline (`node scripts/ci.mjs`) passing all 9 build & test steps in 146s.
+  - **Audit (2026-10-10):** ⚠️ — the 8 read surfaces are identical (verified); writes were not covered and leaked the block (A-13-005), and the blocked profile's 404 was measurably slower (A-13-012); both fixed and tested; see A-13-005, A-13-012.
 
   ### Feed — `SO-1x` · 6d
 - [x] **SO-10** activity table + write-on-action, respecting visibility — 1d

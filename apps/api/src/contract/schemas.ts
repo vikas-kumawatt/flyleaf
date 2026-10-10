@@ -223,6 +223,15 @@ export const verifyEmailBodySchema = {
 export const verifyEmailResponseSchema = standardStatusResponseSchema;
 
 // Checked in the handler, so a missing name is the same 422 as an empty one.
+export const changeUsernameBodySchema = {
+  type: 'object',
+  properties: {
+    username: { type: 'string', maxLength: 64, description: '3–20 lowercase letters, numbers and underscores; trimmed and lowercased like register' },
+  },
+  required: ['username'],
+  additionalProperties: false,
+} as const;
+
 export const usernameAvailableQuerySchema = {
   type: 'object',
   properties: {
@@ -1974,6 +1983,12 @@ export const shelfSlugParamsSchema = {
     slug: { type: 'string' },
   },
   required: ['username', 'slug'],
+} as const;
+
+/** D-11-2 (audit 13): a renamed shelf or owner. No body; `Location` is the current address. */
+export const slugMovedResponseSchema = {
+  description: 'Moved permanently: the shelf or its owner was renamed. `Location` holds the current address; old slugs and usernames stay with their shelf and account.',
+  type: 'null',
 } as const;
 
 // ---------------------------------------------------------------- uploads (PV-02)

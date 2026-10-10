@@ -13,7 +13,7 @@ import type { FastifyInstance } from 'fastify';
 
 import { config, type Db, type RateLimiter } from '../platform/index.js';
 import { type EmailSender, ConsoleEmailSender } from '../providers/email/index.js';
-import { users, profiles, works, follows, blocks, refreshTokens, emailVerificationTokens, passwordResetTokens } from '../db/schema.js';
+import { users, profiles, works, follows, blocks, refreshTokens, emailVerificationTokens, passwordResetTokens, usernameClaims } from '../db/schema.js';
 import { ApiError, requireViewer } from '../http.js';
 import { avatarUrl } from '../uploads/index.js';
 import { resolveWorkId } from '../catalog/resolve.js';
@@ -295,12 +295,14 @@ export class IdentityService {
     const year = new Date().getUTCFullYear() % 100;
     const candidates = [username, `${base}_reads`, `${base}_books`, `${base}${year}`, `the_${base}`, `${base}_${year}`, `${base}_page`]
       .filter((c, i, all) => c.length <= 20 && all.indexOf(c) === i && !RESERVED_USERNAMES.has(c));
+    // Claims, not profiles: a name another account used to have stays
+    // theirs (D-11-2, audit 13), so it is not offered either.
     const taken = new Set(
       (
         await this.db
-          .select({ username: profiles.username })
-          .from(profiles)
-          .where(inArray(profiles.username, candidates))
+          .select({ username: usernameClaims.username })
+          .from(usernameClaims)
+          .where(inArray(usernameClaims.username, candidates))
       ).map((r) => r.username),
     );
     if (!taken.has(username)) return { username, available: true };
@@ -634,6 +636,14 @@ export class IdentityService {
    * If private account & non-follower: returns restricted header profile with followStatus/followedBy.
    */
   async getProfile(viewer: string | null, userId: string): Promise<Profile | null> {
+    // One relationship query first (Audit 05). Missing, deleted and blocked
+    // (either way) are the same 404 as a random id (PRD §11.4), after the
+    // same one statement: reading the profile row first made a blocked
+    // profile's 404 a measurable statement slower than a random id's
+    // (audit 13, A-13-012).
+    const rel = await loadRelationship(this.db, viewer, userId);
+    if (!rel.ownerExists || rel.isBlocked) return null;
+
     const [row] = await this.db
       .select({
         id: users.id,
@@ -653,11 +663,6 @@ export class IdentityService {
       .limit(1);
 
     if (!row) return null;
-
-    // One relationship query (Audit 05). Missing, deleted and blocked (either
-    // way) are the same 404 as a random id (PRD §11.4).
-    const rel = await loadRelationship(this.db, viewer, row.id);
-    if (!rel.ownerExists || rel.isBlocked) return null;
     const followStatus = rel.followStatus;
     const followedBy = rel.followedBy;
 
@@ -819,6 +824,32 @@ export class IdentityService {
       const updated = await this.getProfile(userId, userId);
       if (!updated) throw ApiError.notFound('Profile not found.');
       return updated;
+  }
+
+  /**
+   * Changes the viewer's username (PRD §6.43 Account; audit 13, D-11-2).
+   * The old name stays with this account for as long as the account exists:
+   * no one else can register it, and share links that carry it redirect to
+   * the new one. The account may take any of its own old names back.
+   */
+  async changeUsername(userId: string, raw: string): Promise<Profile> {
+    const username = raw.trim().toLowerCase();
+    const parsed = usernameSchema.safeParse(username);
+    if (!parsed.success) {
+      throw ApiError.unprocessable('invalid_field', parsed.error.issues[0]?.message ?? 'Check that.', 'username');
+    }
+    try {
+      // The claim trigger (0037) refuses a name another account has or had.
+      await this.db.update(profiles).set({ username }).where(eq(profiles.userId, userId));
+    } catch (err) {
+      if (uniqueViolationField(err) === 'username') {
+        throw new ApiError(409, 'username_taken', 'That username is taken.', 'username');
+      }
+      throw err;
+    }
+    const updated = await this.getProfile(userId, userId);
+    if (!updated) throw ApiError.notFound('Profile not found.');
+    return updated;
   }
 
   async sendVerificationEmail(userId: string, email: string): Promise<void> {
@@ -1082,6 +1113,7 @@ import {
   verifyEmailBodySchema,
   verifyEmailResponseSchema,
   usernameAvailableQuerySchema,
+  changeUsernameBodySchema,
   usernameAvailableResponseSchema,
   resendVerificationResponseSchema,
   forgotPasswordBodySchema,
@@ -1508,6 +1540,31 @@ export function identityRoutes(service: IdentityService) {
       async (req) => {
         const viewer = requireViewer(req);
         return service.updateProfile(viewer, req.body as any);
+      },
+    );
+
+    app.patch(
+      '/me/username',
+      {
+        schema: {
+          tags: ['Auth'],
+          summary: 'Change my username',
+          description:
+            'Changes the viewer\'s username (PRD §6.43). The old name stays reserved to this account for as long as it exists, ' +
+            'and share links carrying it redirect (301) to the new one (D-11-2). 409 `username_taken` for a name another account has or had.',
+          security: [{ BearerAuth: [] }],
+          body: changeUsernameBodySchema,
+          response: {
+            200: profileSchema,
+            401: errorResponseSchema,
+            409: errorResponseSchema,
+            422: errorResponseSchema,
+          },
+        },
+      },
+      async (req) => {
+        const viewer = requireViewer(req);
+        return service.changeUsername(viewer, (req.body as { username: string }).username);
       },
     );
 

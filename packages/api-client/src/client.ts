@@ -355,6 +355,17 @@ export class FlyleafClient {
     });
   }
 
+  /**
+   * Changes the viewer's username (D-11-2). The old name stays reserved to
+   * this account and its share links redirect. 409 `username_taken`.
+   */
+  async changeUsername(username: string): Promise<Profile> {
+    return this.request<Profile>('/me/username', {
+      method: 'PATCH',
+      body: JSON.stringify({ username }),
+    });
+  }
+
   // ---------------------------------------------------------------- Catalog
 
   async search(q: string, limit = 20): Promise<Work[]> {
@@ -877,6 +888,7 @@ export class FlyleafClient {
     });
   }
 
+  /** Follows a 301 to the current address when the shelf or its owner was renamed (D-11-2). */
   async getShelfBySlug(username: string, slug: string): Promise<ShelfResponse> {
     return this.request<ShelfResponse>(
       `/users/${encodeURIComponent(username)}/shelves/slug/${encodeURIComponent(slug)}`,
