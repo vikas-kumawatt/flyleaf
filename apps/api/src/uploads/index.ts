@@ -16,6 +16,7 @@
 // replaced after step 3. Consumers must re-check the hash when they read the
 // file (the import worker does).
 
+import { RateLimits } from '../platform/rate-limits.js';
 import crypto from 'node:crypto';
 import path from 'node:path';
 import type { FastifyPluginAsync } from 'fastify';
@@ -167,7 +168,12 @@ export function toUploadResponse(row: Upload, target?: UploadTarget): UploadResp
 const expired = () => new ApiError(410, 'upload_expired', 'This upload has expired. Upload the file again.');
 
 export class UploadService {
-  constructor(private db: Db, private storage: ObjectStorage) {}
+  constructor(
+    private db: Db,
+    private storage: ObjectStorage,
+    /** Upload intents per day (A-PV-007, Audit 15). Default: none, as before. */
+    private limits: RateLimits = RateLimits.off(),
+  ) {}
 
   async create(
     userId: string,
@@ -186,6 +192,8 @@ export class UploadService {
     if (input.size > policy.maxBytes) {
       throw new ApiError(413, 'file_too_large', policy.tooLarge, 'size');
     }
+    // Counted once the intent is valid: a refused type or size costs nothing.
+    await this.limits.enforce('uploads', userId);
 
     const id = crypto.randomUUID();
     const [row] = await this.db
@@ -478,10 +486,11 @@ export class AvatarService {
 export interface UploadsPluginOptions {
   db: Db;
   storage: ObjectStorage;
+  limits?: RateLimits;
 }
 
 export const uploadsPlugin: FastifyPluginAsync<UploadsPluginOptions> = async (fastify, opts) => {
-  const service = new UploadService(opts.db, opts.storage);
+  const service = new UploadService(opts.db, opts.storage, opts.limits);
 
   fastify.post(
     '/uploads',

@@ -1,6 +1,6 @@
 # Pending work outside the numbered audit parts
 
-Written 25 Sep 2026, while Part 04 was running. Nothing in this file is done yet. Delete each item when it lands.
+Written 25 Sep 2026, while Part 04 was running; updated at Part 15a (10 Oct). Delete each item when it lands.
 
 ## Run order
 
@@ -12,7 +12,10 @@ Written 25 Sep 2026, while Part 04 was running. Nothing in this file is done yet
 | Done 10 Oct | Part 12 (findings/12-import-export.md; migration 0035 applied to PGlite and the sandbox Postgres only: **apply to `flyleaf` and, at Part 15, `flyleaf_dev` on the laptop**; import/export timings to rerun on the laptop: `npx tsx src/bench/import-cost.ts --rows 5000 --export`) | |
 | Done 10 Oct | Part 13 (findings/13-social-graph.md; migrations 0036 + 0037 applied to PGlite and the sandbox Postgres only: **apply to `flyleaf` and, at Part 15, `flyleaf_dev` on the laptop**; social latencies to rerun on the laptop: `npx tsx src/bench/social-graph.ts --seed --lists --timing --race --clean`; D-11-2 and D-12-2 built) | |
 | Done 10 Oct | Part 14 (findings/14-feed.md; **no migration**; feed latencies to rerun on the laptop: `npm run bench -- --only feed` against `flyleaf_dev`; D-13-1 built, D-13-2 amended PRD §11.1, D-13-3 confirmed; D-14-1 open) | |
-| **Next** | Part 15 | last |
+| Done 10 Oct | Part 15a, cloud half (`findings/15-cross-cutting.md`). Migrations 0038–0041 are applied to PGlite and the sandbox Postgres only. Outputs: `DECISIONS.md`, `SUMMARY.md` (perf headline TBD), and `15b-laptop.md` | |
+| **Next** | **Part 15b on the laptop** (`15b-laptop.md`): apply 0034–0041 to `flyleaf` and `flyleaf_dev`; the after bench and `perf/comparison.md`; the deferred benches of Parts 11–14; A-03-026/027 on the full catalog; recreate the Postgres container with its memory limit; §6 verification; fill the TBDs | Needs the real databases |
+| Post-audit | **UI sweep, checked on the device** (`SUMMARY.md` › Recommended order 4): A-07-021, A-07-031, A-09-033, A-07-040, A-10-026, A-10-030 | Each needs the phone to verify |
+| Post-audit | **Engineering left open** (`findings/15-cross-cutting.md` › Carried): A-12-024, A-06-025, A-05-021, A-07-026, prepared statements, the rest of A-04-024 | Proportionate after launch scope is set |
 | Post-audit | **Sample the D5 "groups of more than two" pairs and decide on a rule** (Part 03c: 170,221 pairs held for group size, e.g. *Pandemonium* ×4, *A return to love* ×5; some are true duplicates). Draw ~25 groups, judge them, and write a rule only if it holds on the sample | Needs the review of real groups first; see `findings/03-dedupe.md` › Part 03c |
 | Post-audit, after Part 15 and before launch, **with LA-05** | **Copy author names onto `works` (A-02d-002, approved 29 Sep).** A `works` column holding every credited author's name and aliases, with a trigram index, both built concurrently; a batched backfill of the 3.2M rows (no long lock); kept in sync by a trigger on `work_authors` and on author name/alias changes; correct under author and work merges; repaired by a nightly reconcile job like the other counters. Then `by_author` and the ranking's author term read `works` only, and the column joins `works_popularity_idx`'s INCLUDE list. **Acceptance:** the 02d latency set on `flyleaf`, p95 < 300 ms for `war`, `smith`, `king`, `lo`, `har`, `the` after each of 3 ANALYZE rounds (`npm run bench:search-latency`), relevance panel unchanged (`npm run bench:relevance`) | Same rollout shape as LA-05 (a batched online backfill on the full catalog); see `findings/02d-search-real-catalog.md` › A-02d-002 |
 | Post-audit, after Part 15 and before launch | **Merge the 94,086-pair dedupe backlog in batches** per README §2d (`npm run dedupe -- --backlog`, 5,000 a batch), reading each batch's 25-pair sample; stop and tighten the rules if 2 or more of 25 are wrong. Every merge is undoable for 30 days | After Part 15 (A-03-026: per-job memory and timeouts), so a batch cannot take the server down |

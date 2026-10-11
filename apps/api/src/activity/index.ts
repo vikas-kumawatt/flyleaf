@@ -23,7 +23,7 @@ import {
   feedResponseSchema,
   errorResponseSchema,
 } from '../contract/schemas.js';
-import { aggregationKey, memberIds, rankWindow } from './ranking.js';
+import { ACTIVITY_WEIGHTS, aggregationKey, memberIds, rankWindow } from './ranking.js';
 import { InteractionService, INTERACTIVE_VERBS, type ReadInteraction } from '../interactions/index.js';
 
 export type ActivityVerb =
@@ -445,8 +445,8 @@ export class ActivityService {
     let blended: FeedActivityItem[] = [];
     if (sparse && first) {
       const used = Math.min(new Set(window.rows.map(aggregationKey)).size, friendCards);
-      const popular = await this.#collect(popularFilter(viewer, { excludeFollowed: true }), null, limit - used, []);
-      blended = popular.rows.map((item) => ({
+      const popular = await this.#popularPage(viewer, null, limit - used, { excludeFollowed: true });
+      blended = popular.items.map((item) => ({
         ...item,
         metadata: { ...item.metadata, is_blended_popular: true, label: 'Popular on Flyleaf' },
       }));
@@ -468,6 +468,7 @@ export class ActivityService {
       };
     }
 
+    await this.#countExposures(page.items.filter((i) => i.metadata?.is_blended_popular));
     return {
       items: await this.#withInteractions(viewer, page.items),
       next_cursor: page.next_cursor,
@@ -496,10 +497,13 @@ export class ActivityService {
   }
 
   /**
-   * SO-11: Cursor-paginated Popular Feed query (Public activity platform-wide).
-   * Strictly excludes blocked accounts and muted accounts/books for logged-in viewers.
-   * Today this is recent public activity, ranked in its window by weight and
-   * recency; §12.1's engagement signal is not built (A-14-009, decision needed).
+   * SO-11, D-14-1: the Popular feed. Public reviews and finishes from the
+   * last 14 days, ranked by engagement (PRD §12.1 "highly-engaged reviews"):
+   * weight (§12.2) × recency (72 h half-life) × (1 + ln(1 + likes + 2 ×
+   * comments)) on the card's read, never by rating (§12.6 "negative ratings
+   * are never amplified"), with a per-card exposure ceiling (§12.6). Blocks
+   * and mutes apply for a signed-in viewer; private accounts never appear
+   * (their activity is never public).
    */
   async getPopularFeed(
     viewer?: string | null,
@@ -507,8 +511,8 @@ export class ActivityService {
   ): Promise<FeedResponse> {
     const limit = Math.min(Math.max(opts.limit ?? 20, 1), 50);
     const cursor = decodeFeedCursor(opts.cursor);
-    const window = await this.#collect(popularFilter(viewer ?? null), cursor, limit + slackFor(limit), []);
-    const page = this.#finish(window, [], limit, 'p');
+    if (cursor && cursor.s !== 'p') throw ApiError.badRequest('invalid_cursor', 'Cursor is not valid.', 'cursor');
+    const page = await this.#popularPage(viewer ?? null, cursor, limit, {});
 
     // Guarantee Never Empty Feed fallback to editorial welcome item (PRD §12.5), on page one only.
     if (page.items.length === 0 && cursor === null) {
@@ -520,14 +524,122 @@ export class ActivityService {
       };
     }
 
+    await this.#countExposures(page.items);
     return {
       items: await this.#withInteractions(viewer ?? null, page.items),
-      next_cursor: page.next_cursor,
-      has_more: page.has_more,
+      next_cursor: page.next ? encodeFeedCursor(page.next) : null,
+      has_more: page.next !== null,
       tab: 'popular',
     };
   }
+
+  /**
+   * One page of Popular (D-14-1). Keyset-paged on (score, created_at, id).
+   * The score is computed "as of" the first page's instant, carried in the
+   * cursor (`n`): only cards and likes/comments from before it count, so a
+   * later like cannot move an unserved card above the cursor (nothing is
+   * skipped). An unlike or a deleted comment can only lower a score; a card
+   * already served may then come round again, which the app de-duplicates.
+   * Diversity (§12.4) is a deterministic penalty, so it pages with the score:
+   * an author's third and later cards, and a book's fourth and later, halve
+   * per step.
+   */
+  async #popularPage(
+    viewer: string | null,
+    cursor: FeedCursor | null,
+    limit: number,
+    opts: { excludeFollowed?: boolean },
+  ): Promise<{ items: FeedActivityItem[]; next: FeedCursor | null }> {
+    if (limit <= 0) return { items: [], next: null };
+    const asOf = cursor?.n ?? new Date().toISOString();
+    const after = cursor
+      ? sql`WHERE (score, created_at, id) < (${cursor.v}::numeric, ${cursor.t}::timestamptz, ${cursor.i}::uuid)`
+      : sql``;
+    const ranked = await this.db.execute<{ id: string; score: string; created_at_us: string }>(sql`
+      WITH cand AS (
+        SELECT a.id, a.actor_id, a.work_id, a.verb, a.created_at,
+          (a.verb = 'finished' AND a.metadata ? 'rating' AND a.metadata->'rating' <> 'null'::jsonb) AS rated,
+          CASE WHEN a.object_type = 'read' THEN a.object_id
+               WHEN a.object_type = 'review' AND a.metadata->>'readId' ~* ${UUID_RE.source}
+                 THEN (a.metadata->>'readId')::uuid END AS read_id
+        FROM activity a
+        JOIN users au ON au.id = a.actor_id AND au.deleted_at IS NULL
+        LEFT JOIN popular_exposures e ON e.activity_id = a.id
+        WHERE a.visibility = 'public' AND a.verb IN ('reviewed', 'finished')
+          AND a.created_at <= ${asOf}::timestamptz
+          AND a.created_at > ${asOf}::timestamptz - make_interval(days => ${POPULAR_WINDOW_DAYS})
+          AND COALESCE(e.served, 0) < ${POPULAR_EXPOSURE_CAP}
+          ${viewer ? sql`AND ${notBlockedOrMuted(viewer)}` : sql``}
+          ${viewer && opts.excludeFollowed ? sql`
+          AND a.actor_id <> ${viewer}::uuid
+          AND NOT EXISTS (
+            SELECT 1 FROM follows fx
+            WHERE fx.follower_id = ${viewer}::uuid AND fx.followee_id = a.actor_id AND fx.state = 'accepted')` : sql``}
+      ),
+      scored AS (
+        SELECT c.id, c.actor_id, c.work_id, c.created_at,
+          (CASE WHEN c.verb = 'reviewed' THEN ${ACTIVITY_WEIGHTS.reviewed}::float8
+                WHEN c.rated THEN ${ACTIVITY_WEIGHTS.finished}::float8 ELSE 0.7::float8 END)
+          * power(0.5::float8, (extract(epoch FROM (${asOf}::timestamptz - c.created_at)) / ${POPULAR_HALF_LIFE_HOURS * 3600})::float8)
+          * (1 + ln(1 + COALESCE(lk.n, 0) + 2 * COALESCE(cm.n, 0))::float8) AS base
+        FROM cand c
+        LEFT JOIN LATERAL (
+          SELECT count(*) AS n FROM read_likes l
+          WHERE l.read_id = c.read_id AND l.created_at <= ${asOf}::timestamptz) lk ON true
+        LEFT JOIN LATERAL (
+          SELECT count(*) AS n FROM read_comments rc
+          WHERE rc.read_id = c.read_id AND rc.created_at <= ${asOf}::timestamptz AND rc.deleted_at IS NULL) cm ON true
+      ),
+      ranked AS (
+        SELECT s.id, s.created_at,
+          round((s.base
+            * power(0.5::float8, greatest(row_number() OVER (PARTITION BY s.actor_id ORDER BY s.base DESC, s.created_at DESC, s.id DESC) - 2, 0))
+            * power(0.5::float8, greatest(row_number() OVER (PARTITION BY s.work_id ORDER BY s.base DESC, s.created_at DESC, s.id DESC) - 3, 0))
+          )::numeric, 12) AS score
+        FROM scored s
+      )
+      SELECT id, score::text AS score,
+        to_char(created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS created_at_us
+      FROM ranked
+      ${after}
+      ORDER BY score DESC, created_at DESC, id DESC
+      LIMIT ${limit + 1}`);
+
+    const page = ranked.slice(0, limit);
+    if (page.length === 0) return { items: [], next: null };
+    const rows = await this.db.execute<FeedRow>(feedQuery(
+      sql`a.id IN (${sql.join(page.map((r) => sql`${r.id}::uuid`), sql`, `)})`, null));
+    const byId = new Map(rows.map((r) => [r.id, toFeedItem(r)]));
+    const items = page.map((r) => byId.get(r.id)).filter((i): i is FeedActivityItem => i !== undefined);
+    const last = page[page.length - 1]!;
+    return {
+      items,
+      next: ranked.length > limit ? { t: last.created_at_us, i: last.id, d: [], s: 'p', n: asOf, v: last.score } : null,
+    };
+  }
+
+  /** §12.6 exposure ceiling (D-14-1): one statement per page served. */
+  async #countExposures(items: FeedActivityItem[]): Promise<void> {
+    const ids = items.map((i) => i.id).filter((id) => id !== NIL_UUID);
+    if (ids.length === 0) return;
+    await this.db.execute(sql`
+      INSERT INTO popular_exposures (activity_id, served)
+      SELECT id, 1 FROM unnest(${sql`ARRAY[${sql.join(ids.map((id) => sql`${id}::uuid`), sql`, `)}]`}) AS t(id)
+      WHERE EXISTS (SELECT 1 FROM activity WHERE activity.id = t.id)
+      ON CONFLICT (activity_id) DO UPDATE SET served = popular_exposures.served + 1`);
+  }
 }
+
+/** D-14-1 (owner, 2026-10-10): Popular is reviews and finishes from this many days. */
+export const POPULAR_WINDOW_DAYS = 14;
+/** D-14-1: Popular's recency half-life. */
+const POPULAR_HALF_LIFE_HOURS = 72;
+/**
+ * §12.6 "Popular is capped by a per-item exposure ceiling": a card leaves
+ * Popular after this many pages have shown it. The PRD gives no number;
+ * D-15-3 in DECISIONS.md records this one (reversible, a constant).
+ */
+export const POPULAR_EXPOSURE_CAP = 1_000;
 
 const DAY_MS = 86_400_000;
 /** §23.5: activity is kept 180 days and "the feed never looks back further". */
@@ -558,7 +670,16 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
  * the page deferred, and which stream it belongs to ('p': a friends feed
  * showing Popular). Opaque to clients: base64url JSON.
  */
-export interface FeedCursor { t: string; i: string; d: string[]; s: 'f' | 'p' }
+export interface FeedCursor {
+  t: string;
+  i: string;
+  d: string[];
+  s: 'f' | 'p';
+  /** Popular (D-14-1): the instant the paging session scores "as of". */
+  n?: string;
+  /** Popular (D-14-1): the last served card's score, the keyset's first column. */
+  v?: string;
+}
 
 export function encodeFeedCursor(c: FeedCursor): string {
   return Buffer.from(JSON.stringify(c), 'utf8').toString('base64url');
@@ -574,6 +695,12 @@ export function decodeFeedCursor(raw: string | null | undefined): FeedCursor | n
     const d = c.d ?? [];
     if (!Array.isArray(d) || d.length > MAX_DEFERRED_IDS || !d.every((id) => typeof id === 'string' && UUID_RE.test(id))) throw new Error('d');
     if (c.s !== 'f' && c.s !== 'p') throw new Error('s');
+    if (c.s === 'p') {
+      // Popular is keyset-paged on its score as of `n` (D-14-1).
+      if (typeof c.n !== 'string' || Number.isNaN(Date.parse(c.n)) || !/^\d{4}-\d{2}-\d{2}T/.test(c.n)) throw new Error('n');
+      if (typeof c.v !== 'string' || !/^\d{1,6}(\.\d{1,12})?$/.test(c.v)) throw new Error('v');
+      return { t: c.t, i: c.i, d: [], s: 'p', n: c.n, v: c.v };
+    }
     return { t: c.t, i: c.i, d, s: c.s };
   } catch {
     throw ApiError.badRequest('invalid_cursor', 'Cursor is not valid.', 'cursor');
@@ -696,17 +823,6 @@ function friendsFilter(viewer: string): SQL {
     AND ${followedTargetVisible(viewer)}`;
 }
 
-function popularFilter(viewer: string | null, opts: { excludeFollowed?: boolean } = {}): SQL {
-  return sql`a.visibility = 'public'
-    AND a.created_at > now() - make_interval(days => ${FEED_HORIZON_DAYS})
-    ${viewer ? sql`AND ${notBlockedOrMuted(viewer)}` : sql``}
-    ${viewer && opts.excludeFollowed ? sql`
-    AND a.actor_id <> ${viewer}::uuid
-    AND NOT EXISTS (
-      SELECT 1 FROM follows fx
-      WHERE fx.follower_id = ${viewer}::uuid AND fx.followee_id = a.actor_id AND fx.state = 'accepted')` : sql``}
-    AND ${followedTargetVisible(viewer)}`;
-}
 
 function toFeedItem(r: FeedRow): FeedActivityItem {
   const metadata = typeof r.metadata === 'string' ? JSON.parse(r.metadata) : (r.metadata ?? {});

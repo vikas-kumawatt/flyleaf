@@ -24,7 +24,7 @@ import { mkdirSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { sql } from 'drizzle-orm';
-import { config, makeDb, waitForDb, closeDb, type Db } from './platform/index.js';
+import { config, makeDb, waitForDb, closeDb, JOB_DB_SETTINGS, type Db } from './platform/index.js';
 import {
   BACKLOG_SAMPLE_SIZE, DEFAULT_BACKLOG_LIMIT, DEFAULT_MERGE_CAP, describeWorks, randomSample, runBacklogBatch,
   runDedupe, type BacklogPair, type Stage12Pair, type WorkSummary,
@@ -137,7 +137,7 @@ async function main() {
   const sampleSize = intFlag(argv, '--sample', 0);
 
   console.log(`connecting to ${config.databaseUrl.replace(/:[^:@]*@/, ':***@')}…`);
-  const db = makeDb(config.databaseUrl, { max: 1, quiet: true });
+  const db = makeDb(config.databaseUrl, { max: 1, quiet: true, settings: JOB_DB_SETTINGS.dedupe });
   await waitForDb(db);
 
   try {

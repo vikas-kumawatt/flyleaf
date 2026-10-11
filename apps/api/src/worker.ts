@@ -14,7 +14,7 @@
 // so the one-shot sat there holding the terminal open after doing its job.
 
 import { pino } from 'pino';
-import { config, makeDb, waitForDb, closeDb } from './platform/index.js';
+import { config, makeDb, waitForDb, closeDb, JOB_DB_SETTINGS } from './platform/index.js';
 import { makeBoss, registerQueues, QUEUES } from './jobs/index.js';
 import { createProviders } from './providers/index.js';
 
@@ -33,7 +33,11 @@ async function main() {
   // pg-boss's own start would fail on the first connection rather than wait.
   // The pool is also what job handlers will use as they arrive; the one that
   // exists today needs no database at all.
-  const db = makeDb(config.databaseUrl, { max: 4 });
+  // Every job runs under its own work_mem and statement_timeout (Audit 15,
+  // A-03-026): the worker's pool for the nightly jobs, a pool of one for the
+  // monthly dedupe pass, whose statements are longer.
+  const db = makeDb(config.databaseUrl, { max: 4, settings: JOB_DB_SETTINGS.worker });
+  const dedupeDb = makeDb(config.databaseUrl, { max: 1, settings: JOB_DB_SETTINGS.dedupe });
   await waitForDb(db);
 
   const boss = makeBoss();
@@ -51,6 +55,7 @@ async function main() {
     log.info({ id, queue: QUEUES.smokePing }, 'enqueued; a running worker should handle it');
     await boss.stop({ graceful: false });
     await closeDb(db);
+    await closeDb(dedupeDb);
     return;
   }
 
@@ -61,6 +66,7 @@ async function main() {
     log.info({ id, queue: QUEUES.catalogDedupe }, 'enqueued; a running worker should handle it');
     await boss.stop({ graceful: false });
     await closeDb(db);
+    await closeDb(dedupeDb);
     return;
   }
 
@@ -72,7 +78,7 @@ async function main() {
   boss.on('warning', (warning) => log.warn({ warning }, 'pg-boss'));
 
   await boss.start();
-  await registerQueues(boss, log, { db, storage: providers.storage, mailer: providers.mailer });
+  await registerQueues(boss, log, { db, dedupeDb, storage: providers.storage, mailer: providers.mailer });
 
   // Monthly dedupe pass: 1st of every month at midnight (FN-52, Architecture §9).
   // It detects and queues; it merges only if this worker runs with
@@ -95,6 +101,13 @@ async function main() {
   await boss.schedule(QUEUES.storageCleanup, '45 3 * * *');
   // Activity older than 180 days leaves the feed's table (PRD §23.5, audit 14).
   await boss.schedule(QUEUES.pruneActivity, '55 3 * * *');
+  // authors.has_works repair (Audit 15): after the reconcilers.
+  await boss.schedule(QUEUES.repairAuthors, '5 4 * * *');
+  // Retention (Audit 15, PRD §23.5): soft deletes past 30 days, old events,
+  // ended rate-limit buckets, deleted accounts and their objects.
+  await boss.schedule(QUEUES.retentionSweep, '20 4 * * *');
+  // Zero-result summary for the week that just ended (D-10-3): Mondays.
+  await boss.schedule(QUEUES.summariseZeroResults, '30 4 * * 1');
   // "Did you mean …?" vocabulary (audit 10): Sundays, after works.reconcile
   // has settled log counts.
   await boss.schedule(QUEUES.refreshSearchSuggestions, '0 4 * * 0');
@@ -125,6 +138,7 @@ async function main() {
       // HTTP request is not, and finishing beats retrying.
       await boss.stop({ graceful: true, timeout: 25_000 });
       await closeDb(db);
+      await closeDb(dedupeDb);
       log.info('shutdown complete');
       process.exit(0);
     } catch (err) {

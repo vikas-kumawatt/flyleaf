@@ -12,6 +12,8 @@
 // worker.ts owns the process. Keeping them apart is what lets the tests run
 // the real handlers against a real Postgres without starting a process.
 
+import { retentionSweep, summariseZeroResults, type RetentionResult, type ZeroSummaryResult } from './retention.js';
+import { AUTHOR_REPAIR_BATCH, walkRanges } from './ranges.js';
 import { PgBoss, fromDrizzle, type Db as BossDb, type Job, type ConstructorOptions } from 'pg-boss';
 export type { PgBoss } from 'pg-boss';
 import { sql } from 'drizzle-orm';
@@ -108,6 +110,26 @@ export const QUEUES = {
    * pruned card loses nothing but the card.
    */
   pruneActivity: 'activity.prune',
+  /**
+   * Nightly authors.has_works repair (Audit 15, §4): authors an ingest left
+   * unflagged (it skips the trigger until --finalise) and authors whose works
+   * were all merged away. One range of authors at a time.
+   */
+  repairAuthors: 'authors.repair',
+  /**
+   * Daily retention (Audit 15, §4; PRD §23.5): ended rate-limit buckets,
+   * events past 13 months and zero-result queries past 30 days, shelves,
+   * reviews and comments 30 days after deletion, accounts 30 days after
+   * deletion with their stored objects, committed import rows trimmed, stray
+   * avatar objects.
+   */
+  retentionSweep: 'retention.sweep',
+  /**
+   * Weekly zero-result summary (D-10-3): each complete week's counts, with a
+   * query's text only past 5 distinct searchers; the week's salt is deleted
+   * in the same transaction.
+   */
+  summariseZeroResults: 'search.zero.summary',
 } as const;
 
 export type QueueName = (typeof QUEUES)[keyof typeof QUEUES];
@@ -115,11 +137,11 @@ export type QueueName = (typeof QUEUES)[keyof typeof QUEUES];
 export type PingRequest = { note?: string };
 export type PingResult = { pong: true; note: string; workedAt: string };
 
-export type ReconcileShelvesResult = { reconciled: true; workedAt: string };
+export type ReconcileShelvesResult = { reconciled: true; corrected: number; ranges: number; workedAt: string };
 
-export type ReconcileFollowsResult = { reconciled: true; corrected: number; workedAt: string };
+export type ReconcileFollowsResult = { reconciled: true; corrected: number; ranges: number; workedAt: string };
 
-export type ReconcileReadsResult = { reconciled: true; corrected: number; workedAt: string };
+export type ReconcileReadsResult = { reconciled: true; corrected: number; ranges: number; workedAt: string };
 
 export type ReconcileWorksResult = {
   reconciled: true;
@@ -128,6 +150,7 @@ export type ReconcileWorksResult = {
   /** works whose reader_count had drifted; should be 0 every night. */
   readerCount: number;
   catalogMean: number;
+  ranges: number;
   workedAt: string;
 };
 
@@ -207,31 +230,47 @@ export async function dedupeJobHandler(
   });
 }
 
+/** Rows per range for the nightly reconciles (Audit 15, A-03-026). */
+export const RECONCILE_BATCH = 5_000;
+export { AUTHOR_REPAIR_BATCH } from './ranges.js';
+
+type RangeOpts = { batch?: number };
+
 /**
  * Shelves reconciliation background job handler (Architecture §3.9, SH-01).
- * Reconciles item_count, save_count, and cover_work_ids via SQL procedure.
+ * Reconciles item_count, save_count and cover_work_ids, one range of shelves
+ * at a time (Audit 15). `corrected` is the number of shelves that had
+ * drifted (A-11-021: the count is now logged).
  */
 export async function reconcileShelvesJobHandler(
   _jobs: Job<void>[],
   db: Db,
+  opts: RangeOpts = {},
 ): Promise<ReconcileShelvesResult> {
-  await db.execute(sql`SELECT reconcile_shelf_counters();`);
-  return { reconciled: true, workedAt: new Date().toISOString() };
+  let corrected = 0;
+  const ranges = await walkRanges(db, { table: 'shelves', column: 'id' }, opts.batch ?? RECONCILE_BATCH, async (lo, hi) => {
+    const [row] = await db.execute<{ n: number }>(sql`SELECT reconcile_shelf_counters(${lo}::uuid, ${hi}::uuid) AS n`);
+    corrected += Number(row?.n ?? 0);
+  });
+  return { reconciled: true, corrected, ranges, workedAt: new Date().toISOString() };
 }
 
 /**
  * Follow counter reconciliation background job handler (Architecture §3.9, SO-01).
  * `corrected` is the number of profiles whose counters had drifted (audit 13,
- * A-13-002): 0 on a healthy night.
+ * A-13-002): 0 on a healthy night. One range of profiles at a time.
  */
 export async function reconcileFollowsJobHandler(
   _jobs: Job<void>[],
   db: Db,
+  opts: RangeOpts = {},
 ): Promise<ReconcileFollowsResult> {
-  const [row] = await db.execute<{ corrected: number }>(
-    sql`SELECT reconcile_follow_counters() AS corrected;`,
-  );
-  return { reconciled: true, corrected: Number(row?.corrected ?? 0), workedAt: new Date().toISOString() };
+  let corrected = 0;
+  const ranges = await walkRanges(db, { table: 'profiles', column: 'user_id' }, opts.batch ?? RECONCILE_BATCH, async (lo, hi) => {
+    const [row] = await db.execute<{ n: number }>(sql`SELECT reconcile_follow_counters(${lo}::uuid, ${hi}::uuid) AS n`);
+    corrected += Number(row?.n ?? 0);
+  });
+  return { reconciled: true, corrected, ranges, workedAt: new Date().toISOString() };
 }
 
 /**
@@ -242,32 +281,90 @@ export async function reconcileFollowsJobHandler(
 export async function reconcileReadsJobHandler(
   _jobs: Job<void>[],
   db: Db,
+  opts: RangeOpts = {},
 ): Promise<ReconcileReadsResult> {
-  const [row] = await db.execute<{ corrected: number }>(
-    sql`SELECT reconcile_read_counters() AS corrected;`,
-  );
-  return { reconciled: true, corrected: Number(row?.corrected ?? 0), workedAt: new Date().toISOString() };
+  let corrected = 0;
+  const ranges = await walkRanges(db, { table: 'reads', column: 'id' }, opts.batch ?? RECONCILE_BATCH, async (lo, hi) => {
+    const [row] = await db.execute<{ n: number }>(sql`SELECT reconcile_read_counters(${lo}::uuid, ${hi}::uuid) AS n`);
+    corrected += Number(row?.n ?? 0);
+  });
+  return { reconciled: true, corrected, ranges, workedAt: new Date().toISOString() };
 }
 
 /**
  * Work counter reconciliation (Architecture §3.9, audit 08).
  * `readerCount` should be 0 every night: anything else means a path changed
  * reads without the triggers seeing it (or a race the lock does not cover).
+ *
+ * Two walks over reads.work_id (Audit 15): the catalog mean C summed range
+ * by range and written once, then work_stats and reader_count repaired range
+ * by range with that C. Same results as reconcile_work_counters(), without
+ * aggregating every read in one statement.
  */
 export async function reconcileWorksJobHandler(
   _jobs: Job<void>[],
   db: Db,
+  opts: RangeOpts = {},
 ): Promise<ReconcileWorksResult> {
-  const [row] = await db.execute<{ r: { work_stats: number; reader_count: number; catalog_mean: string } }>(
-    sql`SELECT reconcile_work_counters() AS r;`,
-  );
+  const batch = opts.batch ?? RECONCILE_BATCH;
+  const key = { table: 'reads', column: 'work_id' } as const;
+  let ratingSum = 0;
+  let ratingCount = 0;
+  await walkRanges(db, key, batch, async (lo, hi) => {
+    const [row] = await db.execute<{ rating_sum: string; rating_count: string }>(
+      sql`SELECT rating_sum::text, rating_count::text FROM catalog_rating_sums(${lo}::uuid, ${hi}::uuid)`);
+    ratingSum += Number(row?.rating_sum ?? 0);
+    ratingCount += Number(row?.rating_count ?? 0);
+  });
+  await db.execute(sql`
+    INSERT INTO catalog_rating_stats (id, rating_sum, rating_count, refreshed_at)
+    VALUES (true, ${ratingSum.toFixed(1)}::numeric, ${ratingCount}, now())
+    ON CONFLICT (id) DO UPDATE SET
+      rating_sum = EXCLUDED.rating_sum, rating_count = EXCLUDED.rating_count, refreshed_at = EXCLUDED.refreshed_at`);
+  const [cRow] = await db.execute<{ c: string }>(sql`SELECT flyleaf_catalog_mean()::text AS c`);
+  const c = cRow?.c ?? '3.9';
+
+  let workStats = 0;
+  let readerCount = 0;
+  const ranges = await walkRanges(db, key, batch, async (lo, hi) => {
+    const [row] = await db.execute<{ r: { work_stats: number; reader_count: number } }>(
+      sql`SELECT reconcile_work_counters(${lo}::uuid, ${hi}::uuid, ${c}::numeric) AS r`);
+    workStats += Number(row?.r.work_stats ?? 0);
+    readerCount += Number(row?.r.reader_count ?? 0);
+  });
   return {
     reconciled: true,
-    workStats: Number(row?.r.work_stats ?? 0),
-    readerCount: Number(row?.r.reader_count ?? 0),
-    catalogMean: Number(row?.r.catalog_mean ?? 0),
+    workStats,
+    readerCount,
+    catalogMean: Number(c),
+    ranges,
     workedAt: new Date().toISOString(),
   };
+}
+
+export type RepairAuthorsResult = { set: number; cleared: number; ranges: number; workedAt: string };
+
+/**
+ * Nightly authors.has_works repair (Audit 15, §4; Part 02b/02c). The ingest
+ * skips the has_works trigger and relies on `--finalise`: an ingest that dies
+ * before it leaves new authors out of author search until this runs. Also
+ * clears the flag of authors whose works were all merged away. Should report
+ * 0 / 0 on a healthy night. One range of authors at a time.
+ */
+export async function repairAuthorsJobHandler(
+  _jobs: Job<void>[],
+  db: Db,
+  opts: RangeOpts = {},
+): Promise<RepairAuthorsResult> {
+  let set = 0;
+  let cleared = 0;
+  const ranges = await walkRanges(db, { table: 'authors', column: 'id' }, opts.batch ?? AUTHOR_REPAIR_BATCH, async (lo, hi) => {
+    const [row] = await db.execute<{ r: { set: number; cleared: number } }>(
+      sql`SELECT repair_author_has_works(${lo}::uuid, ${hi}::uuid) AS r`);
+    set += Number(row?.r.set ?? 0);
+    cleared += Number(row?.r.cleared ?? 0);
+  });
+  return { set, cleared, ranges, workedAt: new Date().toISOString() };
 }
 
 export type PruneActivityResult = { deleted: number; batches: number; workedAt: string };
@@ -421,6 +518,8 @@ export type JobLog = { info(obj: object, msg: string): void };
  */
 export interface WorkerDeps {
   db: Db;
+  /** The monthly dedupe pass's connection (JOB_DB_SETTINGS.dedupe). Default: `db`. */
+  dedupeDb?: Db;
   storage: ObjectStorage;
   mailer: EmailSender;
 }
@@ -444,7 +543,7 @@ export async function registerQueues(boss: PgBoss, log: JobLog, deps?: WorkerDep
   if (deps) {
     const { db, storage, mailer } = deps;
     await boss.work<DedupeJobRequest, DedupeJobResult>(QUEUES.catalogDedupe, async (jobs) => {
-      const result = await dedupeJobHandler(jobs, db);
+      const result = await dedupeJobHandler(jobs, deps.dedupeDb ?? db);
       log.info(
         {
           queue: QUEUES.catalogDedupe,
@@ -473,7 +572,8 @@ export async function registerQueues(boss: PgBoss, log: JobLog, deps?: WorkerDep
         {
           queue: QUEUES.reconcileShelves,
           ids: jobs.map((j) => j.id),
-          reconciled: result.reconciled,
+          corrected: result.corrected,
+          ranges: result.ranges,
         },
         'job handled',
       );
@@ -519,6 +619,24 @@ export async function registerQueues(boss: PgBoss, log: JobLog, deps?: WorkerDep
         },
         'job handled',
       );
+      return result;
+    });
+
+    await boss.work<void, RepairAuthorsResult>(QUEUES.repairAuthors, async (jobs) => {
+      const result = await repairAuthorsJobHandler(jobs, db);
+      log.info({ queue: QUEUES.repairAuthors, ids: jobs.map((j) => j.id), set: result.set, cleared: result.cleared, ranges: result.ranges }, 'job handled');
+      return result;
+    });
+
+    await boss.work<void, RetentionResult>(QUEUES.retentionSweep, async (jobs) => {
+      const result = await retentionSweep(db, storage);
+      log.info({ queue: QUEUES.retentionSweep, ids: jobs.map((j) => j.id), ...result }, 'job handled');
+      return result;
+    });
+
+    await boss.work<void, ZeroSummaryResult>(QUEUES.summariseZeroResults, async (jobs) => {
+      const result = await summariseZeroResults(db);
+      log.info({ queue: QUEUES.summariseZeroResults, ids: jobs.map((j) => j.id), weeks: result.weeks, rows: result.rows }, 'job handled');
       return result;
     });
 

@@ -366,44 +366,35 @@ describe('SO-05 lists', () => {
 });
 
 // ---------------------------------------------------------------------------
-describe('aliases answer exactly as the canonical routes (A-13-009)', () => {
-  it('lists, 404s and paging', async () => {
-    const pub = await user('ap');
-    const priv = await user('aq', { isPrivate: true });
-    const v = await user('av');
-    const fans = [await user('af'), await user('ag'), await user('ah')];
-    for (const f of fans) await follow(db, f.id, pub.id);
-    await follow(db, pub.id, fans[0]!.id);
-    const random = randomUUID();
-    for (const id of [pub.id, priv.id, random]) {
-      for (const qs of ['', '?limit=2&offset=1', '?limit=0', '?offset=-1']) {
-        for (const as of [undefined, v]) {
-          const [a1, b1] = [await call('GET', `/v1/users/${id}/followers${qs}`, as), await call('GET', `/v1/followers/${id}${qs}`, as)];
-          const [a2, b2] = [await call('GET', `/v1/users/${id}/following${qs}`, as), await call('GET', `/v1/following/${id}${qs}`, as)];
-          expect([b1.status, b1.body]).toEqual([a1.status, a1.body]);
-          expect([b2.status, b2.body]).toEqual([a2.status, a2.body]);
-        }
-      }
-    }
-  });
-
-  it('writes: follow, unfollow, block, mute through an alias behave the same', async () => {
+describe('the 15 alias routes are gone (A-13-009; removed in Audit 15)', () => {
+  // Part 13 proved each alias answered exactly as its canonical route; no
+  // client called any of them, and each doubled the surface the rate limits
+  // must cover. Audit 15 removed them: every one is now the uniform 404 of
+  // an unknown route, and the canonical routes answer as before.
+  it('each alias is an unknown route; the canonical routes still work', async () => {
     const v = await user('wv');
-    const [t1, t2] = [await user('wa'), await user('wb')];
-    const r1 = await call('POST', `/v1/follows/${t1.id}`, v);
-    const r2 = await call('POST', `/v1/users/${t2.id}/follow`, v);
-    expect(r1.json().status).toBe(r2.json().status);
-    expect((await call('DELETE', `/v1/follows/${t1.id}`, v)).json().status).toBe('none');
-    const bogus = randomUUID();
-    for (const [alias, canon] of [
-      [`/v1/follows/${bogus}`, `/v1/users/${bogus}/follow`],
-      [`/v1/blocks/${bogus}`, `/v1/users/${bogus}/block`],
-      [`/v1/mutes/users/${bogus}`, `/v1/users/${bogus}/mute`],
-      [`/v1/mutes/works/${bogus}`, `/v1/works/${bogus}/mute`],
-    ]) {
-      const [a, c] = [await call('POST', alias!, v), await call('POST', canon!, v)];
-      expect([a.status, a.body]).toEqual([c.status, c.body]);
+    const t = await user('wa');
+    const id = t.id;
+    const gone: Array<[string, string]> = [
+      ['POST', `/v1/follows/${id}`], ['DELETE', `/v1/follows/${id}`],
+      ['GET', '/v1/follows/requests'],
+      ['POST', `/v1/follows/requests/${id}/accept`], ['POST', `/v1/follows/requests/${id}/reject`],
+      ['POST', `/v1/blocks/${id}`], ['DELETE', `/v1/blocks/${id}`], ['GET', '/v1/blocks'],
+      ['POST', `/v1/mutes/users/${id}`], ['DELETE', `/v1/mutes/users/${id}`],
+      ['POST', `/v1/mutes/works/${randomUUID()}`], ['DELETE', `/v1/mutes/works/${randomUUID()}`],
+      ['GET', '/v1/mutes'],
+      ['GET', `/v1/followers/${id}`], ['GET', `/v1/following/${id}`],
+    ];
+    expect(gone).toHaveLength(15);
+    for (const [method, url] of gone) {
+      const res = await call(method, url, v);
+      expect([res.status, res.json()], `${method} ${url}`).toEqual([404, { error: { code: 'not_found', message: 'Not found.' } }]);
     }
+    expect((await call('POST', `/v1/users/${id}/follow`, v)).json().status).toBe('accepted');
+    expect((await call('GET', `/v1/users/${id}/followers`, v)).status).toBe(200);
+    expect((await call('DELETE', `/v1/users/${id}/follow`, v)).json().status).toBe('none');
+    expect((await call('GET', '/v1/me/blocks', v)).status).toBe(200);
+    expect((await call('GET', '/v1/me/mutes', v)).status).toBe(200);
   });
 });
 

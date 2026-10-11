@@ -9,6 +9,7 @@ import Constants from 'expo-constants';
 import * as SecureStore from 'expo-secure-store';
 import * as Crypto from 'expo-crypto';
 import { createAuthFetch } from './authFetch';
+import { getSessionId } from './events';
 
 import {
   FlyleafClient,
@@ -359,8 +360,9 @@ export const api = {
   myStats: (year?: string, tz?: string) => client.getMyStats(year, tz),
   userStats: (userId: string, year?: string, tz?: string) => client.getUserStats(userId, year, tz),
 
-  search: (q: string) => client.search(q),
-  searchWithSuggestion: (q: string) => client.searchWithSuggestion(q),
+  // The telemetry session id rides along for the zero-result summary (D-10-3).
+  search: (q: string) => client.search(q, 20, getSessionId()),
+  searchWithSuggestion: (q: string) => client.searchWithSuggestion(q, 20, getSessionId()),
 
   work: (id: string) => client.getWork(id),
 

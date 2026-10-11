@@ -137,6 +137,8 @@ export class FlyleafApiError extends Error {
     message: string,
     public field?: string,
     public status?: number,
+    /** From `Retry-After` on a 429: how long the server asks the client to wait (Audit 15). */
+    public retryAfterSeconds?: number,
   ) {
     super(message);
     this.name = 'FlyleafApiError';
@@ -208,11 +210,13 @@ export class FlyleafClient {
 
     if (!res.ok) {
       const err = (body as ApiErrorResponse | null)?.error;
+      const retryAfter = Number(res.headers?.get?.('retry-after'));
       throw new FlyleafApiError(
         err?.code ?? 'unknown_error',
         err?.message ?? `Request failed with status ${res.status}`,
         err?.field,
         res.status,
+        Number.isFinite(retryAfter) && retryAfter > 0 ? retryAfter : undefined,
       );
     }
 
@@ -368,18 +372,22 @@ export class FlyleafClient {
 
   // ---------------------------------------------------------------- Catalog
 
-  async search(q: string, limit = 20): Promise<Work[]> {
-    const query = new URLSearchParams({ q, limit: String(limit) });
-    const res = await this.request<SearchResponse>(`/search?${query.toString()}`, {
-      method: 'GET',
-    });
-    return res.data;
+  /**
+   * `sessionId`: a guest app's telemetry session id, sent as
+   * `x-flyleaf-session` so a search with no results counts its searcher in
+   * the weekly zero-result summary (D-10-3). Never stored as sent.
+   */
+  async search(q: string, limit = 20, sessionId?: string): Promise<Work[]> {
+    return (await this.searchWithSuggestion(q, limit, sessionId)).data;
   }
 
   /** search() plus the "Did you mean …?" suggestion when nothing was found (PRD §14.7). */
-  async searchWithSuggestion(q: string, limit = 20): Promise<SearchResponse> {
+  async searchWithSuggestion(q: string, limit = 20, sessionId?: string): Promise<SearchResponse> {
     const query = new URLSearchParams({ q, limit: String(limit) });
-    return this.request<SearchResponse>(`/search?${query.toString()}`, { method: 'GET' });
+    return this.request<SearchResponse>(`/search?${query.toString()}`, {
+      method: 'GET',
+      ...(sessionId ? { headers: { 'x-flyleaf-session': sessionId } } : {}),
+    });
   }
 
   async getWork(id: string): Promise<Work> {

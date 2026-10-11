@@ -37,7 +37,7 @@
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import postgres from 'postgres';
-import { config } from './platform/index.js';
+import { config, JOB_DB_SETTINGS } from './platform/index.js';
 import { runMigrations } from './migrate.js';
 
 type Sql = postgres.Sql;
@@ -109,7 +109,7 @@ export async function buildDevDb(opts: Options): Promise<void> {
   if (opts.target === sourceDb) throw new Error('Refusing: target and source are the same database.');
 
   const targetUrl = withDatabase(opts.sourceUrl, opts.target);
-  const admin = postgres(opts.sourceUrl, { max: 1, onnotice: () => {} });
+  const admin = postgres(opts.sourceUrl, { max: 1, onnotice: () => {}, connection: { ...JOB_DB_SETTINGS.ingest } });
 
   try {
     // ------------------------------------------------------------------ 0. preflight
@@ -136,7 +136,7 @@ export async function buildDevDb(opts: Options): Promise<void> {
     await admin.end();
   }
 
-  const sql = postgres(targetUrl, { max: 1, onnotice: () => {}, idle_timeout: 0 });
+  const sql = postgres(targetUrl, { max: 1, onnotice: () => {}, idle_timeout: 0, connection: { ...JOB_DB_SETTINGS.ingest } });
   try {
     await linkSource(sql, opts.sourceUrl);
     const slice = await computeSlice(sql, opts.works);

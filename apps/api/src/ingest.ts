@@ -22,11 +22,12 @@
 //                     ability to reprocess without re-downloading.
 //   --restart         ignore any checkpoint and start from line 1.
 
+import { AUTHOR_REPAIR_BATCH, walkRanges } from './jobs/ranges.js';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { sql } from 'drizzle-orm';
-import { config, makeDb, waitForDb, closeDb } from './platform/index.js';
+import { config, makeDb, waitForDb, closeDb, JOB_DB_SETTINGS } from './platform/index.js';
 import { readDump, popularWorkKeys, workPopularity, DUMP_URLS, type DumpType, type DumpProgress } from './catalog/ingest/dump.js';
 import {
   normaliseAuthor, normaliseWork, normaliseEdition,
@@ -34,7 +35,8 @@ import {
 } from './catalog/ingest/normalise.js';
 import {
   createStaging, dropStaging, writeAuthors, writeWorks, writeEditions, writeRawPayloads,
-  RESOLVE_PENDING_WORK_AUTHORS, MARK_CREDITED_AUTHORS,
+  RESOLVE_PENDING_WORK_AUTHORS,
+  TABLES_LOADED,
 } from './catalog/ingest/writer.js';
 
 // architecture.md §5.1 says 5,000. That is right for the COPY itself, but
@@ -206,7 +208,7 @@ async function main() {
   // tries to write to it, which a long UPDATE does not do until it finishes.
   console.log(`connecting to ${config.databaseUrl.replace(/:[^:@]*@/, ':***@')}…`);
 
-  const db = makeDb(config.databaseUrl, { max: 1, quiet: true });
+  const db = makeDb(config.databaseUrl, { max: 1, quiet: true, settings: JOB_DB_SETTINGS.ingest });
   await waitForDb(db);
 
   // Anything already running is either another ingest or the remains of one
@@ -540,6 +542,16 @@ async function main() {
       WHERE id = ${runId}`);
     await dropStaging(client);
 
+    // Fresh statistics for what this pass loaded (Audit 15): an interrupted
+    // pass resumes and analyzes when it finishes.
+    if (status === 'done') {
+      for (const t of TABLES_LOADED[args.type]) {
+        const t0 = Date.now();
+        await db.execute(sql.raw(`ANALYZE ${t}`));
+        console.log(`ANALYZE ${t} (${Math.round((Date.now() - t0) / 1000)}s)`);
+      }
+    }
+
     const seconds = Math.round((Date.now() - started) / 1000);
     const human = seconds >= 3600
       ? `${Math.floor(seconds / 3600)}h${String(Math.round((seconds % 3600) / 60)).padStart(2, '0')}m`
@@ -786,10 +798,11 @@ async function printStatus(db: ReturnType<typeof makeDb>) {
  * works_title_trgm_idx first and recreating them here is worth the trouble.
  */
 async function finalise(db: ReturnType<typeof makeDb>) {
-  // Pool of one, so these stick. The resolve below skips the has_works
-  // trigger like the load did; MARK_CREDITED_AUTHORS covers both at once.
+  // Pool of one, so this sticks. The resolve below skips the has_works
+  // trigger like the load did; the author repair below covers both at once.
+  // work_mem stays the ingest profile's (JOB_DB_SETTINGS.ingest, Audit 15):
+  // it used to be raised to 256 MB here for one whole-catalog UPDATE.
   await db.$client.unsafe(`SET flyleaf.bulk_load = 'on'`);
-  await db.$client.unsafe(`SET work_mem = '256MB'`);
 
   console.log('resolving parked authorship links…');
   const [pendingBefore] = await db.execute<{ n: number }>(
@@ -801,9 +814,18 @@ async function finalise(db: ReturnType<typeof makeDb>) {
     `  ${commas(pendingBefore!.n - pendingAfter!.n)} resolved, ` +
     `${commas(pendingAfter!.n)} still waiting on an author`);
 
+  // The nightly repair's statement, range by range over authors (Audit 15,
+  // A-03-026): 15.4M rows on the full catalog are never one UPDATE.
   console.log('flagging credited authors…');
-  const credited = await db.$client.unsafe(MARK_CREDITED_AUTHORS);
-  console.log(`  ${commas(credited.count ?? 0)} authors newly credited`);
+  let credited = 0;
+  let uncredited = 0;
+  await walkRanges(db, { table: 'authors', column: 'id' }, AUTHOR_REPAIR_BATCH, async (lo, hi) => {
+    const [row] = await db.execute<{ r: { set: number; cleared: number } }>(
+      sql`SELECT repair_author_has_works(${lo}::uuid, ${hi}::uuid) AS r`);
+    credited += Number(row?.r.set ?? 0);
+    uncredited += Number(row?.r.cleared ?? 0);
+  });
+  console.log(`  ${commas(credited)} authors newly credited, ${commas(uncredited)} no longer credited`);
 
   console.log('backfilling work covers from editions…');
   // A work with no cover of its own borrows its newest edition's.
@@ -843,7 +865,7 @@ async function finalise(db: ReturnType<typeof makeDb>) {
   }
 
   console.log('ANALYZE…');
-  for (const t of ['works', 'editions', 'authors', 'work_authors']) {
+  for (const t of ['works', 'editions', 'authors', 'work_authors', 'pending_work_authors', 'raw_payloads']) {
     await db.execute(sql.raw(`ANALYZE ${t}`));
   }
 

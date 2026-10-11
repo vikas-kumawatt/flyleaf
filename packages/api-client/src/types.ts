@@ -915,6 +915,8 @@ export interface ShelfOwner {
   username: string;
   displayName: string | null;
   avatarKey: string | null;
+  /** The URL to load the avatar from (A-11-029). */
+  avatarUrl: string | null;
 }
 
 export interface Shelf {

@@ -95,6 +95,18 @@ export const STAGING = {
 // blank out a field an earlier, richer one filled in.
 // ---------------------------------------------------------------------------
 
+/**
+ * The tables each pass writes (Audit 15, from A-06-013's hand-over): a pass
+ * that finishes ANALYZEs them, so the planner and the admin ingest dashboard
+ * (which reads `reltuples`) see the new row counts without waiting for
+ * `--finalise` or autovacuum. `raw_payloads` is the largest of them.
+ */
+export const TABLES_LOADED = {
+  works: ['works', 'work_authors', 'pending_work_authors', 'raw_payloads'],
+  editions: ['editions', 'raw_payloads'],
+  authors: ['authors', 'raw_payloads'],
+} as const;
+
 export const MERGE_AUTHORS = `
     INSERT INTO authors (ol_author_key, name, alternate_names, sort_name, bio,
                          ol_photo_id, birth_year, death_year)
@@ -148,13 +160,33 @@ export const MERGE_WORKS = `
       ),
       updated_at = now()`;
 
+/**
+ * One credit per author NAME on a work (Audit 15, A-03-027). Open Library
+ * holds duplicate author records (José Donoso is OL4279328A and OL3074073A),
+ * and both were credited: 11,112 live works showed a name twice ("José
+ * Donoso, José Donoso"), with the author's books split across two pages. A
+ * credit is skipped when the work already credits another author record with
+ * the same name (trimmed, case-insensitive), and of several same-name records
+ * in one batch only the first by position is credited. Merging the duplicate
+ * author records themselves is a separate pass (measured in 15b).
+ */
+const SAME_NAME_CREDIT_GUARD = (workId: string, authorId: string, nameKey: string) => `
+        NOT EXISTS (
+          SELECT 1 FROM work_authors wx JOIN authors ax ON ax.id = wx.author_id
+          WHERE wx.work_id = ${workId} AND wx.author_id <> ${authorId}
+            AND lower(btrim(ax.name)) = ${nameKey})`;
+
 export const MERGE_WORK_AUTHORS = `
       INSERT INTO work_authors (work_id, author_id, role, position)
-      SELECT DISTINCT ON (w.id, a.id) w.id, a.id, 'author', s.position
-      FROM stage_work_authors s
-      JOIN works   w ON w.ol_work_key   = s.work_key
-      JOIN authors a ON a.ol_author_key = s.author_key
-      ORDER BY w.id, a.id, s.position
+      SELECT DISTINCT ON (x.work_id, x.name_key) x.work_id, x.author_id, 'author', x.position
+      FROM (
+        SELECT w.id AS work_id, a.id AS author_id, s.position, lower(btrim(a.name)) AS name_key
+        FROM stage_work_authors s
+        JOIN works   w ON w.ol_work_key   = s.work_key
+        JOIN authors a ON a.ol_author_key = s.author_key
+      ) x
+      WHERE ${SAME_NAME_CREDIT_GUARD('x.work_id', 'x.author_id', 'x.name_key')}
+      ORDER BY x.work_id, x.name_key, x.position, x.author_id
       ON CONFLICT (work_id, author_id, role) DO NOTHING`;
 
 /**
@@ -190,10 +222,14 @@ export const RESOLVE_PENDING_WORK_AUTHORS = `
         JOIN authors a ON a.ol_author_key = p.author_key
       ),
       inserted AS (
+        -- One credit per author name, as MERGE_WORK_AUTHORS (A-03-027). A
+        -- parked link whose name is already credited is resolved by being
+        -- dropped: the work has that author.
         INSERT INTO work_authors (work_id, author_id, role, position)
-        SELECT DISTINCT ON (work_id, author_id) work_id, author_id, 'author', position
-        FROM resolvable
-        ORDER BY work_id, author_id
+        SELECT DISTINCT ON (r.work_id, lower(btrim(a.name))) r.work_id, r.author_id, 'author', r.position
+        FROM resolvable r JOIN authors a ON a.id = r.author_id
+        WHERE ${SAME_NAME_CREDIT_GUARD('r.work_id', 'r.author_id', 'lower(btrim(a.name))')}
+        ORDER BY r.work_id, lower(btrim(a.name)), r.position, r.author_id
         ON CONFLICT (work_id, author_id, role) DO NOTHING
       )
       DELETE FROM pending_work_authors p

@@ -101,12 +101,27 @@ export const MAX_ATTEMPTS = 5;
 /** How long to wait before trying again while offline or signed out. */
 const WAIT_MS = 15_000;
 
-export type FailureKind = 'wait' | 'retry' | 'refused';
+export type FailureKind = 'wait' | 'throttled' | 'retry' | 'refused';
+
+/** A 429 without Retry-After waits this long; one with it, at most a day (Audit 15). */
+const THROTTLE_DEFAULT_MS = 60_000;
+const THROTTLE_MAX_MS = 86_400_000;
+
+/**
+ * How long a 429 asks the queue to wait: the server's Retry-After, else a
+ * minute. A throttled write keeps its attempts (A-07-039): five 429s in a
+ * reconnect burst used to dead-letter it within seconds.
+ */
+export function throttleDelayMs(err: unknown): number {
+  const s = err instanceof FlyleafApiError ? err.retryAfterSeconds : undefined;
+  return s && s > 0 ? Math.min(THROTTLE_MAX_MS, s * 1000) : THROTTLE_DEFAULT_MS;
+}
 
 export function classifyFailure(err: unknown): FailureKind {
   if (err instanceof FlyleafApiError && err.status !== undefined) {
     if (err.status === 401) return 'wait';
-    if (err.status === 408 || err.status === 429 || err.status >= 500) return 'retry';
+    if (err.status === 429) return 'throttled';
+    if (err.status === 408 || err.status >= 500) return 'retry';
     return 'refused';
   }
   // React Native's fetch rejects with a TypeError when there is no network.
@@ -385,6 +400,15 @@ export class MutationQueue {
         );
         // Offline or signed out: every other request would fail the same way.
         return 'halt_all';
+      }
+      if (kind === 'throttled') {
+        // Waits out Retry-After without using an attempt; this read's later
+        // writes wait behind it, others may go (their own limit may differ).
+        await this.db.run(
+          `UPDATE mutation_queue SET status = 'pending', next_retry_at = ?, updated_at = ? WHERE id = ?`,
+          [new Date(Date.now() + throttleDelayMs(err)).toISOString(), new Date().toISOString(), m.id],
+        );
+        return 'halt_entity';
       }
       if (kind === 'refused') {
         await this.deadLetter(m, m.attempts + 1, err);

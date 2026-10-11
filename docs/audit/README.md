@@ -32,7 +32,9 @@ After each part: review the diff and `findings/NN-*.md`, then commit before star
 | 12 | `12-import-export.md` | IM-01…12 | CSV formula injection, encodings |
 | 13 | `13-social-graph.md` | SO-01…06 | docs describe the wrong schema, §11.7 limits |
 | 14 | `14-feed.md` | SO-10…15 | pagination skips items, home feed is sample data |
-| 15 | `15-cross-cutting-and-wrap-up.md` | all | rate limiting once, perf comparison, docs, SUMMARY |
+| 15 | `15-cross-cutting-and-wrap-up.md` | all | rate limiting once, perf comparison, docs, SUMMARY. Run in two halves: **15a** (cloud, done 10 Oct: `findings/15-cross-cutting.md`) and **15b** (laptop: `15b-laptop.md`) |
+
+**Results:** `SUMMARY.md` (one page: totals, top 10, device checklist, what is open), `DECISIONS.md` (questions waiting on the owner), `PENDING.md` (work after the audit), and `perf/comparison.md` (baseline vs after; filled in 15b).
 
 Parts 02–14 can be reordered if you need to, but **05 before 09, 11 and 13** (they reuse its visibility matrix), **PV-0x before 07 and 12**, **03c after 08**, and **15 last**. Everything not yet done outside the numbered parts is listed in `PENDING.md`. Parts 07 and 14 are the largest; if a session runs out of room, tell it to finish its findings file first, then continue the fixes in a new session with "continue audit part NN from `findings/NN-*.md`".
 

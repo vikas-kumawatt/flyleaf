@@ -170,6 +170,39 @@ describe('Offline Mutation Queue & Mirroring', () => {
     }
   });
 
+  test('2d. A 429 waits out Retry-After without using an attempt, and only holds its own read (A-07-039, Audit 15)', async () => {
+    const sent: string[] = [];
+    const queue = new MutationQueue(db, USER, handlerWith({
+      addProgress: async (readId) => {
+        sent.push(readId);
+        if (readId === 'busy') throw new FlyleafApiError('rate_limited', 'slow down', undefined, 429, 120);
+      },
+    }));
+    await queue.enqueue('progress_event', 'busy', 'add_progress', { page: 1 });
+    await queue.enqueue('progress_event', 'busy', 'add_progress', { page: 2 });
+    await queue.enqueue('progress_event', 'calm', 'add_progress', { page: 1 });
+    const before = Date.now();
+    // Five flushes in a burst: before, five 429s dead-lettered the write within seconds.
+    for (let i = 0; i < 5; i++) await queue.flush();
+    assert.deepEqual(sent, ['busy', 'calm'], 'the throttled read waits; another read still goes');
+    const rows = await db.getAll<QueuedMutation>(`SELECT * FROM mutation_queue WHERE entity_id = 'busy' ORDER BY created_at, rowid`);
+    assert.deepEqual(rows.map((r) => [r.status, r.attempts]), [['pending', 0], ['pending', 0]]);
+    const wait = Date.parse(rows[0]!.next_retry_at!) - before;
+    assert.ok(wait >= 119_000 && wait <= 121_000, `waits the server's 120 s, got ${wait}`);
+    // Without Retry-After: a minute.
+    const q2 = new MutationQueue(db, USER, handlerWith({
+      saveReview: async () => {
+        throw new FlyleafApiError('rate_limited', 'slow down', undefined, 429);
+      },
+    }));
+    const m = await q2.enqueue('review', 'r-429', 'save_review', { body: 'x' });
+    await q2.flush();
+    const row = await db.getFirst<QueuedMutation>(`SELECT * FROM mutation_queue WHERE id = ?`, [m.id]);
+    assert.equal(row?.attempts, 0);
+    const w2 = Date.parse(row!.next_retry_at!) - Date.now();
+    assert.ok(w2 > 55_000 && w2 <= 60_000, `a minute, got ${w2}`);
+  });
+
   test('3. Per-entity FIFO ordering is strictly preserved', async () => {
     const executionOrder: string[] = [];
     const handler = handlerWith({

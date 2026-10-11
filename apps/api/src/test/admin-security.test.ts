@@ -494,7 +494,8 @@ describe('every admin route × {guest, app user, moderator, admin} (FN-91, FN-92
     { method: 'GET', name: '/v1/admin/catalog/works/:a', url: () => `/v1/admin/catalog/works/${workA}`, expect: [401, 401, 200, 200] },
     { method: 'POST', name: '/v1/admin/catalog/works/:a/maturity', url: () => `/v1/admin/catalog/works/${workA}/maturity`, payload: () => ({ maturity: 'general', reason: 'matrix' }), expect: [401, 401, 403, 200] },
     { method: 'GET', name: '/v1/admin/ingest/status', url: () => '/v1/admin/ingest/status', expect: [401, 401, 200, 200] },
-    { method: 'GET', name: '/admin/telemetry/budgets', url: () => '/admin/telemetry/budgets', expect: [401, 401, 200, 200] },
+    // Audit 15 (A-15-001): the telemetry plugin is mounted under /v1 now; at the root it was 404 for the client.
+    { method: 'GET', name: '/v1/admin/telemetry/budgets', url: () => '/v1/admin/telemetry/budgets', expect: [401, 401, 200, 200] },
   ];
   const roles = ['guest', 'user', 'moderator', 'admin'] as const;
 
@@ -937,5 +938,77 @@ describe('staff accounts cannot use the app login (D-06-2)', () => {
 
     await db.execute(sql`UPDATE users SET role = 'user' WHERE email = 'promoted@example.com'`);
     expect((await login('promoted@example.com', 'Reader-Passphrase-42')).statusCode).toBe(200);
+  });
+});
+
+// ---------------------------------------------------------------- A-06-026
+
+describe('merge, dismiss and undo commit only with their audit row (A-06-026, Audit 15a)', () => {
+  let db: Db;
+  let close: () => Promise<void>;
+  let app: FastifyInstance;
+  let admin: Staff;
+  beforeAll(async () => {
+    const fresh = await freshDrizzle();
+    db = fresh.db;
+    close = () => fresh.client.close();
+    app = await buildApp({ db });
+    await app.ready();
+    admin = await staff(db, 'atomic_admin@flyleaf.app', 'admin');
+    // Test-only: refuse one audit action, so the audit insert fails after the
+    // action's own statements have run.
+    await db.execute(sql`CREATE TABLE refuse_audit_action (action text)`);
+    await db.execute(sql.raw(`
+      CREATE FUNCTION refuse_audit() RETURNS trigger LANGUAGE plpgsql AS $$
+      BEGIN
+        IF EXISTS (SELECT 1 FROM refuse_audit_action r WHERE r.action = NEW.action) THEN RAISE EXCEPTION 'audit refused'; END IF;
+        RETURN NEW;
+      END $$`));
+    await db.execute(sql`CREATE TRIGGER refuse_audit BEFORE INSERT ON admin_audit_log FOR EACH ROW EXECUTE FUNCTION refuse_audit()`);
+  });
+  afterAll(async () => {
+    await app?.close();
+    await close?.();
+  });
+  const refuse = async (action: string) => {
+    await db.execute(sql`DELETE FROM refuse_audit_action`);
+    await db.execute(sql`INSERT INTO refuse_audit_action (action) VALUES (${action})`);
+  };
+  const pair = async (tag: string) => {
+    const [w1] = await db.execute<{ id: string }>(sql`INSERT INTO works (title, ol_log_count) VALUES (${`Atomic ${tag} A`}, 10) RETURNING id`);
+    const [w2] = await db.execute<{ id: string }>(sql`INSERT INTO works (title, ol_log_count) VALUES (${`Atomic ${tag} B`}, 9) RETURNING id`);
+    const q = await queueReportedDuplicate(db, { survivorId: w1!.id, loserId: w2!.id, reason: 'A-06-026 pair' });
+    return { survivor: w1!.id, loser: w2!.id, queue: q.id };
+  };
+  const auth = () => ({ authorization: `Bearer ${admin.token}` });
+
+  it('a dismissal whose audit row fails is not applied', async () => {
+    const p = await pair('dismiss');
+    await refuse('catalog.dismiss_duplicate');
+    const res = await app.inject({ method: 'POST', url: `/v1/admin/dedupe/queue/${p.queue}/resolve`, headers: auth(), payload: { action: 'dismiss', reason: 'not the same book at all' } });
+    expect(res.statusCode).toBe(500);
+    const [q] = await db.execute<{ status: string }>(sql`SELECT status FROM dedupe_queue WHERE id = ${p.queue}`);
+    expect(q!.status).toBe('pending');
+  });
+
+  it('a merge whose audit row fails is not applied; an undo whose audit row fails leaves the merge', async () => {
+    const p = await pair('merge');
+    await refuse('catalog.merge');
+    const failed = await app.inject({ method: 'POST', url: `/v1/admin/dedupe/queue/${p.queue}/resolve`, headers: auth(), payload: { action: 'merge', reason: 'the same book under two records' } });
+    expect(failed.statusCode).toBe(500);
+    const [w] = await db.execute<{ merged_into_id: string | null }>(sql`SELECT merged_into_id FROM works WHERE id = ${p.loser}`);
+    expect(w!.merged_into_id).toBeNull();
+
+    await refuse('none');
+    const merged = await app.inject({ method: 'POST', url: `/v1/admin/dedupe/queue/${p.queue}/resolve`, headers: auth(), payload: { action: 'merge', reason: 'the same book under two records' } });
+    expect(merged.statusCode).toBe(200);
+    const mergeId = merged.json().merge_id ?? merged.json().mergeId;
+
+    await refuse('catalog.undo_merge');
+    const undo = await app.inject({ method: 'POST', url: `/v1/admin/merges/${mergeId}/undo`, headers: auth(), payload: { reason: 'checking the undo is atomic' } });
+    expect(undo.statusCode).toBe(500);
+    const [m] = await db.execute<{ undone_at: string | null }>(sql`SELECT undone_at FROM work_merges WHERE id = ${mergeId}`);
+    expect(m!.undone_at).toBeNull();
+    await refuse('none');
   });
 });

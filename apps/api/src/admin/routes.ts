@@ -4,6 +4,7 @@
 // 1. REST endpoints for admin login (with mandatory 2FA), session inspection, 2FA setup, and audit log.
 // 2. Server-rendered HTML web views for login, audit trail, and session management.
 
+import { RateLimits } from '../platform/rate-limits.js';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import type { Db } from '../platform/index.js';
@@ -48,7 +49,7 @@ const auditQuery = z.object({
   offset: z.coerce.number().optional(),
 });
 
-export function adminAuthRoutes(db: Db) {
+export function adminAuthRoutes(db: Db, limits: RateLimits = RateLimits.off()) {
   return async (app: FastifyInstance) => {
     // -----------------------------------------------------------------------
     // REST API Endpoints
@@ -72,6 +73,8 @@ export function adminAuthRoutes(db: Db) {
       },
       async (req) => {
         const body = loginBody.parse(req.body);
+        // A-06-RL1: 10 a minute per account (the IP tier is the route's group).
+        await limits.enforce('admin-login', body.email.trim().toLowerCase());
         return loginAdmin(db, {
           email: body.email,
           password: body.password,
@@ -204,6 +207,7 @@ export function adminAuthRoutes(db: Db) {
         return sendAdminHtml(reply, () => renderLoginPage('Enter your email, password and authenticator code.'), 400);
       }
       try {
+        await limits.enforce('admin-login', form.data.email.trim().toLowerCase());
         const { token } = await loginAdmin(db, {
           email: form.data.email,
           password: form.data.password,
@@ -213,7 +217,8 @@ export function adminAuthRoutes(db: Db) {
         setAdminSession(reply, req, token);
         return reply.redirect('/admin/merges', 303);
       } catch (err) {
-        if (err instanceof ApiError && (err.status === 401 || err.status === 403)) {
+        if (err instanceof ApiError && (err.status === 401 || err.status === 403 || err.status === 429)) {
+          if (err.retryAfterSeconds !== undefined) reply.header('retry-after', String(err.retryAfterSeconds));
           return sendAdminHtml(reply, () => renderLoginPage(err.message), err.status);
         }
         throw err;

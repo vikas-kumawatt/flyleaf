@@ -709,6 +709,12 @@ Author names are searched via a join plus the trigram index rather than being de
 
 As built (`SO-20`): `shelves.reconcile`, `follows.reconcile` and `reads.reconcile` are pg-boss crons scheduled in `worker.ts` at 03:00, 03:15 and 03:30 UTC. `reconcile_read_counters()` writes only drifted rows and returns how many it fixed — a healthy night returns 0. Counter triggers are incremental (`like_count = like_count + 1`), which serialises concurrent likes on the read's row lock, and never touch `reads.updated_at`.
 
+**As built (Audit 15):**
+- Every reconcile takes a key range: `reconcile_*_counters(lo, hi)` and `reconcile_work_counters(lo, hi, c)`. The job walks its table in ranges of about 5,000 keys (`jobs/ranges.ts`), so no nightly statement aggregates a whole table.
+- `works.reconcile` (03:40) replaces the planned hourly `work_stats` job.
+- `authors.has_works` has the same pair. The trigger is on `work_authors`; ingest bypasses it in bulk mode. `authors.repair` (04:05) runs `repair_author_has_works(lo, hi)` over 20,000-author ranges, setting the flag for credited authors and clearing it for authors whose works were all merged away.
+- One drift-repair test covers every counter (`cross-cutting-audit.test.ts`).
+
 > ⚠️ **A trigger on `reads` must name its columns.** `reads_work_stats_trigger` originally fired on UPDATE of *any* column and its recompute scans `reads` for the catalog mean — so a counter bump on `reads` would have paid for a full-table scan. It now fires on `UPDATE OF work_id, user_id, rating, hearted, status` only. Any future trigger on a hot table should do the same.
 
 ---
@@ -753,7 +759,7 @@ export interface Cache {
 | Concern | v1 implementation | Why not Redis now |
 |---|---|---|
 | **Auth rate limits** | **`PgRateLimiter`** — a `rate_limits` table, upsert with a sliding window | Must be exact and correct **across instances**. An in-process counter is per-process, so two API processes would silently double every limit. On auth endpoints that is a security weakening, not a tuning miss |
-| General API limits | In-process (`@fastify/rate-limit`) | Low cost of exceeding; volume too high to want a round trip |
+| General API limits | In-process (`MemoryRateLimiter` in the shared layer, §4.1 *As built*) | Low cost of exceeding; volume too high to want a round trip |
 | Book-page cache | **`MemoryCache`** — in-process, TTL, LRU eviction | For a single instance this is *strictly faster* than Redis: no network hop. It is not shared and is lost on restart, which is fine for a 60-second TTL |
 | Guest book pages | `Cache-Control` at Caddy | Identical for every guest, so it never reaches the app |
 | Sessions | JWT + one hashed row in Postgres | A refresh is one indexed lookup per user per 15 minutes. At 10k DAU that is ~11/second |
@@ -762,6 +768,13 @@ export interface Cache {
 > ### The trigger
 >
 > **Adopt Redis the day a second API instance exists.** Not at a user count — at that architectural change, because that is the moment in-process limits become wrong and an in-process cache stops being shared.
+
+**As built (Audit 15): one layer, two stores.**
+- **Declaring limits:** `platform/rate-limits.ts` holds every limit as a row of `RATE_LIMITS`: number, window, store and its PRD section. Routes get groups in `config.limits` from one map in `app.ts`. Any unlisted POST/PUT/PATCH/DELETE defaults to *writes*. A `preValidation` hook checks the Global tier and the route's groups, keyed by account when signed in and by IP otherwise. Services call `limits.enforce(name, key, tx?)` where the rule needs their knowledge: a follow that creates a row, a review that is new, an import that is not a replay. Inside a transaction they pass `tx`, so the count commits or rolls back with the write.
+- **Exact store, `PgRateLimiter`:** auth, comments, follows, reviews, imports, exports, uploads and username changes. `rate_limits.expires_at` lets the retention sweep delete ended buckets.
+- **Fast store, `MemoryRateLimiter`:** in-process fixed windows for Global, search, writes, progress, events and the username check. A Global check in Postgres cost 26–35 % of a cheap route's throughput in the sandbox measurement, against noise in process (`docs/audit/perf/15a-rate-limit-overhead-sandbox.md`).
+- **Refusals** are `429 rate_limited` with `Retry-After` and `X-RateLimit-*`.
+- **Redis:** the trigger above moves both stores to Redis, one implementation each.
 
 **The constraint that keeps the swap clean:** nothing may assume Redis semantics — no atomic `INCR`, no pub/sub, no sorted sets. If those leak into a call site, the interface has failed its purpose and the swap stops being a config change.
 
@@ -986,6 +999,11 @@ Hard constraints after ranking: ≤2 consecutive cards per actor, ≤3 per book 
 
 **Never in the feed:** progress updates, likes, imported reads (`source='import'`).
 
+**As built (Audits 14 and 15):**
+- **Friends feed:** for a viewer who follows many people, the query first reads a short time window and widens it until it has enough cards, so its cost follows the page, not everything those people ever did. Affinity comes from likes, comments and mutual follows. The cursor is opaque and carries cards deferred by a diversity rule, so every card is served exactly once.
+- **Popular (D-14-1):** public `reviewed` and `finished` cards from the last 14 days. They are scored `weight × decay(72 h) × (1 + ln(1 + likes + 2·comments))`, never by rating, with the §12.4 per-actor and per-book penalties applied in SQL. Paging is keyset on `(score, created_at, id)`, scored as of the instant in the cursor. A card leaves after 1,000 servings (`popular_exposures`).
+- **Precision:** cursors carry microseconds, checked on a real server (`bench/cursor-sweep.ts`).
+
 **Migration trigger:** p95 feed query > 200ms. The query sits behind a repository interface so the swap to fan-out-on-write is contained.
 
 ---
@@ -1008,6 +1026,42 @@ Hard constraints after ranking: ≤2 consecutive cards per actor, ≤3 per book 
 | `media.yearinreview` | December | Per user |
 | `db.backup` | Every 6h | Off-machine |
 | `search.rebuild` | Weekly | Catches drift after ingest |
+
+**As built (Audit 15).** The schedules in `worker.ts`, UTC:
+
+| When | Jobs |
+|---|---|
+| Monthly | `catalog.dedupe`, 00:00 on the 1st |
+| Nightly | `shelves.reconcile` 03:00 · `follows.reconcile` 03:15 · `reads.reconcile` 03:30 · `works.reconcile` 03:40 · `storage.cleanup` 03:45 · `activity.prune` 03:55 · `authors.repair` 04:05 · `retention.sweep` 04:20 |
+| Weekly | `search.suggestions.refresh` Sun 04:00 · `search.zero.summary` Mon 04:30 |
+| On demand | `imports.process` · `exports.process` |
+
+**Each batch process connects with its own memory and time budget.** The values are in `JOB_DB_SETTINGS`, sent in the connection startup packet:
+
+| Process | `work_mem` | `statement_timeout` |
+|---|---|---|
+| Worker pool | 32 MB | 10 min |
+| Dedupe (its own single connection) | 64 MB | 30 min |
+| Ingest | 64 MB | 1 h |
+
+The API keeps the server default of 4 MB with no timeout. The Postgres container has a memory limit sized above those budgets (`docker-compose.yml`). Part 03c showed why: without one, the kernel OOM-killed a dedupe backend and every connection dropped.
+
+**No job builds a whole-catalog set in one statement:**
+- dedupe stages 1–2 walk ISBN ranges and author batches;
+- stage 3 compares in peer chunks;
+- the reconciles walk key ranges.
+
+**Retention (`retention.sweep`):**
+
+| What | Deleted after |
+|---|---|
+| Ended `rate_limits` buckets | When the bucket ends |
+| Raw `events` | 13 months |
+| `search_zero_results` events | 30 days (the weekly summary keeps a query's text only with ≥ 5 distinct searchers, counted by a hash under a weekly salt that is deleted with the summary) |
+| Soft-deleted shelves, reviews and comments | 30 days |
+| Deleted accounts | 30 days, their stored objects first |
+| Committed `import_rows.raw` | Trimmed to title/author/ISBN after 30 days |
+| Orphaned avatar objects | 1 day |
 
 Jobs commit **in the same transaction** as the data that created them — that is the reason pg-boss is in the stack rather than a Redis-backed queue.
 

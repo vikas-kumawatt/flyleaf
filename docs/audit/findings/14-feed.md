@@ -197,10 +197,11 @@ Ratios: heavy p95 **3.1× faster**, popular 1.7×, new 2.9×; typical **1.25× s
 ## Decisions
 
 - D-13-1, D-13-2, D-13-3: owner decisions, recorded in `findings/13-social-graph.md` and above.
+- **D-14-1 · Taken (owner, 2026-10-10, recorded in Part 15a): option (b), narrowed.** "Popular = reviews and finishes from the last 14 days, scored by likes and comments (never rating), with a per-card exposure cap." `dnf` and `goal_reached` cards are therefore **not** in Popular. **Built in Part 15a** (`findings/15-cross-cutting.md` A-15-003): score `weight × decay(age, 72 h) × (1 + ln(1 + likes + 2 × comments))`, §12.4 diversity, keyset paging on `(score, created_at, id)` as of the cursor's instant, exposure cap 1,000 servings (D-15-3) in `popular_exposures` (migration 0039).
 
 ## Decisions needed
 
-- **D-14-1 · What makes Popular popular (A-14-009).** Options: (a) as is (recent public activity, ranked by weight × decay in its window); (b) **recommended:** Popular = public `reviewed` / `finished` / `dnf` / `goal_reached` cards from the last 14 days, scored by `weight × decay(age, 72 h) × (1 + log1p(likes + 2 × comments))` with the read's counters (already on `reads`), never by rating (§12.6), a per-read exposure ceiling (a card stops ranking once it has been served N times; needs an impressions counter or a cap by age), keyset-paged on `(score bucket, created_at, id)`; trending books as a separate strip later; (c) (b) without the exposure ceiling for now. Leaving (a) in place: it is safe (public only, blocks and mutes applied) and pages exactly once. About a day for (b) with tests and a migration for the score index.
+- ~~**D-14-1 · What makes Popular popular (A-14-009).** Options: (a) as is (recent public activity, ranked by weight × decay in its window); (b) **recommended:** Popular = public `reviewed` / `finished` / `dnf` / `goal_reached` cards from the last 14 days, scored by `weight × decay(age, 72 h) × (1 + log1p(likes + 2 × comments))` with the read's counters (already on `reads`), never by rating (§12.6), a per-read exposure ceiling (a card stops ranking once it has been served N times; needs an impressions counter or a cap by age), keyset-paged on `(score bucket, created_at, id)`; trending books as a separate strip later; (c) (b) without the exposure ceiling for now. Leaving (a) in place: it is safe (public only, blocks and mutes applied) and pages exactly once. About a day for (b) with tests and a migration for the score index.~~ Decided 2026-10-10 (above); built in Part 15a.
 
 ## Deferred (with reason and owner)
 
@@ -208,7 +209,7 @@ Ratios: heavy p95 **3.1× faster**, popular 1.7×, new 2.9×; typical **1.25× s
 |---|---|---|
 | **Rerun the feed bench on the laptop** (`npm run bench -- --only feed`, `DATABASE_URL` → `flyleaf_dev`, `BENCH_COUNT_QUERIES=1`) and the friends EXPLAIN for `heavy` | Numbers above are sandbox, synthetic | Laptop / Part 15 |
 | No migration from Part 14 to apply to `flyleaf` | (nothing to do; listed so the absence is explicit) | — |
-| D-14-1 Popular definition | Product decision | Owner |
+| ~~D-14-1 Popular definition~~ | Decided and built in Part 15a | — |
 | Affinity from taps (§12.3 "learned from taps") | No tap events reach the server's ranking; likes, comments and mutual follows are used | Post-audit |
 | §6.13 inline suggestion carousel on the no-follows banner | No suggested-readers endpoint; the banner links to Discover | Post-audit |
 | Cached feed for an offline cold start (§6.13 "cached feed with an offline banner") | The session keeps what it loaded; a persisted cache is new storage | Post-audit |

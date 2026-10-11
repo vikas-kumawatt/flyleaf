@@ -521,7 +521,9 @@ export const rateLimits = pgTable('rate_limits', {
   bucket: text('bucket').primaryKey(),
   count: integer('count').notNull().default(0),
   windowStart: timestamp('window_start', { withTimezone: true }).notNull().defaultNow(),
-});
+  /** When the current window ends; the nightly sweep deletes ended buckets (0038). */
+  expiresAt: timestamp('expires_at', { withTimezone: true }),
+}, (t) => [index('rate_limits_expires_idx').on(t.expiresAt)]);
 
 /**
  * Ingest checkpoints (FN-20).
@@ -813,7 +815,17 @@ export const activity = pgTable('activity', {
   index('activity_actor_idx').on(t.actorId, t.createdAt.desc()),
   index('activity_visibility_idx').on(t.visibility, t.createdAt.desc()),
   index('activity_work_idx').on(t.workId, t.createdAt.desc()),
+  // D-14-1 (0039): Popular's candidates, public reviews and finishes by time.
+  index('activity_popular_idx')
+    .on(t.createdAt.desc(), t.id.desc())
+    .where(sql`${t.visibility} = 'public' AND ${t.verb} IN ('reviewed', 'finished')`),
 ]);
+
+/** D-14-1 (0039): how many Popular pages served each card; the exposure ceiling reads it. */
+export const popularExposures = pgTable('popular_exposures', {
+  activityId: uuid('activity_id').primaryKey().references(() => activity.id, { onDelete: 'cascade' }),
+  served: integer('served').notNull().default(0),
+});
 
 export type Activity = typeof activity.$inferSelect;
 export type NewActivity = typeof activity.$inferInsert;
@@ -836,6 +848,30 @@ export const events = pgTable('events', {
 }, (t) => [
   index('events_name_at_idx').on(t.name, t.at),
   index('events_user_at_idx').on(t.userId, t.at),
+  // The retention sweep deletes by age (0041, D-10-1).
+  index('events_at_idx').on(t.at),
+]);
+
+/**
+ * D-10-3 (0041): one salt per week for the zero-result searcher key,
+ * deleted in the transaction that writes that week's summary.
+ */
+export const searchWeekSalts = pgTable('search_week_salts', {
+  week: date('week').primaryKey(),
+  salt: text('salt').notNull(),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+/** D-10-3 (0041): the weekly zero-result summary; `query` only with ≥ 5 distinct searchers. */
+export const searchZeroSummaries = pgTable('search_zero_summaries', {
+  week: date('week').notNull(),
+  query: text('query'),
+  searches: integer('searches').notNull(),
+  distinctSearchers: integer('distinct_searchers').notNull(),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [
+  // NULLS NOT DISTINCT in 0041 (drizzle cannot spell it): one counts-only row per week.
+  uniqueIndex('search_zero_summaries_week_query_uq').on(t.week, t.query),
 ]);
 
 // ---------------------------------------------------------------------------

@@ -7,6 +7,7 @@
 // consumes the upload and enqueues processing in one transaction, returning
 // the job ID immediately.
 
+import { RateLimits } from '../platform/rate-limits.js';
 import type { FastifyPluginAsync } from 'fastify';
 import { eq, ne, desc, and, sql } from 'drizzle-orm';
 import type { PgBoss } from 'pg-boss';
@@ -124,6 +125,8 @@ export class ImportService {
   constructor(
     private db: Db,
     private boss?: PgBoss,
+    /** PRD §24.4 Import 3/day (Audit 15). Default: none, as before. */
+    private limits: RateLimits = RateLimits.off(),
   ) {}
 
   /**
@@ -182,6 +185,11 @@ export class ImportService {
           );
         }
       }
+
+      // PRD §24.4 Import 3/day. After the replay and duplicate checks: a
+      // replay of the same upload returns the import it made, and a refused
+      // duplicate creates nothing, so neither counts (A-12-021).
+      await this.limits.enforce('imports', userId, db);
 
       const [row] = await db
         .insert(imports)
@@ -402,13 +410,14 @@ export class ImportService {
 export interface ImportsPluginOptions {
   db: Db;
   boss?: PgBoss;
+  limits?: RateLimits;
 }
 
 /**
  * Fastify plugin registering import endpoints.
  */
 export const importsPlugin: FastifyPluginAsync<ImportsPluginOptions> = async (fastify, opts) => {
-  const service = new ImportService(opts.db, opts.boss);
+  const service = new ImportService(opts.db, opts.boss, opts.limits);
 
   fastify.post(
     '/imports',

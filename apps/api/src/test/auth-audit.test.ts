@@ -17,6 +17,7 @@ import {
   isAtLeast13,
   RESERVED_USERNAMES,
   verifyAccessToken,
+  passwordWork,
 } from '../identity/index.js';
 import { signAdminToken } from '../admin/auth.js';
 import { buildApp, registerCoreHooks } from '../app.js';
@@ -229,6 +230,34 @@ describe('IdentityService edge cases (Part 04)', () => {
     expect(rejected.reason).toMatchObject({ status: 403, code: 'token_reused' });
   });
 
+  it('forgot-password does not wait for the mail, so its time does not say the email exists; a failed send is reported (A-04-024, Audit 15)', async () => {
+    await service.register('slowmail@example.com', 'slowmail_u', 'goodpassword123', '1990-01-01');
+    const sent: string[] = [];
+    let release!: () => void;
+    const gate = new Promise<void>((r) => { release = r; });
+    const slow = new IdentityService(db, new PgRateLimiter(db), {
+      send: async (m) => { await gate; sent.push(m.to); },
+    } as MemoryEmailSender);
+    // The mailer never finishes until released: the call must return anyway.
+    const outcome = await Promise.race([
+      slow.forgotPassword('slowmail@example.com').then(() => 'returned'),
+      new Promise((r) => setTimeout(() => r('waited for the mailer'), 2_000)),
+    ]);
+    expect(outcome).toBe('returned');
+    release();
+    await new Promise((r) => setTimeout(r, 0));
+    expect(sent).toEqual(['slowmail@example.com']);
+
+    const failures: string[] = [];
+    const failing = new IdentityService(db, new PgRateLimiter(db), {
+      send: async () => { throw new Error('smtp down'); },
+    } as unknown as MemoryEmailSender);
+    failing.onMailError = (err) => failures.push(err.message);
+    await expect(failing.forgotPassword('slowmail@example.com')).resolves.toMatchObject({ status: 'ok' });
+    await new Promise((r) => setTimeout(r, 0));
+    expect(failures).toEqual(['smtp down']);
+  });
+
   it('a password reset token can be spent only once under concurrency (A-04-013)', async () => {
     await service.register('rr@example.com', 'rr_user', 'goodpassword123', '1990-01-01');
     await service.forgotPassword('rr@example.com');
@@ -255,15 +284,26 @@ describe('IdentityService edge cases (Part 04)', () => {
       return performance.now() - t;
     };
     await time('timing@example.com'); // warm-up
-    let known = 0;
-    let unknown = 0;
-    for (let i = 0; i < 3; i++) {
-      await client.exec('TRUNCATE rate_limits');
-      known += await time('timing@example.com');
-      unknown += await time(`nobody${i}@example.com`);
+    // The work: each path runs exactly one argon2 verify (before the fix the
+    // unknown email ran none). Deterministic, so it cannot flake (Audit 15).
+    for (const email of ['timing@example.com', 'nobody-count@example.com']) {
+      const before = passwordWork.verifies;
+      await service.login(email, 'wrongpassword99').catch(() => undefined);
+      expect(passwordWork.verifies - before, email).toBe(1);
     }
+    // The time: medians of 7 alternating samples, not sums of 3, so one slow
+    // sample on a loaded CI worker no longer decides it (it failed 2 of 6 runs
+    // on main in Part 13's sandbox). Same threshold as before.
+    const known: number[] = [];
+    const unknown: number[] = [];
+    for (let i = 0; i < 7; i++) {
+      await client.exec('TRUNCATE rate_limits');
+      known.push(await time('timing@example.com'));
+      unknown.push(await time(`nobody${i}@example.com`));
+    }
+    const median = (xs: number[]) => [...xs].sort((a, b) => a - b)[Math.floor(xs.length / 2)]!;
     // Before the fix `unknown` was one indexed query (~1 ms) against ~20 ms of argon2.
-    expect(unknown).toBeGreaterThan(known * 0.5);
+    expect(median(unknown)).toBeGreaterThan(median(known) * 0.5);
   });
 
   it('a password over 1,024 characters is rejected with 422 (A-04-009)', async () => {
