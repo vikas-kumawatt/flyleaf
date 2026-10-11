@@ -8,7 +8,7 @@ import type { FastifyInstance } from 'fastify';
 import type { PGlite } from '@electric-sql/pglite';
 import { interactionHarness, makeUser, makeWork, makeRead, follow, type TestUser } from './interaction-fixtures.js';
 import { activity, mutes, shelfItems, shelfSaves, shelves, works } from '../db/schema.js';
-import { slugify } from '../shelves/index.js';
+import { coverIdsFromRow, slugify } from '../shelves/index.js';
 import type { Db } from '../platform/index.js';
 
 let app: FastifyInstance;
@@ -554,5 +554,18 @@ describe('SH-10 · the owner on a shelf carries its avatar URL (A-11-029)', () =
     const browse = (await app.inject({ method: 'GET', url: '/v1/shelves/browse?query=Avatar%20URL%20check&limit=50', headers: owner.auth })).json();
     const card = (browse.shelves ?? browse.data ?? browse.items).find((s: any) => s.id === id);
     expect(card.owner.avatarUrl).toBe(want);
+  });
+});
+
+describe('SH-08 · a cover-less work in the mosaic (A-15-024)', () => {
+  // PGlite decodes {1,NULL,3} as [1, null, 3], so no PGlite test sees this.
+  // postgres.js 3.4.9 hands the unquoted NULL to the int4 parser and returns
+  // NaN, which the response schema refused: every browse and saved page with
+  // such a shelf was a 500 on a real Postgres (15b bench on flyleaf_dev).
+  it('decodes what each driver returns for a NULL cover id as null', () => {
+    expect(coverIdsFromRow([8315603, NaN, 4202989])).toEqual([8315603, null, 4202989]); // postgres.js
+    expect(coverIdsFromRow([8315603, null, 4202989])).toEqual([8315603, null, 4202989]); // PGlite
+    expect(coverIdsFromRow('{8315603,NULL,4202989}')).toEqual([8315603, null, 4202989]); // text form
+    expect(coverIdsFromRow(null)).toEqual([]);
   });
 });
