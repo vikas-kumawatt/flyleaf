@@ -1,0 +1,39 @@
+## Run 1
+database: postgres://flyleaf:***@localhost:5432/flyleaf_dev (users: 3002)
+
+One check, sequential (ms):
+  PgRateLimiter.hit      p50 5.173  p95 5.815  p99 6.482  (n=2000)
+  MemoryRateLimiter.hit  p50 0.0013  p95 0.0023  p99 0.0029  (n=20000)
+
+GET /v1/reads/:random signed in, 10 connections × 10 s, 50 accounts:
+| config | req/s | p50 ms | p90 ms | p99 ms | non-404 | rate_limits increments |
+|---|---|---|---|---|---|---|
+| off | 609 | 15 | 19 | 23 | 0 | 0 |
+| all-on | 650 | 14 | 17 | 20 | 0 | 0 |
+| pg-global | 468 | 21 | 24 | 28 | 0 | 4690 |
+## Run 2
+database: postgres://flyleaf:***@localhost:5432/flyleaf_dev (users: 3002)
+
+One check, sequential (ms):
+  PgRateLimiter.hit      p50 5.130  p95 5.754  p99 6.633  (n=2000)
+  MemoryRateLimiter.hit  p50 0.0009  p95 0.0016  p99 0.0026  (n=20000)
+
+GET /v1/reads/:random signed in, 10 connections × 10 s, 50 accounts:
+| config | req/s | p50 ms | p90 ms | p99 ms | non-404 | rate_limits increments |
+|---|---|---|---|---|---|---|
+| off | 604 | 15 | 19 | 27 | 0 | 0 |
+| all-on | 657 | 14 | 17 | 21 | 0 | 0 |
+| pg-global | 475 | 20 | 23 | 28 | 0 | 4766 |
+## Run 3
+database: postgres://flyleaf:***@localhost:5432/flyleaf_dev (users: 3002)
+
+One check, sequential (ms):
+  PgRateLimiter.hit      p50 5.116  p95 5.715  p99 6.506  (n=2000)
+  MemoryRateLimiter.hit  p50 0.0009  p95 0.0016  p99 0.0018  (n=20000)
+
+GET /v1/reads/:random signed in, 10 connections × 10 s, 50 accounts:
+| config | req/s | p50 ms | p90 ms | p99 ms | non-404 | rate_limits increments |
+|---|---|---|---|---|---|---|
+| off | 626 | 15 | 19 | 23 | 0 | 0 |
+| all-on | 671 | 14 | 17 | 20 | 0 | 0 |
+| pg-global | 470 | 20 | 24 | 28 | 0 | 4709 |

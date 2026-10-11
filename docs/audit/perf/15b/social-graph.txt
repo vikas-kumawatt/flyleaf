@@ -1,0 +1,18 @@
+removed 0 users
+seeded 7012 users, 100691 follows, 30 blocks in 25.0 s
+followers offset=0: p50 14.9 ms · p95 19.8 ms · 3 statements · 50 rows · total 1980
+followers offset=1000: p50 14.0 ms · p95 15.5 ms · 3 statements · 50 rows · total 1980
+followers offset=1900: p50 15.0 ms · p95 17.3 ms · 3 statements · 50 rows · total 1980
+profile: blocked p50 6.07 ms (1 statements) · random p50 5.71 ms (1 statements) · Δp50 0.36 ms · bodies identical: true
+followers: blocked p50 6.02 ms (1 statements) · random p50 5.64 ms (1 statements) · Δp50 0.38 ms · bodies identical: true
+50 concurrent follows of one user: 0 errors · counter 50 · truth 50
+25 pairs following each other at once: 0 deadlocks · 0 other errors · 0 of 51 profiles drifted
+100 follow-vs-block races: 100 done · 0 follows left between blocked users
+removed 7012 users
+
+# --race re-run at max_connections 100 (after the second recreate), flyleaf_dev, 2026-10-11
+seeded 7012 users, 100691 follows, 30 blocks in 31.6 s
+50 concurrent follows of one user: 0 errors · counter 50 · truth 50
+25 pairs following each other at once: 0 deadlocks · 0 other errors · 0 of 51 profiles drifted
+100 follow-vs-block races: 100 done · 0 follows left between blocked users
+removed 7012 users

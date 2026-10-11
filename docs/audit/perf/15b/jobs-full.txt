@@ -1,0 +1,54 @@
+=== reconcile.reads (start 14:50:45)
+[reconcile.reads] exit=0 min_available_MB=876 killed_for_memory=0
+database: postgres://flyleaf:***@localhost:5432/flyleaf · job reconcile.reads
+{
+  "reconciled": true,
+  "corrected": 0,
+  "ranges": 13,
+  "workedAt": "2026-10-11T09:20:52.284Z"
+}
+took 1.4 s
+=== end 14:50:54
+=== reconcile.follows (start 14:51:01)
+[reconcile.follows] exit=0 min_available_MB=971 killed_for_memory=0
+database: postgres://flyleaf:***@localhost:5432/flyleaf · job reconcile.follows
+{
+  "reconciled": true,
+  "corrected": 0,
+  "ranges": 1,
+  "workedAt": "2026-10-11T09:21:07.214Z"
+}
+took 0.3 s
+=== end 14:51:08
+=== reconcile.shelves (start 14:51:12)
+[reconcile.shelves] exit=0 min_available_MB=952 killed_for_memory=0
+database: postgres://flyleaf:***@localhost:5432/flyleaf · job reconcile.shelves
+{
+  "reconciled": true,
+  "corrected": 0,
+  "ranges": 1,
+  "workedAt": "2026-10-11T09:21:18.212Z"
+}
+took 0.9 s
+=== end 14:51:18
+=== reconcile.works (start 14:51:22)
+[reconcile.works] exit=0 min_available_MB=1028 killed_for_memory=0
+database: postgres://flyleaf:***@localhost:5432/flyleaf · job reconcile.works
+{
+  "reconciled": true,
+  "workStats": 0,
+  "readerCount": 0,
+  "catalogMean": 3.612313108140179,
+  "ranges": 13,
+  "workedAt": "2026-10-11T09:21:35.455Z"
+}
+took 7.6 s
+=== end 14:51:35
+=== authors.repair (start 14:51:39)
+[authors.repair] exit=0 min_available_MB=133 killed_for_memory=1
+database: postgres://flyleaf:***@localhost:5432/flyleaf · job authors.repair
+=== end 14:51:53
+
+=== not measured here (owner decision 2026-10-11): run on a machine with >= 16 GB before the backlog merge
+authors.repair: killed by the memory guard at 133 MB available ~14 s in (started warm at 1,190 MB). Its set arm plans a parallel hash semi-join over all of work_authors and works for every 20,000-author range (A-15-027), see findings 15.
+dedupe --dry-run (monthly) and dedupe --backlog --dry-run --limit 5000: not run on this laptop. The unlimited 'before' is Part 03c's OOM crash (A-03-026); the limits are shown applied by job-settings-full.txt.

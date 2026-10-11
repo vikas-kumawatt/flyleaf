@@ -1,0 +1,15 @@
+{
+  "database": "postgres://localhost:5432/flyleaf_dev",
+  "rows": 5000,
+  "fileBytes": 458387,
+  "matched": 4068,
+  "unmatched": 932,
+  "importMs": 241859,
+  "importStatements": 10279,
+  "statementsPerRow": 2.06,
+  "exportReads": 4068,
+  "exportMs": 968,
+  "exportStatements": 7,
+  "exportBytes": 421075,
+  "exportHeapDeltaMb": 14.7
+}

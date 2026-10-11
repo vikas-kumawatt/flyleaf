@@ -34,9 +34,15 @@ services:
     # The container now has a limit, and Postgres's own memory is sized under
     # it: shared_buffers 512 MB, work_mem 4 MB for the API (batch processes set
     # their own, JOB_DB_SETTINGS in apps/api/src/platform/index.ts), sorts and
-    # hashes at most 2x work_mem, 50 connections. The arithmetic is in that
-    # file's comment. Apply with `docker compose up -d postgres` (the volume
-    # keeps the data); see docs/audit/15b-laptop.md for when.
+    # hashes at most 2x work_mem. The arithmetic is in that file's comment.
+    # Apply with `docker compose up -d postgres` (the volume keeps the data);
+    # see docs/audit/15b-laptop.md for when.
+    #
+    # 100 connections (Audit 15b, A-15-026): the pools alone take 39 (API 10 +
+    # its pg-boss producer 10 by pg's default; worker 4 + dedupe 1 + pg-boss
+    # 10; dedupe, ingest, migrate and admin CLIs 1 each), plus 3 reserved for
+    # superusers, so 50 left 8 for tests, benches and psql. An idle backend
+    # costs a few MB; work_mem is per sort or hash, so the budget is unchanged.
     mem_limit: 3g
     command: >
       postgres
@@ -48,7 +54,7 @@ services:
       -c work_mem=4MB
       -c hash_mem_multiplier=2
       -c maintenance_work_mem=256MB
-      -c max_connections=50
+      -c max_connections=100
       -c effective_cache_size=2GB
     volumes:
       # /var/lib/postgresql -- NOT /var/lib/postgresql/data.

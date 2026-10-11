@@ -1,0 +1,8 @@
+# Part 12 import-cost on flyleaf (full catalog): not measured
+
+2026-10-11, flyleaf under the 3 GiB container limit.
+
+- `--rows 5000`: started warm (1,240 MB available), killed by the 300 MB memory guard at 261 MB available. Its throwaway user (bench_import_1791710069655@bench.test: 36 reads, 1 import, 50 import_rows, 5 reviews) was removed afterwards; nothing references it.
+- `--rows 10000 --export`: not run (same machine limit).
+
+Not measured: the laptop runs out of memory (guard at 261 MB). Part 12's question (does exact-title matching stay index-bound on the full catalog for one-word titles?) is answered without an import process in `import-match-explain-full.md`. The flyleaf_dev run is `import-5000-dev.txt`.
