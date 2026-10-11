@@ -1,25 +1,25 @@
 # Audit summary
 
-The audit ran from 25 Sep to 11 Oct 2026, in 15 parts plus the providers build (PV). It re-verified every task from `FN-40` to `SO-15` against the PRD and the code. Each part's findings are in `findings/NN-*.md`. Open questions for you are in `DECISIONS.md`. The laptop half of Part 15 (`15b-laptop.md`) ran on 11 Oct; its results are in `findings/15-cross-cutting.md`.
+The audit ran from 25 Sep to 11 Oct 2026, in 15 parts plus the providers build (PV). It re-verified every task from `FN-40` to `SO-15` against the PRD and the code. Each part's findings are in `findings/NN-*.md`. Open questions for you are in `DECISIONS.md`. The laptop half of Part 15 (`15b-laptop.md`) ran on 11 Oct; its results are in `findings/15-cross-cutting.md`. 15c (11 Oct, sandbox) built DECISIONS 6 and 7; `15c-laptop.md` applies them.
 
 ## Totals
 
-There are **440 finding entries** (8 added by 15b). Three Part 03 ids appear twice, in Part 03 and its follow-up. Part 01's routed leads (L-xx) are excluded; each was re-filed in the part it went to.
+There are **441 finding entries** (8 added by 15b, 1 by 15c). Three Part 03 ids appear twice, in Part 03 and its follow-up. Part 01's routed leads (L-xx) are excluded; each was re-filed in the part it went to.
 
 The statuses below were counted per finding from its heading and body. "Fixed" includes fixes made in a later part (for example, every RL finding is fixed by Part 15's limiter). "Open" means deferred with an owner. "Note" covers records, accepted decisions and guards.
 
 | | P0 | P1 | P2 | P3 | RL | Unrated (notes, decisions) | Total |
 |---|---|---|---|---|---|---|---|
-| Fixed | **23** | 132 | 160 | 48 | 9 | 6 | **378** |
-| Open | **0** | 5 | 14 | 20 | 0 | 1 | **40** |
+| Fixed | **23** | 134 | 162 | 48 | 9 | 6 | **382** |
+| Open | **0** | 3 | 13 | 20 | 0 | 1 | **37** |
 | Note | 0 | 0 | 0 | 12 | 0 | 10 | 22 |
 
-The five open P1s:
+The three open P1s:
 - A-02d-002, the author arm. Approved, and scheduled after the audit.
 - A-11-024, the shelf view counter (`DECISIONS.md` 3).
 - A-12-024, manual column mapping for an unrecognised import file.
-- A-15-027, the nightly `has_works` repair reads all of `work_authors` and `works` per range (15b; `DECISIONS.md` 6).
-- A-15-029, no `activity (object_type, object_id)` index: every review save seq-scans `activity` (15b; `DECISIONS.md` 6).
+
+15c fixed 15b's two P1s, A-15-027 (the `has_works` repair per range) and A-15-029 (`activity_object_idx`), in migration `0042`. They are proved in the sandbox on synthetic data. `15c-laptop.md` applies them to both databases.
 
 | Part | Entries | Fixed | Open | | Part | Entries | Fixed | Open |
 |---|---|---|---|---|---|---|---|---|
@@ -29,15 +29,15 @@ The five open P1s:
 | 04 Auth | 26 | 25 | 0 | | 12 Import/export | 30 | 25 | 5 |
 | 05 Authorization, contract | 23 | 22 | 1 | | 13 Social graph | 21 | 17 | 2 |
 | 06 Admin | 30 | 28 | 2 | | 14 Feed | 23 | 20 | 2 |
-| 07 Mobile foundation | 40 | 35 | 4 | | 15 Cross-cutting | 31 | 20 | 6 |
+| 07 Mobile foundation | 40 | 35 | 4 | | 15 Cross-cutting | 32 | 24 | 3 |
 | 08 Catalog, reading | 29 | 28 | 1 | | PV Providers | 9 | 9 | 0 |
 
 **Tests:**
-- API: about 740 tests (Part 02) grew to **1,734** (1,733 in 15a, +1 in 15b).
+- API: about 740 tests (Part 02) grew to **1,741** (1,733 in 15a, +1 in 15b, +7 in 15c).
 - Mobile: 100 grew to **214**.
 - No test was weakened, skipped or deleted. Assertions that pinned behaviour a fix changed on purpose were updated with a comment naming the finding.
 
-**Migrations:** `0019`–`0041`, all hand-written and idempotent, applied to `flyleaf_dev` and `flyleaf` on 11 Oct (15b; 42 each).
+**Migrations:** `0019`–`0042`, all hand-written and idempotent. `0019`–`0041` were applied to `flyleaf_dev` and `flyleaf` on 11 Oct (15b; 42 each). `0042` (15c) is applied by `15c-laptop.md` (43 each).
 
 ## Top 10 findings by impact
 
@@ -69,8 +69,8 @@ The five open P1s:
 3. The shelf view counter: keep it as a spec gap for now (recommended), or build it.
 4. Same-name author records: still waiting on the duplicate-credit count, which the laptop could not run.
 5. Dedupe groups of more than two: sample, then write a rule.
-6. **New in 15b:** migration `0042` with A-15-027 (ranged `has_works` repair) and A-15-029 (`activity_object_idx`).
-7. **New in 15b:** `shm_size` for the Postgres container (A-15-028).
+6. ~~**New in 15b:** migration `0042` with A-15-027 (ranged `has_works` repair) and A-15-029 (`activity_object_idx`).~~ Decided (a); built in 15c. Apply with `15c-laptop.md`.
+7. ~~**New in 15b:** `shm_size` for the Postgres container (A-15-028).~~ Decided (a); built in 15c. The recreate is `15c-laptop.md` › 3.
 
 Also: confirm or change **D-15-1 … D-15-7**, the reversible choices Part 15 made (limit stores, two numbers the PRD has no row for, the exposure cap, the guest searcher id, `import_rows` trimming, the comment purge). Add the 13-month event retention to the privacy policy.
 

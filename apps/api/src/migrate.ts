@@ -172,6 +172,12 @@ export const ONLINE_SQL: readonly string[] = [
   // catalog), twice per merge. Partial: only tombstones have the column set.
   dropIfInvalid('works_merged_into_idx'),
   `CREATE INDEX CONCURRENTLY IF NOT EXISTS works_merged_into_idx ON works (merged_into_id) WHERE merged_into_id IS NOT NULL`,
+  // Audit 15c (0042, A-15-029): every review save updates or deletes its
+  // activity row by (object_type, object_id) inside the read's row lock, and
+  // visibility changes filter the same way. Without this each was a seq scan
+  // of activity.
+  dropIfInvalid('activity_object_idx'),
+  `CREATE INDEX CONCURRENTLY IF NOT EXISTS activity_object_idx ON activity (object_type, object_id)`,
 ];
 
 /**

@@ -815,6 +815,9 @@ export const activity = pgTable('activity', {
   index('activity_actor_idx').on(t.actorId, t.createdAt.desc()),
   index('activity_visibility_idx').on(t.visibility, t.createdAt.desc()),
   index('activity_work_idx').on(t.workId, t.createdAt.desc()),
+  // Built CONCURRENTLY by migrate.ts (ONLINE_SQL, audit 15c, A-15-029): a
+  // review save finds its activity row by object, inside the read's lock.
+  index('activity_object_idx').on(t.objectType, t.objectId),
   // D-14-1 (0039): Popular's candidates, public reviews and finishes by time.
   index('activity_popular_idx')
     .on(t.createdAt.desc(), t.id.desc())

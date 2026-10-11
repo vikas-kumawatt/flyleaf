@@ -1,0 +1,49 @@
+# A-15-027 — a rejected rewrite of the set arm (the range's credits joined to the range's authors): sandbox, synthetic
+# Same database as explain-repair-sandbox.txt. Plan and a run (statement_timeout 60 s) at a range the planner estimates at 1 row.
+# The statement is the set arm below with the range inlined. An earlier rewrite (a plain JOIN works) planned a Seq Scan of all of works
+# (1.42M rows, 596 ms) at the first range while this catalog had 4M authors; not kept, and not re-run at 15.4M.
+
+## offset 0, plan
+range [00000000-0000-0000-0000-000000000000, 00561598-ee69-44bf-84a3-307f8e5144d1)
+                                                                             QUERY PLAN                                                                             
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Update on authors a  (cost=90974.49..128884.69 rows=0 width=0)
+   ->  Nested Loop  (cost=90974.49..128884.69 rows=20 width=13)
+         ->  HashAggregate  (cost=90973.93..91018.92 rows=4499 width=22)
+               Group Key: wa.author_id
+               ->  Bitmap Heap Scan on work_authors wa  (cost=267.54..90962.68 rows=4500 width=22)
+                     Recheck Cond: ((author_id >= '00000000-0000-0000-0000-000000000000'::uuid) AND (author_id < '00561598-ee69-44bf-84a3-307f8e5144d1'::uuid))
+                     Filter: (SubPlan 1)
+                     ->  Bitmap Index Scan on work_authors_author_idx  (cost=0.00..266.42 rows=8999 width=0)
+                           Index Cond: ((author_id >= '00000000-0000-0000-0000-000000000000'::uuid) AND (author_id < '00561598-ee69-44bf-84a3-307f8e5144d1'::uuid))
+                     SubPlan 1
+                       ->  Index Scan using works_pkey on works w  (cost=0.43..8.45 rows=1 width=1)
+                             Index Cond: (id = wa.work_id)
+         ->  Index Scan using authors_pkey on authors a  (cost=0.56..8.42 rows=1 width=22)
+               Index Cond: ((id = wa.author_id) AND (id >= '00000000-0000-0000-0000-000000000000'::uuid) AND (id < '00561598-ee69-44bf-84a3-307f8e5144d1'::uuid))
+               Filter: (NOT has_works)
+(15 rows)
+
+
+## offset 100000, plan
+range [01acf0dd-d776-4136-a1e9-4f7e12382ee1, 02018e55-ba19-4af4-9e2f-f8791ba3f0dc)
+                                                                       QUERY PLAN                                                                       
+--------------------------------------------------------------------------------------------------------------------------------------------------------
+ Update on authors a  (cost=0.99..25.48 rows=0 width=0)
+   ->  Nested Loop Semi Join  (cost=0.99..25.48 rows=1 width=13)
+         Join Filter: (a.id = wa.author_id)
+         ->  Index Scan using authors_pkey on authors a  (cost=0.56..8.58 rows=1 width=22)
+               Index Cond: ((id >= '01acf0dd-d776-4136-a1e9-4f7e12382ee1'::uuid) AND (id < '02018e55-ba19-4af4-9e2f-f8791ba3f0dc'::uuid))
+               Filter: (NOT has_works)
+         ->  Index Scan using work_authors_author_idx on work_authors wa  (cost=0.43..16.89 rows=1 width=22)
+               Index Cond: ((author_id >= '01acf0dd-d776-4136-a1e9-4f7e12382ee1'::uuid) AND (author_id < '02018e55-ba19-4af4-9e2f-f8791ba3f0dc'::uuid))
+               Filter: (SubPlan 1)
+               SubPlan 1
+                 ->  Index Scan using works_pkey on works w  (cost=0.43..8.45 rows=1 width=1)
+                       Index Cond: (id = wa.work_id)
+(12 rows)
+
+
+## offset 100000, run (ANALYZE), statement_timeout 60 s
+range [01acf0dd-d776-4136-a1e9-4f7e12382ee1, 02018e55-ba19-4af4-9e2f-f8791ba3f0dc)
+psql:rejected.sql:16: ERROR:  canceling statement due to statement timeout

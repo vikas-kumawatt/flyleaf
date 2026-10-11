@@ -1,0 +1,22 @@
+# A-15-027 — authors.repair, the whole sweep (npx tsx src/bench/run-job.ts authors.repair): sandbox, synthetic
+# PostgreSQL 18.3; 15.4M authors / 1.5M works / 1.8M credits; the worker's pool settings. Same drift before each run:
+# 1,000 credited authors unflagged and 1,000 uncredited flagged (chosen by md5(id), so the same rows each time).
+# 'before' = 0040's function, re-created in this sandbox database only for this run; 'after' = 0042's.
+
+## before (0040)
+{
+  "set": 900,
+  "cleared": 900,
+  "ranges": 770,
+  "workedAt": "2026-10-11T13:11:09.774Z"
+}
+took 540.9 s
+
+## after (0042)
+{
+  "set": 900,
+  "cleared": 900,
+  "ranges": 770,
+  "workedAt": "2026-10-11T13:14:32.285Z"
+}
+took 181.3 s

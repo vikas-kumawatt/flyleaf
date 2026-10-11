@@ -43,7 +43,16 @@ services:
     # 10; dedupe, ingest, migrate and admin CLIs 1 each), plus 3 reserved for
     # superusers, so 50 left 8 for tests, benches and psql. An idle backend
     # costs a few MB; work_mem is per sort or hash, so the budget is unchanged.
+    #
+    # /dev/shm 512 MB (Audit 15c, A-15-028; DECISIONS.md question 7). Docker's
+    # default is 64 MB, and Postgres's parallel hash joins put their shared
+    # hash tables there (dynamic_shared_memory_type = posix): one failed with
+    # SQLSTATE 53100 "could not resize shared memory segment … No space left
+    # on device". max_parallel_workers_per_gather is 2 at the server, so API
+    # queries can plan the same joins. The pages count against mem_limit
+    # only while used, so 3g still bounds the container.
     mem_limit: 3g
+    shm_size: 512m
     command: >
       postgres
       -c max_wal_size=8GB

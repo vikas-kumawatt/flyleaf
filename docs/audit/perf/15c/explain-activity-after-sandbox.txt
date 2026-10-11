@@ -1,0 +1,52 @@
+# A-15-029 — the review-save path's activity statements, AFTER 0042: sandbox, synthetic
+# Same database and review as explain-activity-before-sandbox.txt, after npm run migrate (43). Run once untimed, then this run; rolled back.
+review a7ca40c1-c849-4e90-854a-09f58b588095 read 7b63e815-1af8-4751-b1d0-a018d7899aee
+ activity_rows 
+---------------
+       1142153
+(1 row)
+
+BEGIN
+--- syncReviewActivity: the UPDATE every review save runs
+                                                               QUERY PLAN                                                               
+----------------------------------------------------------------------------------------------------------------------------------------
+ Update on activity  (cost=0.43..8.45 rows=1 width=53) (actual time=0.335..0.337 rows=1.00 loops=1)
+   Buffers: shared hit=17
+   ->  Index Scan using activity_object_idx on activity  (cost=0.43..8.45 rows=1 width=53) (actual time=0.046..0.047 rows=1.00 loops=1)
+         Index Cond: ((object_type = 'review'::text) AND (object_id = 'a7ca40c1-c849-4e90-854a-09f58b588095'::uuid))
+         Index Searches: 1
+         Buffers: shared hit=4
+ Planning:
+   Buffers: shared hit=23
+ Planning Time: 0.304 ms
+ Execution Time: 0.452 ms
+(10 rows)
+
+--- syncReviewActivity: the DELETE (review deleted, private or imported)
+                                                              QUERY PLAN                                                               
+---------------------------------------------------------------------------------------------------------------------------------------
+ Delete on activity  (cost=0.43..8.45 rows=0 width=0) (actual time=0.069..0.070 rows=0.00 loops=1)
+   Buffers: shared hit=6
+   ->  Index Scan using activity_object_idx on activity  (cost=0.43..8.45 rows=1 width=6) (actual time=0.022..0.023 rows=1.00 loops=1)
+         Index Cond: ((object_type = 'review'::text) AND (object_id = 'a7ca40c1-c849-4e90-854a-09f58b588095'::uuid))
+         Index Searches: 1
+         Buffers: shared hit=4
+ Planning Time: 0.075 ms
+ Trigger for constraint popular_exposures_activity_id_fkey: time=0.361 calls=1
+ Execution Time: 0.447 ms
+(9 rows)
+
+--- updateActivityVisibility(read): a read's visibility change
+                                                               QUERY PLAN                                                                
+-----------------------------------------------------------------------------------------------------------------------------------------
+ Update on activity  (cost=0.43..12.40 rows=0 width=0) (actual time=0.019..0.019 rows=0.00 loops=1)
+   Buffers: shared hit=3
+   ->  Index Scan using activity_object_idx on activity  (cost=0.43..12.40 rows=2 width=38) (actual time=0.019..0.019 rows=0.00 loops=1)
+         Index Cond: ((object_type = 'read'::text) AND (object_id = '7b63e815-1af8-4751-b1d0-a018d7899aee'::uuid))
+         Index Searches: 1
+         Buffers: shared hit=3
+ Planning Time: 0.065 ms
+ Execution Time: 0.033 ms
+(8 rows)
+
+ROLLBACK

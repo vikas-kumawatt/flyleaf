@@ -1,0 +1,51 @@
+# A-15-029 — the review-save path's activity statements, BEFORE 0042: sandbox, synthetic
+# PostgreSQL 18.3; activity = Part 01 bench set (142,152) + 1,000,000 synthetic rows (seed-activity.sql); the bench's hot review. Run once untimed, then this run; rolled back.
+review a7ca40c1-c849-4e90-854a-09f58b588095 read 7b63e815-1af8-4751-b1d0-a018d7899aee
+ activity_rows 
+---------------
+       1142152
+(1 row)
+
+BEGIN
+--- syncReviewActivity: the UPDATE every review save runs
+                                                     QUERY PLAN                                                     
+--------------------------------------------------------------------------------------------------------------------
+ Update on activity  (cost=0.00..37424.28 rows=1 width=53) (actual time=213.311..213.312 rows=0.00 loops=1)
+   Buffers: shared hit=865 read=19427
+   ->  Seq Scan on activity  (cost=0.00..37424.28 rows=1 width=53) (actual time=213.308..213.309 rows=0.00 loops=1)
+         Filter: ((object_type = 'review'::text) AND (object_id = 'a7ca40c1-c849-4e90-854a-09f58b588095'::uuid))
+         Rows Removed by Filter: 1142152
+         Buffers: shared hit=865 read=19427
+ Planning:
+   Buffers: shared hit=26
+ Planning Time: 0.237 ms
+ Execution Time: 213.420 ms
+(10 rows)
+
+--- syncReviewActivity: the DELETE (review deleted, private or imported)
+                                                    QUERY PLAN                                                     
+-------------------------------------------------------------------------------------------------------------------
+ Delete on activity  (cost=0.00..37424.28 rows=0 width=0) (actual time=191.916..191.918 rows=0.00 loops=1)
+   Buffers: shared hit=1153 read=19139
+   ->  Seq Scan on activity  (cost=0.00..37424.28 rows=1 width=6) (actual time=191.914..191.915 rows=0.00 loops=1)
+         Filter: ((object_type = 'review'::text) AND (object_id = 'a7ca40c1-c849-4e90-854a-09f58b588095'::uuid))
+         Rows Removed by Filter: 1142152
+         Buffers: shared hit=1153 read=19139
+ Planning Time: 0.094 ms
+ Execution Time: 191.948 ms
+(8 rows)
+
+--- updateActivityVisibility(read): a read's visibility change
+                                                     QUERY PLAN                                                     
+--------------------------------------------------------------------------------------------------------------------
+ Update on activity  (cost=0.00..37424.28 rows=0 width=0) (actual time=146.676..146.678 rows=0.00 loops=1)
+   Buffers: shared hit=1441 read=18851
+   ->  Seq Scan on activity  (cost=0.00..37424.28 rows=2 width=38) (actual time=146.673..146.674 rows=0.00 loops=1)
+         Filter: ((object_type = 'read'::text) AND (object_id = '7b63e815-1af8-4751-b1d0-a018d7899aee'::uuid))
+         Rows Removed by Filter: 1142152
+         Buffers: shared hit=1441 read=18851
+ Planning Time: 0.096 ms
+ Execution Time: 146.710 ms
+(8 rows)
+
+ROLLBACK

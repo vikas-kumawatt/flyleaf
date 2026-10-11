@@ -218,14 +218,17 @@
 ### A-15-027 · P1 · The "ranged" `has_works` repair reads all of `work_authors` and `works` for every range (DECISION NEEDED)
 - **Evidence (`flyleaf`):** `authors.repair` was killed by the session's memory guard ~14 s in (available memory 1,208 → 133 MB in 9 s; the Postgres container grew 574 MiB → 1.23 GiB). EXPLAIN of the function's two predicates for the first real range (`work_mem` 32 MB, the worker's): the **set arm** (`NOT a.has_works AND EXISTS (work_authors ⋈ works …)`) is a **Parallel Hash Semi Join over a Parallel Seq Scan of all of `work_authors` (3.79M) and of `works` (3.2M)**; the planner estimates 40–77k authors per range (20,000 by construction) and prefers hashing to 40k index probes. ~770 ranges re-read the two biggest tables hundreds of times, which is the whole-catalog work A-15-005 set out to remove. The **clear arm** is fine (index nested-loop anti-join). Step 9's one `work_authors` and second `works` seq scan on `flyleaf` are this first range.
 - **Client memory (owner's question):** not sampled per process (only system-wide available memory and the Postgres container), so the drop cannot be split between the node process and the VM's file cache. By the code, the client holds nothing per range: `walkRanges` finds each boundary in SQL (`ORDER BY id OFFSET 20000 LIMIT 1`, one row) and the handler receives one `{set, cleared}` row. No client-memory finding is recorded.
+- **15c: fixed** (owner: DECISIONS 6 (a); `0042`). Not the plan below as written: a join of the range's credits to the range's authors planned badly in the sandbox. See › 15c.
 - **Plan (≈ 1 h + the laptop run):** a new migration redefining `repair_author_has_works`: drive the set arm from `work_authors_author_idx` over the same author range (`… WHERE a.id IN (SELECT wa.author_id FROM work_authors wa JOIN works w … WHERE wa.author_id >= lo AND wa.author_id < hi …)`), so each range reads only its own credits; verify by EXPLAIN on `flyleaf` (PGlite cannot judge a plan); then run `authors.repair` on a ≥ 16 GB machine. Not built in 15b: it needs a migration on both databases and its proof is a full-catalog planner check.
 
 ### A-15-028 · P2 · The Postgres container's `/dev/shm` is Docker's default 64 MB: parallel hash joins fail
 - **Evidence (`flyleaf`, step 10):** the duplicate-credit count failed in Postgres with `could not resize shared memory segment "/PostgreSQL.…" to 16777216 bytes: No space left on device` (SQLSTATE 53100). `docker inspect`: `ShmSize=67108864`; `dynamic_shared_memory_type = posix`; `max_parallel_workers_per_gather = 2` at the server, so API queries can plan the same parallel hashes.
+- **15c: fixed** (owner: DECISIONS 7 (a)): `shm_size: 512m` in `docker-compose.yml`; the recreate is `15c-laptop.md` › 3. See › 15c.
 - **Plan:** `shm_size: 512m` on the postgres service (it counts against the 3 GiB limit, which still holds) and a recreate. Not applied in 15b: the owner allowed one recreate before CI, used for A-15-026.
 
 ### A-15-029 · P1 · `activity` has no index on `(object_type, object_id)`: every review save seq-scans the activity table inside the read's lock
 - **Evidence (`flyleaf_dev`, step 9):** `activity` 982 seq scans, **139M rows read** this session. `EXPLAIN UPDATE activity … WHERE object_type = 'review' AND object_id = $1` (and the `DELETE`) = Seq Scan on `activity` (142k rows here); its indexes are `pkey`, `actor`, `popular`, `visibility`, `work`. `syncReviewActivity` runs that UPDATE on every review save and on every read write that touches a reviewed read; `updateActivityVisibility('read', id)` filters the same way. Cost grows with the activity table (180-day retention), and it runs inside the transaction holding the `reads` row lock (A-15-025).
+- **15c: fixed** (owner: DECISIONS 6 (a); `0042`), built `CONCURRENTLY` by `migrate.ts`, not plain as planned below. See › 15c.
 - **Plan (≈ 30 min + measurement):** a new migration `CREATE INDEX IF NOT EXISTS activity_object_idx ON activity (object_type, object_id)` (plain, not CONCURRENTLY: the migrator runs in a transaction; 142k rows on `flyleaf_dev`), schema.ts updated, before/after `review:post` on `flyleaf_dev`. **DECISION NEEDED** together with A-15-027 (both are migrations on both databases).
 
 ### A-15-030 · P3 · The import matcher scores a subtitle variant like the exact title (fails safe)
@@ -237,6 +240,146 @@
 - Windows: no `/usr/bin/time` and no host `psql` (used `docker exec flyleaf-pg psql`, timings from PowerShell `Measure-Command`).
 - Step 6: before step 12 the API row reads 4 MB / 0 because that is Postgres's stock default, so it cannot show the old container from the new.
 - After a Docker Desktop restart, `docker compose up -d postgres` would have **recreated** the container with step 12's limit early (the compose hash differed); `docker start flyleaf-pg` restarts it unchanged.
+
+## 15c (cloud sandbox, 2026-10-11): DECISIONS 6 and 7 built
+
+**Owner decisions** (recorded as taken in `DECISIONS.md`):
+- **Q6 (a):** one migration `0042`, hand-written and idempotent:
+  - `activity_object_idx` on `activity (object_type, object_id)`, built `CONCURRENTLY`;
+  - the `has_works` repair's set arm driven from `work_authors_author_idx`, so each 20,000-author range reads only its own rows.
+- **Q7 (a):** `shm_size: 512m` on the postgres service.
+
+**How it ran.**
+- A cloud sandbox: 4 vCPU, 15 GB. PostgreSQL 18.3 (the `embedded-postgres` binaries) on :5432, with `shared_buffers` 512 MB, `work_mem` 4 MB and `max_connections` 100, as in the compose file.
+- **All numbers below are "sandbox, synthetic":** good for plan shapes, buffer counts and same-machine ratios only.
+- The database started empty, `npm run migrate` brought it to 42, and then it was seeded with:
+  - **A synthetic catalog in flyleaf's proportions:**
+    - 15.4M authors, 1.57M of them flagged `has_works`;
+    - 1.5M works, 75k of them merged;
+    - 1.8M credits (`work_authors`), loaded with the has_works trigger bypassed as the ingest does;
+    - then 1,000 credited authors unflagged and 1,000 uncredited ones flagged.
+    The first load had 4M authors. At that size the old repair's bad plan did not appear, so the table was grown to 15.4M (below).
+  - **Part 01's bench set,** `npm run bench:seed` (142,152 activity rows, as on `flyleaf_dev`).
+  - **1,000,000 synthetic activity rows** owned by bench users (`perf/15c/seed-activity.sql`): **1,142,152 in all**.
+- No `flyleaf` or `flyleaf_dev` here. The real-database half is `15c-laptop.md`.
+
+### A-15-027 · the `has_works` repair, set arm (fixed in `0042`)
+- **Why the plan could go wrong.** Postgres does not interpolate a uuid inside a histogram bucket, so it estimates a 20,000-author range as about half a bucket or as almost nothing:
+  - on the 15.4M-author sandbox, **77,016** for the first range and **1** for the ranges at offsets 100,000 and 7,700,000;
+  - 15b saw 40–77k on `flyleaf`.
+  At the overestimate, 0040's set arm hashes everything. **First range: Hash Right Semi Join over Seq Scans of all of `work_authors` (1.8M rows) and `works` (1.5M, 1.42M kept); 71.5k buffers + 10k temp; 3,632 ms** (`perf/15c/explain-repair-sandbox.txt`). That is the plan 15b saw on `flyleaf`. With 4M authors the same range was estimated at 20,018 and stayed a nested loop, which is why the catalog was grown.
+- **Two rewrites were tried and dropped** before the one built (`perf/15c/explain-rejected-join-sandbox.txt`):
+  - joining the range's credits to `works`: at the 77k estimate it hashed a **Seq Scan of all of `works`** (596 ms at 4M authors);
+  - joining the range's credits to the range's authors, with `works` as a per-credit subquery: at a **1-row estimate** it rescanned the whole range's credits for every author. One range ran for minutes in the job and timed out at 60 s in isolation.
+  So the "driven from `work_authors_author_idx`" decision is built **without a join** the planner could reorder:
+  ```sql
+  UPDATE authors a SET has_works = true
+  WHERE a.id = ANY (ARRAY(
+      SELECT wa.author_id FROM work_authors wa
+      WHERE wa.author_id >= lo AND (hi IS NULL OR wa.author_id < hi)
+        AND (SELECT w.merged_into_id IS NULL FROM works w WHERE w.id = wa.work_id)))
+    AND NOT a.has_works;
+  ```
+  The plan is always:
+  1. an InitPlan that reads `work_authors_author_idx` on the range and probes `works_pkey` once per credit;
+  2. then `authors_pkey` with `id = ANY (…)`.
+  A range reads its own credits, their works and their authors, and nothing else.
+- **One range, before → after** (warm, back to back, rolled back; `explain-repair-sandbox.txt`):
+
+  | Range (estimate) | Set arm before | Set arm after |
+  |---|---|---|
+  | first (77,016) | Hash Right Semi Join, seq scans; 71.5k buf + 10k temp; **3,632 ms** | InitPlan + `= ANY`; 14.0k buf; **89 ms** |
+  | offset 100,000 (1) | nested loop per author; 74.8k buf; 108 ms | 13.6k buf; 67 ms |
+  | offset 7,700,000 (1) | nested loop per author; 74.7k buf; 82 ms | 13.7k buf; 89 ms |
+
+- **Whole sweep** (`npx tsx src/bench/run-job.ts authors.repair`, the worker's settings; the same 2,000-row drift before each; `perf/15c/repair-sweep-sandbox.txt`):
+  - before: **540.9 s**, 770 ranges, set 900 / cleared 900;
+  - after: **181.3 s**, 770 ranges, set 900 / cleared 900;
+  - identical results, **3.0× faster**.
+  For the "before" run, 0040's function was re-created in the sandbox database only.
+- **Plan cache:** PL/pgSQL may switch a statement to a generic plan after five calls, and a generic plan cannot fold `hi IS NULL`. The sixth call of each arm, PREPAREd the same way, was still a custom plan with both bounds: **generic_plans 0 / custom_plans 6** for 0040's set arm and 0042's two arms (`plancache-sandbox.txt`). So `plan_cache_mode` was not set. (A first draft set it on a guess, and it was taken out.)
+- **Tests** (`audit-15c.test.ts`):
+  - *sets and clears inside [lo, hi) only, for every kind of credit, and a second night finds nothing:*
+    - 28 authors across three ranges (missed, co-author, merged-only, mixed, uncredited, already right);
+    - 24 more calls than PL/pgSQL's five custom plans;
+    - drift after the cache is warm.
+    No behaviour changes, so it **passes on main**, as it should. Mutations seen failing: the credit range removed (`{set: 8}` for `{set: 4}`), and the merged-work check removed (`{set: 6, cleared: 4}`).
+  - *the set arm has one plan shape…* and *the set arm's plan: an InitPlan over work_authors_author_idx…*: **seen failing on main: yes** (`JOIN works`/`EXISTS` in the source; `Nested Loop` in the plan).
+  - PGlite's plan is only a regression guard. The planner proof is the sandbox files above.
+- **Still to do:** the laptop EXPLAIN on `flyleaf` (`15c-laptop.md` › 2), then `authors.repair` on a ≥ 16 GB machine.
+
+### A-15-032 · P2 · The repair's clear arm read the whole partial GIN index `authors_credited_trgm_idx` per range (fixed in `0042`)
+- **Evidence (sandbox, first range, estimate 77,016):**
+  - the clear arm's `x.has_works` is the predicate of the partial index `authors_credited_trgm_idx … WHERE has_works`;
+  - the planner ANDed the range with a **full scan of that GIN index**: 1.57M entries, ~9.4k buffers read, 893 ms of the arm's **920 ms**;
+  - at the ranges estimated at 1 row it did not.
+- **Fix:** `x.has_works IS TRUE`, the same rows because the column is `NOT NULL`. It does not prove the partial index's predicate, so the arm stays on `authors_pkey`: **57 ms**, 35.6k buffers, all hits, at the first range. Unchanged at the other two (54 vs 60 ms, 55 vs 50 ms).
+- **Beyond the owner's wording** ("the set arm"). It is the same function and migration, and a one-token change, so it was made here and flagged in `DECISIONS.md` › 6.
+- **Residual risk (not fixed):** the clear arm is still a correlated anti-join. A large enough overestimate could in principle hash it as well. It was a nested-loop anti-join at every range measured here and on `flyleaf` in 15b.
+- **Test:** *A-15-032: the clear arm filters `has_works IS TRUE`…*. **Seen failing on main: yes.**
+
+### A-15-029 · `activity_object_idx` (fixed in `0042`)
+- **Built `CONCURRENTLY`** after the journal by `migrate.ts` (ONLINE_SQL, with `dropIfInvalid` first, as for 0026's indexes). The migrator runs the journal in one transaction, where `CREATE INDEX CONCURRENTLY` is refused, and the plain form blocks activity writes for the whole build. `0042`'s header says so, and `schema.ts` declares the index.
+- **Applied to the sandbox database:** 42 → 43 in 3.5 s (1.14M rows; index 43 MB, valid). A second run was 1.3 s and a no-op. A fresh database: 43 twice, index valid.
+- **The review-save statements, before → after** (`perf/15c/explain-activity-{before,after}-sandbox.txt`; the bench's hot review; rolled back):
+
+  | Statement | Before | After |
+  |---|---|---|
+  | `syncReviewActivity` UPDATE (every review save) | Seq Scan, 1,142,152 rows removed, 20.3k buffers, 213 ms | Index Scan `activity_object_idx`, 17 buffers, 0.45 ms |
+  | `syncReviewActivity` DELETE | Seq Scan, 20.3k buffers, 192 ms | Index Scan, 6 buffers, 0.45 ms |
+  | `updateActivityVisibility('read', …)` | Seq Scan, 20.3k buffers, 147 ms | Index Scan, 3 buffers, 0.03 ms |
+
+  The "after" UPDATE matched 1 row where the "before" matched 0. The before runs of `review:post` had created the hot review's activity row in between, so the table grew by 1 row.
+- **Concurrent `review:post` on one hot row:**
+  - the setup: `npm run bench -- --only '^review:post$'`, 10 connections for 10 s; `BENCH_RATE_LIMITS=legacy`; the API at 0042's code before and after, so only the index changed;
+  - three runs each: `perf/15c/review-post-{before,after}-sandbox-{1,2,3}.md`.
+
+  | | Run 1 | Run 2 | Run 3 |
+  |---|---|---|---|
+  | Before: timeouts (10 s) | **4** | **4** | **3** |
+  | Before: p50 / p95 / p99 ms | 648 / 10,000 / 10,000 | 550 / 10,000 / 10,000 | 511 / 7,186 / 10,000 |
+  | Before: requests, rps | 61, 5.7 | 71, 6.1 | 65, 6.2 |
+  | After: timeouts | **0** | **0** | **0** |
+  | After: p50 / p95 / p99 ms | 53 / 676 / 1,341 | 52 / 667 / 1,242 | 48 / 603 / 1,626 |
+  | After: requests, rps | 704, 70.3 | 723, 72.2 | 762, 76.1 |
+
+  Sequential (unloaded) p50: 227 / 158 / 184 ms before, 28 / 26 / 27 ms after. 10 statements per request in both; the first request of the first before-run took 12, most likely because it created the hot review's activity row (it had none before).
+- **The hot-row serialisation (A-15-025) remains.** p95 is still over 300 ms (sandbox, indicative) because 10 connections queue on one `reads` row. The index only shortens each holder.
+- **Not measured on `flyleaf_dev`:** the owner's laptop session for 15c runs no benches. The laptop checks the plan (`15c-laptop.md` › 2).
+- **Tests:** *activity_object_idx exists on (object_type, object_id) and is valid* and *… plan as index scans* (20,000 rows in PGlite). **Seen failing on main: yes** (`expected [] to have a length of 1`; `[ 'ModifyTable', 'Seq Scan' ]`).
+
+### A-15-028 · `shm_size: 512m` (fixed in `docker-compose.yml`)
+- The postgres service gets `shm_size: 512m`, with the SQLSTATE 53100 reason in the comment. `/dev/shm` is a tmpfs, so its pages count against `mem_limit: 3g` only while used.
+- **Not exercised in the sandbox:** no Docker there. The recreate and its checks are `15c-laptop.md` › 3.
+- **Test:** *docker-compose gives the postgres service shm_size 512m, inside its 3g limit*. **Seen failing on main: yes.**
+
+### 15c behaviour changes
+- **None a client can observe.** `0042` changes a nightly job's plans (same results) and adds an index.
+- **Deployment:**
+  - the Postgres container's `/dev/shm` is 512 MB (A-15-028);
+  - `npm run migrate` builds one more index `CONCURRENTLY` on every run, a no-op once it exists.
+
+### 15c tests
+- API +7, all in `src/test/audit-15c.test.ts`. 6 of the 7 fail on main.
+- The 7th checks a repair that keeps the same behaviour; it passes on main, and two mutations of it fail.
+- No test was changed, skipped or weakened.
+
+### 15c CI
+`node scripts/ci.mjs` in the sandbox (Postgres 18.3 on 5432 at 43; no MinIO): **green in 1,201 s, exit 0, all 9 steps**:
+- api-client build; api typecheck; spec check ("openapi.yaml is up to date", drift 0);
+- api tests: **83 files, 1,731 passed, 10 skipped of 1,741**. The 10 are `storage-contract`'s S3 block, which needs MinIO, as on Actions;
+- api build; api audit (7 moderate, dev-only, as before);
+- mobile typecheck; mobile tests **214 passed**;
+- migrations on a real Postgres: `migrations applied`.
+
+**GitHub Actions (PR #7, run 38144192558, commit `a044390`): green in 762 s, all 9 steps**, with the same counts as the sandbox run: 83 files, 1,731 passed, 10 skipped (no MinIO); mobile 214; migrations applied on Postgres 18.6.
+
+### 15c laptop (to fill in from `15c-laptop.md`)
+- 0042 on `flyleaf_dev`: _time_; on `flyleaf`: _time_; `activity_object_idx` valid on both: _ _.
+- `flyleaf` EXPLAIN, repair first range, after arms: _ _ (`perf/15c/laptop-explain-repair-full.txt`).
+- `flyleaf` EXPLAIN, activity statements (activity rows: _ _): _ _ (`perf/15c/laptop-explain-activity-full.txt`).
+- Recreate: ShmSize _ _, `/dev/shm` _ _, `max_connections` _ _, `shared_buffers` _ _.
+- Migrations: `flyleaf_dev` _ _ / `flyleaf` _ _ (expect 43 / 43).
 
 ## Carried to "Part 15" by earlier parts, beyond the brief
 
@@ -358,9 +501,9 @@ Each earlier part's Deferred table names Part 15 for some items the brief does n
 | ~~Apply 0034–0041 to `flyleaf` and `flyleaf_dev`; every deferred bench; ANALYZE and index checks; A-03-026/027 measurements; §6 verification; `comparison.md`; SUMMARY's perf headline~~ | Done in 15b, except the rows below | 15b |
 | ~~Recreate the Postgres container with the new memory settings~~ | Done in 15b (step 12, before step 8) | 15b |
 | `authors.repair`, monthly dedupe dry run, backlog dry run, A-03-027 count, `import-cost` on `flyleaf` | Not measured: the 8 GB laptop runs out of memory (guard kills at 133–261 MB) | A machine with ≥ 16 GB, before the backlog merge |
-| A-15-027 ranged repair; A-15-029 `activity_object_idx` | Each a migration on both databases; DECISION NEEDED | Owner |
-| A-15-028 `shm_size` | Needs a container recreate | Owner |
-| A-15-025 hot-row bench scenario | Bench design; re-measure after A-15-029 | Post-audit |
+| ~~A-15-027 ranged repair; A-15-029 `activity_object_idx`~~ | Built in 15c (`0042`); applying it is `15c-laptop.md` | Owner (laptop) |
+| ~~A-15-028 `shm_size`~~ | Built in 15c; the recreate is `15c-laptop.md` › 3 | Owner (laptop) |
+| A-15-025 hot-row bench scenario | Bench design. After A-15-029 (sandbox): 0 timeouts, p95 still 603–676 ms on one row | Post-audit |
 | Prepared statements (planning ~5–8 ms per feed statement) | A platform-wide driver change (postgres.js `prepare: true` with pgbouncer caveats); measure on the laptop first | Post-audit |
 | Shelf view counter (A-11-024) | D-15-7 | Owner |
 | Same-name author merge (A-03-027 existing data) | D-15-8, after the 15b count | Owner |

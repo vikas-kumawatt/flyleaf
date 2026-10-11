@@ -72,4 +72,4 @@ Evidence files are in `perf/15b/`, all on `flyleaf_dev` (2026-10-11). Latencies 
 
 ### review:post, rate:post (p95, p99; timeouts)
 - **Evidence:** A-15-025 (`post-rerun-locks.txt`, `post-blocking-pids.txt`): all 10 connections write one `reads` row; holders take 0.05–0.3 s each, up to 9 queue, the unluckiest wait ~10 s. A-15-029: each holder also seq-scans `activity` (142k rows) inside the lock.
-- **Plan:** A-15-029's index (DECISION NEEDED), then spread the scenario over one read per connection and re-measure (post-audit).
+- **Plan:** ~~A-15-029's index (DECISION NEEDED)~~ built in 15c (`0042`). In the sandbox, on synthetic data with 1.14M activity rows, three runs each: `review:post` timeouts went from 4/4/3 to 0, p95 from 10,000/10,000/7,186 ms to 676/667/603 ms, throughput from ~6 to ~73 rps (`perf/15c/`). Not re-measured on `flyleaf_dev` (owner: no bench runs in 15c's laptop session). Then spread the scenario over one read per connection and re-measure (post-audit).
