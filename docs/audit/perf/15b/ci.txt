@@ -1,0 +1,24 @@
+
+[1m▶ api-client · build[0m
+
+[1m▶ api · typecheck[0m
+
+> @flyleaf/api@0.0.1 typecheck
+> tsc --noEmit
+
+
+[1m▶ api · spec check[0m
+
+> @flyleaf/api@0.0.1 spec:check
+> tsx src/contract/generate.ts --check
+
+openapi.yaml is up to date.
+
+[1m▶ api · tests[0m
+
+> @flyleaf/api@0.0.1 test
+> vitest run --maxWorkers=1
+
+
+ RUN  v4.1.11 D:/Bookmarked/flyleaf/apps/api
+

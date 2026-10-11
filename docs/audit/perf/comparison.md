@@ -27,7 +27,7 @@ Load pass: 10 connections × 10 s per scenario on one local process (the Part 01
 | feed:friends:typical | typical | 200 | 81 / 93 / 99 | 109 / 122 / 139 | +32 % | 3 → 4 | 0 | ❌ p50 |
 | feed:friends:typical:page2 | typical | 200 | 73 / 84 / 96 | 126 / 144 / 163 | +72 % | 3 → 5 | 0 | ❌ p50 |
 | feed:friends:new | new | 200 | 148 / 165 / 237 | 26 / 30 / 34 | -82 % | 3 → 2 | 0 | ✅ |
-| feed:friends:new:page2 | new | 200 | 72 / 81 / 92 | – | – | 3 → – | 0 | TBD in 15b |
+| feed:friends:new:page2 | new | 200 | 72 / 81 / 92 | – | – | 3 → – | 0 | not measured: page 1 returned no next_cursor (the `new` persona's friends feed now fits on one page) |
 | feed:popular:guest | guest | 200 | 69 / 81 / 90 | 14 / 17 / 21 | -79 % | 2 → 1 | 0 | ✅ |
 | followers:celebrity | typical | 300 | 199 / 229 / 263 | 34 / 42 / 50 | -82 % | 6 → 3 | 0 | ✅ |
 | shelves:browse | typical | 300 | 1042 / 1162 / 1432 | 70 / 82 / 97 | -93 % | 26 → 1 | 0 | ✅ |
@@ -43,8 +43,33 @@ Load pass: 10 connections × 10 s per scenario on one local process (the Part 01
 | user:get (new) | typical | 300 | – | 25 / 29 / 34 | – | – → 2 | 0 | ✅ |
 | rate:post (new) | reviewer_of_hot_work | 300 | – | 94 / 479 / 5637 | – | – → 6 | 3 | ❌ p95, p99 |
 
-**24 pass, 11 over budget, 1 TBD.** Each scenario still over budget needs its own entry below with its EXPLAIN evidence and a plan.
+**24 pass, 11 over budget, 1 not measured** (`feed:friends:new:page2`: no page 2 exists). Both runs: `flyleaf_dev`, same seed, same runner. The "after" ran with the limits added in 15a switched off (`BENCH_RATE_LIMITS=legacy`), after the A-15-024 fix (the first after-run had 500s on both shelf lists), with the container still unlimited (step 12 came later). **Budgets are indicative only on this 8 GB machine** (`00-method.md`): the entries below judge each row by its plan, not by the millisecond.
 
 ## Still over budget
 
-(one entry per ❌ row: EXPLAIN (ANALYZE, BUFFERS), cause, concrete plan)
+
+Evidence files are in `perf/15b/`, all on `flyleaf_dev` (2026-10-11). Latencies above are under load (10 connections); the EXPLAIN times are single requests.
+
+### search:prefix, search:common (p50 and p95), search:typo (p50 only)
+- **EXPLAIN:** `explain-search-over-budget-dev.txt` (`th`, `the`, `war`, `harry pottr`; cold cache after a page-cache drop). `th` 1,785 ms, of which the `by_author` arm 696 ms; `the` 1,059 ms, `by_author` 860 ms; `war` 3,242 ms, `by_author` 1,895 ms; each also seq-scans `work_authors` (248k rows) for the ranking's author term. `harry pottr` 148 ms: the typo arms are cheap once warm; its ❌ is p50 under load only.
+- **Cause:** the author arm and the ranking's author term join through `authors`/`work_authors` per candidate, and a common word matches thousands of authors. Step 9 counts it: `work_authors` 1,639 seq scans, 228M rows read in this session.
+- **Plan:** A-02d-002, approved 29 Sep and in `PENDING.md`: copy credited author names onto `works` (trigram-indexed, kept by trigger and nightly reconcile), so `by_author` and the author term read `works` only. Acceptance there: p95 < 300 ms for `war`, `smith`, `king`, `lo`, `har`, `the` on `flyleaf`.
+
+### work-reviews:friends:heavy (p50, p95), work-reviews:newest:guest (p50)
+- **EXPLAIN:** `explain-work-reviews-dev.md`. Friends as heavy: 8 statements, 220 ms single request; three of them (41, 125 and 28 ms; the 125 ms one is the ranking) hash-join a **seq scan of all of `reads`** (62,369 rows) to filter the hot work's reviews. Newest as guest: 4 statements, 101 ms; the page (88 ms) and a separate `count(*)` (107 ms) each run the same `reviews ⋈ reads` join with the same seq scan.
+- **Cause:** `visibleReviews()` filters on `rv.work_id` but joins `reads` for the read's visibility and rating; for a work with many reviews the planner hashes all of `reads`. The cost grows with the whole `reads` table, not with the work's reviews. The newest sort pays it twice (page + total).
+- **Plan (≈ half a day):** select the page's review ids from `reviews` alone on an index `(work_id, published_at DESC, id)` with the visibility test as a semi-join probe per candidate, then join `reads` by primary key for the page only; take the total from a counter (or drop it for a cursor) instead of `count(*)`. Measure before/after on `flyleaf_dev`.
+
+### feed:friends:heavy (p50, p95), feed:friends:heavy:page2 (p50)
+- **EXPLAIN:** `feed-explain-heavy.md`: 6 statements, 144 ms single request; statement 4 (101 ms, 26k buffer hits) walks `activity_actor_idx` once per followed account (1,158 follows → 9,195 candidates, mutes as a join filter removing 116,539 rows) and top-N sorts to 76. Page 2 (`feed-explain-heavy-p2.md`): 5 statements, 95 ms; the same walk bounded by the cursor (20 ms).
+- **Cause:** pull-model fan-in: cost grows with the number of follows. This is the §12.7 trigger (feed p95 > 200 ms), now **hit for `heavy`** (p95 518 ms; indicative on this machine).
+- **Plan:** PRD §12.7's own: fan-out on write (a per-follower inbox of activity ids) for accounts above a follow threshold, the pull query kept for the rest. A design task with the owner, not an audit fix.
+
+### feed:friends:typical, feed:friends:typical:page2 (p50 only)
+- **EXPLAIN:** `feed-explain-typical.md` and `-p2.md`: 4 and 5 statements; planning 7.9 / 12.1 ms and execution 19.6 / 19.1 ms in total, against 55 / 124 ms per request.
+- **Cause:** most of the time is outside SQL (round trips, hydration, the affinity step): 25–90 ms per request. Not profiled here. The planning share is the prepared-statements item 15a deferred.
+- **Plan:** profile one typical request in process (`--cpu-prof`) before changing anything; then prepared statements (15a's Deferred) if planning is still a large share.
+
+### review:post, rate:post (p95, p99; timeouts)
+- **Evidence:** A-15-025 (`post-rerun-locks.txt`, `post-blocking-pids.txt`): all 10 connections write one `reads` row; holders take 0.05–0.3 s each, up to 9 queue, the unluckiest wait ~10 s. A-15-029: each holder also seq-scans `activity` (142k rows) inside the lock.
+- **Plan:** A-15-029's index (DECISION NEEDED), then spread the scenario over one read per connection and re-measure (post-audit).

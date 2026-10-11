@@ -830,7 +830,7 @@ Already replaced: container-init schema → drizzle migrations (`FN-01`) · opaq
 
 ## Verification status
 
-Refreshed by the audit (Part 15a, 2026-10-10). Every figure below names where it was measured. **TBD in 15b** marks figures that need the laptop's databases (`docs/audit/15b-laptop.md`).
+Refreshed by the audit (Part 15a, 2026-10-10; laptop figures from Part 15b, 2026-10-11). Every figure below names where it was measured.
 
 | Check | Result |
 |---|---|
@@ -840,8 +840,8 @@ Refreshed by the audit (Part 15a, 2026-10-10). Every figure below names where it
 | Audit | 15 parts, all in `docs/audit/`: findings per part, `SUMMARY.md`, and open questions in `DECISIONS.md` |
 | OpenAPI drift | **0**. `spec:check` fails the build on any divergence. |
 | Migrations | **42** (`0000_phase0_catalog` … `0041_retention`). They apply cleanly to an empty database in the test suite and to a real Postgres in CI. They are hand-written and idempotent from `0019` on. |
-| Rate limits | One layer, PRD §24.4 / §11.7 / §10.6. Exact limits are kept in Postgres, per-request ones in process. Measured cost (sandbox): `docs/audit/perf/15a-rate-limit-overhead-sandbox.md`. Laptop: TBD in 15b. |
-| Performance vs the Part 01 baseline | `docs/audit/perf/comparison.md`: **TBD in 15b** |
+| Rate limits | One layer, PRD §24.4 / §11.7 / §10.6. Exact limits are kept in Postgres, per-request ones in process. Measured cost: `docs/audit/perf/15a-rate-limit-overhead-sandbox.md`. Laptop (`flyleaf_dev`, 3 runs): Global in process within noise of no limits; Global in Postgres 22–25 % fewer requests/s. |
+| Performance vs the Part 01 baseline | `docs/audit/perf/comparison.md` (`flyleaf_dev`, 11 Oct): **24 pass, 11 over budget, 1 not measured**. Budgets are indicative only on the 8 GB dev laptop; each over-budget row has its EXPLAIN and a plan. |
 | Relevance panel | PGlite corpus **216/217** (floor 0.98). Real catalog **214/214** after Part 02d's popularity weight. |
 | Catalog | **3,203,575 works · 15,409,896 authors · 3,791,016 authorship links · 2.18M covers** (`flyleaf`, Phase 0 ingest) |
 | Background jobs | pg-boss worker. Monthly: `catalog.dedupe` (sliced stages). Nightly, UTC: `shelves.reconcile` 03:00, `follows.reconcile` 03:15, `reads.reconcile` 03:30, `works.reconcile` 03:40, `storage.cleanup` 03:45, `activity.prune` 03:55, `authors.repair` 04:05, `retention.sweep` 04:20. Weekly: `search.suggestions.refresh` (Sun 04:00), `search.zero.summary` (Mon 04:30). On demand: `imports.process`, `exports.process`. Each batch process connects with its own `work_mem` and `statement_timeout` (`JOB_DB_SETTINGS`). |
