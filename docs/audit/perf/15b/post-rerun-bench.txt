@@ -1,0 +1,8 @@
+
+> @flyleaf/api@0.0.1 bench
+> tsx src/bench/run.ts --only ^(review|rate):post$ --label 15b-post-rerun
+
+- review:post                    p50    91 p95   228 p99 10000 ms     36.4 rps  q=10  TIMEOUTS 4  drain 2.4s
+- rate:post                      p50    39 p95   137 p99  1112 ms       82 rps  q=6  TIMEOUTS 3  drain 2.1s
+
+wrote docs/audit/perf/15b-post-rerun.md and .json

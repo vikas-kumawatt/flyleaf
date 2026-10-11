@@ -1,0 +1,8 @@
+
+> @flyleaf/api@0.0.1 bench
+> tsx src/bench/run.ts --only ^(review|rate):post$ --label 15b-post-blocking
+
+- review:post                    p50   190 p95  1509 p99  6239 ms     16.6 rps  q=10  TIMEOUTS 1  drain 2.4s
+- rate:post                      p50    95 p95   357 p99  8883 ms     34.1 rps  q=6  TIMEOUTS 3  drain 3.7s
+
+wrote docs/audit/perf/15b-post-blocking.md and .json
