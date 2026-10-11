@@ -834,8 +834,8 @@ Refreshed by the audit (Part 15a, 2026-10-10; laptop figures from Part 15b, 2026
 
 | Check | Result |
 |---|---|
-| CI | `node scripts/ci.mjs` runs 9 steps, the same ones GitHub Actions runs: api-client build, api typecheck, spec check, api tests, api build, `npm audit --audit-level=high`, mobile typecheck, mobile tests, and migrations on a real Postgres 18. Last full run: see `docs/audit/findings/15-cross-cutting.md` › CI result. |
-| API tests (`vitest`) | **1,733 tests in 82 files**. Every suite that touches SQL runs against **PGlite** (Postgres in WASM). PGlite timestamps have millisecond resolution, so cursor precision is also checked on a real server (`src/bench/cursor-sweep.ts`). |
+| CI | `node scripts/ci.mjs` runs 9 steps, the same ones GitHub Actions runs: api-client build, api typecheck, spec check, api tests, api build, `npm audit --audit-level=high`, mobile typecheck, mobile tests, and migrations on a real Postgres 18. Last full run: GitHub Actions on PR #6, green in 765 s (Part 15b); see `docs/audit/findings/15-cross-cutting.md` › CI result. |
+| API tests (`vitest`) | **1,734 tests in 82 files** (Part 15b, 2026-10-11: green on GitHub Actions; its 10 MinIO-only tests green on the laptop). Every suite that touches SQL runs against **PGlite** (Postgres in WASM). PGlite timestamps have millisecond resolution, so cursor precision is also checked on a real server (`src/bench/cursor-sweep.ts`). |
 | Mobile tests (`node --test`) | **214 tests**: offline queue, auth, guest, reading rules, stats, telemetry budgets, feed cards, shelves, social and interactions |
 | Audit | 15 parts, all in `docs/audit/`: findings per part, `SUMMARY.md`, and open questions in `DECISIONS.md` |
 | OpenAPI drift | **0**. `spec:check` fails the build on any divergence. |

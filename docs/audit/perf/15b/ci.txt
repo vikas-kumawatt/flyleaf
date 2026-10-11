@@ -39,3 +39,7 @@ migrations applied
       Tests  103 passed (103)
    Start at  16:45:35
    Duration  37.01s (transform 1.96s, setup 0ms, import 10.26s, tests 25.17s, environment 2ms)
+
+## api tests: storage-contract (MinIO up on the laptop; Actions has no MinIO, so its 10 S3 tests skip there)
+ Test Files  1 passed (1)
+      Tests  41 passed (41)

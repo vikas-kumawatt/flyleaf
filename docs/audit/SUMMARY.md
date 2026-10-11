@@ -33,7 +33,7 @@ The five open P1s:
 | 08 Catalog, reading | 29 | 28 | 1 | | PV Providers | 9 | 9 | 0 |
 
 **Tests:**
-- API: about 740 tests (Part 02) grew to **1,733**.
+- API: about 740 tests (Part 02) grew to **1,734** (1,733 in 15a, +1 in 15b).
 - Mobile: 100 grew to **214**.
 - No test was weakened, skipped or deleted. Assertions that pinned behaviour a fix changed on purpose were updated with a comment naming the finding.
 
