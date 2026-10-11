@@ -8,7 +8,7 @@ A reading tracker. Log what you read, rate it in half-stars, see it on a profile
 
 A 15-part audit (25 Sep – 10 Oct 2026) re-verified every task from `FN-40` to `SO-15`. Several "complete" claims did not hold. Each one is now fixed, or recorded as deferred with an owner. Start with [`docs/audit/SUMMARY.md`](docs/audit/SUMMARY.md). Questions waiting on the owner are in [`docs/audit/DECISIONS.md`](docs/audit/DECISIONS.md). Work after the audit is in [`docs/audit/PENDING.md`](docs/audit/PENDING.md).
 
-The audit's last measurements run on the laptop (`docs/audit/15b-laptop.md`). Next after that: notifications (`SO-3x`). Live state is always [`docs/tasks.md`](docs/tasks.md).
+The audit's last measurements run on the laptop (`docs/audit/15b-laptop.md`); 15c's migration `0042` and the container's `shm_size` are applied there by `docs/audit/15c-laptop.md`. Next after that: notifications (`SO-3x`). Live state is always [`docs/tasks.md`](docs/tasks.md).
 
 ## The documents
 
@@ -835,7 +835,7 @@ Refreshed by the audit (Part 15a, 2026-10-10; laptop figures from Part 15b, 2026
 | Check | Result |
 |---|---|
 | CI | `node scripts/ci.mjs` runs 9 steps, the same ones GitHub Actions runs: api-client build, api typecheck, spec check, api tests, api build, `npm audit --audit-level=high`, mobile typecheck, mobile tests, and migrations on a real Postgres 18. Last full run: GitHub Actions on PR #6, green in 765 s (Part 15b); see `docs/audit/findings/15-cross-cutting.md` › CI result. |
-| API tests (`vitest`) | **1,734 tests in 82 files** (Part 15b, 2026-10-11: green on GitHub Actions; its 10 MinIO-only tests green on the laptop). Every suite that touches SQL runs against **PGlite** (Postgres in WASM). PGlite timestamps have millisecond resolution, so cursor precision is also checked on a real server (`src/bench/cursor-sweep.ts`). |
+| API tests (`vitest`) | **1,741 tests in 83 files** (Part 15c, 2026-10-11: green in the sandbox, 10 MinIO-only tests skipped there; 1,734 in 82 files after 15b, green on GitHub Actions with its 10 MinIO-only tests green on the laptop). Every suite that touches SQL runs against **PGlite** (Postgres in WASM). PGlite timestamps have millisecond resolution, so cursor precision is also checked on a real server (`src/bench/cursor-sweep.ts`). |
 | Mobile tests (`node --test`) | **214 tests**: offline queue, auth, guest, reading rules, stats, telemetry budgets, feed cards, shelves, social and interactions |
 | Audit | 15 parts, all in `docs/audit/`: findings per part, `SUMMARY.md`, and open questions in `DECISIONS.md` |
 | OpenAPI drift | **0**. `spec:check` fails the build on any divergence. |

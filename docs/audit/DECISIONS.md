@@ -59,7 +59,7 @@ Collected in Part 15a (2026-10-10) from every `DECISION NEEDED` in `docs/audit/f
 - **Recommendation:** (b), post-audit, as `PENDING.md` says.
 - **Now:** held.
 
-### 6. Build A-15-027 and A-15-029 now? (Part 15b)
+### ~~6. Build A-15-027 and A-15-029 now? (Part 15b)~~ Decided: (a), built in 15c
 - **Question:** 15b found two plan problems on write and batch paths. Each fix is a small migration, to be applied to both databases.
   - **A-15-027:** the nightly `has_works` repair hash-scans all of `work_authors` and `works` for every 20,000-author range.
   - **A-15-029:** `activity` has no `(object_type, object_id)` index, so every review save seq-scans `activity` inside the read's lock.
@@ -67,17 +67,27 @@ Collected in Part 15a (2026-10-10) from every `DECISION NEEDED` in `docs/audit/f
   - (a) one migration `0042` with both: the repair's set arm driven from `work_authors_author_idx`, and `activity_object_idx`. Verified by EXPLAIN on `flyleaf` and a before/after `review:post` on `flyleaf_dev`. About half a day with the laptop runs.
   - (b) A-15-029 now, A-15-027 with the ≥ 16 GB run of `authors.repair`.
   - (c) both post-audit.
-- **Recommendation:** (a). Both are P1, both are small, and the repair cannot be measured until it is ranged in practice.
-- **Now:** recorded, not built.
+- **Owner's decision (2026-10-11): (a).** One hand-written, idempotent migration `0042`:
+  - `activity_object_idx` on `activity (object_type, object_id)`, built `CONCURRENTLY`;
+  - the `has_works` repair's set arm driven from `work_authors_author_idx`, so each 20,000-author range reads only its own rows.
+- **Built in 15c** (`findings/15-cross-cutting.md` › 15c):
+  - `0042_activity_object_and_author_repair.sql` redefines `repair_author_has_works`.
+  - The index is in `migrate.ts` ONLINE_SQL: `CREATE INDEX CONCURRENTLY` cannot run inside the migrator's transaction. 0026's indexes are built the same way.
+  - **Proved in the sandbox on synthetic data;** the proof on the real databases is `15c-laptop.md`.
+  - **Beyond the letter of (a), flagged:**
+    - the set arm is an InitPlan plus a primary-key `= ANY`, not a join (a join planned badly in the sandbox, A-15-027 › 15c);
+    - the clear arm's filter is `has_works IS TRUE` (A-15-032).
+- **Now:** built; applied on the laptop by `15c-laptop.md`.
 
-### 7. `shm_size` for the Postgres container (A-15-028, Part 15b)
+### ~~7. `shm_size` for the Postgres container (A-15-028, Part 15b)~~ Decided: (a), built in 15c
 - **Question:** Docker's default 64 MB `/dev/shm` makes a parallel hash join fail (SQLSTATE 53100). The server's `max_parallel_workers_per_gather` is 2, so this applies to API queries too.
 - **Options:**
   - (a) `shm_size: 512m` on the postgres service, plus a container recreate. The memory counts within the 3 GiB limit.
   - (b) `max_parallel_workers_per_gather = 0` for the API.
   - (c) both.
-- **Recommendation:** (a), at the next planned recreate.
-- **Now:** unchanged.
+- **Owner's decision (2026-10-11): (a).**
+- **Built in 15c:** `shm_size: 512m` in `docker-compose.yml`, with the reason in its comment.
+- **Now:** the recreate is `15c-laptop.md` › 3.
 
 ## Taken in Part 15a (reversible): please confirm or change
 
@@ -113,3 +123,4 @@ All earlier `DECISION NEEDED` items were answered in their parts:
 - Part 12: D-12-1 and D-12-2.
 - Part 13: D-13-1 to D-13-3.
 - Part 14: D-14-1 (decided 2026-10-10, built in 15a).
+- Part 15b: questions 6 and 7 above (decided 2026-10-11, built in 15c).

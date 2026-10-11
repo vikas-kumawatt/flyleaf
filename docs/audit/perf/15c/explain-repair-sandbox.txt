@@ -1,0 +1,509 @@
+# A-15-027 / A-15-032 — one repair range, before (0040) and after (0042): sandbox, synthetic
+# PostgreSQL 18.3 (embedded-postgres), 15.4M authors (1.57M flagged) / 1.5M works (75k merged) / 1.8M credits; the worker's work_mem and parallelism.
+# Each offset run once untimed (warm-up), then this run, with nothing else on the server. Statements rolled back.
+# The planner's estimate for each range's 20,000 authors (authors_pkey scan): offset 0, 77,016; offsets 100000 and 7700000, 1.
+2026-10-11 13:16:02.188269+00
+
+## offset 0
+SET
+SET
+range [00000000-0000-0000-0000-000000000000, 00561598-ee69-44bf-84a3-307f8e5144d1)
+BEGIN
+--- before (0040): the set arm
+                                                                      QUERY PLAN                                                                      
+------------------------------------------------------------------------------------------------------------------------------------------------------
+ Update on authors a  (cost=220516.51..303063.20 rows=0 width=0) (actual time=3631.139..3631.147 rows=0.00 loops=1)
+   Buffers: shared hit=21783 read=49751, temp read=10020 written=10020
+   ->  Hash Right Semi Join  (cost=220516.51..303063.20 rows=7416 width=19) (actual time=3631.136..3631.143 rows=0.00 loops=1)
+         Hash Cond: (wa.author_id = a.id)
+         Buffers: shared hit=21783 read=49751, temp read=10020 written=10020
+         ->  Hash Join  (cost=76840.62..152862.64 rows=1709700 width=28) (actual time=970.679..3146.282 rows=1650002.00 loops=1)
+               Hash Cond: (wa.work_id = w.id)
+               Buffers: shared hit=4455 read=48053, temp read=10020 written=10020
+               ->  Seq Scan on work_authors wa  (cost=0.00..34823.00 rows=1800000 width=38) (actual time=0.221..397.815 rows=1800000.00 loops=1)
+                     Buffers: shared hit=2186 read=14637
+               ->  Hash  (cost=50684.20..50684.20 rows=1424674 width=22) (actual time=965.492..965.493 rows=1425001.00 loops=1)
+                     Buckets: 1048576  Batches: 2  Memory Usage: 45794kB
+                     Buffers: shared hit=2269 read=33416, temp written=3650
+                     ->  Seq Scan on works w  (cost=0.00..50684.20 rows=1424674 width=22) (actual time=0.271..460.774 rows=1425001.00 loops=1)
+                           Filter: (merged_into_id IS NULL)
+                           Rows Removed by Filter: 74999
+                           Buffers: shared hit=2269 read=33416
+         ->  Hash  (cost=142810.22..142810.22 rows=69253 width=22) (actual time=77.847..77.848 rows=17928.00 loops=1)
+               Buckets: 131072  Batches: 1  Memory Usage: 1970kB
+               Buffers: shared hit=17328 read=1698
+               ->  Bitmap Heap Scan on authors a  (cost=2304.03..142810.22 rows=69253 width=22) (actual time=13.148..70.212 rows=17928.00 loops=1)
+                     Recheck Cond: ((id >= '00000000-0000-0000-0000-000000000000'::uuid) AND (id < '00561598-ee69-44bf-84a3-307f8e5144d1'::uuid))
+                     Filter: (NOT has_works)
+                     Rows Removed by Filter: 2072
+                     Heap Blocks: exact=18923
+                     Buffers: shared hit=17328 read=1698
+                     ->  Bitmap Index Scan on authors_pkey  (cost=0.00..2286.72 rows=77016 width=0) (actual time=9.902..9.902 rows=20000.00 loops=1)
+                           Index Cond: ((id >= '00000000-0000-0000-0000-000000000000'::uuid) AND (id < '00561598-ee69-44bf-84a3-307f8e5144d1'::uuid))
+                           Index Searches: 1
+                           Buffers: shared hit=103
+ Planning:
+   Buffers: shared hit=252
+ Planning Time: 1.120 ms
+ Execution Time: 3631.815 ms
+(34 rows)
+
+ROLLBACK
+BEGIN
+--- after (0042): the set arm, driven by the range's credits
+                                                                        QUERY PLAN                                                                        
+----------------------------------------------------------------------------------------------------------------------------------------------------------
+ Update on authors a  (cost=90963.24..91048.45 rows=0 width=0) (actual time=88.694..88.698 rows=0.00 loops=1)
+   Buffers: shared hit=8433 read=5546
+   InitPlan 2
+     ->  Bitmap Heap Scan on work_authors wa  (cost=267.54..90962.68 rows=4500 width=16) (actual time=1.123..83.069 rows=2199.00 loops=1)
+           Recheck Cond: ((author_id >= '00000000-0000-0000-0000-000000000000'::uuid) AND (author_id < '00561598-ee69-44bf-84a3-307f8e5144d1'::uuid))
+           Filter: (SubPlan 1)
+           Rows Removed by Filter: 192
+           Heap Blocks: exact=2225
+           Buffers: shared hit=6255 read=5546
+           ->  Bitmap Index Scan on work_authors_author_idx  (cost=0.00..266.42 rows=8999 width=0) (actual time=0.677..0.678 rows=2391.00 loops=1)
+                 Index Cond: ((author_id >= '00000000-0000-0000-0000-000000000000'::uuid) AND (author_id < '00561598-ee69-44bf-84a3-307f8e5144d1'::uuid))
+                 Index Searches: 1
+                 Buffers: shared hit=3 read=9
+           SubPlan 1
+             ->  Index Scan using works_pkey on works w  (cost=0.43..8.45 rows=1 width=1) (actual time=0.018..0.018 rows=1.00 loops=2391)
+                   Index Cond: (id = wa.work_id)
+                   Index Searches: 2391
+                   Buffers: shared hit=5928 read=3636
+   ->  Index Scan using authors_pkey on authors a  (cost=0.56..85.77 rows=9 width=7) (actual time=88.692..88.692 rows=0.00 loops=1)
+         Index Cond: (id = ANY ((InitPlan 2).col1))
+         Filter: (NOT has_works)
+         Rows Removed by Filter: 2072
+         Index Searches: 2
+         Buffers: shared hit=8433 read=5546
+ Planning:
+   Buffers: shared hit=14
+ Planning Time: 0.240 ms
+ Execution Time: 88.741 ms
+(28 rows)
+
+ROLLBACK
+BEGIN
+--- before (0040): the clear arm
+                                                                                            QUERY PLAN                                                                                             
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Update on authors a  (cost=136086.29..193847.00 rows=0 width=0) (actual time=919.005..919.010 rows=0.00 loops=1)
+   Buffers: shared hit=18636 read=9413
+   ->  Nested Loop  (cost=136086.29..193847.00 rows=6932 width=47) (actual time=919.003..919.007 rows=0.00 loops=1)
+         Buffers: shared hit=18636 read=9413
+         ->  HashAggregate  (cost=136085.73..136155.05 rows=6932 width=56) (actual time=919.002..919.006 rows=0.00 loops=1)
+               Group Key: "ANY_subquery".id
+               Batches: 1  Memory Usage: 161kB
+               Buffers: shared hit=18636 read=9413
+               ->  Subquery Scan on "ANY_subquery"  (cost=55762.40..136068.40 rows=6932 width=56) (actual time=918.968..918.971 rows=0.00 loops=1)
+                     Buffers: shared hit=18636 read=9413
+                     ->  LockRows  (cost=55762.40..135999.08 rows=6932 width=34) (actual time=918.967..918.970 rows=0.00 loops=1)
+                           Buffers: shared hit=18636 read=9413
+                           ->  Nested Loop Anti Join  (cost=55762.40..135929.76 rows=6932 width=34) (actual time=918.965..918.967 rows=0.00 loops=1)
+                                 Buffers: shared hit=18636 read=9413
+                                 ->  Bitmap Heap Scan on authors x  (cost=55761.54..81533.77 rows=7763 width=22) (actual time=899.581..902.721 rows=2072.00 loops=1)
+                                       Recheck Cond: ((id >= '00000000-0000-0000-0000-000000000000'::uuid) AND (id < '00561598-ee69-44bf-84a3-307f8e5144d1'::uuid) AND has_works)
+                                       Heap Blocks: exact=1955
+                                       Buffers: shared hit=2060 read=9413
+                                       ->  BitmapAnd  (cost=55761.54..55761.54 rows=7763 width=0) (actual time=899.125..899.126 rows=0.00 loops=1)
+                                             Buffers: shared hit=105 read=9413
+                                             ->  Bitmap Index Scan on authors_pkey  (cost=0.00..2286.72 rows=77016 width=0) (actual time=4.587..4.587 rows=20000.00 loops=1)
+                                                   Index Cond: ((id >= '00000000-0000-0000-0000-000000000000'::uuid) AND (id < '00561598-ee69-44bf-84a3-307f8e5144d1'::uuid))
+                                                   Index Searches: 1
+                                                   Buffers: shared hit=103
+                                             ->  Bitmap Index Scan on authors_credited_trgm_idx  (cost=0.00..53470.69 rows=1552659 width=0) (actual time=893.473..893.473 rows=1571978.00 loops=1)
+                                                   Index Searches: 1
+                                                   Buffers: shared hit=2 read=9413
+                                 ->  Nested Loop  (cost=0.85..7.01 rows=1 width=28) (actual time=0.008..0.008 rows=1.00 loops=2072)
+                                       Buffers: shared hit=16576
+                                       ->  Index Scan using work_authors_author_idx on work_authors wa  (cost=0.43..6.47 rows=1 width=38) (actual time=0.003..0.003 rows=1.00 loops=2072)
+                                             Index Cond: (author_id = x.id)
+                                             Index Searches: 2072
+                                             Buffers: shared hit=8288
+                                       ->  Index Scan using works_pkey on works w  (cost=0.43..0.54 rows=1 width=22) (actual time=0.005..0.005 rows=1.00 loops=2072)
+                                             Index Cond: (id = wa.work_id)
+                                             Filter: (merged_into_id IS NULL)
+                                             Index Searches: 2072
+                                             Buffers: shared hit=8288
+         ->  Index Scan using authors_pkey on authors a  (cost=0.56..8.33 rows=1 width=22) (never executed)
+               Index Cond: (id = "ANY_subquery".id)
+               Index Searches: 0
+ Planning:
+   Buffers: shared hit=61
+ Planning Time: 0.602 ms
+ Execution Time: 919.541 ms
+(45 rows)
+
+ROLLBACK
+BEGIN
+--- after (0042): the clear arm, has_works IS TRUE
+                                                                                        QUERY PLAN                                                                                        
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Update on authors a  (cost=197347.37..255108.09 rows=0 width=0) (actual time=57.299..57.303 rows=0.00 loops=1)
+   Buffers: shared hit=35602
+   ->  Nested Loop  (cost=197347.37..255108.09 rows=6932 width=47) (actual time=57.297..57.301 rows=0.00 loops=1)
+         Buffers: shared hit=35602
+         ->  HashAggregate  (cost=197346.81..197416.13 rows=6932 width=56) (actual time=57.296..57.299 rows=0.00 loops=1)
+               Group Key: "ANY_subquery".id
+               Batches: 1  Memory Usage: 161kB
+               Buffers: shared hit=35602
+               ->  Subquery Scan on "ANY_subquery"  (cost=2289.52..197329.48 rows=6932 width=56) (actual time=57.262..57.266 rows=0.00 loops=1)
+                     Buffers: shared hit=35602
+                     ->  LockRows  (cost=2289.52..197260.16 rows=6932 width=34) (actual time=57.262..57.265 rows=0.00 loops=1)
+                           Buffers: shared hit=35602
+                           ->  Nested Loop Anti Join  (cost=2289.52..197190.84 rows=6932 width=34) (actual time=57.260..57.263 rows=0.00 loops=1)
+                                 Buffers: shared hit=35602
+                                 ->  Bitmap Heap Scan on authors x  (cost=2288.66..142794.85 rows=7763 width=22) (actual time=15.009..41.287 rows=2072.00 loops=1)
+                                       Recheck Cond: ((id >= '00000000-0000-0000-0000-000000000000'::uuid) AND (id < '00561598-ee69-44bf-84a3-307f8e5144d1'::uuid))
+                                       Filter: (has_works IS TRUE)
+                                       Rows Removed by Filter: 17928
+                                       Heap Blocks: exact=18923
+                                       Buffers: shared hit=19026
+                                       ->  Bitmap Index Scan on authors_pkey  (cost=0.00..2286.72 rows=77016 width=0) (actual time=4.522..4.523 rows=20000.00 loops=1)
+                                             Index Cond: ((id >= '00000000-0000-0000-0000-000000000000'::uuid) AND (id < '00561598-ee69-44bf-84a3-307f8e5144d1'::uuid))
+                                             Index Searches: 1
+                                             Buffers: shared hit=103
+                                 ->  Nested Loop  (cost=0.85..7.01 rows=1 width=28) (actual time=0.008..0.008 rows=1.00 loops=2072)
+                                       Buffers: shared hit=16576
+                                       ->  Index Scan using work_authors_author_idx on work_authors wa  (cost=0.43..6.47 rows=1 width=38) (actual time=0.003..0.003 rows=1.00 loops=2072)
+                                             Index Cond: (author_id = x.id)
+                                             Index Searches: 2072
+                                             Buffers: shared hit=8288
+                                       ->  Index Scan using works_pkey on works w  (cost=0.43..0.54 rows=1 width=22) (actual time=0.005..0.005 rows=1.00 loops=2072)
+                                             Index Cond: (id = wa.work_id)
+                                             Filter: (merged_into_id IS NULL)
+                                             Index Searches: 2072
+                                             Buffers: shared hit=8288
+         ->  Index Scan using authors_pkey on authors a  (cost=0.56..8.33 rows=1 width=22) (never executed)
+               Index Cond: (id = "ANY_subquery".id)
+               Index Searches: 0
+ Planning:
+   Buffers: shared hit=60
+ Planning Time: 0.474 ms
+ Execution Time: 57.386 ms
+(42 rows)
+
+ROLLBACK
+
+## offset 100000
+SET
+SET
+range [01acf0dd-d776-4136-a1e9-4f7e12382ee1, 02018e55-ba19-4af4-9e2f-f8791ba3f0dc)
+BEGIN
+--- before (0040): the set arm
+                                                                            QUERY PLAN                                                                             
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Update on authors a  (cost=1.42..17.58 rows=0 width=0) (actual time=107.935..107.939 rows=0.00 loops=1)
+   Buffers: shared hit=72482 read=2300
+   ->  Nested Loop Semi Join  (cost=1.42..17.58 rows=1 width=19) (actual time=107.933..107.935 rows=0.00 loops=1)
+         Buffers: shared hit=72482 read=2300
+         ->  Index Scan using authors_pkey on authors a  (cost=0.56..8.58 rows=1 width=22) (actual time=0.036..56.792 rows=17989.00 loops=1)
+               Index Cond: ((id >= '01acf0dd-d776-4136-a1e9-4f7e12382ee1'::uuid) AND (id < '02018e55-ba19-4af4-9e2f-f8791ba3f0dc'::uuid))
+               Filter: (NOT has_works)
+               Rows Removed by Filter: 2011
+               Index Searches: 1
+               Buffers: shared hit=18274 read=1836
+         ->  Nested Loop  (cost=0.85..8.99 rows=1 width=28) (actual time=0.003..0.003 rows=0.00 loops=17989)
+               Buffers: shared hit=54208 read=464
+               ->  Index Scan using work_authors_author_idx on work_authors wa  (cost=0.43..8.45 rows=1 width=38) (actual time=0.002..0.002 rows=0.01 loops=17989)
+                     Index Cond: (author_id = a.id)
+                     Index Searches: 17989
+                     Buffers: shared hit=53956 read=152
+               ->  Index Scan using works_pkey on works w  (cost=0.43..0.54 rows=1 width=22) (actual time=0.026..0.026 rows=0.00 loops=141)
+                     Index Cond: (id = wa.work_id)
+                     Filter: (merged_into_id IS NULL)
+                     Rows Removed by Filter: 1
+                     Index Searches: 141
+                     Buffers: shared hit=252 read=312
+ Planning:
+   Buffers: shared hit=182 read=70
+ Planning Time: 2.370 ms
+ Execution Time: 108.134 ms
+(26 rows)
+
+ROLLBACK
+BEGIN
+--- after (0042): the set arm, driven by the range's credits
+                                                                        QUERY PLAN                                                                        
+----------------------------------------------------------------------------------------------------------------------------------------------------------
+ Update on authors a  (cost=17.45..102.66 rows=0 width=0) (actual time=67.319..67.354 rows=0.00 loops=1)
+   Buffers: shared hit=7672 read=5977
+   InitPlan 2
+     ->  Index Scan using work_authors_author_idx on work_authors wa  (cost=0.43..16.89 rows=1 width=16) (actual time=0.058..61.575 rows=2127.00 loops=1)
+           Index Cond: ((author_id >= '01acf0dd-d776-4136-a1e9-4f7e12382ee1'::uuid) AND (author_id < '02018e55-ba19-4af4-9e2f-f8791ba3f0dc'::uuid))
+           Filter: (SubPlan 1)
+           Rows Removed by Filter: 175
+           Index Searches: 1
+           Buffers: shared hit=5547 read=5977
+           SubPlan 1
+             ->  Index Scan using works_pkey on works w  (cost=0.43..8.45 rows=1 width=1) (actual time=0.019..0.020 rows=1.00 loops=2302)
+                   Index Cond: (id = wa.work_id)
+                   Index Searches: 2302
+                   Buffers: shared hit=5252 read=3956
+   ->  Index Scan using authors_pkey on authors a  (cost=0.56..85.77 rows=9 width=7) (actual time=67.316..67.317 rows=0.00 loops=1)
+         Index Cond: (id = ANY ((InitPlan 2).col1))
+         Filter: (NOT has_works)
+         Rows Removed by Filter: 2011
+         Index Searches: 3
+         Buffers: shared hit=7672 read=5977
+ Planning:
+   Buffers: shared hit=13 read=1
+ Planning Time: 0.332 ms
+ Execution Time: 67.427 ms
+(24 rows)
+
+ROLLBACK
+BEGIN
+--- before (0040): the clear arm
+                                                                                        QUERY PLAN                                                                                        
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Update on authors a  (cost=18.16..26.19 rows=0 width=0) (actual time=59.516..59.519 rows=0.00 loops=1)
+   Buffers: shared hit=36198
+   ->  Nested Loop  (cost=18.16..26.19 rows=1 width=47) (actual time=59.514..59.516 rows=0.00 loops=1)
+         Buffers: shared hit=36198
+         ->  HashAggregate  (cost=17.60..17.61 rows=1 width=56) (actual time=59.513..59.514 rows=0.00 loops=1)
+               Group Key: "ANY_subquery".id
+               Batches: 1  Memory Usage: 32kB
+               Buffers: shared hit=36198
+               ->  Subquery Scan on "ANY_subquery"  (cost=1.42..17.60 rows=1 width=56) (actual time=59.509..59.510 rows=0.00 loops=1)
+                     Buffers: shared hit=36198
+                     ->  LockRows  (cost=1.42..17.59 rows=1 width=34) (actual time=59.508..59.509 rows=0.00 loops=1)
+                           Buffers: shared hit=36198
+                           ->  Nested Loop Anti Join  (cost=1.42..17.58 rows=1 width=34) (actual time=59.506..59.508 rows=0.00 loops=1)
+                                 Buffers: shared hit=36198
+                                 ->  Index Scan using authors_pkey on authors x  (cost=0.56..8.58 rows=1 width=22) (actual time=0.046..36.356 rows=2011.00 loops=1)
+                                       Index Cond: ((id >= '01acf0dd-d776-4136-a1e9-4f7e12382ee1'::uuid) AND (id < '02018e55-ba19-4af4-9e2f-f8791ba3f0dc'::uuid))
+                                       Filter: has_works
+                                       Rows Removed by Filter: 17989
+                                       Index Searches: 1
+                                       Buffers: shared hit=20110
+                                 ->  Nested Loop  (cost=0.85..8.99 rows=1 width=28) (actual time=0.011..0.011 rows=1.00 loops=2011)
+                                       Buffers: shared hit=16088
+                                       ->  Index Scan using work_authors_author_idx on work_authors wa  (cost=0.43..8.45 rows=1 width=38) (actual time=0.004..0.004 rows=1.00 loops=2011)
+                                             Index Cond: (author_id = x.id)
+                                             Index Searches: 2011
+                                             Buffers: shared hit=8044
+                                       ->  Index Scan using works_pkey on works w  (cost=0.43..0.54 rows=1 width=22) (actual time=0.007..0.007 rows=1.00 loops=2011)
+                                             Index Cond: (id = wa.work_id)
+                                             Filter: (merged_into_id IS NULL)
+                                             Index Searches: 2011
+                                             Buffers: shared hit=8044
+         ->  Index Scan using authors_pkey on authors a  (cost=0.56..8.58 rows=1 width=22) (never executed)
+               Index Cond: (id = "ANY_subquery".id)
+               Index Searches: 0
+ Planning:
+   Buffers: shared hit=60 read=1
+ Planning Time: 0.932 ms
+ Execution Time: 59.665 ms
+(38 rows)
+
+ROLLBACK
+BEGIN
+--- after (0042): the clear arm, has_works IS TRUE
+                                                                                        QUERY PLAN                                                                                        
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Update on authors a  (cost=18.16..26.19 rows=0 width=0) (actual time=54.069..54.072 rows=0.00 loops=1)
+   Buffers: shared hit=36198
+   ->  Nested Loop  (cost=18.16..26.19 rows=1 width=47) (actual time=54.067..54.069 rows=0.00 loops=1)
+         Buffers: shared hit=36198
+         ->  HashAggregate  (cost=17.60..17.61 rows=1 width=56) (actual time=54.066..54.068 rows=0.00 loops=1)
+               Group Key: "ANY_subquery".id
+               Batches: 1  Memory Usage: 32kB
+               Buffers: shared hit=36198
+               ->  Subquery Scan on "ANY_subquery"  (cost=1.42..17.60 rows=1 width=56) (actual time=54.063..54.065 rows=0.00 loops=1)
+                     Buffers: shared hit=36198
+                     ->  LockRows  (cost=1.42..17.59 rows=1 width=34) (actual time=54.061..54.063 rows=0.00 loops=1)
+                           Buffers: shared hit=36198
+                           ->  Nested Loop Anti Join  (cost=1.42..17.58 rows=1 width=34) (actual time=54.060..54.061 rows=0.00 loops=1)
+                                 Buffers: shared hit=36198
+                                 ->  Index Scan using authors_pkey on authors x  (cost=0.56..8.58 rows=1 width=22) (actual time=0.043..32.962 rows=2011.00 loops=1)
+                                       Index Cond: ((id >= '01acf0dd-d776-4136-a1e9-4f7e12382ee1'::uuid) AND (id < '02018e55-ba19-4af4-9e2f-f8791ba3f0dc'::uuid))
+                                       Filter: (has_works IS TRUE)
+                                       Rows Removed by Filter: 17989
+                                       Index Searches: 1
+                                       Buffers: shared hit=20110
+                                 ->  Nested Loop  (cost=0.85..8.99 rows=1 width=28) (actual time=0.010..0.010 rows=1.00 loops=2011)
+                                       Buffers: shared hit=16088
+                                       ->  Index Scan using work_authors_author_idx on work_authors wa  (cost=0.43..8.45 rows=1 width=38) (actual time=0.003..0.003 rows=1.00 loops=2011)
+                                             Index Cond: (author_id = x.id)
+                                             Index Searches: 2011
+                                             Buffers: shared hit=8044
+                                       ->  Index Scan using works_pkey on works w  (cost=0.43..0.54 rows=1 width=22) (actual time=0.006..0.006 rows=1.00 loops=2011)
+                                             Index Cond: (id = wa.work_id)
+                                             Filter: (merged_into_id IS NULL)
+                                             Index Searches: 2011
+                                             Buffers: shared hit=8044
+         ->  Index Scan using authors_pkey on authors a  (cost=0.56..8.58 rows=1 width=22) (never executed)
+               Index Cond: (id = "ANY_subquery".id)
+               Index Searches: 0
+ Planning:
+   Buffers: shared hit=60
+ Planning Time: 0.835 ms
+ Execution Time: 54.175 ms
+(38 rows)
+
+ROLLBACK
+
+## offset 7700000
+SET
+SET
+range [7ffe9018-32c5-4e2f-aab5-1c874a5f1f82, 80534ce4-898a-4abe-9c9f-3527108453a4)
+BEGIN
+--- before (0040): the set arm
+                                                                            QUERY PLAN                                                                             
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Update on authors a  (cost=1.42..17.58 rows=0 width=0) (actual time=81.897..81.899 rows=0.00 loops=1)
+   Buffers: shared hit=72321 read=2382
+   ->  Nested Loop Semi Join  (cost=1.42..17.58 rows=1 width=19) (actual time=81.895..81.897 rows=0.00 loops=1)
+         Buffers: shared hit=72321 read=2382
+         ->  Index Scan using authors_pkey on authors a  (cost=0.56..8.58 rows=1 width=22) (actual time=0.035..47.075 rows=17947.00 loops=1)
+               Index Cond: ((id >= '7ffe9018-32c5-4e2f-aab5-1c874a5f1f82'::uuid) AND (id < '80534ce4-898a-4abe-9c9f-3527108453a4'::uuid))
+               Filter: (NOT has_works)
+               Rows Removed by Filter: 2053
+               Index Searches: 1
+               Buffers: shared hit=18217 read=1875
+         ->  Nested Loop  (cost=0.85..8.99 rows=1 width=28) (actual time=0.002..0.002 rows=0.00 loops=17947)
+               Buffers: shared hit=54104 read=507
+               ->  Index Scan using work_authors_author_idx on work_authors wa  (cost=0.43..8.45 rows=1 width=38) (actual time=0.001..0.001 rows=0.01 loops=17947)
+                     Index Cond: (author_id = a.id)
+                     Index Searches: 17947
+                     Buffers: shared hit=53828 read=167
+               ->  Index Scan using works_pkey on works w  (cost=0.43..0.54 rows=1 width=22) (actual time=0.022..0.022 rows=0.00 loops=154)
+                     Index Cond: (id = wa.work_id)
+                     Filter: (merged_into_id IS NULL)
+                     Rows Removed by Filter: 1
+                     Index Searches: 154
+                     Buffers: shared hit=276 read=340
+ Planning:
+   Buffers: shared hit=166 read=74
+ Planning Time: 2.201 ms
+ Execution Time: 82.027 ms
+(26 rows)
+
+ROLLBACK
+BEGIN
+--- after (0042): the set arm, driven by the range's credits
+                                                                        QUERY PLAN                                                                        
+----------------------------------------------------------------------------------------------------------------------------------------------------------
+ Update on authors a  (cost=170350.13..170435.34 rows=0 width=0) (actual time=88.974..88.978 rows=0.00 loops=1)
+   Buffers: shared hit=7706 read=6042
+   InitPlan 2
+     ->  Bitmap Heap Scan on work_authors wa  (cost=534.68..170349.57 rows=9000 width=16) (actual time=1.629..83.934 rows=2156.00 loops=1)
+           Recheck Cond: ((author_id >= '7ffe9018-32c5-4e2f-aab5-1c874a5f1f82'::uuid) AND (author_id < '80534ce4-898a-4abe-9c9f-3527108453a4'::uuid))
+           Filter: (SubPlan 1)
+           Rows Removed by Filter: 191
+           Heap Blocks: exact=2186
+           Buffers: shared hit=5546 read=6042
+           ->  Bitmap Index Scan on work_authors_author_idx  (cost=0.00..532.43 rows=18000 width=0) (actual time=0.818..0.818 rows=2347.00 loops=1)
+                 Index Cond: ((author_id >= '7ffe9018-32c5-4e2f-aab5-1c874a5f1f82'::uuid) AND (author_id < '80534ce4-898a-4abe-9c9f-3527108453a4'::uuid))
+                 Index Searches: 1
+                 Buffers: shared hit=14
+           SubPlan 1
+             ->  Index Scan using works_pkey on works w  (cost=0.43..8.45 rows=1 width=1) (actual time=0.019..0.019 rows=1.00 loops=2347)
+                   Index Cond: (id = wa.work_id)
+                   Index Searches: 2347
+                   Buffers: shared hit=5378 read=4010
+   ->  Index Scan using authors_pkey on authors a  (cost=0.56..85.77 rows=9 width=7) (actual time=88.972..88.972 rows=0.00 loops=1)
+         Index Cond: (id = ANY ((InitPlan 2).col1))
+         Filter: (NOT has_works)
+         Rows Removed by Filter: 2053
+         Index Searches: 6
+         Buffers: shared hit=7706 read=6042
+ Planning:
+   Buffers: shared hit=5 read=1
+ Planning Time: 0.245 ms
+ Execution Time: 89.112 ms
+(28 rows)
+
+ROLLBACK
+BEGIN
+--- before (0040): the clear arm
+                                                                                        QUERY PLAN                                                                                        
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Update on authors a  (cost=18.16..26.19 rows=0 width=0) (actual time=49.375..49.379 rows=0.00 loops=1)
+   Buffers: shared hit=36516
+   ->  Nested Loop  (cost=18.16..26.19 rows=1 width=47) (actual time=49.373..49.376 rows=0.00 loops=1)
+         Buffers: shared hit=36516
+         ->  HashAggregate  (cost=17.60..17.61 rows=1 width=56) (actual time=49.372..49.374 rows=0.00 loops=1)
+               Group Key: "ANY_subquery".id
+               Batches: 1  Memory Usage: 32kB
+               Buffers: shared hit=36516
+               ->  Subquery Scan on "ANY_subquery"  (cost=1.42..17.60 rows=1 width=56) (actual time=49.368..49.370 rows=0.00 loops=1)
+                     Buffers: shared hit=36516
+                     ->  LockRows  (cost=1.42..17.59 rows=1 width=34) (actual time=49.367..49.369 rows=0.00 loops=1)
+                           Buffers: shared hit=36516
+                           ->  Nested Loop Anti Join  (cost=1.42..17.58 rows=1 width=34) (actual time=49.365..49.367 rows=0.00 loops=1)
+                                 Buffers: shared hit=36516
+                                 ->  Index Scan using authors_pkey on authors x  (cost=0.56..8.58 rows=1 width=22) (actual time=0.064..29.913 rows=2053.00 loops=1)
+                                       Index Cond: ((id >= '7ffe9018-32c5-4e2f-aab5-1c874a5f1f82'::uuid) AND (id < '80534ce4-898a-4abe-9c9f-3527108453a4'::uuid))
+                                       Filter: has_works
+                                       Rows Removed by Filter: 17947
+                                       Index Searches: 1
+                                       Buffers: shared hit=20092
+                                 ->  Nested Loop  (cost=0.85..8.99 rows=1 width=28) (actual time=0.009..0.009 rows=1.00 loops=2053)
+                                       Buffers: shared hit=16424
+                                       ->  Index Scan using work_authors_author_idx on work_authors wa  (cost=0.43..8.45 rows=1 width=38) (actual time=0.003..0.003 rows=1.00 loops=2053)
+                                             Index Cond: (author_id = x.id)
+                                             Index Searches: 2053
+                                             Buffers: shared hit=8212
+                                       ->  Index Scan using works_pkey on works w  (cost=0.43..0.54 rows=1 width=22) (actual time=0.006..0.006 rows=1.00 loops=2053)
+                                             Index Cond: (id = wa.work_id)
+                                             Filter: (merged_into_id IS NULL)
+                                             Index Searches: 2053
+                                             Buffers: shared hit=8212
+         ->  Index Scan using authors_pkey on authors a  (cost=0.56..8.58 rows=1 width=22) (never executed)
+               Index Cond: (id = "ANY_subquery".id)
+               Index Searches: 0
+ Planning:
+   Buffers: shared hit=48 read=1
+ Planning Time: 0.678 ms
+ Execution Time: 49.520 ms
+(38 rows)
+
+ROLLBACK
+BEGIN
+--- after (0042): the clear arm, has_works IS TRUE
+                                                                                        QUERY PLAN                                                                                        
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Update on authors a  (cost=18.16..26.19 rows=0 width=0) (actual time=54.525..54.529 rows=0.00 loops=1)
+   Buffers: shared hit=36516
+   ->  Nested Loop  (cost=18.16..26.19 rows=1 width=47) (actual time=54.523..54.526 rows=0.00 loops=1)
+         Buffers: shared hit=36516
+         ->  HashAggregate  (cost=17.60..17.61 rows=1 width=56) (actual time=54.523..54.525 rows=0.00 loops=1)
+               Group Key: "ANY_subquery".id
+               Batches: 1  Memory Usage: 32kB
+               Buffers: shared hit=36516
+               ->  Subquery Scan on "ANY_subquery"  (cost=1.42..17.60 rows=1 width=56) (actual time=54.519..54.521 rows=0.00 loops=1)
+                     Buffers: shared hit=36516
+                     ->  LockRows  (cost=1.42..17.59 rows=1 width=34) (actual time=54.518..54.520 rows=0.00 loops=1)
+                           Buffers: shared hit=36516
+                           ->  Nested Loop Anti Join  (cost=1.42..17.58 rows=1 width=34) (actual time=54.517..54.518 rows=0.00 loops=1)
+                                 Buffers: shared hit=36516
+                                 ->  Index Scan using authors_pkey on authors x  (cost=0.56..8.58 rows=1 width=22) (actual time=0.037..32.619 rows=2053.00 loops=1)
+                                       Index Cond: ((id >= '7ffe9018-32c5-4e2f-aab5-1c874a5f1f82'::uuid) AND (id < '80534ce4-898a-4abe-9c9f-3527108453a4'::uuid))
+                                       Filter: (has_works IS TRUE)
+                                       Rows Removed by Filter: 17947
+                                       Index Searches: 1
+                                       Buffers: shared hit=20092
+                                 ->  Nested Loop  (cost=0.85..8.99 rows=1 width=28) (actual time=0.010..0.010 rows=1.00 loops=2053)
+                                       Buffers: shared hit=16424
+                                       ->  Index Scan using work_authors_author_idx on work_authors wa  (cost=0.43..8.45 rows=1 width=38) (actual time=0.004..0.004 rows=1.00 loops=2053)
+                                             Index Cond: (author_id = x.id)
+                                             Index Searches: 2053
+                                             Buffers: shared hit=8212
+                                       ->  Index Scan using works_pkey on works w  (cost=0.43..0.54 rows=1 width=22) (actual time=0.006..0.006 rows=1.00 loops=2053)
+                                             Index Cond: (id = wa.work_id)
+                                             Filter: (merged_into_id IS NULL)
+                                             Index Searches: 2053
+                                             Buffers: shared hit=8212
+         ->  Index Scan using authors_pkey on authors a  (cost=0.56..8.58 rows=1 width=22) (never executed)
+               Index Cond: (id = "ANY_subquery".id)
+               Index Searches: 0
+ Planning:
+   Buffers: shared hit=48
+ Planning Time: 0.484 ms
+ Execution Time: 54.588 ms
+(38 rows)
+
+ROLLBACK

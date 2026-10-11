@@ -32,7 +32,7 @@ After each part: review the diff and `findings/NN-*.md`, then commit before star
 | 12 | `12-import-export.md` | IM-01…12 | CSV formula injection, encodings |
 | 13 | `13-social-graph.md` | SO-01…06 | docs describe the wrong schema, §11.7 limits |
 | 14 | `14-feed.md` | SO-10…15 | pagination skips items, home feed is sample data |
-| 15 | `15-cross-cutting-and-wrap-up.md` | all | rate limiting once, perf comparison, docs, SUMMARY. Run in two halves: **15a** (cloud, done 10 Oct: `findings/15-cross-cutting.md`) and **15b** (laptop: `15b-laptop.md`) |
+| 15 | `15-cross-cutting-and-wrap-up.md` | all | rate limiting once, perf comparison, docs, SUMMARY. Run in two halves: **15a** (cloud, done 10 Oct: `findings/15-cross-cutting.md`) and **15b** (laptop: `15b-laptop.md`). **15c** (cloud, 11 Oct): DECISIONS 6 and 7 built, migration `0042` and `shm_size`; the laptop checklist is `15c-laptop.md` |
 
 **Results:** `SUMMARY.md` (one page: totals, top 10, device checklist, what is open), `DECISIONS.md` (questions waiting on the owner), `PENDING.md` (work after the audit), and `perf/comparison.md` (baseline vs after; filled in 15b).
 

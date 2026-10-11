@@ -1,0 +1,148 @@
+{
+  "meta": {
+    "label": "15c/review-post-before-sandbox-2",
+    "date": "2026-10-11T12:26:14.345Z",
+    "base_url": "http://localhost:3000",
+    "commit": "e204513",
+    "dirty": true,
+    "node": "v22.22.0",
+    "connections": 10,
+    "duration_s": 10,
+    "sequential_n": 15,
+    "seed_generated_at": "2026-10-11T12:07:10.957Z",
+    "seed_counts": {
+      "users": 3000,
+      "private_users": 300,
+      "follows": 186014,
+      "pending_follows": 9259,
+      "blocks": 150,
+      "mutes": 300,
+      "reads": 62365,
+      "import_reads": 9425,
+      "rereads": 5156,
+      "progress_events": 220584,
+      "reviews": 12000,
+      "likes": 40000,
+      "comments": 8000,
+      "shelves": 4005,
+      "shelf_items": 79251,
+      "saves": 1500,
+      "activity": 142152
+    },
+    "personas": {
+      "heavy": {
+        "username": "bench_u00006",
+        "following": 1158,
+        "followers": 141
+      },
+      "typical": {
+        "username": "bench_u00182",
+        "following": 40,
+        "followers": 22
+      },
+      "new": {
+        "username": "bench_u00011",
+        "following": 0,
+        "followers": 0
+      },
+      "private_owner": {
+        "username": "bench_u00012",
+        "following": 40,
+        "followers": 5
+      },
+      "blocked_pair_a": {
+        "username": "bench_u00013",
+        "following": 379,
+        "followers": 36
+      },
+      "blocked_pair_b": {
+        "username": "bench_u00014",
+        "following": 28,
+        "followers": 41
+      },
+      "celebrity": {
+        "username": "bench_u00001",
+        "following": 48,
+        "followers": 2577
+      },
+      "reviewer_of_hot_work": {
+        "username": "bench_u00015",
+        "following": 32,
+        "followers": 161
+      }
+    },
+    "notes": [
+      "search:common dropped \"love\" (0 local results; would trigger live gap-fill)",
+      "search:common dropped \"war\" (0 local results; would trigger live gap-fill)",
+      "search:common dropped \"night\" (0 local results; would trigger live gap-fill)",
+      "search:common dropped \"house\" (0 local results; would trigger live gap-fill)",
+      "search:common dropped \"girl\" (0 local results; would trigger live gap-fill)",
+      "search:author dropped \"tolkien\" (0 local results; would trigger live gap-fill)",
+      "search:author dropped \"stephen king\" (0 local results; would trigger live gap-fill)",
+      "search:author dropped \"murakami\" (0 local results; would trigger live gap-fill)",
+      "search:author dropped \"agatha christie\" (0 local results; would trigger live gap-fill)",
+      "search:author dropped \"jane austen\" (0 local results; would trigger live gap-fill)",
+      "search:author dropped \"haruki murakami\" (0 local results; would trigger live gap-fill)",
+      "search:cjk dropped \"村上春樹\" (0 local results; would trigger live gap-fill)",
+      "search:cjk dropped \"ハリー\" (0 local results; would trigger live gap-fill)",
+      "search:typo dropped \"harry pottr\" (0 local results; would trigger live gap-fill)",
+      "search:typo dropped \"atomc habits\" (0 local results; would trigger live gap-fill)",
+      "search:typo dropped \"the hobit\" (0 local results; would trigger live gap-fill)",
+      "search:typo dropped \"pride and prejudise\" (0 local results; would trigger live gap-fill)",
+      "search:typo dropped \"lord of the rigns\" (0 local results; would trigger live gap-fill)"
+    ]
+  },
+  "results": [
+    {
+      "scenario": "review:post",
+      "group": "api",
+      "method": "POST",
+      "persona": "reviewer_of_hot_work",
+      "notes": [
+        "edits the hot review (bench data) and its read's rating; writes no new rows"
+      ],
+      "skipped": null,
+      "sequential": {
+        "statuses": {
+          "200": 15
+        },
+        "latencyP50": 157.69882999999936,
+        "queries": [
+          10,
+          10,
+          10,
+          10,
+          10,
+          10,
+          10,
+          10,
+          10,
+          10,
+          10,
+          10,
+          10,
+          10,
+          10
+        ],
+        "sampleError": null,
+        "n": 15
+      },
+      "load": {
+        "requests": 71,
+        "completed": 67,
+        "unfinished": 10,
+        "rps": 6.1,
+        "p50": 549.952172,
+        "p95": 10000,
+        "p99": 10000,
+        "max": 10000,
+        "statuses": {
+          "200": 67
+        },
+        "errors": 0,
+        "timeouts": 4,
+        "drainMs": 3777.969195999998
+      }
+    }
+  ]
+}

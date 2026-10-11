@@ -295,6 +295,13 @@
       "when": 1789240000000,
       "tag": "0041_retention",
       "breakpoints": true
+    },
+    {
+      "idx": 42,
+      "version": "7",
+      "when": 1789250000000,
+      "tag": "0042_activity_object_and_author_repair",
+      "breakpoints": true
     }
   ]
 }
