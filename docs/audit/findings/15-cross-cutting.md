@@ -372,7 +372,7 @@
 - mobile typecheck; mobile tests **214 passed**;
 - migrations on a real Postgres: `migrations applied`.
 
-GitHub Actions on the PR: see the PR.
+**GitHub Actions (PR #7, run 38144192558, commit `a044390`): green in 762 s, all 9 steps**, with the same counts as the sandbox run: 83 files, 1,731 passed, 10 skipped (no MinIO); mobile 214; migrations applied on Postgres 18.6.
 
 ### 15c laptop (to fill in from `15c-laptop.md`)
 - 0042 on `flyleaf_dev`: _time_; on `flyleaf`: _time_; `activity_object_idx` valid on both: _ _.
