@@ -830,18 +830,18 @@ Already replaced: container-init schema → drizzle migrations (`FN-01`) · opaq
 
 ## Verification status
 
-Refreshed by the audit (Part 15a, 2026-10-10). Every figure below names where it was measured. **TBD in 15b** marks figures that need the laptop's databases (`docs/audit/15b-laptop.md`).
+Refreshed by the audit (Part 15a, 2026-10-10; laptop figures from Part 15b, 2026-10-11). Every figure below names where it was measured.
 
 | Check | Result |
 |---|---|
-| CI | `node scripts/ci.mjs` runs 9 steps, the same ones GitHub Actions runs: api-client build, api typecheck, spec check, api tests, api build, `npm audit --audit-level=high`, mobile typecheck, mobile tests, and migrations on a real Postgres 18. Last full run: see `docs/audit/findings/15-cross-cutting.md` › CI result. |
-| API tests (`vitest`) | **1,733 tests in 82 files**. Every suite that touches SQL runs against **PGlite** (Postgres in WASM). PGlite timestamps have millisecond resolution, so cursor precision is also checked on a real server (`src/bench/cursor-sweep.ts`). |
+| CI | `node scripts/ci.mjs` runs 9 steps, the same ones GitHub Actions runs: api-client build, api typecheck, spec check, api tests, api build, `npm audit --audit-level=high`, mobile typecheck, mobile tests, and migrations on a real Postgres 18. Last full run: GitHub Actions on PR #6, green in 765 s (Part 15b); see `docs/audit/findings/15-cross-cutting.md` › CI result. |
+| API tests (`vitest`) | **1,734 tests in 82 files** (Part 15b, 2026-10-11: green on GitHub Actions; its 10 MinIO-only tests green on the laptop). Every suite that touches SQL runs against **PGlite** (Postgres in WASM). PGlite timestamps have millisecond resolution, so cursor precision is also checked on a real server (`src/bench/cursor-sweep.ts`). |
 | Mobile tests (`node --test`) | **214 tests**: offline queue, auth, guest, reading rules, stats, telemetry budgets, feed cards, shelves, social and interactions |
 | Audit | 15 parts, all in `docs/audit/`: findings per part, `SUMMARY.md`, and open questions in `DECISIONS.md` |
 | OpenAPI drift | **0**. `spec:check` fails the build on any divergence. |
 | Migrations | **42** (`0000_phase0_catalog` … `0041_retention`). They apply cleanly to an empty database in the test suite and to a real Postgres in CI. They are hand-written and idempotent from `0019` on. |
-| Rate limits | One layer, PRD §24.4 / §11.7 / §10.6. Exact limits are kept in Postgres, per-request ones in process. Measured cost (sandbox): `docs/audit/perf/15a-rate-limit-overhead-sandbox.md`. Laptop: TBD in 15b. |
-| Performance vs the Part 01 baseline | `docs/audit/perf/comparison.md`: **TBD in 15b** |
+| Rate limits | One layer, PRD §24.4 / §11.7 / §10.6. Exact limits are kept in Postgres, per-request ones in process. Measured cost: `docs/audit/perf/15a-rate-limit-overhead-sandbox.md`. Laptop (`flyleaf_dev`, 3 runs): Global in process within noise of no limits; Global in Postgres 22–25 % fewer requests/s. |
+| Performance vs the Part 01 baseline | `docs/audit/perf/comparison.md` (`flyleaf_dev`, 11 Oct): **24 pass, 11 over budget, 1 not measured**. Budgets are indicative only on the 8 GB dev laptop; each over-budget row has its EXPLAIN and a plan. |
 | Relevance panel | PGlite corpus **216/217** (floor 0.98). Real catalog **214/214** after Part 02d's popularity weight. |
 | Catalog | **3,203,575 works · 15,409,896 authors · 3,791,016 authorship links · 2.18M covers** (`flyleaf`, Phase 0 ingest) |
 | Background jobs | pg-boss worker. Monthly: `catalog.dedupe` (sliced stages). Nightly, UTC: `shelves.reconcile` 03:00, `follows.reconcile` 03:15, `reads.reconcile` 03:30, `works.reconcile` 03:40, `storage.cleanup` 03:45, `activity.prune` 03:55, `authors.repair` 04:05, `retention.sweep` 04:20. Weekly: `search.suggestions.refresh` (Sun 04:00), `search.zero.summary` (Mon 04:30). On demand: `imports.process`, `exports.process`. Each batch process connects with its own `work_mem` and `statement_timeout` (`JOB_DB_SETTINGS`). |

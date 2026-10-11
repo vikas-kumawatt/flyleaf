@@ -1,0 +1,182 @@
+{
+  "meta": {
+    "label": "15b-post-blocking",
+    "date": "2026-10-11T09:01:06.268Z",
+    "base_url": "http://localhost:3000",
+    "commit": "40defba",
+    "dirty": true,
+    "node": "v22.20.0",
+    "connections": 10,
+    "duration_s": 10,
+    "sequential_n": 15,
+    "seed_generated_at": "2026-09-24T13:46:15.893Z",
+    "seed_counts": {
+      "users": 3000,
+      "private_users": 300,
+      "follows": 186014,
+      "pending_follows": 9259,
+      "blocks": 150,
+      "mutes": 300,
+      "reads": 62365,
+      "import_reads": 9425,
+      "rereads": 5156,
+      "progress_events": 220584,
+      "reviews": 12000,
+      "likes": 40000,
+      "comments": 8000,
+      "shelves": 4005,
+      "shelf_items": 79251,
+      "saves": 1500,
+      "activity": 142152
+    },
+    "personas": {
+      "heavy": {
+        "username": "bench_u00006",
+        "following": 1158,
+        "followers": 141
+      },
+      "typical": {
+        "username": "bench_u00182",
+        "following": 40,
+        "followers": 22
+      },
+      "new": {
+        "username": "bench_u00011",
+        "following": 0,
+        "followers": 0
+      },
+      "private_owner": {
+        "username": "bench_u00012",
+        "following": 40,
+        "followers": 5
+      },
+      "blocked_pair_a": {
+        "username": "bench_u00013",
+        "following": 379,
+        "followers": 36
+      },
+      "blocked_pair_b": {
+        "username": "bench_u00014",
+        "following": 28,
+        "followers": 41
+      },
+      "celebrity": {
+        "username": "bench_u00001",
+        "following": 48,
+        "followers": 2577
+      },
+      "reviewer_of_hot_work": {
+        "username": "bench_u00015",
+        "following": 32,
+        "followers": 161
+      }
+    },
+    "notes": [
+      "search:cjk dropped \"ハリー\" (0 local results; would trigger live gap-fill)"
+    ]
+  },
+  "results": [
+    {
+      "scenario": "review:post",
+      "group": "api",
+      "method": "POST",
+      "persona": "reviewer_of_hot_work",
+      "notes": [
+        "edits the hot review (bench data) and its read's rating; writes no new rows"
+      ],
+      "skipped": null,
+      "sequential": {
+        "statuses": {
+          "200": 15
+        },
+        "latencyP50": 83.11100000000079,
+        "queries": [
+          10,
+          10,
+          10,
+          10,
+          10,
+          10,
+          10,
+          10,
+          10,
+          10,
+          10,
+          10,
+          10,
+          10,
+          10
+        ],
+        "sampleError": null,
+        "n": 15
+      },
+      "load": {
+        "requests": 169,
+        "completed": 168,
+        "unfinished": 10,
+        "rps": 16.6,
+        "p50": 189.9773,
+        "p95": 1508.74,
+        "p99": 6239.2739,
+        "max": 10000,
+        "statuses": {
+          "200": 168
+        },
+        "errors": 0,
+        "timeouts": 1,
+        "drainMs": 2384.2992000000013
+      }
+    },
+    {
+      "scenario": "rate:post",
+      "group": "api",
+      "method": "POST",
+      "persona": "reviewer_of_hot_work",
+      "notes": [
+        "finishes the hot review's read with a changing rating; rewrites that bench read and adds an activity row per request (removed by --clean)"
+      ],
+      "skipped": null,
+      "sequential": {
+        "statuses": {
+          "200": 15
+        },
+        "latencyP50": 43.28790000000299,
+        "queries": [
+          6,
+          6,
+          6,
+          6,
+          6,
+          6,
+          6,
+          6,
+          6,
+          6,
+          6,
+          6,
+          6,
+          6,
+          6
+        ],
+        "sampleError": null,
+        "n": 15
+      },
+      "load": {
+        "requests": 347,
+        "completed": 344,
+        "unfinished": 10,
+        "rps": 34.1,
+        "p50": 94.673,
+        "p95": 357.1003,
+        "p99": 8883.1907,
+        "max": 10000,
+        "statuses": {
+          "200": 344
+        },
+        "errors": 0,
+        "timeouts": 3,
+        "drainMs": 3681.9910999999993
+      }
+    }
+  ]
+}

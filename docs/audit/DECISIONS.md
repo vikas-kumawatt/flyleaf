@@ -10,8 +10,13 @@ Collected in Part 15a (2026-10-10) from every `DECISION NEEDED` in `docs/audit/f
 - **Options:**
   - (a) drop it with `DROP INDEX CONCURRENTLY` in a new migration;
   - (b) keep it.
-- **Recommendation:** (a), after 15b confirms `idx_scan = 0` on `flyleaf` after the full bench (`15b-laptop.md` › 3). Saves 938 MB and write cost on author ingest.
-- **Now:** unchanged.
+- ~~**Recommendation:** (a), after 15b confirms `idx_scan = 0` on `flyleaf` after the full bench (`15b-laptop.md` › 3). Saves 938 MB and write cost on author ingest.~~
+- **15b (2026-10-11): the precondition fails.** The index's expression, `flyleaf_author_names(name, alternate_names)`, is used by **search's ranking author term** (`catalog/index.ts`, the `EXISTS … ILIKE ANY ($7)` in the ORDER BY). That subquery has no `has_works` filter, so the partial `authors_credited_trgm_idx` cannot serve it.
+  - On `flyleaf_dev` the planner runs it as a hashed subplan through `authors_search_trgm_idx`: **15,207 scans** this session (`perf/15b/index-check-dev.txt`; plans in `perf/15b/explain-author-search-dev.txt`).
+  - On `flyleaf` (959 MB index) the same term ran **per row through primary keys** for `ishiguro`, `ishigoro` and `king`, and did not touch the index (`perf/15b/explain-author-search-full.txt`). "Used by search" is proven only on `flyleaf_dev`.
+  - The condition "idx_scan = 0 on `flyleaf` after the full bench" cannot be met as written: the query references the index's expression, the planner chooses it on the smaller database, and 15b runs no search workload on `flyleaf`.
+- **Recommendation (15b): (b) keep it.** Revisit after A-02d-002 (author names on `works`), which changes this term; or measure a search sweep on `flyleaf` and read `idx_scan` if the 959 MB matters sooner.
+- **Now:** unchanged (kept).
 
 ### 2. Ratings from new or unverified accounts, including imports (§9.7, A-09-021; Part 12 hand-over)
 - **Question:** an import can bulk-add ratings from a new or unverified account. Their reviews stay hidden until verification (D-05-3). Their **ratings** count in the work's average and histogram at once.
@@ -43,6 +48,7 @@ Collected in Part 15a (2026-10-10) from every `DECISION NEEDED` in `docs/audit/f
   - (b) drop only the duplicate **credit**, keeping both author records (one statement per batch, reversible from a saved list);
   - (c) merge the same-name author records that share a work: aliases kept, works re-pointed, batched, reversible like work merges.
 - **Recommendation:** decide after 15b's `npx tsx src/bench/duplicate-credits.ts` count and sample (`15b-laptop.md` › 4). If the sample shows the same person, then (b) now and (c) as an admin-reviewed batch. If not, then (b) only.
+- **15b (2026-10-11): the count was not measured.** It failed on a parallel hash (`/dev/shm` 64 MB, A-15-028), then was killed by the memory guard on the 8 GB laptop (`perf/15b/duplicate-credits-full.md`). Still waiting on a run on a machine with ≥ 16 GB.
 - **Now:** ingest fixed; existing data unchanged.
 
 ### 5. Dedupe groups of more than two (Part 03c, D5 follow-up; in `PENDING.md`)
@@ -52,6 +58,26 @@ Collected in Part 15a (2026-10-10) from every `DECISION NEEDED` in `docs/audit/f
   - (b) sample about 25 groups and write a rule only if it holds on the sample.
 - **Recommendation:** (b), post-audit, as `PENDING.md` says.
 - **Now:** held.
+
+### 6. Build A-15-027 and A-15-029 now? (Part 15b)
+- **Question:** 15b found two plan problems on write and batch paths. Each fix is a small migration, to be applied to both databases.
+  - **A-15-027:** the nightly `has_works` repair hash-scans all of `work_authors` and `works` for every 20,000-author range.
+  - **A-15-029:** `activity` has no `(object_type, object_id)` index, so every review save seq-scans `activity` inside the read's lock.
+- **Options:**
+  - (a) one migration `0042` with both: the repair's set arm driven from `work_authors_author_idx`, and `activity_object_idx`. Verified by EXPLAIN on `flyleaf` and a before/after `review:post` on `flyleaf_dev`. About half a day with the laptop runs.
+  - (b) A-15-029 now, A-15-027 with the ≥ 16 GB run of `authors.repair`.
+  - (c) both post-audit.
+- **Recommendation:** (a). Both are P1, both are small, and the repair cannot be measured until it is ranged in practice.
+- **Now:** recorded, not built.
+
+### 7. `shm_size` for the Postgres container (A-15-028, Part 15b)
+- **Question:** Docker's default 64 MB `/dev/shm` makes a parallel hash join fail (SQLSTATE 53100). The server's `max_parallel_workers_per_gather` is 2, so this applies to API queries too.
+- **Options:**
+  - (a) `shm_size: 512m` on the postgres service, plus a container recreate. The memory counts within the 3 GiB limit.
+  - (b) `max_parallel_workers_per_gather = 0` for the API.
+  - (c) both.
+- **Recommendation:** (a), at the next planned recreate.
+- **Now:** unchanged.
 
 ## Taken in Part 15a (reversible): please confirm or change
 

@@ -6,7 +6,7 @@
 
 - **No `flyleaf` / `flyleaf_dev`, no Docker.** A local **PostgreSQL 18.3** (the `embedded-postgres` npm package, as in Parts 12–14) on :5432 with an empty `flyleaf` database; `npm run migrate` applied 0038–0041 to it cleanly. **MinIO** built from source (`go install github.com/minio/minio@RELEASE.2025-04-22T22-12-26Z`) on :9000 for the storage contract tests.
 - **New migrations 0038–0041 are applied to PGlite and the sandbox Postgres only.** `flyleaf_dev` is unchanged until 15b (with 0034–0037 from Parts 11–13).
-- **Every number below says where it came from.** "Sandbox, synthetic" numbers are only good for ratios and plan shapes. Nothing measured on `flyleaf`/`flyleaf_dev` is claimed here; those rows say **TBD in 15b**.
+- **Every number below says where it came from.** "Sandbox, synthetic" numbers are only good for ratios and plan shapes. Nothing measured on `flyleaf`/`flyleaf_dev` was claimed by 15a; those rows now carry the 15b laptop result (2026-10-11), each naming its database.
 - Branch `audit/15a-cross-cutting` from `main` (after PR #4), committed, pushed, PR to `main`.
 
 ## Owner decision recorded at the start of this part
@@ -19,9 +19,9 @@
 |---|---|---|---|
 | 1 | one limiter layer for every RL finding; PRD refs next to numbers; global tier; 429 + Retry-After; measure the cost; table tests; `rate_limits` cleanup | ✅ `platform/rate-limits.ts`, one table, two stores chosen by measurement; every RL finding of Parts 01–14 mapped below; `rate_limits` rows now expire and are swept | A-15-002, A-15-015 |
 | 2 | `DECISIONS.md` | ✅ written; nothing in it implemented | — |
-| 3 | per-job `work_mem` / `statement_timeout`; container memory; no whole-catalog statement; A-03-027 ingest fix | ✅ code; **measurements TBD in 15b** | A-15-004 … A-15-006 |
+| 3 | per-job `work_mem` / `statement_timeout`; container memory; no whole-catalog statement; A-03-027 ingest fix | ✅ code; 15b: limits verified by readback, reconciles measured on `flyleaf`; `authors.repair`, the dedupe dry runs and the A-03-027 count **not measured** (laptop memory; ≥ 16 GB machine), and the repair's plan is A-15-027 | A-15-004 … A-15-006, A-15-027, A-15-028 |
 | 4 | matrix; counters; `has_works` repair; retention; HTML/CSP; offline replay | ✅ | A-15-007 … A-15-009, A-15-014, A-15-016 … A-15-019 |
-| 5 | docs reconciliation | ✅ except numbers that need the laptop (**TBD in 15b**) | — |
+| 5 | docs reconciliation | ✅; laptop numbers filled in 15b, or marked "not measured" with the reason | — |
 | 6 | final verification on the real DBs | **15b** (`15b-laptop.md` › 6) | — |
 | Handed over (10) | event retention, zero-result summary, tap counter, avatar retention | ✅ | A-15-008, A-15-009, A-15-010 |
 | Handed over (12) | import/export/upload limits; retention of deleted accounts' objects and of `import_rows` | ✅ | A-15-002, A-15-008 |
@@ -71,7 +71,7 @@
 | A-03-009 dedupe report | writes 120/min | hook |
 | SO-22 comments | unchanged (5/min, same bucket name) | `enforceWith` |
 
-- **Cost (sandbox, synthetic; `perf/15a-rate-limit-overhead-sandbox.md`, 3 runs):** one `PgRateLimiter.hit` ≈ 1.5–1.7 ms p50 against ≈ 1 µs in process. End to end on one cheap route: production config (Global in process) within noise of no limits; Global in Postgres **26–35 % fewer requests/s** and one row update per request. Hence the split above. Laptop rerun: **TBD in 15b**.
+- **Cost (sandbox, synthetic; `perf/15a-rate-limit-overhead-sandbox.md`, 3 runs):** one `PgRateLimiter.hit` ≈ 1.5–1.7 ms p50 against ≈ 1 µs in process. End to end on one cheap route: production config (Global in process) within noise of no limits; Global in Postgres **26–35 % fewer requests/s** and one row update per request. Hence the split above. **Laptop rerun (15b, `flyleaf_dev`, 3 runs, `perf/15b/rate-limit-overhead.txt`) confirms the reading:** Global in process within noise of no limits (+7–8 % req/s in all three runs: order and warm-up, not a gain); Global in Postgres **22–25 % fewer requests/s** than no limits (a quarter here against a third in the sandbox); one `PgRateLimiter.hit` 5.1 ms p50 (sandbox 1.5–1.7 ms). D-15-1 stands.
 - **Tests:** `rate-limits.test.ts` (94): the table mirrors PRD §24.4/§11.7/§10.6 exactly; each in-process limit allows exactly N, refuses N+1 with `Retry-After` and resets; each exact limit the same on Postgres; every state-changing route is in a group; 16 HTTP cases (search per IP and per account, Global across routes, auth per IP, writes vs progress, follows ×3, reviews, imports with replay, exports, uploads, username, events, admin login JSON and form, comments unchanged). Seen failing before the fix: the file cannot load on `main` (no `rate-limits.ts`), and every HTTP case asserts a 429 that `main` never sends (4 limiter call sites).
 
 ### A-15-003 · P1 · D-14-1 built: Popular is popular
@@ -84,20 +84,20 @@
 - **Container memory:** `docker-compose.yml` sets `mem_limit: 3g`, `shared_buffers` 512 MB, `work_mem` 4 MB, `hash_mem_multiplier` 2, `maintenance_work_mem` 256 MB, `max_connections` 50, `effective_cache_size` 2 GB, with the arithmetic in a comment (worst case ≈ API pool × 4 MB × 2 + jobs' budgets + shared buffers < 3 GB). **Applying it recreates the Postgres container: 15b, after the bench.**
 - **Verified (sandbox):** `npx tsx src/bench/job-settings-check.ts` read back `SHOW work_mem / statement_timeout` through each pool: worker 32MB / 10min, dedupe 64MB / 30min, ingest 64MB / 1h, API 4MB / 0.
 - **Test:** `cross-cutting-audit` › *every batch process connects with its own work_mem and statement_timeout*. Seen failing before the fix: yes (no `JOB_DB_SETTINGS`).
-- **Not measured here:** the OOM scenario on the full catalog. **TBD in 15b** (`15b-laptop.md` › 4).
+- **15b (laptop):** the container was recreated with the limit (step 12, moved before step 8 by the owner): `HostConfig.Memory` 3221225472, `shared_buffers` 512MB, `work_mem` 4MB, `hash_mem_multiplier` 2, `maintenance_work_mem` 256MB, `effective_cache_size` 2GB (`max_connections` 50, then 100 per A-15-026); both databases at 42 migrations after each recreate; no crash recovery in its log. `job-settings-check.ts` on `flyleaf`, before and after: worker 32MB / 10min, dedupe 64MB / 30min, ingest 64MB / 1h, API 4MB / 0 (before step 12 that API row is the stock default, A-15-031). **The unlimited "before" is Part 03c's OOM crash**: not repeated on this 8 GB machine (owner, 2026-10-11). The monthly dedupe dry run under the limit is **not measured here** (owner: run on a machine with ≥ 16 GB before the backlog merge).
 
 ### A-15-005 · P1 · No batch job builds a whole-catalog set in one statement (A-03-026)
 - **Reconciles:** `reconcile_read/follow/shelf_counters(lo, hi)` and `reconcile_work_counters(lo, hi, c)` (0040) take a key range; the jobs walk `walkRanges` (`jobs/ranges.ts`) in ranges of `RECONCILE_BATCH` = 5,000 keys and report ranges and rows corrected. The whole-table functions are kept for tests and manual use.
 - **Dedupe:** `detectStage12` runs stage 1 in ISBN ranges (`STAGE1_ISBN_BATCH` = 20,000) and stage 2 in author batches (the backlog's walk, A-03-025); stage 3 runs its peer search in chunks of `STAGE3_PEER_CHUNK` = 500 per author batch. Results are merged and sorted in JS, so the output is the same.
 - **Finalise:** `MARK_CREDITED_AUTHORS` (one statement over 15.4M authors) is replaced by the range repair of A-15-007.
 - **Tests:** `cross-cutting-audit` › *walkRanges covers every key once…* and *read, follow, shelf and work counters: drift repaired range by range; the whole-table function then finds nothing*; `dedupe.test.ts` › *sliced stages 1–3 find exactly the pairs the whole-catalog statements find* (guard: proves equivalence, passes by design).
-- **Measurement on the full catalog:** **TBD in 15b** (dedupe dry run with `/usr/bin/time -v` and `pg_stat_activity` peak, `15b-laptop.md` › 4).
+- **Measurement on the full catalog (15b, `flyleaf`, under the 3 GiB limit, `perf/15b/jobs-full.txt`):** `reconcile.reads` 13 ranges, 0 corrected, 1.4 s; `reconcile.follows` 1 range, 0, 0.3 s; `reconcile.shelves` 1 range, 0, 0.9 s; `reconcile.works` 13 ranges, 0 work_stats / 0 reader_count, 7.6 s; no statement timeout. Postgres container 559–580 MiB in the 5 s samples across all four (`perf/15b/pg-mem.txt`). `authors.repair`: **not measured here: killed by the memory guard at 133 MB**, and its set arm is not ranged in practice (A-15-027). Monthly dedupe dry run and the backlog dry run: **not measured here** (≥ 16 GB machine, before the backlog merge).
 
 ### A-15-006 · P1 · Ingest no longer adds a second credit under a name already on the work (A-03-027)
 - **Evidence (Part 03c, `flyleaf`):** 11,112 live works credited to two author records with the same name.
 - **Fix:** `catalog/ingest/writer.ts` `SAME_NAME_CREDIT_GUARD`: `MERGE_WORK_AUTHORS` and `RESOLVE_PENDING_WORK_AUTHORS` credit at most one author record per `lower(btrim(name))` per work (the first by key order; an existing credit wins).
 - **Test:** `ingest.test.ts` › *A-03-027: a work is not credited twice under one name*. Seen failing on the old SQL: yes (2 credits).
-- **Existing data and an author merge:** not changed here. `src/bench/duplicate-credits.ts` (read-only) counts the affected works, the same-name record pairs that share a work (merge candidates) and samples them. **Run in 15b**; whether to merge same-name authors is **D-15-8** in `DECISIONS.md`.
+- **Existing data and an author merge:** not changed here. `src/bench/duplicate-credits.ts` (read-only) counts the affected works, the same-name record pairs that share a work (merge candidates) and samples them. **15b (`flyleaf`): not measured.** The first attempt failed in Postgres on a parallel hash join (`/dev/shm` 64 MB, A-15-028); the second, with parallelism off for its session, was killed by the memory guard at 175 MB after ~50 s, and its read-only statement was cancelled (`perf/15b/duplicate-credits-full.md`). Part 03c's 11,112 works / 12,524 pairs stand until it runs on a ≥ 16 GB machine; **D-15-8** in `DECISIONS.md` waits on that count.
 
 ### A-15-007 · P1 · `authors.has_works` has a nightly repair
 - **Fix:** `repair_author_has_works(lo, hi)` (0040) sets the flag for credited authors and clears it for authors whose works were all merged away (`FOR UPDATE SKIP LOCKED`, so it never waits on an ingest); returns `{set, cleared}`. Job `authors.repair`, `'5 4 * * *'`, walks authors in ranges of 20,000. `--finalise` calls the same function.
@@ -197,6 +197,47 @@
 - **Fix:** the send is not awaited; a failure goes to `IdentityService.onMailError`, which production wires to the error reporter. Part 04's plan was a pg-boss job; that would store the raw reset token in `pgboss.job`, where the token table deliberately keeps only a hash, so the send stays in process.
 - **Test:** `auth-audit` › *forgot-password does not wait for the mail…*: a mailer that never finishes does not hold the call; a failing one is reported and the call still answers ok. Seen failing with the send awaited again (mutation): yes (`expected 'waited for the mailer' to be 'returned'`).
 
+## Findings added in 15b (laptop, 2026-10-11)
+
+### A-15-024 · P1 · Shelf browse and saved answered 500 for any page with a cover-less work in a mosaic
+- **Evidence (`flyleaf_dev`, step 4's first run):** `shelves:browse` 500 × 1,315 and `shelves:saved` 500 × 1,819; the log said `The value of '#/properties/shelves/items/properties/cover_ids/items' does not match schema definition`. postgres.js 3.4.9's array parser has no case for an unquoted `NULL` and hands the text `NULL` to the int4 parser (`+x`), so `ARRAY(SELECT cw.ol_cover_id …)` decodes `{8315603,NULL,4202989}` as `[8315603, NaN, 4202989]`; `cardFromRow` mapped only `=== null`, and `NaN` failed the `integer` schema. PGlite returns `null`, which is why every test (several put cover-less works on shelves) passed. Reproduced over HTTP: every guest `GET /v1/shelves/browse` page was 500.
+- **Fix:** `coverIdsFromRow()` (`shelves/index.ts`) maps anything that is not a number to `null`.
+- **Test:** `shelves-audit` › *decodes what each driver returns for a NULL cover id as null* (postgres.js `NaN`, PGlite `null`, the text form). Seen failing before the fix: yes, on the extracted old logic (`expected [ 8315603, NaN, 4202989 ] to deeply equal [ 8315603, null, 4202989 ]`), not only on the missing function. After the fix: step 4 re-run, every shelf scenario 2xx.
+- **Same class elsewhere (owner's check):** the only other array the API decodes from a query is the admin catalog's `pg_stats` read (`most_common_vals`/`most_common_freqs`, never NULL elements). The `array_agg`s in gap-fill and the ingest writer are consumed inside SQL. The six stored array columns are `text[]`/`uuid[]`: a NULL element there would decode as the **string** `"NULL"`, not `NaN`. Counted on both databases (`array_position(col, NULL) IS NOT NULL`): **0 rows** in `works.alternate_titles`, `authors.alternate_names`, `profiles.favourite_work_ids`, `admin_credentials.backup_codes`/`pending_backup_codes`, `shelves.cover_work_ids`. Residual risk: that is today's data; no constraint stops a writer adding one.
+
+### A-15-025 · P2 · `review:post` and `rate:post` time out under 10 concurrent writes to one read (owner: post-audit)
+- **Evidence (`flyleaf_dev`):** 4 and 3 timeouts (10 s) in step 4's run, in its re-run, and in a run with memory freed (medians halved: p50 91 vs 186 ms and 39 vs 94 ms), so memory pressure slowed them but did not cause them. `perf/15b/post-rerun-locks.txt`: 8–9 of 10 backends in `Lock:transactionid` / `Lock:tuple`, the oldest statement's age climbing 1 → 10 s. `perf/15b/post-blocking-pids.txt` (`pg_blocking_pids()` every 0.5 s, after step 12): the **root holder changes every sample** and holds for 0.05–0.3 s (once 1.0, once 1.6 s) while running the transactions' ordinary statements; up to 9 waiters queue on one `reads` row and the unluckiest waits 9.5–9.7 s.
+- **Not pool starvation:** every statement inside both transactions uses the transaction (`#lockOwnRead`, `#insertAttempt`, `#afterWrite`, `syncReviewActivity`, `ActivityService.recordActivity`/`updateActivityVisibility` via `dbOrTx`, `requireVerified(tx)`, `limits.enforce(…, tx)`); `this.db` is used only after commit (`getReview`, `#get`). The API pool is 10 (`makeDb` default), equal to the bench's connections, but no holder needs a second connection.
+- **Cause:** hot-row serialisation. All 10 bench connections write the **same** read (the hot review) and the tuple-lock queue does not serve waiters evenly. A-15-029 lengthens each holder (a seq scan of `activity` inside the locked transaction).
+- **Plan:** spread `review:post`/`rate:post` over one read per connection in `run.ts`; re-measure after A-15-029. A real user does not send 10 concurrent writes to one read, so the production impact is small.
+
+### A-15-026 · P2 · `max_connections` 50 left 8 connections beyond the pools
+- **Evidence:** after the first recreate (`max_connections` 50), `social-graph --race` met 10 × `FATAL: sorry, too many clients already` (09:06 UTC), although it still reported 0 errors. The pools: API 10 (`makeDb`) + its pg-boss producer 10 (pg's default; `makeBoss` sets none) + worker 4 + worker dedupe 1 + worker pg-boss 10 + CLIs (dedupe, ingest, migrate, admin) 1 each = **39**, plus 3 reserved for superusers: 42 of 50 before any test, bench, psql session or a second API instance.
+- **Fix:** `docker-compose.yml` `max_connections=100`, with the sum in its comment (an idle backend costs a few MB; `work_mem` is per sort or hash, so the memory budget is unchanged). Applied by the second recreate (before CI). `--race` re-run at 100: 0 errors, 0 deadlocks, 0 drift, 0 follows left between blocked users, and **0** connection refusals (`perf/15b/social-graph.txt`).
+
+### A-15-027 · P1 · The "ranged" `has_works` repair reads all of `work_authors` and `works` for every range (DECISION NEEDED)
+- **Evidence (`flyleaf`):** `authors.repair` was killed by the session's memory guard ~14 s in (available memory 1,208 → 133 MB in 9 s; the Postgres container grew 574 MiB → 1.23 GiB). EXPLAIN of the function's two predicates for the first real range (`work_mem` 32 MB, the worker's): the **set arm** (`NOT a.has_works AND EXISTS (work_authors ⋈ works …)`) is a **Parallel Hash Semi Join over a Parallel Seq Scan of all of `work_authors` (3.79M) and of `works` (3.2M)**; the planner estimates 40–77k authors per range (20,000 by construction) and prefers hashing to 40k index probes. ~770 ranges re-read the two biggest tables hundreds of times, which is the whole-catalog work A-15-005 set out to remove. The **clear arm** is fine (index nested-loop anti-join). Step 9's one `work_authors` and second `works` seq scan on `flyleaf` are this first range.
+- **Client memory (owner's question):** not sampled per process (only system-wide available memory and the Postgres container), so the drop cannot be split between the node process and the VM's file cache. By the code, the client holds nothing per range: `walkRanges` finds each boundary in SQL (`ORDER BY id OFFSET 20000 LIMIT 1`, one row) and the handler receives one `{set, cleared}` row. No client-memory finding is recorded.
+- **Plan (≈ 1 h + the laptop run):** a new migration redefining `repair_author_has_works`: drive the set arm from `work_authors_author_idx` over the same author range (`… WHERE a.id IN (SELECT wa.author_id FROM work_authors wa JOIN works w … WHERE wa.author_id >= lo AND wa.author_id < hi …)`), so each range reads only its own credits; verify by EXPLAIN on `flyleaf` (PGlite cannot judge a plan); then run `authors.repair` on a ≥ 16 GB machine. Not built in 15b: it needs a migration on both databases and its proof is a full-catalog planner check.
+
+### A-15-028 · P2 · The Postgres container's `/dev/shm` is Docker's default 64 MB: parallel hash joins fail
+- **Evidence (`flyleaf`, step 10):** the duplicate-credit count failed in Postgres with `could not resize shared memory segment "/PostgreSQL.…" to 16777216 bytes: No space left on device` (SQLSTATE 53100). `docker inspect`: `ShmSize=67108864`; `dynamic_shared_memory_type = posix`; `max_parallel_workers_per_gather = 2` at the server, so API queries can plan the same parallel hashes.
+- **Plan:** `shm_size: 512m` on the postgres service (it counts against the 3 GiB limit, which still holds) and a recreate. Not applied in 15b: the owner allowed one recreate before CI, used for A-15-026.
+
+### A-15-029 · P1 · `activity` has no index on `(object_type, object_id)`: every review save seq-scans the activity table inside the read's lock
+- **Evidence (`flyleaf_dev`, step 9):** `activity` 982 seq scans, **139M rows read** this session. `EXPLAIN UPDATE activity … WHERE object_type = 'review' AND object_id = $1` (and the `DELETE`) = Seq Scan on `activity` (142k rows here); its indexes are `pkey`, `actor`, `popular`, `visibility`, `work`. `syncReviewActivity` runs that UPDATE on every review save and on every read write that touches a reviewed read; `updateActivityVisibility('read', id)` filters the same way. Cost grows with the activity table (180-day retention), and it runs inside the transaction holding the `reads` row lock (A-15-025).
+- **Plan (≈ 30 min + measurement):** a new migration `CREATE INDEX IF NOT EXISTS activity_object_idx ON activity (object_type, object_id)` (plain, not CONCURRENTLY: the migrator runs in a transaction; 142k rows on `flyleaf_dev`), schema.ts updated, before/after `review:post` on `flyleaf_dev`. **DECISION NEEDED** together with A-15-027 (both are migrations on both databases).
+
+### A-15-030 · P3 · The import matcher scores a subtitle variant like the exact title (fails safe)
+- **Evidence (`flyleaf`, `perf/15b/import-match-explain-full.md`):** *Dune / Frank Herbert* → `ambiguous_match` with *Dune*, *DUNE* and *DUNE : the Graphic Novel, Book 2* all at 0.92 (the `%>` whole-word arm). *Emma*, *The Remains of the Day* and *Piranesi* are ambiguous between same-titled duplicate works (the unmerged dedupe backlog). Ambiguous rows go to review, never to a guess (Part 12), so nothing is wrong; the backlog merge removes most of it. Owner: post-audit, with the backlog merge.
+
+### A-15-031 · P3 · `15b-laptop.md` errors found while running it
+- `social-graph.ts` runs `--clean` **before** `--seed` whatever the order of the flags, so step 5's one-line command left 7,012 `sgbench_*` users and ~100k follows; removed with a separate `--clean` (users back to 3,002).
+- Step 9's third query filters `n_live_tup > 100000`, but step 2's `pg_stat_reset()` zeroes `n_live_tup`, so it returns nothing; run with `pg_class.reltuples` instead.
+- Windows: no `/usr/bin/time` and no host `psql` (used `docker exec flyleaf-pg psql`, timings from PowerShell `Measure-Command`).
+- Step 6: before step 12 the API row reads 4 MB / 0 because that is Postgres's stock default, so it cannot show the old container from the new.
+- After a Docker Desktop restart, `docker compose up -d postgres` would have **recreated** the container with step 12's limit early (the compose hash differed); `docker start flyleaf-pg` restarts it unchanged.
+
 ## Carried to "Part 15" by earlier parts, beyond the brief
 
 Each earlier part's Deferred table names Part 15 for some items the brief does not list. Their status:
@@ -226,12 +267,39 @@ Each earlier part's Deferred table names Part 15 for some items the brief does n
 
 ## Performance
 
-All here is **sandbox, synthetic** (empty catalog). Every laptop number is **TBD in 15b** and goes to `perf/comparison.md`.
+15a's numbers are **sandbox, synthetic** (empty catalog). The laptop numbers are 15b's (2026-10-11); latencies are **indicative only (8 GB dev machine)**, judged by plans and ratios first (`00-method.md`). Outputs in `perf/15b/`.
 
-- Rate-limit overhead: `perf/15a-rate-limit-overhead-sandbox.md` (A-15-002).
-- Job settings verified by readback (A-15-004).
-- Cursor sweep (A-15-014).
-- Popular: the score uses `activity_popular_idx` (partial, 14 days of two verbs); its EXPLAIN on `flyleaf_dev` is in 15b.
+- Rate-limit overhead: `perf/15a-rate-limit-overhead-sandbox.md` (A-15-002), with the laptop section.
+- Job settings verified by readback, before and after step 12 (A-15-004).
+- Cursor sweep: sandbox (A-15-014) and **`flyleaf_dev`: all four rows OK** (`cursor-sweep-dev.txt`).
+- Popular: `feed-explain-popular.md` (`flyleaf_dev`): 1 statement, 0.3 ms, but **1 item**, because every bench activity row is dated 27 May – 24 Sep except one review of 30 Sep: the 14-day window holds one card. Bench data, not a bug; `feed:popular:guest`'s latency measures a one-card Popular.
+
+### 15b: how it ran
+- **Memory.** 7.3 GB machine; Docker's VM 3.8 GB. Every heavy step ran under a guard that killed it below 300 MB available, after a check (drop the VM page cache below 1.1 GB, start only over ~800 MB; "cold cache" below means the drop ran). Claude Code itself stopped background jobs for low memory three times: the step-4 re-run's server and runner (after the runner had written its report), the session's memory sampler, and the CI run (below). The Claude desktop app, MongoDB, MinIO (until CI) and two vendor utilities were stopped; Docker Desktop was restarted with `wsl --shutdown` before step 5 (**step 5 onwards started on a cold cache**; the benches warm up first), and `flyleaf-pg` was brought back with `docker start` so step 12 still happened in its place.
+- **Order changed by the owner:** step 12 (the memory limit) before step 8, and step 8 under the limit only; `social-graph` and the `flyleaf_dev` import ran after step 12 (`shared_buffers` 512 MB instead of 128 MB). Cold-cache starts: `social-graph` (first run), `import-cost` on `flyleaf_dev`, `reconcile.follows`, the over-budget search EXPLAINs.
+- **Migrations (step 1):** `flyleaf_dev` 34 → 42 in 11.6 s, `flyleaf` 34 → 42 in 12.7 s (wall time including npm/tsx start). ANALYZE + stats reset: 10.7 s and 59.1 s.
+- **Not measured on this laptop** (owner: on a machine with ≥ 16 GB, before the backlog merge): `import-cost` on `flyleaf` (guard at 261 MB; its throwaway user removed afterwards); `authors.repair` (guard at 133 MB; A-15-027); the monthly dedupe and backlog dry runs (not started); A-03-027's duplicate-credit count (A-15-028, then the guard at 175 MB).
+
+### 15b: results
+| What | Database | Result | File |
+|---|---|---|---|
+| After bench | `flyleaf_dev` | 24 pass, 11 over budget (indicative), 1 not measured | `perf/comparison.md` |
+| Feed EXPLAIN, heavy p1 / p2 | `flyleaf_dev` | 6 statements / 144 ms; 5 / 95 ms. Statement 4 (101 ms) fans out over 1,158 follows (9,195 candidate rows, top-N to 76) | `feed-explain-heavy*.md` |
+| Feed EXPLAIN, typical p1 / p2 | `flyleaf_dev` | 4 / 55 ms; 5 / 124 ms | `feed-explain-typical*.md` |
+| Part 14's question: §12.7 trigger (feed p95 > 200 ms)? | `flyleaf_dev` | **Hit for `heavy`** (p95 518 ms under load; indicative); typical 122–144 ms | `comparison.md` |
+| Followers, Part 01 celebrity page 1 | `flyleaf_dev` | 34 / 42 / 50 ms, 3 statements (runner) | `15-after.md` |
+| Followers, `social-graph`'s 2,000-follower celebrity, offsets 0 / 1,000 / 1,900 | `flyleaf_dev` | p95 19.8 / 15.5 / 17.3 ms, 3 statements each: flat with depth | `social-graph.txt` |
+| 404 timing, blocked vs random | `flyleaf_dev` | Δp50 0.36 / 0.38 ms, bodies identical | `social-graph.txt` |
+| Follow races (at `max_connections` 100) | `flyleaf_dev` | 0 errors, 0 deadlocks, 0 drift, 0 follows between blocked users | `social-graph.txt` |
+| Import 5,000 rows + export | `flyleaf_dev` | 242 s, **2.06 statements/row**; export 4,068 reads in 968 ms, 7 statements, +14.7 MB heap | `import-5000-dev.txt` |
+| Part 12's question: exact-title matching index-bound for one-word titles? | `flyleaf` | **Yes**: every statement index-bound (ISBN 0.4 ms; title stages on `works_title_trgm_idx`), cost grows with the word's frequency: *It* 36,089 trigram candidates, 1.17 s; *Dune* 5,858, 184 ms; *Emma* 1,936, 73 ms; *Piranesi* 70 ms | `import-match-explain-full.md` |
+| Rate-limit overhead | `flyleaf_dev` | A-15-002 (laptop paragraph) | `rate-limit-overhead.txt` |
+| Index checks | both | below | `index-check-*.txt` |
+
+### 15b: index and planner checks (step 9; counters since step 2's reset, kept across both recreates)
+- **Audit-added indexes at 0 scans** that only nightly jobs use (`rate_limits_expires_idx`, `events_at_idx`, `*_deleted_idx`, `shelves_purge_idx`, `uploads_cleanup_idx`): expected. Others at 0 on `flyleaf_dev`, each with no bench scenario that would use it: `shelves_name/description_trgm_idx` (browse runs without `query`), `admin_audit_log_created_idx`, `dedupe_queue_impact_idx`, `dedupe_runs_finished_idx`, `search_zero_summaries_week_query_uq`, `uploads_key_uq`/`uploads_user_idx`, `series_entries_work_idx`. On `flyleaf` nearly everything is 0 because no API workload ran there.
+- **DECISIONS q1:** `authors_search_trgm_idx` **15,207 scans on `flyleaf_dev`**, 0 on `flyleaf`; `authors_name_trgm_idx` 0 on both (dedupe stage 3 did not run). See DECISIONS.md › 1.
+- **Big tables by sequential reads.** `flyleaf`: `authors` 1 (15.4M), `works` 2 (6.4M), `work_authors` 1 (3.79M): one `authors` and one `works` scan are 15b's own NULL-element count (A-15-024); the other `works` and the `work_authors` scan are `authors.repair`'s first range (A-15-027). `flyleaf_dev`: `work_authors` 1,639 scans / 228M rows: the search author term and `by_author` (`explain-search-over-budget-dev.txt`, A-02d-002's planned fix); `activity` 982 / 139M: **A-15-029**; `follows` 9 / 1.9M and `authors`/`works` 1–3 each: the `social-graph` seed, clean and reconcile.
 
 ## Tools added for 15b (dev-only, under `src/bench/`)
 
@@ -262,6 +330,8 @@ All here is **sandbox, synthetic** (empty catalog). Every laptop number is **TBD
 12. **Admin:** a merge, dismissal or undo whose audit row cannot be written is now rolled back (500, nothing changed) instead of applied unaudited.
 13. **Forgot-password** answers without waiting for the mail; a send failure is reported to the error reporter instead of failing the request.
 14. **Ingest:** each finished pass runs `ANALYZE` on the tables it loaded (seconds on the full catalog; printed).
+15. **15b, A-15-024:** `GET /v1/shelves/browse`, `/v1/shelves/saved` (and every shelf card) answer 200 with `null` in `cover_ids` for a cover-less work, where a real Postgres made them 500.
+16. **15b, A-15-026 (deployment):** the Postgres container allows 100 connections (was 50 in 15a's compose; 100 is also Postgres's default).
 
 ### Tests changed (assertions that pinned behaviour this part changed; each commented in the file)
 - `admin-security.test.ts`: budgets row uses `/v1/admin/telemetry/budgets` (A-15-001).
@@ -285,8 +355,12 @@ All here is **sandbox, synthetic** (empty catalog). Every laptop number is **TBD
 
 | Item | Why | Owner |
 |---|---|---|
-| Apply 0034–0041 to `flyleaf` and `flyleaf_dev`; every deferred bench; ANALYZE and index checks; A-03-026/027 measurements; §6 verification; `comparison.md`; SUMMARY's perf headline | Needs the laptop's databases | **15b** (`15b-laptop.md`) |
-| Recreate the Postgres container with the new memory settings | Restarts the database; after the bench | 15b |
+| ~~Apply 0034–0041 to `flyleaf` and `flyleaf_dev`; every deferred bench; ANALYZE and index checks; A-03-026/027 measurements; §6 verification; `comparison.md`; SUMMARY's perf headline~~ | Done in 15b, except the rows below | 15b |
+| ~~Recreate the Postgres container with the new memory settings~~ | Done in 15b (step 12, before step 8) | 15b |
+| `authors.repair`, monthly dedupe dry run, backlog dry run, A-03-027 count, `import-cost` on `flyleaf` | Not measured: the 8 GB laptop runs out of memory (guard kills at 133–261 MB) | A machine with ≥ 16 GB, before the backlog merge |
+| A-15-027 ranged repair; A-15-029 `activity_object_idx` | Each a migration on both databases; DECISION NEEDED | Owner |
+| A-15-028 `shm_size` | Needs a container recreate | Owner |
+| A-15-025 hot-row bench scenario | Bench design; re-measure after A-15-029 | Post-audit |
 | Prepared statements (planning ~5–8 ms per feed statement) | A platform-wide driver change (postgres.js `prepare: true` with pgbouncer caveats); measure on the laptop first | Post-audit |
 | Shelf view counter (A-11-024) | D-15-7 | Owner |
 | Same-name author merge (A-03-027 existing data) | D-15-8, after the 15b count | Owner |
@@ -309,4 +383,6 @@ All here is **sandbox, synthetic** (empty catalog). Every laptop number is **TBD
   - mobile tests: **214 passed**;
   - migrations on a real Postgres ("migrations applied", **not skipped**).
 - The A-04-006 timing test did not flake in either run.
-- **15b:** TBD. Steps 1 and 13 of `15b-laptop.md` add the laptop's migration times and its CI run.
+- **15b (laptop):** migrations `flyleaf_dev` 11.6 s, `flyleaf` 12.7 s (both 34 → 42). CI (`node scripts/ci.mjs`, MinIO up, `DATABASE_URL` unset, after the second recreate): **run 1 with `FLYLEAF_TEST_WORKERS=1`, 15:22, was stopped by Claude Code for low memory ~10 minutes into the api tests** (available memory 1,571 → 591 MB in 12 s); steps 1–3 had passed (api-client build; api typecheck; spec check "openapi.yaml is up to date", drift 0). Its orphaned `ci.mjs`/vitest processes were stopped. **Split (owner option b):** the laptop ran the two parts only it can run, and GitHub Actions runs the full 9 steps on the PR. **Laptop subset (16:45, `perf/15b/ci.txt`):** "api · migrations on a real Postgres" against `flyleaf`: **`migrations applied`** (not skipped); the api test files touching 15b's code change (`shelves`, `shelves-audit`, `shelves-privacy`, `shelves-migration`, one worker): **4 files, 103 passed**, 37 s. **GitHub Actions (PR #6, run 38135155705, commit `1069bd5`): green in 765 s, all 9 steps**: api-client build; api typecheck; spec check (drift 0); api tests **82 files, 1,724 passed, 10 skipped of 1,734** (the 10 are `storage-contract`'s S3 block: Actions has no MinIO); api build; api audit; mobile typecheck; mobile tests **214 passed**; migrations on a real Postgres `migrations applied`. **The 10 Actions skips ran on the laptop** with MinIO up: `storage-contract.test.ts` 41 passed, 0 skipped. So every one of the 1,734 api tests passed in one of the two runs (1,733 in 15a + the A-15-024 test).
+
+**15b §6 clean (step 14, `flyleaf_dev`):** `npm run bench:seed -- --clean` removed 3,000 bench users in 145 s (12,573 touched works' stats dropped and reconciled, 55 rate-limit buckets, no survivors); `nonbench-counts.ts` after = before in **every table, counts and md5 identical** (`perf/15b/nonbench-before.txt` vs `nonbench-after.txt`; the before file was written by PowerShell with a BOM and CRLF, normalised for the diff). Not re-seeded (owner). `social-graph`'s and the import bench's own rows had been removed earlier (A-15-031, and the leftover import user on `flyleaf`).

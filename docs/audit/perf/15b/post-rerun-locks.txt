@@ -1,0 +1,65 @@
+# pg_stat_activity / pg_locks samples during review:post + rate:post re-run, flyleaf_dev, 2026-10-11 (times UTC)
+# ACT | active backends | waiting on Lock | oldest active statement age (s) | wait events
+# LOCK | locktype | relation | mode | ungranted count
+08:54:23 | ACT | 0 | 0 | 0.00 | 
+08:54:25 | ACT | 0 | 0 | 0.00 | 
+08:54:26 | ACT | 0 | 0 | 0.00 | 
+08:54:27 | ACT | 0 | 0 | 0.00 | 
+08:54:29 | ACT | 1 | 0 | 0.72 | IO:DataFileRead
+08:54:30 | ACT | 1 | 0 | 0.08 | IO:AioIoCompletion
+08:54:31 | ACT | 0 | 0 | 0.00 | 
+08:54:32 | ACT | 0 | 0 | 0.00 | 
+08:54:34 | ACT | 1 | 0 | -0.01 | IO:AioIoCompletion
+08:54:35 | ACT | 9 | 9 | 1.04 | Lock:transactionid,Lock:tuple
+08:54:35 | LOCK | transactionid | - | ShareLock | 2
+08:54:35 | LOCK | tuple | reads | AccessExclusiveLock | 7
+08:54:36 | ACT | 9 | 8 | 2.34 | Client:ClientRead,Lock:transactionid,Lock:tuple
+08:54:36 | LOCK | transactionid | - | ShareLock | 2
+08:54:36 | LOCK | tuple | reads | AccessExclusiveLock | 7
+08:54:37 | ACT | 9 | 8 | 3.61 | Lock:transactionid,Lock:tuple
+08:54:37 | LOCK | transactionid | - | ShareLock | 2
+08:54:37 | LOCK | tuple | reads | AccessExclusiveLock | 6
+08:54:39 | ACT | 8 | 8 | 4.89 | Lock:transactionid,Lock:tuple
+08:54:39 | LOCK | transactionid | - | ShareLock | 2
+08:54:39 | LOCK | tuple | reads | AccessExclusiveLock | 6
+08:54:40 | ACT | 9 | 8 | 6.18 | Lock:transactionid,Lock:tuple
+08:54:40 | LOCK | transactionid | - | ShareLock | 2
+08:54:40 | LOCK | tuple | reads | AccessExclusiveLock | 6
+08:54:41 | ACT | 10 | 9 | 7.45 | Lock:transactionid,Lock:tuple
+08:54:41 | LOCK | transactionid | - | ShareLock | 2
+08:54:41 | LOCK | tuple | reads | AccessExclusiveLock | 7
+08:54:43 | ACT | 10 | 8 | 8.74 | Client:ClientRead,Lock:transactionid,Lock:tuple
+08:54:43 | LOCK | transactionid | - | ShareLock | 2
+08:54:43 | LOCK | tuple | reads | AccessExclusiveLock | 7
+08:54:44 | ACT | 10 | 9 | 10.00 | Client:ClientRead,Lock:transactionid,Lock:tuple
+08:54:44 | LOCK | transactionid | - | ShareLock | 1
+08:54:44 | LOCK | tuple | reads | AccessExclusiveLock | 8
+08:54:45 | ACT | 0 | 0 | 0.00 | 
+08:54:46 | ACT | 0 | 0 | 0.00 | 
+08:54:48 | ACT | 0 | 0 | 0.00 | 
+08:54:49 | ACT | 9 | 8 | 0.48 | Client:ClientRead,Lock:transactionid,Lock:tuple
+08:54:49 | LOCK | transactionid | - | ShareLock | 2
+08:54:49 | LOCK | tuple | reads | AccessExclusiveLock | 6
+08:54:50 | ACT | 10 | 9 | 1.76 | IO:WalSync,Lock:transactionid,Lock:tuple
+08:54:50 | LOCK | transactionid | - | ShareLock | 1
+08:54:50 | LOCK | tuple | reads | AccessExclusiveLock | 5
+08:54:51 | ACT | 9 | 8 | 3.05 | Lock:transactionid,Lock:tuple
+08:54:51 | LOCK | transactionid | - | ShareLock | 2
+08:54:51 | LOCK | tuple | reads | AccessExclusiveLock | 7
+08:54:53 | ACT | 9 | 9 | 4.30 | Lock:transactionid,Lock:tuple
+08:54:53 | LOCK | transactionid | - | ShareLock | 2
+08:54:53 | LOCK | tuple | reads | AccessExclusiveLock | 7
+08:54:54 | ACT | 9 | 8 | 5.55 | Client:ClientRead,Lock:transactionid,Lock:tuple
+08:54:54 | LOCK | transactionid | - | ShareLock | 2
+08:54:54 | LOCK | tuple | reads | AccessExclusiveLock | 6
+08:54:55 | ACT | 10 | 9 | 6.82 | IO:WalSync,Lock:transactionid,Lock:tuple
+08:54:55 | LOCK | transactionid | - | ShareLock | 2
+08:54:55 | LOCK | tuple | reads | AccessExclusiveLock | 6
+08:54:56 | ACT | 9 | 9 | 8.08 | Lock:transactionid,Lock:tuple
+08:54:56 | LOCK | transactionid | - | ShareLock | 2
+08:54:56 | LOCK | tuple | reads | AccessExclusiveLock | 7
+08:54:58 | ACT | 8 | 8 | 9.33 | Lock:transactionid,Lock:tuple
+08:54:58 | LOCK | transactionid | - | ShareLock | 2
+08:54:58 | LOCK | tuple | reads | AccessExclusiveLock | 6
+08:54:59 | ACT | 0 | 0 | 0.00 | 
+08:55:00 | ACT | 0 | 0 | 0.00 | 

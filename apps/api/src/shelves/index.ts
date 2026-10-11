@@ -266,6 +266,18 @@ function pgArray<T>(v: T[] | string | null | undefined, parse: (s: string) => T)
 }
 
 /**
+ * A work with no cover is a NULL in the mosaic. postgres.js passes that NULL
+ * to the int4 parser and returns NaN (PGlite returns null), so anything that
+ * is not a number becomes null (A-15-024).
+ */
+export function coverIdsFromRow(v: ShelfCardRow['cover_ids']): (number | null)[] {
+  return pgArray(v, (s) => (s === 'NULL' ? null : Number(s))).map((c) => {
+    const n = Number(c);
+    return c === null || Number.isNaN(n) ? null : n;
+  });
+}
+
+/**
  * The columns every shelf card needs, in one row: the owner from profiles and
  * the cover ids in mosaic order. Replaces a query per owner and a query for
  * the covers (L-10, audit 11).
@@ -296,7 +308,7 @@ function cardFromRow(r: ShelfCardRow): ShelfDetail {
     is_ranked: r.is_ranked,
     privacy: r.privacy as ShelfDetail['privacy'],
     cover_work_ids: pgArray(r.cover_work_ids, (s) => s),
-    cover_ids: pgArray(r.cover_ids, (s) => (s === 'NULL' ? null : Number(s))).map((c) => (c === null ? null : Number(c))),
+    cover_ids: coverIdsFromRow(r.cover_ids),
     item_count: Number(r.item_count),
     save_count: Number(r.save_count),
     is_saved: Boolean(r.is_saved),

@@ -1,0 +1,16 @@
+# database: postgres://flyleaf:***@localhost:5432/flyleaf_dev
+users                     2  b2827a955875bae7820baf48557f0c83
+profiles                  2  b7d285e365928b0204cedddcff00507c
+reads                     4  b35c91753b8d537dd7fc9ac2916cff49
+reviews                   0  -
+read_likes                0  -
+read_comments             0  -
+follows                   0  -
+blocks                    0  -
+mutes                     0  -
+activity                  0  -
+shelves                   1  3e7c0c406b64313472eba0b8ce652831
+shelf_saves               0  -
+imports                   0  -
+exports                   0  -
+refresh_tokens            2  a191d42deb55aac1dd8bc1bb4f077424

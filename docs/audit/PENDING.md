@@ -1,6 +1,6 @@
 # Pending work outside the numbered audit parts
 
-Written 25 Sep 2026, while Part 04 was running; updated at Part 15a (10 Oct). Delete each item when it lands.
+Written 25 Sep 2026, while Part 04 was running; updated at Part 15a (10 Oct) and Part 15b (11 Oct). Delete each item when it lands.
 
 ## Run order
 
@@ -13,7 +13,12 @@ Written 25 Sep 2026, while Part 04 was running; updated at Part 15a (10 Oct). De
 | Done 10 Oct | Part 13 (findings/13-social-graph.md; migrations 0036 + 0037 applied to PGlite and the sandbox Postgres only: **apply to `flyleaf` and, at Part 15, `flyleaf_dev` on the laptop**; social latencies to rerun on the laptop: `npx tsx src/bench/social-graph.ts --seed --lists --timing --race --clean`; D-11-2 and D-12-2 built) | |
 | Done 10 Oct | Part 14 (findings/14-feed.md; **no migration**; feed latencies to rerun on the laptop: `npm run bench -- --only feed` against `flyleaf_dev`; D-13-1 built, D-13-2 amended PRD §11.1, D-13-3 confirmed; D-14-1 open) | |
 | Done 10 Oct | Part 15a, cloud half (`findings/15-cross-cutting.md`). Migrations 0038–0041 are applied to PGlite and the sandbox Postgres only. Outputs: `DECISIONS.md`, `SUMMARY.md` (perf headline TBD), and `15b-laptop.md` | |
-| **Next** | **Part 15b on the laptop** (`15b-laptop.md`): apply 0034–0041 to `flyleaf` and `flyleaf_dev`; the after bench and `perf/comparison.md`; the deferred benches of Parts 11–14; A-03-026/027 on the full catalog; recreate the Postgres container with its memory limit; §6 verification; fill the TBDs | Needs the real databases |
+| **Next (owner)** | **DECISIONS.md › 6: migration `0042` with A-15-027 (ranged `has_works` repair) and A-15-029 (`activity_object_idx`)**, applied to both databases, verified by EXPLAIN on `flyleaf` and a before/after `review:post` on `flyleaf_dev` (≈ half a day) | P1s from 15b; the repair cannot be measured until it is ranged in practice |
+| With the next container recreate | **`shm_size: 512m`** on the postgres service (A-15-028, DECISIONS.md › 7) | A parallel hash join fails in 64 MB `/dev/shm` |
+| Before the backlog merge, **on a machine with ≥ 16 GB** | The runs the 8 GB laptop could not finish (15b): `authors.repair` on `flyleaf` (after 0042); the monthly dedupe dry run and `--backlog --dry-run --limit 5000` under the 3 GiB limit, watching `docker stats` and the log for OOM/recovery (A-03-026's proof); `duplicate-credits.ts --sample 25` (D-15-8 waits on it); `import-cost.ts --rows 5000` and `--rows 10000 --export` on `flyleaf` | `findings/15-cross-cutting.md` › 15b; each was killed by the 300 MB memory guard or not started |
+| Post-audit | **Reviews of a work without a seq scan of `reads`** (comparison.md › work-reviews): page on `reviews (work_id, published_at, id)`, join `reads` by key for the page only, total from a counter | Over budget on `flyleaf_dev`; cost grows with the whole `reads` table |
+| Post-audit | **Feed:** profile one `typical` request in process (25–90 ms outside SQL), then prepared statements; design fan-out on write for heavy accounts (§12.7 trigger hit for `heavy`, p95 518 ms on `flyleaf_dev`) | comparison.md › feed |
+| Post-audit | **Bench:** spread `review:post`/`rate:post` over one read per connection (A-15-025); fix `social-graph.ts` so `--clean` runs last; step 9's query on `reltuples` (A-15-031) | Bench and checklist fixes |
 | Post-audit | **UI sweep, checked on the device** (`SUMMARY.md` › Recommended order 4): A-07-021, A-07-031, A-09-033, A-07-040, A-10-026, A-10-030 | Each needs the phone to verify |
 | Post-audit | **Engineering left open** (`findings/15-cross-cutting.md` › Carried): A-12-024, A-06-025, A-05-021, A-07-026, prepared statements, the rest of A-04-024 | Proportionate after launch scope is set |
 | Post-audit | **Sample the D5 "groups of more than two" pairs and decide on a rule** (Part 03c: 170,221 pairs held for group size, e.g. *Pandemonium* ×4, *A return to love* ×5; some are true duplicates). Draw ~25 groups, judge them, and write a rule only if it holds on the sample | Needs the review of real groups first; see `findings/03-dedupe.md` › Part 03c |

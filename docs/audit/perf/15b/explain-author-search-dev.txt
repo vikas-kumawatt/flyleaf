@@ -1,0 +1,699 @@
+# DECISIONS q1: search EXPLAIN (ANALYZE, BUFFERS) for ishiguro / ishigoro / king, guest, custom plan. Database: flyleaf_dev
+SET
+PREPARE
+     query      
+----------------
+ ===== ishiguro
+(1 row)
+
+                                                                                                                                                                                                                                                                                      QUERY PLAN                                                                                                                                                                                                                                                                                       
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit  (cost=7871.90..11813.47 rows=20 width=92) (actual time=20.398..24.136 rows=11.00 loops=1)
+   Buffers: shared hit=806 read=63
+   CTE exact
+     ->  Unique  (cost=2081.86..2083.65 rows=100 width=16) (actual time=10.081..10.091 rows=11.00 loops=1)
+           Buffers: shared hit=371 read=23
+           ->  Merge Append  (cost=2081.86..2083.40 rows=100 width=16) (actual time=10.080..10.087 rows=11.00 loops=1)
+                 Sort Key: fts.id
+                 Buffers: shared hit=371 read=23
+                 ->  Sort  (cost=834.05..834.19 rows=56 width=16) (actual time=2.324..2.326 rows=0.00 loops=1)
+                       Sort Key: fts.id
+                       Sort Method: quicksort  Memory: 25kB
+                       Buffers: shared hit=140 read=1
+                       ->  Subquery Scan on fts  (cost=831.72..832.42 rows=56 width=16) (actual time=2.305..2.307 rows=0.00 loops=1)
+                             Buffers: shared hit=140 read=1
+                             ->  Limit  (cost=831.72..831.86 rows=56 width=20) (actual time=2.305..2.306 rows=0.00 loops=1)
+                                   Buffers: shared hit=140 read=1
+                                   ->  Sort  (cost=831.72..831.86 rows=56 width=20) (actual time=2.304..2.305 rows=0.00 loops=1)
+                                         Sort Key: ((works_1.ol_log_count + works_1.reader_count)) DESC
+                                         Sort Method: quicksort  Memory: 25kB
+                                         Buffers: shared hit=140 read=1
+                                         ->  Bitmap Heap Scan on works works_1  (cost=612.26..830.09 rows=56 width=20) (actual time=2.273..2.274 rows=0.00 loops=1)
+                                               Recheck Cond: (search_vector @@ '''ishiguro'':*'::tsquery)
+                                               Filter: ((merged_into_id IS NULL) AND (NOT is_provisional) AND (maturity <> 'explicit'::text))
+                                               Buffers: shared hit=140 read=1
+                                               ->  Bitmap Index Scan on works_search_idx  (cost=0.00..612.25 rows=57 width=0) (actual time=2.259..2.259 rows=0.00 loops=1)
+                                                     Index Cond: (search_vector @@ '''ishiguro'':*'::tsquery)
+                                                     Index Searches: 1
+                                                     Buffers: shared hit=140 read=1
+                 ->  Sort  (cost=798.46..798.51 rows=20 width=16) (actual time=4.154..4.156 rows=0.00 loops=1)
+                       Sort Key: title_like.id
+                       Sort Method: quicksort  Memory: 25kB
+                       Buffers: shared hit=164 read=11
+                       ->  Subquery Scan on title_like  (cost=797.78..798.03 rows=20 width=16) (actual time=4.125..4.126 rows=0.00 loops=1)
+                             Buffers: shared hit=164 read=11
+                             ->  Limit  (cost=797.78..797.83 rows=20 width=20) (actual time=4.125..4.125 rows=0.00 loops=1)
+                                   Buffers: shared hit=164 read=11
+                                   ->  Sort  (cost=797.78..797.83 rows=20 width=20) (actual time=4.124..4.125 rows=0.00 loops=1)
+                                         Sort Key: ((works_2.ol_log_count + works_2.reader_count)) DESC
+                                         Sort Method: quicksort  Memory: 25kB
+                                         Buffers: shared hit=164 read=11
+                                         ->  Bitmap Heap Scan on works works_2  (cost=719.32..797.35 rows=20 width=20) (actual time=4.092..4.092 rows=0.00 loops=1)
+                                               Recheck Cond: (title ~~* '%ishiguro%'::text)
+                                               Filter: ((merged_into_id IS NULL) AND (NOT is_provisional) AND (maturity <> 'explicit'::text))
+                                               Buffers: shared hit=164 read=11
+                                               ->  Bitmap Index Scan on works_title_trgm_idx  (cost=0.00..719.31 rows=20 width=0) (actual time=4.065..4.066 rows=0.00 loops=1)
+                                                     Index Cond: (title ~~* '%ishiguro%'::text)
+                                                     Index Searches: 1
+                                                     Buffers: shared hit=164 read=11
+                 ->  Sort  (cost=449.33..449.39 rows=24 width=16) (actual time=3.601..3.603 rows=11.00 loops=1)
+                       Sort Key: by_author.id
+                       Sort Method: quicksort  Memory: 25kB
+                       Buffers: shared hit=67 read=11
+                       ->  Subquery Scan on by_author  (cost=448.48..448.78 rows=24 width=16) (actual time=3.531..3.535 rows=11.00 loops=1)
+                             Buffers: shared hit=67 read=11
+                             ->  Limit  (cost=448.48..448.54 rows=24 width=20) (actual time=3.530..3.533 rows=11.00 loops=1)
+                                   Buffers: shared hit=67 read=11
+                                   ->  Sort  (cost=448.48..448.54 rows=24 width=20) (actual time=3.529..3.531 rows=11.00 loops=1)
+                                         Sort Key: ((w_2.ol_log_count + w_2.reader_count)) DESC
+                                         Sort Method: quicksort  Memory: 25kB
+                                         Buffers: shared hit=67 read=11
+                                         ->  Nested Loop  (cost=86.79..447.93 rows=24 width=20) (actual time=1.399..3.454 rows=11.00 loops=1)
+                                               Buffers: shared hit=67 read=11
+                                               ->  Nested Loop  (cost=86.37..431.67 rows=24 width=16) (actual time=1.349..1.482 rows=11.00 loops=1)
+                                                     Buffers: shared hit=28 read=6
+                                                     ->  Bitmap Heap Scan on authors a_1  (cost=81.90..127.11 rows=11 width=16) (actual time=1.298..1.298 rows=1.00 loops=1)
+                                                           Recheck Cond: ((flyleaf_author_names(name, alternate_names) ~~* ANY ('{%ishiguro%}'::text[])) AND has_works)
+                                                           Heap Blocks: exact=1
+                                                           Buffers: shared hit=16 read=4
+                                                           ->  Bitmap Index Scan on authors_credited_trgm_idx  (cost=0.00..81.90 rows=11 width=0) (actual time=1.150..1.150 rows=1.00 loops=1)
+                                                                 Index Cond: (flyleaf_author_names(name, alternate_names) ~~* ANY ('{%ishiguro%}'::text[]))
+                                                                 Index Searches: 1
+                                                                 Buffers: shared hit=15 read=4
+                                                     ->  Bitmap Heap Scan on work_authors wa_1  (cost=4.47..27.63 rows=6 width=32) (actual time=0.050..0.179 rows=11.00 loops=1)
+                                                           Recheck Cond: (author_id = a_1.id)
+                                                           Heap Blocks: exact=11
+                                                           Buffers: shared hit=12 read=2
+                                                           ->  Bitmap Index Scan on work_authors_author_idx  (cost=0.00..4.46 rows=6 width=0) (actual time=0.037..0.037 rows=11.00 loops=1)
+                                                                 Index Cond: (author_id = a_1.id)
+                                                                 Index Searches: 1
+                                                                 Buffers: shared hit=3
+                                               ->  Index Scan using works_pkey on works w_2  (cost=0.42..0.67 rows=1 width=24) (actual time=0.178..0.178 rows=1.00 loops=11)
+                                                     Index Cond: (id = wa_1.work_id)
+                                                     Filter: ((merged_into_id IS NULL) AND (NOT is_provisional) AND (maturity <> 'explicit'::text))
+                                                     Index Searches: 11
+                                                     Buffers: shared hit=39 read=5
+   ->  Result  (cost=5788.24..31408.49 rows=130 width=92) (actual time=20.397..24.128 rows=11.00 loops=1)
+         Buffers: shared hit=806 read=63
+         ->  Sort  (cost=5788.24..5788.57 rows=130 width=60) (actual time=20.132..20.138 rows=11.00 loops=1)
+               Sort Key: ((((((CASE WHEN (w.title ~~* 'ishiguro%'::text) THEN 0.30 ELSE '0'::numeric END + CASE WHEN (lower(w.title) = 'ishiguro'::text) THEN 0.20 ELSE '0'::numeric END) + CASE WHEN (ANY (w.id = (hashed SubPlan 5).col1)) THEN 0.20 ELSE '0'::numeric END))::double precision + (similarity(w.title, 'ishiguro'::text) * '0.1'::double precision)) + (LEAST((ln(((1 + (w.ol_log_count + w.reader_count)))::double precision) / '10'::double precision), '1'::double precision) * '0.6'::double precision))) DESC, ((w.ol_log_count + w.reader_count)) DESC, w.title
+               Sort Method: quicksort  Memory: 26kB
+               Buffers: shared hit=728 read=49
+               ->  Nested Loop  (cost=1330.19..5784.78 rows=130 width=60) (actual time=19.935..20.018 rows=11.00 loops=1)
+                     Buffers: shared hit=719 read=49
+                     ->  Unique  (cost=1329.77..1333.87 rows=131 width=16) (actual time=18.000..18.014 rows=11.00 loops=1)
+                           Buffers: shared hit=647 read=41
+                           ->  Merge Append  (cost=1329.77..1333.54 rows=131 width=16) (actual time=18.000..18.010 rows=22.00 loops=1)
+                                 Sort Key: exact.id
+                                 Buffers: shared hit=647 read=41
+                                 ->  CTE Scan on exact  (cost=0.00..2.00 rows=100 width=16) (actual time=10.083..10.087 rows=11.00 loops=1)
+                                       Storage: Memory  Maximum Storage: 17kB
+                                       Buffers: shared hit=371 read=23
+                                 ->  Sort  (cost=838.99..839.00 rows=7 width=16) (actual time=6.602..6.603 rows=0.00 loops=1)
+                                       Sort Key: title_fuzzy.id
+                                       Sort Method: quicksort  Memory: 25kB
+                                       Buffers: shared hit=191 read=15
+                                       ->  Subquery Scan on title_fuzzy  (cost=838.80..838.89 rows=7 width=16) (actual time=6.582..6.583 rows=0.00 loops=1)
+                                             Buffers: shared hit=191 read=15
+                                             ->  Limit  (cost=838.80..838.82 rows=7 width=20) (actual time=6.581..6.583 rows=0.00 loops=1)
+                                                   Buffers: shared hit=191 read=15
+                                                   InitPlan 6
+                                                     ->  Aggregate  (cost=2.25..2.26 rows=1 width=8) (actual time=0.013..0.014 rows=1.00 loops=1)
+                                                           ->  CTE Scan on exact exact_1  (cost=0.00..2.00 rows=100 width=0) (actual time=0.000..0.009 rows=11.00 loops=1)
+                                                                 Storage: Memory  Maximum Storage: 17kB
+                                                   ->  Sort  (cost=836.54..836.56 rows=7 width=20) (actual time=6.581..6.581 rows=0.00 loops=1)
+                                                         Sort Key: (((works.ol_log_count + works.reader_count) + 0)) DESC
+                                                         Sort Method: quicksort  Memory: 25kB
+                                                         Buffers: shared hit=191 read=15
+                                                         ->  Result  (cost=758.18..836.44 rows=7 width=20) (actual time=6.567..6.567 rows=0.00 loops=1)
+                                                               One-Time Filter: ((InitPlan 6).col1 < 20)
+                                                               Buffers: shared hit=191 read=15
+                                                               ->  Bitmap Heap Scan on works  (cost=758.18..836.41 rows=7 width=24) (actual time=6.551..6.552 rows=0.00 loops=1)
+                                                                     Recheck Cond: (title %> 'ishiguro'::text)
+                                                                     Filter: ((merged_into_id IS NULL) AND (NOT is_provisional) AND (maturity <> 'explicit'::text) AND (similarity(title, 'ishiguro'::text) >= (current_setting('pg_trgm.similarity_threshold'::text))::real))
+                                                                     Buffers: shared hit=191 read=15
+                                                                     ->  Bitmap Index Scan on works_title_trgm_idx  (cost=0.00..758.17 rows=20 width=0) (actual time=6.545..6.545 rows=0.00 loops=1)
+                                                                           Index Cond: (title %> 'ishiguro'::text)
+                                                                           Index Searches: 1
+                                                                           Buffers: shared hit=191 read=15
+                                 ->  Sort  (cost=490.76..490.82 rows=24 width=16) (actual time=1.312..1.315 rows=11.00 loops=1)
+                                       Sort Key: author_fuzzy.id
+                                       Sort Method: quicksort  Memory: 25kB
+                                       Buffers: shared hit=85 read=3
+                                       ->  Subquery Scan on author_fuzzy  (cost=489.91..490.21 rows=24 width=16) (actual time=1.289..1.293 rows=11.00 loops=1)
+                                             Buffers: shared hit=85 read=3
+                                             ->  Limit  (cost=489.91..489.97 rows=24 width=20) (actual time=1.289..1.291 rows=11.00 loops=1)
+                                                   Buffers: shared hit=85 read=3
+                                                   InitPlan 7
+                                                     ->  Aggregate  (cost=2.25..2.26 rows=1 width=8) (actual time=0.004..0.005 rows=1.00 loops=1)
+                                                           ->  CTE Scan on exact exact_2  (cost=0.00..2.00 rows=100 width=0) (actual time=0.001..0.001 rows=11.00 loops=1)
+                                                                 Storage: Memory  Maximum Storage: 17kB
+                                                   ->  Sort  (cost=487.65..487.71 rows=24 width=20) (actual time=1.288..1.289 rows=11.00 loops=1)
+                                                         Sort Key: (((w_1.ol_log_count + w_1.reader_count) + 0)) DESC
+                                                         Sort Method: quicksort  Memory: 25kB
+                                                         Buffers: shared hit=85 read=3
+                                                         ->  Result  (cost=125.65..487.10 rows=24 width=20) (actual time=1.225..1.275 rows=11.00 loops=1)
+                                                               One-Time Filter: ((InitPlan 7).col1 < 20)
+                                                               Buffers: shared hit=85 read=3
+                                                               ->  Nested Loop  (cost=125.65..486.98 rows=24 width=24) (actual time=1.218..1.266 rows=11.00 loops=1)
+                                                                     Buffers: shared hit=85 read=3
+                                                                     ->  Nested Loop  (cost=125.22..470.54 rows=24 width=16) (actual time=1.198..1.210 rows=11.00 loops=1)
+                                                                           Buffers: shared hit=41 read=3
+                                                                           ->  Bitmap Heap Scan on authors a  (cost=120.76..165.98 rows=11 width=16) (actual time=1.155..1.155 rows=1.00 loops=1)
+                                                                                 Recheck Cond: ((flyleaf_author_names(name, alternate_names) %> 'ishiguro'::text) AND has_works)
+                                                                                 Heap Blocks: exact=1
+                                                                                 Buffers: shared hit=27 read=3
+                                                                                 ->  Bitmap Index Scan on authors_credited_trgm_idx  (cost=0.00..120.75 rows=11 width=0) (actual time=1.038..1.038 rows=1.00 loops=1)
+                                                                                       Index Cond: (flyleaf_author_names(name, alternate_names) %> 'ishiguro'::text)
+                                                                                       Index Searches: 1
+                                                                                       Buffers: shared hit=26 read=3
+                                                                           ->  Bitmap Heap Scan on work_authors wa  (cost=4.47..27.63 rows=6 width=32) (actual time=0.042..0.051 rows=11.00 loops=1)
+                                                                                 Recheck Cond: (author_id = a.id)
+                                                                                 Heap Blocks: exact=11
+                                                                                 Buffers: shared hit=14
+                                                                                 ->  Bitmap Index Scan on work_authors_author_idx  (cost=0.00..4.46 rows=6 width=0) (actual time=0.021..0.021 rows=11.00 loops=1)
+                                                                                       Index Cond: (author_id = a.id)
+                                                                                       Index Searches: 1
+                                                                                       Buffers: shared hit=3
+                                                                     ->  Index Scan using works_pkey on works w_1  (cost=0.42..0.67 rows=1 width=24) (actual time=0.005..0.005 rows=1.00 loops=11)
+                                                                           Index Cond: (id = wa.work_id)
+                                                                           Filter: ((merged_into_id IS NULL) AND (NOT is_provisional) AND (maturity <> 'explicit'::text))
+                                                                           Index Searches: 11
+                                                                           Buffers: shared hit=44
+                     ->  Index Scan using works_pkey on works w  (cost=0.42..8.26 rows=1 width=56) (actual time=0.003..0.003 rows=1.00 loops=11)
+                           Index Cond: (id = exact.id)
+                           Filter: ((merged_into_id IS NULL) AND (NOT is_provisional) AND (maturity <> 'explicit'::text))
+                           Index Searches: 11
+                           Buffers: shared hit=44
+                     SubPlan 5
+                       ->  Nested Loop  (cost=86.37..431.67 rows=24 width=16) (actual time=1.891..1.897 rows=11.00 loops=1)
+                             Buffers: shared hit=28 read=8
+                             ->  Bitmap Heap Scan on authors a_3  (cost=81.90..127.11 rows=11 width=16) (actual time=1.839..1.839 rows=1.00 loops=1)
+                                   Recheck Cond: (flyleaf_author_names(name, alternate_names) ~~* ANY ('{%ishiguro%}'::text[]))
+                                   Heap Blocks: exact=1
+                                   Buffers: shared hit=14 read=8
+                                   ->  Bitmap Index Scan on authors_search_trgm_idx  (cost=0.00..81.90 rows=11 width=0) (actual time=1.801..1.801 rows=1.00 loops=1)
+                                         Index Cond: (flyleaf_author_names(name, alternate_names) ~~* ANY ('{%ishiguro%}'::text[]))
+                                         Index Searches: 1
+                                         Buffers: shared hit=13 read=8
+                             ->  Bitmap Heap Scan on work_authors wa_3  (cost=4.47..27.63 rows=6 width=32) (actual time=0.041..0.046 rows=11.00 loops=1)
+                                   Recheck Cond: (author_id = a_3.id)
+                                   Heap Blocks: exact=11
+                                   Buffers: shared hit=14
+                                   ->  Bitmap Index Scan on work_authors_author_idx  (cost=0.00..4.46 rows=6 width=0) (actual time=0.034..0.034 rows=11.00 loops=1)
+                                         Index Cond: (author_id = a_3.id)
+                                         Index Searches: 1
+                                         Buffers: shared hit=3
+         SubPlan 2
+           ->  Limit  (cost=29.33..29.33 rows=1 width=19) (actual time=0.269..0.269 rows=1.00 loops=11)
+                 Buffers: shared hit=77 read=11
+                 ->  Sort  (cost=29.33..29.34 rows=2 width=19) (actual time=0.260..0.260 rows=1.00 loops=11)
+                       Sort Key: wa_2."position", a_2.name
+                       Sort Method: quicksort  Memory: 25kB
+                       Buffers: shared hit=77 read=11
+                       ->  Nested Loop  (cost=0.84..29.32 rows=2 width=19) (actual time=0.245..0.246 rows=1.00 loops=11)
+                             Buffers: shared hit=77 read=11
+                             ->  Index Scan using work_authors_work_id_author_id_role_pk on work_authors wa_2  (cost=0.42..12.45 rows=2 width=20) (actual time=0.223..0.223 rows=1.00 loops=11)
+                                   Index Cond: (work_id = w.id)
+                                   Index Searches: 11
+                                   Buffers: shared hit=34 read=10
+                             ->  Index Scan using authors_pkey on authors a_2  (cost=0.42..8.44 rows=1 width=31) (actual time=0.021..0.021 rows=1.00 loops=11)
+                                   Index Cond: (id = wa_2.author_id)
+                                   Index Searches: 11
+                                   Buffers: shared hit=43 read=1
+         SubPlan 3
+           ->  Limit  (cost=141.81..141.81 rows=1 width=8) (actual time=1.012..1.012 rows=0.00 loops=1)
+                 Buffers: shared hit=1 read=3
+                 ->  Sort  (cost=141.81..141.86 rows=18 width=8) (actual time=1.012..1.012 rows=0.00 loops=1)
+                       Sort Key: e.publish_year DESC NULLS LAST
+                       Sort Method: quicksort  Memory: 25kB
+                       Buffers: shared hit=1 read=3
+                       ->  Bitmap Heap Scan on editions e  (cost=4.69..141.72 rows=18 width=8) (actual time=0.991..0.991 rows=0.00 loops=1)
+                             Recheck Cond: (work_id = w.id)
+                             Filter: (ol_cover_id IS NOT NULL)
+                             Rows Removed by Filter: 1
+                             Heap Blocks: exact=1
+                             Buffers: shared hit=1 read=3
+                             ->  Bitmap Index Scan on editions_work_idx  (cost=0.00..4.69 rows=35 width=0) (actual time=0.657..0.657 rows=1.00 loops=1)
+                                   Index Cond: (work_id = w.id)
+                                   Index Searches: 1
+                                   Buffers: shared hit=1 read=2
+ Planning:
+   Buffers: shared hit=693 read=32
+ Planning Time: 22.409 ms
+ Execution Time: 25.312 ms
+(234 rows)
+
+     query      
+----------------
+ ===== ishigoro
+(1 row)
+
+                                                                                                                                                                                                                                                                                      QUERY PLAN                                                                                                                                                                                                                                                                                       
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit  (cost=7871.90..11813.47 rows=20 width=92) (actual time=13.054..13.306 rows=11.00 loops=1)
+   Buffers: shared hit=780 read=6
+   CTE exact
+     ->  Unique  (cost=2081.86..2083.65 rows=100 width=16) (actual time=9.551..9.556 rows=0.00 loops=1)
+           Buffers: shared hit=331 read=4
+           ->  Merge Append  (cost=2081.86..2083.40 rows=100 width=16) (actual time=9.550..9.555 rows=0.00 loops=1)
+                 Sort Key: fts.id
+                 Buffers: shared hit=331 read=4
+                 ->  Sort  (cost=834.05..834.19 rows=56 width=16) (actual time=1.395..1.397 rows=0.00 loops=1)
+                       Sort Key: fts.id
+                       Sort Method: quicksort  Memory: 25kB
+                       Buffers: shared hit=141
+                       ->  Subquery Scan on fts  (cost=831.72..832.42 rows=56 width=16) (actual time=1.382..1.383 rows=0.00 loops=1)
+                             Buffers: shared hit=141
+                             ->  Limit  (cost=831.72..831.86 rows=56 width=20) (actual time=1.382..1.383 rows=0.00 loops=1)
+                                   Buffers: shared hit=141
+                                   ->  Sort  (cost=831.72..831.86 rows=56 width=20) (actual time=1.382..1.382 rows=0.00 loops=1)
+                                         Sort Key: ((works_1.ol_log_count + works_1.reader_count)) DESC
+                                         Sort Method: quicksort  Memory: 25kB
+                                         Buffers: shared hit=141
+                                         ->  Bitmap Heap Scan on works works_1  (cost=612.26..830.09 rows=56 width=20) (actual time=1.367..1.367 rows=0.00 loops=1)
+                                               Recheck Cond: (search_vector @@ '''ishigoro'':*'::tsquery)
+                                               Filter: ((merged_into_id IS NULL) AND (NOT is_provisional) AND (maturity <> 'explicit'::text))
+                                               Buffers: shared hit=141
+                                               ->  Bitmap Index Scan on works_search_idx  (cost=0.00..612.25 rows=57 width=0) (actual time=1.353..1.354 rows=0.00 loops=1)
+                                                     Index Cond: (search_vector @@ '''ishigoro'':*'::tsquery)
+                                                     Index Searches: 1
+                                                     Buffers: shared hit=141
+                 ->  Sort  (cost=798.46..798.51 rows=20 width=16) (actual time=7.498..7.499 rows=0.00 loops=1)
+                       Sort Key: title_like.id
+                       Sort Method: quicksort  Memory: 25kB
+                       Buffers: shared hit=173 read=2
+                       ->  Subquery Scan on title_like  (cost=797.78..798.03 rows=20 width=16) (actual time=7.482..7.483 rows=0.00 loops=1)
+                             Buffers: shared hit=173 read=2
+                             ->  Limit  (cost=797.78..797.83 rows=20 width=20) (actual time=7.482..7.483 rows=0.00 loops=1)
+                                   Buffers: shared hit=173 read=2
+                                   ->  Sort  (cost=797.78..797.83 rows=20 width=20) (actual time=7.482..7.482 rows=0.00 loops=1)
+                                         Sort Key: ((works_2.ol_log_count + works_2.reader_count)) DESC
+                                         Sort Method: quicksort  Memory: 25kB
+                                         Buffers: shared hit=173 read=2
+                                         ->  Bitmap Heap Scan on works works_2  (cost=719.32..797.35 rows=20 width=20) (actual time=7.462..7.462 rows=0.00 loops=1)
+                                               Recheck Cond: (title ~~* '%ishigoro%'::text)
+                                               Filter: ((merged_into_id IS NULL) AND (NOT is_provisional) AND (maturity <> 'explicit'::text))
+                                               Buffers: shared hit=173 read=2
+                                               ->  Bitmap Index Scan on works_title_trgm_idx  (cost=0.00..719.31 rows=20 width=0) (actual time=7.457..7.457 rows=0.00 loops=1)
+                                                     Index Cond: (title ~~* '%ishigoro%'::text)
+                                                     Index Searches: 1
+                                                     Buffers: shared hit=173 read=2
+                 ->  Sort  (cost=449.33..449.39 rows=24 width=16) (actual time=0.657..0.658 rows=0.00 loops=1)
+                       Sort Key: by_author.id
+                       Sort Method: quicksort  Memory: 25kB
+                       Buffers: shared hit=17 read=2
+                       ->  Subquery Scan on by_author  (cost=448.48..448.78 rows=24 width=16) (actual time=0.638..0.640 rows=0.00 loops=1)
+                             Buffers: shared hit=17 read=2
+                             ->  Limit  (cost=448.48..448.54 rows=24 width=20) (actual time=0.638..0.639 rows=0.00 loops=1)
+                                   Buffers: shared hit=17 read=2
+                                   ->  Sort  (cost=448.48..448.54 rows=24 width=20) (actual time=0.637..0.638 rows=0.00 loops=1)
+                                         Sort Key: ((w_2.ol_log_count + w_2.reader_count)) DESC
+                                         Sort Method: quicksort  Memory: 25kB
+                                         Buffers: shared hit=17 read=2
+                                         ->  Nested Loop  (cost=86.79..447.93 rows=24 width=20) (actual time=0.627..0.628 rows=0.00 loops=1)
+                                               Buffers: shared hit=17 read=2
+                                               ->  Nested Loop  (cost=86.37..431.67 rows=24 width=16) (actual time=0.627..0.628 rows=0.00 loops=1)
+                                                     Buffers: shared hit=17 read=2
+                                                     ->  Bitmap Heap Scan on authors a_1  (cost=81.90..127.11 rows=11 width=16) (actual time=0.627..0.627 rows=0.00 loops=1)
+                                                           Recheck Cond: ((flyleaf_author_names(name, alternate_names) ~~* ANY ('{%ishigoro%}'::text[])) AND has_works)
+                                                           Buffers: shared hit=17 read=2
+                                                           ->  Bitmap Index Scan on authors_credited_trgm_idx  (cost=0.00..81.90 rows=11 width=0) (actual time=0.622..0.622 rows=0.00 loops=1)
+                                                                 Index Cond: (flyleaf_author_names(name, alternate_names) ~~* ANY ('{%ishigoro%}'::text[]))
+                                                                 Index Searches: 1
+                                                                 Buffers: shared hit=17 read=2
+                                                     ->  Bitmap Heap Scan on work_authors wa_1  (cost=4.47..27.63 rows=6 width=32) (never executed)
+                                                           Recheck Cond: (author_id = a_1.id)
+                                                           ->  Bitmap Index Scan on work_authors_author_idx  (cost=0.00..4.46 rows=6 width=0) (never executed)
+                                                                 Index Cond: (author_id = a_1.id)
+                                                                 Index Searches: 0
+                                               ->  Index Scan using works_pkey on works w_2  (cost=0.42..0.67 rows=1 width=24) (never executed)
+                                                     Index Cond: (id = wa_1.work_id)
+                                                     Filter: ((merged_into_id IS NULL) AND (NOT is_provisional) AND (maturity <> 'explicit'::text))
+                                                     Index Searches: 0
+   ->  Result  (cost=5788.24..31408.49 rows=130 width=92) (actual time=13.053..13.298 rows=11.00 loops=1)
+         Buffers: shared hit=780 read=6
+         ->  Sort  (cost=5788.24..5788.57 rows=130 width=60) (actual time=13.000..13.005 rows=11.00 loops=1)
+               Sort Key: ((((((CASE WHEN (w.title ~~* 'ishigoro%'::text) THEN 0.30 ELSE '0'::numeric END + CASE WHEN (lower(w.title) = 'ishigoro'::text) THEN 0.20 ELSE '0'::numeric END) + CASE WHEN (ANY (w.id = (hashed SubPlan 5).col1)) THEN 0.20 ELSE '0'::numeric END))::double precision + (similarity(w.title, 'ishigoro'::text) * '0.1'::double precision)) + (LEAST((ln(((1 + (w.ol_log_count + w.reader_count)))::double precision) / '10'::double precision), '1'::double precision) * '0.6'::double precision))) DESC, ((w.ol_log_count + w.reader_count)) DESC, w.title
+               Sort Method: quicksort  Memory: 26kB
+               Buffers: shared hit=688 read=6
+               ->  Nested Loop  (cost=1330.19..5784.78 rows=130 width=60) (actual time=12.888..12.980 rows=11.00 loops=1)
+                     Buffers: shared hit=688 read=6
+                     ->  Unique  (cost=1329.77..1333.87 rows=131 width=16) (actual time=12.270..12.279 rows=11.00 loops=1)
+                           Buffers: shared hit=625 read=4
+                           ->  Merge Append  (cost=1329.77..1333.54 rows=131 width=16) (actual time=12.270..12.275 rows=11.00 loops=1)
+                                 Sort Key: exact.id
+                                 Buffers: shared hit=625 read=4
+                                 ->  CTE Scan on exact  (cost=0.00..2.00 rows=100 width=16) (actual time=9.551..9.551 rows=0.00 loops=1)
+                                       Storage: Memory  Maximum Storage: 17kB
+                                       Buffers: shared hit=331 read=4
+                                 ->  Sort  (cost=838.99..839.00 rows=7 width=16) (actual time=2.211..2.212 rows=0.00 loops=1)
+                                       Sort Key: title_fuzzy.id
+                                       Sort Method: quicksort  Memory: 25kB
+                                       Buffers: shared hit=206
+                                       ->  Subquery Scan on title_fuzzy  (cost=838.80..838.89 rows=7 width=16) (actual time=2.191..2.192 rows=0.00 loops=1)
+                                             Buffers: shared hit=206
+                                             ->  Limit  (cost=838.80..838.82 rows=7 width=20) (actual time=2.191..2.191 rows=0.00 loops=1)
+                                                   Buffers: shared hit=206
+                                                   InitPlan 6
+                                                     ->  Aggregate  (cost=2.25..2.26 rows=1 width=8) (actual time=0.002..0.002 rows=1.00 loops=1)
+                                                           ->  CTE Scan on exact exact_1  (cost=0.00..2.00 rows=100 width=0) (actual time=0.000..0.000 rows=0.00 loops=1)
+                                                                 Storage: Memory  Maximum Storage: 17kB
+                                                   ->  Sort  (cost=836.54..836.56 rows=7 width=20) (actual time=2.190..2.191 rows=0.00 loops=1)
+                                                         Sort Key: (((works.ol_log_count + works.reader_count) + 0)) DESC
+                                                         Sort Method: quicksort  Memory: 25kB
+                                                         Buffers: shared hit=206
+                                                         ->  Result  (cost=758.18..836.44 rows=7 width=20) (actual time=2.179..2.179 rows=0.00 loops=1)
+                                                               One-Time Filter: ((InitPlan 6).col1 < 20)
+                                                               Buffers: shared hit=206
+                                                               ->  Bitmap Heap Scan on works  (cost=758.18..836.41 rows=7 width=24) (actual time=2.173..2.173 rows=0.00 loops=1)
+                                                                     Recheck Cond: (title %> 'ishigoro'::text)
+                                                                     Filter: ((merged_into_id IS NULL) AND (NOT is_provisional) AND (maturity <> 'explicit'::text) AND (similarity(title, 'ishigoro'::text) >= (current_setting('pg_trgm.similarity_threshold'::text))::real))
+                                                                     Buffers: shared hit=206
+                                                                     ->  Bitmap Index Scan on works_title_trgm_idx  (cost=0.00..758.17 rows=20 width=0) (actual time=2.168..2.168 rows=0.00 loops=1)
+                                                                           Index Cond: (title %> 'ishigoro'::text)
+                                                                           Index Searches: 1
+                                                                           Buffers: shared hit=206
+                                 ->  Sort  (cost=490.76..490.82 rows=24 width=16) (actual time=0.507..0.510 rows=11.00 loops=1)
+                                       Sort Key: author_fuzzy.id
+                                       Sort Method: quicksort  Memory: 25kB
+                                       Buffers: shared hit=88
+                                       ->  Subquery Scan on author_fuzzy  (cost=489.91..490.21 rows=24 width=16) (actual time=0.494..0.497 rows=11.00 loops=1)
+                                             Buffers: shared hit=88
+                                             ->  Limit  (cost=489.91..489.97 rows=24 width=20) (actual time=0.493..0.495 rows=11.00 loops=1)
+                                                   Buffers: shared hit=88
+                                                   InitPlan 7
+                                                     ->  Aggregate  (cost=2.25..2.26 rows=1 width=8) (actual time=0.002..0.002 rows=1.00 loops=1)
+                                                           ->  CTE Scan on exact exact_2  (cost=0.00..2.00 rows=100 width=0) (actual time=0.000..0.000 rows=0.00 loops=1)
+                                                                 Storage: Memory  Maximum Storage: 17kB
+                                                   ->  Sort  (cost=487.65..487.71 rows=24 width=20) (actual time=0.492..0.494 rows=11.00 loops=1)
+                                                         Sort Key: (((w_1.ol_log_count + w_1.reader_count) + 0)) DESC
+                                                         Sort Method: quicksort  Memory: 25kB
+                                                         Buffers: shared hit=88
+                                                         ->  Result  (cost=125.65..487.10 rows=24 width=20) (actual time=0.426..0.480 rows=11.00 loops=1)
+                                                               One-Time Filter: ((InitPlan 7).col1 < 20)
+                                                               Buffers: shared hit=88
+                                                               ->  Nested Loop  (cost=125.65..486.98 rows=24 width=24) (actual time=0.423..0.475 rows=11.00 loops=1)
+                                                                     Buffers: shared hit=88
+                                                                     ->  Nested Loop  (cost=125.22..470.54 rows=24 width=16) (actual time=0.405..0.417 rows=11.00 loops=1)
+                                                                           Buffers: shared hit=44
+                                                                           ->  Bitmap Heap Scan on authors a  (cost=120.76..165.98 rows=11 width=16) (actual time=0.376..0.376 rows=1.00 loops=1)
+                                                                                 Recheck Cond: ((flyleaf_author_names(name, alternate_names) %> 'ishigoro'::text) AND has_works)
+                                                                                 Heap Blocks: exact=1
+                                                                                 Buffers: shared hit=30
+                                                                                 ->  Bitmap Index Scan on authors_credited_trgm_idx  (cost=0.00..120.75 rows=11 width=0) (actual time=0.304..0.304 rows=1.00 loops=1)
+                                                                                       Index Cond: (flyleaf_author_names(name, alternate_names) %> 'ishigoro'::text)
+                                                                                       Index Searches: 1
+                                                                                       Buffers: shared hit=29
+                                                                           ->  Bitmap Heap Scan on work_authors wa  (cost=4.47..27.63 rows=6 width=32) (actual time=0.028..0.038 rows=11.00 loops=1)
+                                                                                 Recheck Cond: (author_id = a.id)
+                                                                                 Heap Blocks: exact=11
+                                                                                 Buffers: shared hit=14
+                                                                                 ->  Bitmap Index Scan on work_authors_author_idx  (cost=0.00..4.46 rows=6 width=0) (actual time=0.023..0.023 rows=11.00 loops=1)
+                                                                                       Index Cond: (author_id = a.id)
+                                                                                       Index Searches: 1
+                                                                                       Buffers: shared hit=3
+                                                                     ->  Index Scan using works_pkey on works w_1  (cost=0.42..0.67 rows=1 width=24) (actual time=0.005..0.005 rows=1.00 loops=11)
+                                                                           Index Cond: (id = wa.work_id)
+                                                                           Filter: ((merged_into_id IS NULL) AND (NOT is_provisional) AND (maturity <> 'explicit'::text))
+                                                                           Index Searches: 11
+                                                                           Buffers: shared hit=44
+                     ->  Index Scan using works_pkey on works w  (cost=0.42..8.26 rows=1 width=56) (actual time=0.003..0.003 rows=1.00 loops=11)
+                           Index Cond: (id = exact.id)
+                           Filter: ((merged_into_id IS NULL) AND (NOT is_provisional) AND (maturity <> 'explicit'::text))
+                           Index Searches: 11
+                           Buffers: shared hit=44
+                     SubPlan 5
+                       ->  Nested Loop  (cost=86.37..431.67 rows=24 width=16) (actual time=0.574..0.574 rows=0.00 loops=1)
+                             Buffers: shared hit=19 read=2
+                             ->  Bitmap Heap Scan on authors a_3  (cost=81.90..127.11 rows=11 width=16) (actual time=0.573..0.574 rows=0.00 loops=1)
+                                   Recheck Cond: (flyleaf_author_names(name, alternate_names) ~~* ANY ('{%ishigoro%}'::text[]))
+                                   Buffers: shared hit=19 read=2
+                                   ->  Bitmap Index Scan on authors_search_trgm_idx  (cost=0.00..81.90 rows=11 width=0) (actual time=0.570..0.570 rows=0.00 loops=1)
+                                         Index Cond: (flyleaf_author_names(name, alternate_names) ~~* ANY ('{%ishigoro%}'::text[]))
+                                         Index Searches: 1
+                                         Buffers: shared hit=19 read=2
+                             ->  Bitmap Heap Scan on work_authors wa_3  (cost=4.47..27.63 rows=6 width=32) (never executed)
+                                   Recheck Cond: (author_id = a_3.id)
+                                   ->  Bitmap Index Scan on work_authors_author_idx  (cost=0.00..4.46 rows=6 width=0) (never executed)
+                                         Index Cond: (author_id = a_3.id)
+                                         Index Searches: 0
+         SubPlan 2
+           ->  Limit  (cost=29.33..29.33 rows=1 width=19) (actual time=0.024..0.024 rows=1.00 loops=11)
+                 Buffers: shared hit=88
+                 ->  Sort  (cost=29.33..29.34 rows=2 width=19) (actual time=0.018..0.018 rows=1.00 loops=11)
+                       Sort Key: wa_2."position", a_2.name
+                       Sort Method: quicksort  Memory: 25kB
+                       Buffers: shared hit=88
+                       ->  Nested Loop  (cost=0.84..29.32 rows=2 width=19) (actual time=0.008..0.008 rows=1.00 loops=11)
+                             Buffers: shared hit=88
+                             ->  Index Scan using work_authors_work_id_author_id_role_pk on work_authors wa_2  (cost=0.42..12.45 rows=2 width=20) (actual time=0.005..0.005 rows=1.00 loops=11)
+                                   Index Cond: (work_id = w.id)
+                                   Index Searches: 11
+                                   Buffers: shared hit=44
+                             ->  Index Scan using authors_pkey on authors a_2  (cost=0.42..8.44 rows=1 width=31) (actual time=0.002..0.002 rows=1.00 loops=11)
+                                   Index Cond: (id = wa_2.author_id)
+                                   Index Searches: 11
+                                   Buffers: shared hit=44
+         SubPlan 3
+           ->  Limit  (cost=141.81..141.81 rows=1 width=8) (actual time=0.022..0.022 rows=0.00 loops=1)
+                 Buffers: shared hit=4
+                 ->  Sort  (cost=141.81..141.86 rows=18 width=8) (actual time=0.022..0.022 rows=0.00 loops=1)
+                       Sort Key: e.publish_year DESC NULLS LAST
+                       Sort Method: quicksort  Memory: 25kB
+                       Buffers: shared hit=4
+                       ->  Bitmap Heap Scan on editions e  (cost=4.69..141.72 rows=18 width=8) (actual time=0.012..0.012 rows=0.00 loops=1)
+                             Recheck Cond: (work_id = w.id)
+                             Filter: (ol_cover_id IS NOT NULL)
+                             Rows Removed by Filter: 1
+                             Heap Blocks: exact=1
+                             Buffers: shared hit=4
+                             ->  Bitmap Index Scan on editions_work_idx  (cost=0.00..4.69 rows=35 width=0) (actual time=0.005..0.005 rows=1.00 loops=1)
+                                   Index Cond: (work_id = w.id)
+                                   Index Searches: 1
+                                   Buffers: shared hit=3
+ Planning:
+   Buffers: shared hit=130
+ Planning Time: 4.316 ms
+ Execution Time: 14.071 ms
+(225 rows)
+
+   query    
+------------
+ ===== king
+(1 row)
+
+                                                                                                                                                                                                                                                                                QUERY PLAN                                                                                                                                                                                                                                                                                 
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit  (cost=43819.90..47761.47 rows=20 width=92) (actual time=591.299..600.246 rows=20.00 loops=1)
+   Buffers: shared hit=29833 read=3013
+   CTE exact
+     ->  Unique  (cost=5162.07..5173.25 rows=624 width=16) (actual time=562.811..563.117 rows=775.00 loops=1)
+           Buffers: shared hit=23930 read=2916
+           ->  Merge Append  (cost=5162.07..5171.69 rows=624 width=16) (actual time=562.811..562.973 rows=900.00 loops=1)
+                 Sort Key: fts.id
+                 Buffers: shared hit=23930 read=2916
+                 ->  Sort  (cost=3342.25..3343.00 rows=300 width=16) (actual time=66.683..66.701 rows=300.00 loops=1)
+                       Sort Key: fts.id
+                       Sort Method: quicksort  Memory: 25kB
+                       Buffers: shared hit=392 read=760
+                       ->  Subquery Scan on fts  (cost=3326.15..3329.90 rows=300 width=16) (actual time=66.584..66.633 rows=300.00 loops=1)
+                             Buffers: shared hit=392 read=760
+                             ->  Limit  (cost=3326.15..3326.90 rows=300 width=20) (actual time=66.583..66.611 rows=300.00 loops=1)
+                                   Buffers: shared hit=392 read=760
+                                   ->  Sort  (cost=3326.15..3328.24 rows=834 width=20) (actual time=66.582..66.593 rows=300.00 loops=1)
+                                         Sort Key: ((works_1.ol_log_count + works_1.reader_count)) DESC
+                                         Sort Method: top-N heapsort  Memory: 46kB
+                                         Buffers: shared hit=392 read=760
+                                         ->  Bitmap Heap Scan on works works_1  (cost=616.37..3287.67 rows=834 width=20) (actual time=3.317..65.956 rows=943.00 loops=1)
+                                               Recheck Cond: (search_vector @@ '''king'':*'::tsquery)
+                                               Filter: ((merged_into_id IS NULL) AND (NOT is_provisional) AND (maturity <> 'explicit'::text))
+                                               Rows Removed by Filter: 11
+                                               Heap Blocks: exact=1010
+                                               Buffers: shared hit=392 read=760
+                                               ->  Bitmap Index Scan on works_search_idx  (cost=0.00..616.16 rows=840 width=0) (actual time=2.502..2.503 rows=1034.00 loops=1)
+                                                     Index Cond: (search_vector @@ '''king'':*'::tsquery)
+                                                     Index Searches: 1
+                                                     Buffers: shared hit=140 read=2
+                 ->  Sort  (cost=1422.28..1423.03 rows=300 width=16) (actual time=146.854..146.871 rows=300.00 loops=1)
+                       Sort Key: title_like.id
+                       Sort Method: quicksort  Memory: 25kB
+                       Buffers: shared hit=16963 read=506
+                       ->  Subquery Scan on title_like  (cost=0.42..1409.94 rows=300 width=16) (actual time=0.972..146.656 rows=300.00 loops=1)
+                             Buffers: shared hit=16963 read=506
+                             ->  Limit  (cost=0.42..1406.94 rows=300 width=20) (actual time=0.971..146.570 rows=300.00 loops=1)
+                                   Buffers: shared hit=16963 read=506
+                                   ->  Index Only Scan Backward using works_popularity_idx on works works_2  (cost=0.42..28107.31 rows=5995 width=20) (actual time=0.970..146.486 rows=300.00 loops=1)
+                                         Filter: ((merged_into_id IS NULL) AND (NOT is_provisional) AND (title ~~* '%king%'::text) AND (maturity <> 'explicit'::text))
+                                         Rows Removed by Filter: 17875
+                                         Heap Fetches: 18157
+                                         Index Searches: 1
+                                         Buffers: shared hit=16963 read=506
+                 ->  Sort  (cost=397.52..397.58 rows=24 width=16) (actual time=349.269..349.288 rows=300.00 loops=1)
+                       Sort Key: by_author.id
+                       Sort Method: quicksort  Memory: 25kB
+                       Buffers: shared hit=6575 read=1650
+                       ->  Subquery Scan on by_author  (cost=396.67..396.97 rows=24 width=16) (actual time=349.114..349.183 rows=300.00 loops=1)
+                             Buffers: shared hit=6575 read=1650
+                             ->  Limit  (cost=396.67..396.73 rows=24 width=20) (actual time=349.112..349.153 rows=300.00 loops=1)
+                                   Buffers: shared hit=6575 read=1650
+                                   ->  Sort  (cost=396.67..396.73 rows=24 width=20) (actual time=349.110..349.131 rows=300.00 loops=1)
+                                         Sort Key: ((w_2.ol_log_count + w_2.reader_count)) DESC
+                                         Sort Method: top-N heapsort  Memory: 55kB
+                                         Buffers: shared hit=6575 read=1650
+                                         ->  Nested Loop  (cost=34.98..396.12 rows=24 width=20) (actual time=1.730..347.953 rows=1362.00 loops=1)
+                                               Buffers: shared hit=6575 read=1650
+                                               ->  Nested Loop  (cost=34.56..379.86 rows=24 width=16) (actual time=1.514..96.316 rows=1373.00 loops=1)
+                                                     Buffers: shared hit=2048 read=685
+                                                     ->  Bitmap Heap Scan on authors a_1  (cost=30.09..75.30 rows=11 width=16) (actual time=1.183..11.659 rows=353.00 loops=1)
+                                                           Recheck Cond: ((flyleaf_author_names(name, alternate_names) ~~* ANY ('{%king%}'::text[])) AND has_works)
+                                                           Rows Removed by Index Recheck: 10
+                                                           Heap Blocks: exact=343
+                                                           Buffers: shared hit=29 read=322
+                                                           ->  Bitmap Index Scan on authors_credited_trgm_idx  (cost=0.00..30.09 rows=11 width=0) (actual time=0.812..0.812 rows=363.00 loops=1)
+                                                                 Index Cond: (flyleaf_author_names(name, alternate_names) ~~* ANY ('{%king%}'::text[]))
+                                                                 Index Searches: 1
+                                                                 Buffers: shared hit=5 read=3
+                                                     ->  Bitmap Heap Scan on work_authors wa_1  (cost=4.47..27.63 rows=6 width=32) (actual time=0.174..0.234 rows=3.89 loops=353)
+                                                           Recheck Cond: (author_id = a_1.id)
+                                                           Heap Blocks: exact=1323
+                                                           Buffers: shared hit=2019 read=363
+                                                           ->  Bitmap Index Scan on work_authors_author_idx  (cost=0.00..4.46 rows=6 width=0) (actual time=0.115..0.115 rows=3.89 loops=353)
+                                                                 Index Cond: (author_id = a_1.id)
+                                                                 Index Searches: 353
+                                                                 Buffers: shared hit=921 read=138
+                                               ->  Index Scan using works_pkey on works w_2  (cost=0.42..0.67 rows=1 width=24) (actual time=0.182..0.182 rows=0.99 loops=1373)
+                                                     Index Cond: (id = wa_1.work_id)
+                                                     Filter: ((merged_into_id IS NULL) AND (NOT is_provisional) AND (maturity <> 'explicit'::text))
+                                                     Rows Removed by Filter: 0
+                                                     Index Searches: 1373
+                                                     Buffers: shared hit=4527 read=965
+   ->  Result  (cost=38646.64..194733.05 rows=792 width=92) (actual time=591.298..600.234 rows=20.00 loops=1)
+         Buffers: shared hit=29833 read=3013
+         ->  Sort  (cost=38646.64..38648.62 rows=792 width=60) (actual time=591.009..591.020 rows=20.00 loops=1)
+               Sort Key: ((((((CASE WHEN (w.title ~~* 'king%'::text) THEN 0.30 ELSE '0'::numeric END + CASE WHEN (lower(w.title) = 'king'::text) THEN 0.20 ELSE '0'::numeric END) + CASE WHEN (ANY (w.id = (hashed SubPlan 5).col1)) THEN 0.20 ELSE '0'::numeric END))::double precision + (similarity(w.title, 'king'::text) * '0.1'::double precision)) + (LEAST((ln(((1 + (w.ol_log_count + w.reader_count)))::double precision) / '10'::double precision), '1'::double precision) * '0.6'::double precision))) DESC, ((w.ol_log_count + w.reader_count)) DESC, w.title
+               Sort Method: top-N heapsort  Memory: 29kB
+               Buffers: shared hit=29705 read=2978
+               ->  Nested Loop  (cost=12214.99..38625.57 rows=792 width=60) (actual time=570.663..590.770 rows=775.00 loops=1)
+                     Buffers: shared hit=29705 read=2978
+                     ->  Unique  (cost=12214.57..12239.79 rows=798 width=16) (actual time=563.466..563.729 rows=775.00 loops=1)
+                           Buffers: shared hit=23930 read=2916
+                           ->  Merge Append  (cost=12214.57..12237.79 rows=798 width=16) (actual time=563.465..563.614 rows=775.00 loops=1)
+                                 Sort Key: exact.id
+                                 Buffers: shared hit=23930 read=2916
+                                 ->  CTE Scan on exact  (cost=0.00..12.48 rows=624 width=16) (actual time=562.813..562.896 rows=775.00 loops=1)
+                                       Storage: Memory  Maximum Storage: 47kB
+                                       Buffers: shared hit=23930 read=2916
+                                 ->  Sort  (cost=11763.80..11764.18 rows=150 width=16) (actual time=0.485..0.488 rows=0.00 loops=1)
+                                       Sort Key: title_fuzzy.id
+                                       Sort Method: quicksort  Memory: 25kB
+                                       ->  Subquery Scan on title_fuzzy  (cost=11756.50..11758.38 rows=150 width=16) (actual time=0.476..0.478 rows=0.00 loops=1)
+                                             ->  Limit  (cost=11756.50..11756.88 rows=150 width=20) (actual time=0.475..0.477 rows=0.00 loops=1)
+                                                   InitPlan 6
+                                                     ->  Aggregate  (cost=14.04..14.05 rows=1 width=8) (actual time=0.458..0.459 rows=1.00 loops=1)
+                                                           ->  CTE Scan on exact exact_1  (cost=0.00..12.48 rows=624 width=0) (actual time=0.001..0.416 rows=775.00 loops=1)
+                                                                 Storage: Memory  Maximum Storage: 47kB
+                                                   ->  Sort  (cost=11742.45..11747.45 rows=1998 width=20) (actual time=0.474..0.475 rows=0.00 loops=1)
+                                                         Sort Key: (((works.ol_log_count + works.reader_count) + 0)) DESC
+                                                         Sort Method: quicksort  Memory: 25kB
+                                                         ->  Result  (cost=741.10..11660.25 rows=1998 width=20) (actual time=0.461..0.461 rows=0.00 loops=1)
+                                                               One-Time Filter: ((InitPlan 6).col1 < 20)
+                                                               ->  Bitmap Heap Scan on works  (cost=741.10..11650.26 rows=1998 width=24) (never executed)
+                                                                     Recheck Cond: (title %> 'king'::text)
+                                                                     Filter: ((merged_into_id IS NULL) AND (NOT is_provisional) AND (maturity <> 'explicit'::text) AND (similarity(title, 'king'::text) >= (current_setting('pg_trgm.similarity_threshold'::text))::real))
+                                                                     ->  Bitmap Index Scan on works_title_trgm_idx  (cost=0.00..740.60 rows=6042 width=0) (never executed)
+                                                                           Index Cond: (title %> 'king'::text)
+                                                                           Index Searches: 0
+                                 ->  Sort  (cost=450.74..450.80 rows=24 width=16) (actual time=0.165..0.169 rows=0.00 loops=1)
+                                       Sort Key: author_fuzzy.id
+                                       Sort Method: quicksort  Memory: 25kB
+                                       ->  Subquery Scan on author_fuzzy  (cost=449.89..450.19 rows=24 width=16) (actual time=0.111..0.114 rows=0.00 loops=1)
+                                             ->  Limit  (cost=449.89..449.95 rows=24 width=20) (actual time=0.110..0.113 rows=0.00 loops=1)
+                                                   InitPlan 7
+                                                     ->  Aggregate  (cost=14.04..14.05 rows=1 width=8) (actual time=0.097..0.098 rows=1.00 loops=1)
+                                                           ->  CTE Scan on exact exact_2  (cost=0.00..12.48 rows=624 width=0) (actual time=0.001..0.057 rows=775.00 loops=1)
+                                                                 Storage: Memory  Maximum Storage: 47kB
+                                                   ->  Sort  (cost=435.84..435.90 rows=24 width=20) (actual time=0.110..0.112 rows=0.00 loops=1)
+                                                         Sort Key: (((w_1.ol_log_count + w_1.reader_count) + 0)) DESC
+                                                         Sort Method: quicksort  Memory: 25kB
+                                                         ->  Result  (cost=73.84..435.29 rows=24 width=20) (actual time=0.099..0.100 rows=0.00 loops=1)
+                                                               One-Time Filter: ((InitPlan 7).col1 < 20)
+                                                               ->  Nested Loop  (cost=73.84..435.17 rows=24 width=24) (never executed)
+                                                                     ->  Nested Loop  (cost=73.41..418.73 rows=24 width=16) (never executed)
+                                                                           ->  Bitmap Heap Scan on authors a  (cost=68.95..114.17 rows=11 width=16) (never executed)
+                                                                                 Recheck Cond: ((flyleaf_author_names(name, alternate_names) %> 'king'::text) AND has_works)
+                                                                                 ->  Bitmap Index Scan on authors_credited_trgm_idx  (cost=0.00..68.94 rows=11 width=0) (never executed)
+                                                                                       Index Cond: (flyleaf_author_names(name, alternate_names) %> 'king'::text)
+                                                                                       Index Searches: 0
+                                                                           ->  Bitmap Heap Scan on work_authors wa  (cost=4.47..27.63 rows=6 width=32) (never executed)
+                                                                                 Recheck Cond: (author_id = a.id)
+                                                                                 ->  Bitmap Index Scan on work_authors_author_idx  (cost=0.00..4.46 rows=6 width=0) (never executed)
+                                                                                       Index Cond: (author_id = a.id)
+                                                                                       Index Searches: 0
+                                                                     ->  Index Scan using works_pkey on works w_1  (cost=0.42..0.67 rows=1 width=24) (never executed)
+                                                                           Index Cond: (id = wa.work_id)
+                                                                           Filter: ((merged_into_id IS NULL) AND (NOT is_provisional) AND (maturity <> 'explicit'::text))
+                                                                           Index Searches: 0
+                     ->  Index Scan using works_pkey on works w  (cost=0.42..7.34 rows=1 width=56) (actual time=0.021..0.021 rows=1.00 loops=775)
+                           Index Cond: (id = exact.id)
+                           Filter: ((merged_into_id IS NULL) AND (NOT is_provisional) AND (maturity <> 'explicit'::text))
+                           Index Searches: 775
+                           Buffers: shared hit=3044 read=56
+                     SubPlan 5
+                       ->  Nested Loop  (cost=34.56..379.86 rows=24 width=16) (actual time=1.893..6.579 rows=1373.00 loops=1)
+                             Buffers: shared hit=2731 read=6
+                             ->  Bitmap Heap Scan on authors a_3  (cost=30.09..75.30 rows=11 width=16) (actual time=1.878..3.753 rows=353.00 loops=1)
+                                   Recheck Cond: (flyleaf_author_names(name, alternate_names) ~~* ANY ('{%king%}'::text[]))
+                                   Rows Removed by Index Recheck: 10
+                                   Heap Blocks: exact=343
+                                   Buffers: shared hit=349 read=6
+                                   ->  Bitmap Index Scan on authors_search_trgm_idx  (cost=0.00..30.09 rows=11 width=0) (actual time=1.817..1.817 rows=363.00 loops=1)
+                                         Index Cond: (flyleaf_author_names(name, alternate_names) ~~* ANY ('{%king%}'::text[]))
+                                         Index Searches: 1
+                                         Buffers: shared hit=6 read=6
+                             ->  Bitmap Heap Scan on work_authors wa_3  (cost=4.47..27.63 rows=6 width=32) (actual time=0.004..0.007 rows=3.89 loops=353)
+                                   Recheck Cond: (author_id = a_3.id)
+                                   Heap Blocks: exact=1323
+                                   Buffers: shared hit=2382
+                                   ->  Bitmap Index Scan on work_authors_author_idx  (cost=0.00..4.46 rows=6 width=0) (actual time=0.003..0.003 rows=3.89 loops=353)
+                                         Index Cond: (author_id = a_3.id)
+                                         Index Searches: 353
+                                         Buffers: shared hit=1059
+         SubPlan 2
+           ->  Limit  (cost=29.33..29.33 rows=1 width=19) (actual time=0.436..0.436 rows=1.00 loops=20)
+                 Buffers: shared hit=127 read=33
+                 ->  Sort  (cost=29.33..29.34 rows=2 width=19) (actual time=0.435..0.435 rows=1.00 loops=20)
+                       Sort Key: wa_2."position", a_2.name
+                       Sort Method: quicksort  Memory: 25kB
+                       Buffers: shared hit=127 read=33
+                       ->  Nested Loop  (cost=0.84..29.32 rows=2 width=19) (actual time=0.431..0.432 rows=1.00 loops=20)
+                             Buffers: shared hit=127 read=33
+                             ->  Index Scan using work_authors_work_id_author_id_role_pk on work_authors wa_2  (cost=0.42..12.45 rows=2 width=20) (actual time=0.234..0.235 rows=1.00 loops=20)
+                                   Index Cond: (work_id = w.id)
+                                   Index Searches: 20
+                                   Buffers: shared hit=61 read=19
+                             ->  Index Scan using authors_pkey on authors a_2  (cost=0.42..8.44 rows=1 width=31) (actual time=0.195..0.195 rows=1.00 loops=20)
+                                   Index Cond: (id = wa_2.author_id)
+                                   Index Searches: 20
+                                   Buffers: shared hit=66 read=14
+         SubPlan 3
+           ->  Limit  (cost=141.81..141.81 rows=1 width=8) (actual time=0.455..0.456 rows=0.00 loops=1)
+                 Buffers: shared hit=1 read=2
+                 ->  Sort  (cost=141.81..141.86 rows=18 width=8) (actual time=0.455..0.455 rows=0.00 loops=1)
+                       Sort Key: e.publish_year DESC NULLS LAST
+                       Sort Method: quicksort  Memory: 25kB
+                       Buffers: shared hit=1 read=2
+                       ->  Bitmap Heap Scan on editions e  (cost=4.69..141.72 rows=18 width=8) (actual time=0.406..0.406 rows=0.00 loops=1)
+                             Recheck Cond: (work_id = w.id)
+                             Filter: (ol_cover_id IS NOT NULL)
+                             Buffers: shared hit=1 read=2
+                             ->  Bitmap Index Scan on editions_work_idx  (cost=0.00..4.69 rows=35 width=0) (actual time=0.399..0.400 rows=0.00 loops=1)
+                                   Index Cond: (work_id = w.id)
+                                   Index Searches: 1
+                                   Buffers: shared hit=1 read=2
+ Planning:
+   Buffers: shared hit=130
+ Planning Time: 3.983 ms
+ Execution Time: 601.021 ms
+(210 rows)
+

@@ -1,0 +1,10 @@
+api     {"work_mem":"4MB","statement_timeout":"0","parallel":"2","idle_in_tx":"0","trgm":"0.45"}
+worker  {"work_mem":"32MB","statement_timeout":"10min","parallel":"1","idle_in_tx":"15min","trgm":"0.45"}
+dedupe  {"work_mem":"64MB","statement_timeout":"30min","parallel":"1","idle_in_tx":"30min","trgm":"0.45"}
+ingest  {"work_mem":"64MB","statement_timeout":"1h","parallel":"1","idle_in_tx":"1h","trgm":"0.45"}
+
+# after step 12 (container recreated with mem_limit 3g, 2026-10-11)
+api     {"work_mem":"4MB","statement_timeout":"0","parallel":"2","idle_in_tx":"0","trgm":"0.45"}
+worker  {"work_mem":"32MB","statement_timeout":"10min","parallel":"1","idle_in_tx":"15min","trgm":"0.45"}
+dedupe  {"work_mem":"64MB","statement_timeout":"30min","parallel":"1","idle_in_tx":"30min","trgm":"0.45"}
+ingest  {"work_mem":"64MB","statement_timeout":"1h","parallel":"1","idle_in_tx":"1h","trgm":"0.45"}

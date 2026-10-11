@@ -1,0 +1,59 @@
+# Step 9 index and planner checks, database flyleaf, 2026-10-11, counters since step 2's pg_stat_reset (preserved across both container recreates)
+-- stats since
+ current_database |         stats_reset          
+------------------+------------------------------
+ flyleaf          | 2026-10-11 07:25:44.54055+00
+(1 row)
+
+-- 1. audit-added indexes
+        relname        |            indexrelname             | idx_scan |    size    
+-----------------------+-------------------------------------+----------+------------
+ follows               | follows_follower_list_idx           |        0 | 10184 kB
+ follows               | follows_followee_list_idx           |        0 | 10184 kB
+ search_suggestions    | search_suggestions_term_trgm_idx    |        0 | 9464 kB
+ activity              | activity_popular_idx                |        0 | 472 kB
+ shelves               | shelves_description_trgm_idx        |        0 | 256 kB
+ shelves               | shelves_name_trgm_idx               |        0 | 152 kB
+ shelf_items           | shelf_items_noted_idx               |        0 | 104 kB
+ reviews               | reviews_deleted_idx                 |        0 | 16 kB
+ rate_limits           | rate_limits_expires_idx             |        0 | 16 kB
+ read_comments         | read_comments_deleted_idx           |        0 | 16 kB
+ shelves               | shelves_purge_idx                   |        0 | 16 kB
+ shelves               | shelves_deleted_idx                 |        0 | 16 kB
+ search_zero_summaries | search_zero_summaries_week_query_uq |        0 | 8192 bytes
+ dedupe_queue          | dedupe_queue_impact_idx             |        0 | 8192 bytes
+ dedupe_runs           | dedupe_runs_finished_idx            |        0 | 8192 bytes
+ admin_audit_log       | admin_audit_log_created_idx         |        0 | 8192 bytes
+ uploads               | uploads_key_uq                      |        0 | 8192 bytes
+ uploads               | uploads_user_idx                    |        0 | 8192 bytes
+ uploads               | uploads_cleanup_idx                 |        0 | 8192 bytes
+ series_entries        | series_entries_work_idx             |        0 | 8192 bytes
+ users                 | users_deleted_idx                   |        0 | 8192 bytes
+ events                | events_at_idx                       |        0 | 8192 bytes
+ shelf_slugs           | shelf_slugs_shelf_idx               |        1 | 168 kB
+ username_claims       | username_claims_user_idx            |        3 | 160 kB
+ authors               | authors_credited_trgm_idx           |        4 | 81 MB
+ reads                 | reads_work_idx                      |      252 | 2888 kB
+(26 rows)
+
+-- 2. authors trgm indexes (DECISIONS.md q1)
+      indexrelname       | idx_scan | pg_size_pretty 
+-------------------------+----------+----------------
+ authors_search_trgm_idx |        0 | 959 MB
+ authors_name_trgm_idx   |        0 | 952 MB
+(2 rows)
+
+-- 3. big tables by seq_tup_read
+      relname       | seq_scan | seq_tup_read | idx_scan | reltuples 
+--------------------+----------+--------------+----------+-----------
+ authors            |        1 |     15409896 |     8624 |  15417376
+ works              |        2 |      6412150 |    28460 |   3198863
+ work_authors       |        1 |      3791016 |    13340 |   3791117
+ activity           |        0 |            0 |        5 |    142152
+ editions           |        0 |            0 |     5260 |   6732314
+ follows            |        0 |            0 |     6010 |    186014
+ progress_events    |        0 |            0 |       76 |    225546
+ search_suggestions |        0 |            0 |        0 |    112554
+ raw_payloads       |        0 |            0 |        0 |  21025152
+(9 rows)
+

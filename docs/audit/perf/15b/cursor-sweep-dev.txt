@@ -1,0 +1,6 @@
+| Endpoint | Rows | Served | Repeated | Missing | Result |
+|---|---|---|---|---|---|
+| GET /v1/reads/:id/comments (limit 2) | 9 | 9 | 0 | 0 | OK |
+| GET /v1/users/:id/reads (limit 2) | 9 | 9 | 0 | 0 | OK |
+| GET /v1/feed?tab=friends (limit 4) | 24 | 24 | 0 | 0 | OK |
+| GET /v1/feed?tab=popular, guest (limit 3) | 24 | 24 | 0 | 0 | OK |

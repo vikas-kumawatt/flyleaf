@@ -686,6 +686,7 @@
     - 7 dedicated backend integration tests in `apps/api/src/test/shelves.test.ts` verifying public-only filtering, private/followers/soft-deleted exclusion, guest browsing, ILIKE search, PRD §15.5 curation quality ranking, social proximity boosting, popular/recent sorting, pagination, and save state.
   - **Audit (2026-10-10):** ⚠️ — the `views` term is always 0 (no view counter; spec gap, Part 15); the whole candidate set was loaded and scored in Node (26 statements; now 1, scored in SQL); mutes were ignored, `%`/`_` were wildcards, sorts had no id tie-break (all fixed); 10× plan recorded; see A-11-017 … A-11-020, A-11-024, A-11-032.
   - **Audit 15a (2026-10-10):** the `views` term stays 0: the counter is recorded as a decision (D-15-7, `DECISIONS.md` 3), not built.
+  - **Audit 15b (2026-10-11):** ❌ on a real Postgres: every browse (and saved) page with a cover-less work in a shelf mosaic answered 500 (postgres.js decodes the NULL in `cover_ids` as NaN; PGlite as null); fixed, test seen failing; see findings/15-cross-cutting.md A-15-024.
 - [x] **SH-09** ⚠️ **Shelf privacy on every read path + tests — 404 not 403, private account hierarchy** — 1d
   - Security Principle & Obscurity (Architecture §4, PRD §15.2, §26.1):
     - Enforced strict 3-tier privacy authorization (`public`, `followers`, `private`) on every read path via centralized `canView()` and `assertCanView()`.
