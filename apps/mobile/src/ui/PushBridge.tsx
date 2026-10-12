@@ -60,7 +60,7 @@ export function PushBridge() {
     if (action.markRead && user) void api.markNotificationsRead([action.markRead]).catch(() => {});
     // Signed out (or signed in as someone else since): Home, never another account's screen.
     const stack = user ? action.stack : [HOME];
-    router.dismissAll?.();
+    if (router.canDismiss()) router.dismissAll();
     router.replace(stack[0] as Href);
     for (const href of stack.slice(1)) router.push(href as Href);
   }, [response, ready, navReady, user, router]);

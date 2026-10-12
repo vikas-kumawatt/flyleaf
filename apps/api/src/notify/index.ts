@@ -89,8 +89,9 @@ export function bossNotifyQueue(boss: PgBoss): NotifyQueue {
       await boss.send(NOTIFY_QUEUES.send, job, {
         db: fromDrizzle(db as never, sql as never),
         ...(startAfter ? { startAfter } : {}),
-        // A push that cannot be delivered within a day is not worth sending.
-        expireInSeconds: 60 * 60,
+        // A push still waiting a day after it was queued (a worker that was
+        // down) is stale: pg-boss deletes it instead of sending it late.
+        // A quiet-hours deferral is a new job, so it gets its own day.
         retentionSeconds: 24 * 60 * 60,
       });
     },

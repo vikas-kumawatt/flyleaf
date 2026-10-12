@@ -1123,6 +1123,8 @@
   - ⚠️ **Needs a native rebuild:** `expo-notifications ~57.0.21` (the SDK's pinned version, installed with `EXPO_OFFLINE=1 npx expo install`) and its config plugin in `app.json` (`defaultChannel: "default"`; Android 13's notification permission comes with it). Expo push on Android also needs FCM credentials: a `google-services.json` (`android.googleServicesFile`) and the FCM V1 service-account key uploaded to EAS. Neither exists in the repo.
   - Tests: `src/lib/__tests__/notifications.test.ts` (17): sections and edges, badge, paging, read state, every link shape the API composes resolves to a real screen, malformed and foreign links go Home, push responses, token refresh pacing, and structural checks that the bridge sits inside the session, the bell opens the centre, `expo-notifications` is in the native config and nothing asks for permission at launch.
 
+> **`SO-3x` built, 12 Oct 2026 (cloud sandbox).** API 1,840 tests passing across 87 files (+103 new: notifications 33, notify-visibility 36, notify-delivery 26, notify-jobs 3, push contract +4, rate limits +1), 10 skipped as before; mobile 231 (+17). `FLYLEAF_TEST_WORKERS=2 node scripts/ci.mjs` green in 1,206 s, all 9 steps, OpenAPI drift 0. Migration `0043_notifications` applied to PGlite and the sandbox Postgres 18.4 (twice, idempotent) only: **apply on the laptop** to `flyleaf_dev` and `flyleaf`. Mobile needs a **native rebuild** (`expo-notifications`) and FCM credentials before push can be tried on a phone.
+
 ### Moderation — `SO-4x` · 3d
 - [ ] **SO-40** reports table; report flow from every surface — 0.5d
 - [ ] **SO-41** Automated layer 1: slur list, link rules, duplicates, rate limits — 1d
