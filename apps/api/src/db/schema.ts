@@ -1087,3 +1087,107 @@ export type Upload = typeof uploads.$inferSelect;
 
 
 
+
+// ---------------------------------------------------------------------------
+// 12. Notifications (SO-30 to SO-32, PRD §19, architecture §3.6; 0043)
+// ---------------------------------------------------------------------------
+
+/**
+ * The in-app list and what each push is about. Likes and follows aggregate:
+ * an unread row is reused for its `group_key` ('like:<read id>', 'follow'),
+ * and `updated_at` moves with each new actor (the list's sort key). `in_app`
+ * false: the category is push-only for this user, so the row exists for the
+ * push and the list leaves it out.
+ */
+export const notifications = pgTable('notifications', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  userId: uuid('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  type: text('type').notNull(),
+  objectType: text('object_type'),
+  objectId: uuid('object_id'),
+  groupKey: text('group_key'),
+  data: jsonb('data').notNull().default(sql`'{}'::jsonb`),
+  inApp: boolean('in_app').notNull().default(true),
+  readAt: timestamp('read_at', { withTimezone: true }),
+  pushState: text('push_state').notNull().default('none'),
+  pushReason: text('push_reason'),
+  pushedAt: timestamp('pushed_at', { withTimezone: true }),
+  /** A digest push is queued for this time (follows beyond 3 an hour). */
+  digestAt: timestamp('digest_at', { withTimezone: true }),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [
+  check('notifications_type_ck', sql`${t.type} IN ('follow','follow_request','like','comment','import_complete')`),
+  check('notifications_object_type_ck', sql`${t.objectType} IS NULL OR ${t.objectType} IN ('user','read','comment','import')`),
+  check('notifications_push_state_ck', sql`${t.pushState} IN ('none','queued','sent','skipped')`),
+  index('notifications_user_idx').on(t.userId, t.updatedAt.desc(), t.id.desc()).where(sql`${t.inApp}`),
+  index('notifications_unread_idx').on(t.userId).where(sql`${t.readAt} IS NULL AND ${t.inApp}`),
+  uniqueIndex('notifications_open_group_uq').on(t.userId, t.groupKey).where(sql`${t.readAt} IS NULL AND ${t.groupKey} IS NOT NULL`),
+  uniqueIndex('notifications_import_once_uq').on(t.objectId).where(sql`${t.type} = 'import_complete'`),
+  index('notifications_object_idx').on(t.objectType, t.objectId),
+]);
+
+/** Who is in a notification. An unlike or unfollow removes the actor again. */
+export const notificationActors = pgTable('notification_actors', {
+  notificationId: uuid('notification_id').notNull().references(() => notifications.id, { onDelete: 'cascade' }),
+  actorId: uuid('actor_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  /** This actor has been named in a push; a digest names only the rest. */
+  pushedAt: timestamp('pushed_at', { withTimezone: true }),
+}, (t) => [
+  primaryKey({ columns: [t.notificationId, t.actorId] }),
+  index('notification_actors_actor_idx').on(t.actorId),
+]);
+
+/**
+ * PRD §19.3–19.4. No row = every default. `categories` holds only what the
+ * user changed: { "<category>": { "push"?: bool, "in_app"?: bool } }.
+ * Quiet hours and the reminder are minutes after local midnight in `timezone`.
+ */
+export const notificationPreferences = pgTable('notification_preferences', {
+  userId: uuid('user_id').primaryKey().references(() => users.id, { onDelete: 'cascade' }),
+  pushEnabled: boolean('push_enabled').notNull().default(true),
+  categories: jsonb('categories').notNull().default(sql`'{}'::jsonb`),
+  quietEnabled: boolean('quiet_enabled').notNull().default(true),
+  quietStart: smallint('quiet_start').notNull().default(1320),
+  quietEnd: smallint('quiet_end').notNull().default(480),
+  timezone: text('timezone').notNull().default('UTC'),
+  /** PRD §19.2 item 14: null = off, the default. Only the user sets it. */
+  reminderTime: smallint('reminder_time'),
+  reminderLastSentOn: date('reminder_last_sent_on'),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [
+  check('notification_preferences_quiet_ck', sql`${t.quietStart} BETWEEN 0 AND 1439 AND ${t.quietEnd} BETWEEN 0 AND 1439`),
+  check('notification_preferences_reminder_ck', sql`${t.reminderTime} IS NULL OR ${t.reminderTime} BETWEEN 0 AND 1439`),
+  index('notification_preferences_reminder_idx').on(t.userId).where(sql`${t.reminderTime} IS NOT NULL`),
+]);
+
+/** One Expo push token per device. `last_seen_at`: the app's last open on it. */
+export const pushTokens = pgTable('push_tokens', {
+  token: text('token').primaryKey(),
+  userId: uuid('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  platform: text('platform').notNull(),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  lastSeenAt: timestamp('last_seen_at', { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [
+  check('push_tokens_platform_ck', sql`${t.platform} IN ('android','ios')`),
+  check('push_tokens_token_ck', sql`char_length(${t.token}) BETWEEN 1 AND 255`),
+  index('push_tokens_user_idx').on(t.userId),
+]);
+
+/** Expo tickets waiting for their delivery receipt (PV-05 → SO-30). */
+export const pushTickets = pgTable('push_tickets', {
+  ticketId: text('ticket_id').primaryKey(),
+  token: text('token').notNull(),
+  notificationId: uuid('notification_id'),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [index('push_tickets_created_idx').on(t.createdAt)]);
+
+/** The shared limiter's rolling store (platform/rate-limits.ts, store 'rolling'). */
+export const rateLimitEvents = pgTable('rate_limit_events', {
+  bucket: text('bucket').notNull(),
+  at: timestamp('at', { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [
+  index('rate_limit_events_bucket_idx').on(t.bucket, t.at),
+  index('rate_limit_events_at_idx').on(t.at),
+]);

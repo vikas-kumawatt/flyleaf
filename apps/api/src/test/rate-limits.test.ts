@@ -60,6 +60,13 @@ describe('RATE_LIMITS: one table, a PRD source next to every number', () => {
     expect(n('global:account')).toEqual([1000, 3600]);
     expect(n('global:ip')).toEqual([200, 3600]);
   });
+
+  it('mirrors PRD §19.2–19.3 push governance, on the rolling store (SO-31)', () => {
+    const n = (k: LimitName) => [RATE_LIMITS[k].limit, RATE_LIMITS[k].windowSeconds, RATE_LIMITS[k].store];
+    expect(n('push:day')).toEqual([5, 86400, 'rolling']);
+    expect(n('push:thread')).toEqual([1, 3600, 'rolling']);
+    expect(n('push:follow')).toEqual([3, 3600, 'rolling']);
+  });
 });
 
 describe('each limit allows exactly N, refuses N+1 with Retry-After, and resets (in-process store)', () => {

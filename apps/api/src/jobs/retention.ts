@@ -26,6 +26,8 @@ const BATCH = 5_000;
 
 export interface RetentionResult {
   rateLimits: number;
+  /** The rolling store's events past the longest rolling window (0043). */
+  rateLimitEvents: number;
   events: number;
   zeroResults: number;
   shelves: number;
@@ -127,6 +129,13 @@ export async function retentionSweep(db: Db, storage: ObjectStorage | null, opts
       LIMIT ${limit})
     RETURNING 1`)).length, b);
 
+  // 0043: the rolling store needs a day of events (push:day, the longest
+  // rolling window); two are kept.
+  const rateLimitEvents = await deleteInBatches(db, async (limit) => (await db.execute(sql`
+    DELETE FROM rate_limit_events WHERE ctid IN (
+      SELECT ctid FROM rate_limit_events WHERE at < now() - interval '2 days' LIMIT ${limit})
+    RETURNING 1`)).length, b);
+
   // D-10-1: zero-result queries after a flat 30 days, every event after 13 months.
   const zeroResults = await deleteInBatches(db, async (limit) => (await db.execute(sql`
     DELETE FROM events WHERE id IN (
@@ -195,7 +204,7 @@ export async function retentionSweep(db: Db, storage: ObjectStorage | null, opts
   const avatarObjects = await sweepAvatarObjects(db, storage);
 
   return {
-    rateLimits, events, zeroResults, shelves, reviews, comments, accounts, accountObjects,
+    rateLimits, rateLimitEvents, events, zeroResults, shelves, reviews, comments, accounts, accountObjects,
     orphanMutes, importRowsTrimmed, avatarObjects, workedAt: new Date().toISOString(),
   };
 }

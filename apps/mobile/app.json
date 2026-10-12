@@ -43,6 +43,12 @@
       "expo-image",
       "expo-sqlite",
       [
+        "expo-notifications",
+        {
+          "defaultChannel": "default"
+        }
+      ],
+      [
         "expo-image-picker",
         {
           "photosPermission": "Flyleaf uses your photos to set your profile picture.",

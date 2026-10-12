@@ -17,6 +17,7 @@ import React, { createContext, useContext, useEffect, useState, useCallback, use
 import { AppState, AppStateStatus } from 'react-native';
 import NetInfo from '@react-native-community/netinfo';
 import { api } from '@/lib/api';
+import { askForPushOnce } from '@/lib/push';
 import { useSession } from '@/lib/session';
 import { getOfflineDb } from './db';
 import { OfflineRepository } from './repository';
@@ -144,6 +145,9 @@ export function SyncProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const setFollowing = useCallback(async (userId: string, following: boolean) => {
+    // PRD §35.3: push permission is asked for in context, after the first
+    // follow, never on first launch. Once: a "no" is not asked again.
+    if (following) void askForPushOnce();
     const repo = repoRef.current;
     if (repo) return repo.setFollowing(userId, following);
     await (following ? api.client.followUser(userId) : api.client.unfollowUser(userId));

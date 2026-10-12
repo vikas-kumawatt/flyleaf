@@ -75,6 +75,8 @@ import {
   type ExportResponse,
   type ExportListResponse,
   type CreateExportRequest,
+  type UpdateNotificationPreferencesRequest,
+  type RegisterPushTokenRequest,
   type FollowResult,
   type PendingFollowRequest,
   type PendingFollowRequestsResponse,
@@ -101,6 +103,9 @@ export type {
   LikeResponse,
   FeedResponse,
   FeedItem,
+  NotificationItem,
+  NotificationsResponse,
+  NotificationPreferences,
 } from '@flyleaf/api-client';
 export type {
   User,
@@ -339,6 +344,9 @@ export const api = {
   logout: async () => {
     // An upload started by this user must not be completed by the next one.
     client.cancelPendingUploads();
+    // This device must stop receiving this user's pushes (SO-30). While the
+    // session still holds a token, so the call is authorised.
+    for (const hook of beforeLogout) await hook().catch(() => {});
     const refreshToken = await loadRefreshToken();
     if (refreshToken) {
       try {
@@ -557,5 +565,24 @@ export const api = {
     client.getFollowers(userId, query),
   getFollowing: (userId: string, query?: { limit?: number; offset?: number }) =>
     client.getFollowing(userId, query),
+
+  // Notifications (SO-30 to SO-33)
+  getNotifications: (params?: { cursor?: string; limit?: number }) => client.getNotifications(params),
+  getUnreadNotificationCount: () => client.getUnreadNotificationCount(),
+  markNotificationsRead: (ids?: string[]) => client.markNotificationsRead(ids),
+  getNotificationPreferences: () => client.getNotificationPreferences(),
+  updateNotificationPreferences: (data: UpdateNotificationPreferencesRequest) => client.updateNotificationPreferences(data),
+  registerPushToken: (data: RegisterPushTokenRequest) => client.registerPushToken(data),
+  unregisterPushToken: (token: string) => client.unregisterPushToken(token),
 };
+
+/** Run by api.logout() before the session ends (push token removal, SO-30). */
+const beforeLogout: Array<() => Promise<void>> = [];
+export function onBeforeLogout(hook: () => Promise<void>): () => void {
+  beforeLogout.push(hook);
+  return () => {
+    const i = beforeLogout.indexOf(hook);
+    if (i >= 0) beforeLogout.splice(i, 1);
+  };
+}
 

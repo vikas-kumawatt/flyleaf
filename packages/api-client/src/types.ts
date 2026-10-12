@@ -1302,3 +1302,94 @@ export interface FollowUserListResponse {
 
 
 
+// ---------------------------------------------------------------- Notifications (SO-30 to SO-33)
+
+export type NotificationType = 'follow' | 'follow_request' | 'like' | 'comment' | 'import_complete';
+
+export interface NotificationActor {
+  id: string;
+  username: string;
+  display_name: string | null;
+  avatar_url: string | null;
+}
+
+export interface NotificationItem {
+  id: string;
+  type: NotificationType;
+  /** Composed by the server, the same words as the push. */
+  text: string;
+  /** flyleaf:// URL of the screen this opens. */
+  deep_link: string;
+  read: boolean;
+  created_at: string;
+  /** Moves when an aggregated row gains an actor; the list's sort key. */
+  updated_at: string;
+  /** The newest actor; null for system notifications (import complete). */
+  actor: NotificationActor | null;
+  actor_count: number;
+  read_id: string | null;
+  review_id: string | null;
+  work_id: string | null;
+  comment_id: string | null;
+  import_id: string | null;
+}
+
+export interface NotificationsResponse {
+  items: NotificationItem[];
+  next_cursor: string | null;
+  unread_count: number;
+}
+
+export interface UnreadCountResponse {
+  /** Capped at 100: the badge shows "99+". */
+  unread_count: number;
+}
+
+export type NotificationCategoryKey =
+  | 'new_follower'
+  | 'follow_request'
+  | 'likes'
+  | 'comments'
+  | 'comment_replies'
+  | 'mentions'
+  | 'import_complete'
+  | 'year_in_review'
+  | 'invite_joined'
+  | 'friend_finished_want'
+  | 'author_new_book'
+  | 'milestones'
+  | 'weekly_summary';
+
+export interface NotificationCategoryPreference {
+  key: NotificationCategoryKey;
+  /** null: the category has no push channel (PRD §19.2). */
+  push: boolean | null;
+  /** null: the category has no in-app channel. */
+  in_app: boolean | null;
+  /** Something sends this category today. */
+  live: boolean;
+}
+
+export interface NotificationPreferences {
+  push_enabled: boolean;
+  categories: NotificationCategoryPreference[];
+  quiet_hours: { enabled: boolean; start: string; end: string };
+  timezone: string;
+  reading_reminder: { enabled: boolean; time: string | null };
+}
+
+export interface UpdateNotificationPreferencesRequest {
+  push_enabled?: boolean;
+  categories?: Partial<Record<NotificationCategoryKey, { push?: boolean; in_app?: boolean }>>;
+  quiet_hours?: { enabled?: boolean; start?: string; end?: string };
+  timezone?: string;
+  /** HH:MM local; null turns the reminder off. There is no default time. */
+  reading_reminder?: { time: string | null };
+}
+
+export interface RegisterPushTokenRequest {
+  token: string;
+  platform: 'android' | 'ios';
+  /** IANA zone of the device: quiet hours and the reminder are read in it. */
+  timezone?: string;
+}

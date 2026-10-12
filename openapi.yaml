@@ -6731,6 +6731,747 @@ paths:
                       - message
                 required:
                   - error
+  /notifications:
+    get:
+      summary: Your notifications, newest activity first (PRD §6.14)
+      tags:
+        - notifications
+      parameters:
+        - schema:
+            type: string
+            maxLength: 200
+          in: query
+          name: cursor
+          required: false
+        - schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 30
+          in: query
+          name: limit
+          required: false
+      responses:
+        "200":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: string
+                          format: uuid
+                        type:
+                          type: string
+                          enum:
+                            - follow
+                            - follow_request
+                            - like
+                            - comment
+                            - import_complete
+                        text:
+                          type: string
+                        deep_link:
+                          type: string
+                          description: flyleaf:// URL of the screen this opens
+                        read:
+                          type: boolean
+                        created_at:
+                          type: string
+                          format: date-time
+                        updated_at:
+                          type: string
+                          format: date-time
+                          description: Moves when an aggregated row gains an actor; the sort key
+                        actor:
+                          type:
+                            - "null"
+                            - object
+                          properties:
+                            id:
+                              type: string
+                              format: uuid
+                            username:
+                              type: string
+                            display_name:
+                              type:
+                                - "null"
+                                - string
+                            avatar_url:
+                              type:
+                                - "null"
+                                - string
+                          required:
+                            - id
+                            - username
+                            - display_name
+                            - avatar_url
+                        actor_count:
+                          type: integer
+                          minimum: 0
+                        read_id:
+                          type:
+                            - "null"
+                            - string
+                          format: uuid
+                        review_id:
+                          type:
+                            - "null"
+                            - string
+                          format: uuid
+                        work_id:
+                          type:
+                            - "null"
+                            - string
+                          format: uuid
+                        comment_id:
+                          type:
+                            - "null"
+                            - string
+                          format: uuid
+                        import_id:
+                          type:
+                            - "null"
+                            - string
+                          format: uuid
+                      required:
+                        - id
+                        - type
+                        - text
+                        - deep_link
+                        - read
+                        - created_at
+                        - updated_at
+                        - actor
+                        - actor_count
+                        - read_id
+                        - review_id
+                        - work_id
+                        - comment_id
+                        - import_id
+                  next_cursor:
+                    type:
+                      - "null"
+                      - string
+                  unread_count:
+                    type: integer
+                    minimum: 0
+                required:
+                  - items
+                  - next_cursor
+                  - unread_count
+        "400":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      code:
+                        type: string
+                        description: Machine-readable error code
+                      message:
+                        type: string
+                        description: Human-readable error description
+                      field:
+                        type: string
+                        description: Invalid field name if applicable
+                    required:
+                      - code
+                      - message
+                required:
+                  - error
+        "401":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      code:
+                        type: string
+                        description: Machine-readable error code
+                      message:
+                        type: string
+                        description: Human-readable error description
+                      field:
+                        type: string
+                        description: Invalid field name if applicable
+                    required:
+                      - code
+                      - message
+                required:
+                  - error
+  /notifications/unread-count:
+    get:
+      summary: Unread notifications for the bell badge
+      tags:
+        - notifications
+      responses:
+        "200":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  unread_count:
+                    type: integer
+                    minimum: 0
+                    description: Capped at 100
+                required:
+                  - unread_count
+        "401":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      code:
+                        type: string
+                        description: Machine-readable error code
+                      message:
+                        type: string
+                        description: Human-readable error description
+                      field:
+                        type: string
+                        description: Invalid field name if applicable
+                    required:
+                      - code
+                      - message
+                required:
+                  - error
+  /notifications/read:
+    post:
+      summary: "Mark notifications read: the given ids, or all"
+      tags:
+        - notifications
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type:
+                - object
+                - "null"
+              properties:
+                ids:
+                  type: array
+                  items:
+                    type: string
+                    format: uuid
+                  maxItems: 100
+                  description: "Absent: mark every notification read"
+              additionalProperties: false
+      responses:
+        "200":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  unread_count:
+                    type: integer
+                    minimum: 0
+                    description: Capped at 100
+                required:
+                  - unread_count
+        "400":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      code:
+                        type: string
+                        description: Machine-readable error code
+                      message:
+                        type: string
+                        description: Human-readable error description
+                      field:
+                        type: string
+                        description: Invalid field name if applicable
+                    required:
+                      - code
+                      - message
+                required:
+                  - error
+        "401":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      code:
+                        type: string
+                        description: Machine-readable error code
+                      message:
+                        type: string
+                        description: Human-readable error description
+                      field:
+                        type: string
+                        description: Invalid field name if applicable
+                    required:
+                      - code
+                      - message
+                required:
+                  - error
+  /me/notification-preferences:
+    get:
+      summary: "Notification settings: categories, master switch, quiet hours, reading
+        reminder (PRD §19.4)"
+      tags:
+        - notifications
+      responses:
+        "200":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  push_enabled:
+                    type: boolean
+                    description: The master switch (PRD §19.4)
+                  categories:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        key:
+                          type: string
+                          enum:
+                            - new_follower
+                            - follow_request
+                            - likes
+                            - comments
+                            - comment_replies
+                            - mentions
+                            - import_complete
+                            - year_in_review
+                            - invite_joined
+                            - friend_finished_want
+                            - author_new_book
+                            - milestones
+                            - weekly_summary
+                        push:
+                          type:
+                            - "null"
+                            - boolean
+                          description: "null: this category has no push channel (PRD §19.2)"
+                        in_app:
+                          type:
+                            - "null"
+                            - boolean
+                          description: "null: this category has no in-app channel"
+                        live:
+                          type: boolean
+                          description: Something sends this category today
+                      required:
+                        - key
+                        - push
+                        - in_app
+                        - live
+                  quiet_hours:
+                    type: object
+                    properties:
+                      enabled:
+                        type: boolean
+                      start:
+                        type: string
+                        pattern: ^([01][0-9]|2[0-3]):[0-5][0-9]$
+                      end:
+                        type: string
+                        pattern: ^([01][0-9]|2[0-3]):[0-5][0-9]$
+                    required:
+                      - enabled
+                      - start
+                      - end
+                  timezone:
+                    type: string
+                  reading_reminder:
+                    type: object
+                    properties:
+                      enabled:
+                        type: boolean
+                      time:
+                        type:
+                          - "null"
+                          - string
+                    required:
+                      - enabled
+                      - time
+                required:
+                  - push_enabled
+                  - categories
+                  - quiet_hours
+                  - timezone
+                  - reading_reminder
+        "401":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      code:
+                        type: string
+                        description: Machine-readable error code
+                      message:
+                        type: string
+                        description: Human-readable error description
+                      field:
+                        type: string
+                        description: Invalid field name if applicable
+                    required:
+                      - code
+                      - message
+                required:
+                  - error
+    patch:
+      summary: Change notification settings. The reading reminder is off until a time
+        is sent.
+      tags:
+        - notifications
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                push_enabled:
+                  type: boolean
+                categories:
+                  type: object
+                  additionalProperties:
+                    type: object
+                    properties:
+                      push:
+                        type: boolean
+                      in_app:
+                        type: boolean
+                    additionalProperties: false
+                quiet_hours:
+                  type: object
+                  properties:
+                    enabled:
+                      type: boolean
+                    start:
+                      type: string
+                      pattern: ^([01][0-9]|2[0-3]):[0-5][0-9]$
+                    end:
+                      type: string
+                      pattern: ^([01][0-9]|2[0-3]):[0-5][0-9]$
+                  additionalProperties: false
+                timezone:
+                  type: string
+                  minLength: 1
+                  maxLength: 64
+                reading_reminder:
+                  type: object
+                  properties:
+                    time:
+                      anyOf:
+                        - type: string
+                          pattern: ^([01][0-9]|2[0-3]):[0-5][0-9]$
+                        - type: "null"
+                      description: HH:MM local, or null to turn it off
+                  required:
+                    - time
+                  additionalProperties: false
+              additionalProperties: false
+      responses:
+        "200":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  push_enabled:
+                    type: boolean
+                    description: The master switch (PRD §19.4)
+                  categories:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        key:
+                          type: string
+                          enum:
+                            - new_follower
+                            - follow_request
+                            - likes
+                            - comments
+                            - comment_replies
+                            - mentions
+                            - import_complete
+                            - year_in_review
+                            - invite_joined
+                            - friend_finished_want
+                            - author_new_book
+                            - milestones
+                            - weekly_summary
+                        push:
+                          type:
+                            - "null"
+                            - boolean
+                          description: "null: this category has no push channel (PRD §19.2)"
+                        in_app:
+                          type:
+                            - "null"
+                            - boolean
+                          description: "null: this category has no in-app channel"
+                        live:
+                          type: boolean
+                          description: Something sends this category today
+                      required:
+                        - key
+                        - push
+                        - in_app
+                        - live
+                  quiet_hours:
+                    type: object
+                    properties:
+                      enabled:
+                        type: boolean
+                      start:
+                        type: string
+                        pattern: ^([01][0-9]|2[0-3]):[0-5][0-9]$
+                      end:
+                        type: string
+                        pattern: ^([01][0-9]|2[0-3]):[0-5][0-9]$
+                    required:
+                      - enabled
+                      - start
+                      - end
+                  timezone:
+                    type: string
+                  reading_reminder:
+                    type: object
+                    properties:
+                      enabled:
+                        type: boolean
+                      time:
+                        type:
+                          - "null"
+                          - string
+                    required:
+                      - enabled
+                      - time
+                required:
+                  - push_enabled
+                  - categories
+                  - quiet_hours
+                  - timezone
+                  - reading_reminder
+        "400":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      code:
+                        type: string
+                        description: Machine-readable error code
+                      message:
+                        type: string
+                        description: Human-readable error description
+                      field:
+                        type: string
+                        description: Invalid field name if applicable
+                    required:
+                      - code
+                      - message
+                required:
+                  - error
+        "401":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      code:
+                        type: string
+                        description: Machine-readable error code
+                      message:
+                        type: string
+                        description: Human-readable error description
+                      field:
+                        type: string
+                        description: Invalid field name if applicable
+                    required:
+                      - code
+                      - message
+                required:
+                  - error
+  /me/push-tokens:
+    put:
+      summary: Register or refresh this device's push token (on every app open)
+      tags:
+        - notifications
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                token:
+                  type: string
+                  minLength: 1
+                  maxLength: 255
+                platform:
+                  type: string
+                  enum:
+                    - android
+                    - ios
+                timezone:
+                  type: string
+                  minLength: 1
+                  maxLength: 64
+                  description: IANA zone of the device
+              required:
+                - token
+                - platform
+              additionalProperties: false
+      responses:
+        "200":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  registered:
+                    type: boolean
+                required:
+                  - registered
+        "400":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      code:
+                        type: string
+                        description: Machine-readable error code
+                      message:
+                        type: string
+                        description: Human-readable error description
+                      field:
+                        type: string
+                        description: Invalid field name if applicable
+                    required:
+                      - code
+                      - message
+                required:
+                  - error
+        "401":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      code:
+                        type: string
+                        description: Machine-readable error code
+                      message:
+                        type: string
+                        description: Human-readable error description
+                      field:
+                        type: string
+                        description: Invalid field name if applicable
+                    required:
+                      - code
+                      - message
+                required:
+                  - error
+  /me/push-tokens/{token}:
+    delete:
+      summary: Forget this device's push token (sign-out)
+      tags:
+        - notifications
+      parameters:
+        - schema:
+            type: string
+            minLength: 1
+            maxLength: 255
+          in: path
+          name: token
+          required: true
+      responses:
+        "204":
+          description: Default Response
+        "401":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      code:
+                        type: string
+                        description: Machine-readable error code
+                      message:
+                        type: string
+                        description: Human-readable error description
+                      field:
+                        type: string
+                        description: Invalid field name if applicable
+                    required:
+                      - code
+                      - message
+                required:
+                  - error
   /admin/auth/login:
     post:
       summary: Admin login with password and mandatory 2FA

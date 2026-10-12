@@ -14,6 +14,11 @@
 //     check, correct across instances and restarts. Auth, comments, follows,
 //     reviews, imports, exports, uploads, username changes: low volume, and a
 //     limit a second instance silently doubled would be a security weakening.
+//   - 'rolling': PgRollingRateLimiter, one row per counted event, so the
+//     window is any N seconds rather than one that restarts. For ceilings a
+//     person is promised (the 5-push day, PRD §19.3), where a fixed window
+//     letting 2N through across its boundary would break the promise. Only
+//     the notification worker counts these (SO-31); a refusal is not counted.
 //   - 'fast': MemoryRateLimiter, in-process fixed windows. Global, search,
 //     writes, progress, events: a check on (nearly) every request, where an
 //     extra database write per request is the cost to avoid (measured in
@@ -29,7 +34,7 @@ import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { ApiError } from '../http.js';
 import { PgRateLimiter, type Db, type RateLimiter, type RateLimitHit } from './index.js';
 
-export type LimitStore = 'exact' | 'fast';
+export type LimitStore = 'exact' | 'fast' | 'rolling';
 
 export interface LimitRule {
   limit: number;
@@ -170,6 +175,25 @@ export const RATE_LIMITS = {
     source: 'No §24.4 row; A-10-029. 120 batches/hour per IP for guests. D-15-2',
     message: SLOW_DOWN,
   },
+  // ---- PRD §19 push governance (SO-31). Counted by the notification worker,
+  // never by a request; always on, like the comment limit (they are product
+  // rules, not abuse limits). A refusal holds the push back: the in-app row
+  // is unaffected.
+  'push:day': {
+    limit: 5, windowSeconds: DAY, store: 'rolling',
+    source: 'PRD §19.3 Global cap: 5 push notifications per user per day, hard ceiling; AC-19; §19.2 item 14 bound 5 (the reading reminder counts too)',
+    message: 'Daily push limit reached.',
+  },
+  'push:thread': {
+    limit: 1, windowSeconds: HOUR, store: 'rolling',
+    source: 'PRD §19.2 item 4 Review commented: max 1 per thread per hour',
+    message: 'Thread push limit reached.',
+  },
+  'push:follow': {
+    limit: 3, windowSeconds: HOUR, store: 'rolling',
+    source: 'PRD §19.2 item 1 New follower: aggregated hourly beyond 3; §19.3 aggregation window 1 hour',
+    message: 'Follow push limit reached.',
+  },
   // ---- PRD §24.4 Global: 1,000/hour signed in, 200/hour anonymous.
   'global:account': {
     limit: 1_000, windowSeconds: HOUR, store: 'fast', source: 'PRD §24.4 Global, 1,000/hour', message: SLOW_DOWN,
@@ -308,11 +332,23 @@ export async function enforceWith(limiter: RateLimiter, name: LimitName, key: st
   if (!hit.allowed) throw rateLimitedError(name, hit.retryAfterSeconds);
 }
 
+/**
+ * One check against a given limiter, without throwing: for callers that are
+ * not answering a request (the notification worker holds a push back instead
+ * of returning a 429). Always on, whatever the policy says.
+ */
+export async function checkWith(limiter: RateLimiter, name: LimitName, key: string): Promise<RateLimitHit> {
+  const rule: LimitRule = RATE_LIMITS[name];
+  return hitWith(limiter, `${name}:${key}`, rule.limit, rule.windowSeconds);
+}
+
 export interface RateLimitsOptions {
   /** The exact store (PgRateLimiter in production). */
   exact: RateLimiter;
   /** The in-process store. Default: a new MemoryRateLimiter. */
   fast?: MemoryRateLimiter;
+  /** The rolling store (PgRollingRateLimiter in production). Default: `exact`. */
+  rolling?: RateLimiter;
   /** Which limits are on. Default: LEGACY_LIMITS (see there). Production: 'all'. */
   enabled?: 'all' | ReadonlySet<LimitName>;
 }
@@ -321,11 +357,13 @@ export interface RateLimitsOptions {
 export class RateLimits {
   readonly exact: RateLimiter;
   readonly fast: MemoryRateLimiter;
+  readonly rolling: RateLimiter;
   readonly #enabled: 'all' | ReadonlySet<LimitName>;
 
   constructor(opts: RateLimitsOptions) {
     this.exact = opts.exact;
     this.fast = opts.fast ?? new MemoryRateLimiter();
+    this.rolling = opts.rolling ?? opts.exact;
     this.#enabled = opts.enabled ?? LEGACY_LIMITS;
   }
 
@@ -357,7 +395,7 @@ export class RateLimits {
     const hit =
       rule.store === 'fast'
         ? this.fast.hitSync(bucket, rule.limit, rule.windowSeconds)
-        : await hitWith(exact, bucket, rule.limit, rule.windowSeconds);
+        : await hitWith(rule.store === 'rolling' ? this.rolling : exact, bucket, rule.limit, rule.windowSeconds);
     return { ...hit, name, limit: rule.limit };
   }
 

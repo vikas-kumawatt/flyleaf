@@ -78,7 +78,7 @@ async function main() {
   boss.on('warning', (warning) => log.warn({ warning }, 'pg-boss'));
 
   await boss.start();
-  await registerQueues(boss, log, { db, dedupeDb, storage: providers.storage, mailer: providers.mailer });
+  await registerQueues(boss, log, { db, dedupeDb, storage: providers.storage, mailer: providers.mailer, push: providers.push });
 
   // Monthly dedupe pass: 1st of every month at midnight (FN-52, Architecture §9).
   // It detects and queues; it merges only if this worker runs with
@@ -111,6 +111,12 @@ async function main() {
   // "Did you mean …?" vocabulary (audit 10): Sundays, after works.reconcile
   // has settled log counts.
   await boss.schedule(QUEUES.refreshSearchSuggestions, '0 4 * * 0');
+
+  // Notifications (SO-30/32): due reading reminders every 5 minutes (a
+  // reminder may go out up to 30 minutes after its time, never twice a day),
+  // and Expo delivery receipts every 15 (Expo has them 15 minutes after a send).
+  await boss.schedule(QUEUES.notifyReminders, '*/5 * * * *');
+  await boss.schedule(QUEUES.notifyReceipts, '*/15 * * * *');
 
   log.info({ queues: Object.values(QUEUES), schema: 'pgboss' }, 'worker ready');
 

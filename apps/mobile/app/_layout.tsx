@@ -17,6 +17,7 @@ import { SyncIndicator } from '@/ui/SyncIndicator';
 import { ActionGateProvider } from '@/ui/ActionGate';
 import { VerifyEmailBanner, VerifyEmailProvider } from '@/ui/VerifyEmail';
 import { ConfirmDobPrompt } from '@/ui/ConfirmDob';
+import { PushBridge } from '@/ui/PushBridge';
 import { ThemeProvider, useTheme, useThemeContext } from '@/ui/tokens';
 import { ErrorBoundary } from '@/ui/ErrorBoundary';
 import { initTelemetry } from '@/lib/events';
@@ -82,6 +83,7 @@ function Nav() {
         <Stack.Screen name="shelf/[id]/reorder" options={{ presentation: 'modal', headerShown: false }} />
         <Stack.Screen name="user/[id]" options={{ presentation: 'card', headerShown: false }} />
         <Stack.Screen name="read/[id]/comments" options={{ presentation: 'card', headerShown: false }} />
+        <Stack.Screen name="notifications" options={{ presentation: 'card', headerShown: false }} />
         <Stack.Screen name="u/[username]/shelves/[slug]" options={{ presentation: 'card', headerShown: false }} />
         <Stack.Screen name="sync-issues" options={{ presentation: 'card', headerShown: false }} />
         <Stack.Screen name="verify-email" options={{ title: 'Verify email' }} />
@@ -125,6 +127,7 @@ export default function RootLayout() {
                   <ActionGateProvider>
                     <VerifyEmailProvider>
                       <Nav />
+                      <PushBridge />
                       <ConfirmDobPrompt />
                     </VerifyEmailProvider>
                   </ActionGateProvider>

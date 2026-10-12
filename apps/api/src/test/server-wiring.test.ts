@@ -1,5 +1,5 @@
 // L-03 regression: the API built exactly as server.ts builds it must hand
-// imports and exports to the job queue. Every other import/export test
+// imports, exports and notification pushes (SO-30) to the job queue. Every other import/export test
 // injects its own queue, which is how this shipped broken.
 
 import { describe, it, expect } from 'vitest';
@@ -37,7 +37,11 @@ describe('L-03: the production wiring enqueues imports and exports', () => {
     const exp = await app.inject({ method: 'POST', url: '/v1/exports', headers: alice.auth, payload: { format: 'csv' } });
     expect(exp.statusCode).toBeLessThan(300);
 
-    expect(sent.map((j) => j.queue)).toEqual([QUEUES.processImport, QUEUES.processExport]);
+    // SO-30: a follow's push goes to the queue too, from the same wiring.
+    const bob = await makeUser(db, 'bob_l03');
+    expect((await app.inject({ method: 'POST', url: `/v1/users/${alice.id}/follow`, headers: bob.auth })).statusCode).toBe(200);
+
+    expect(sent.map((j) => j.queue)).toEqual([QUEUES.processImport, QUEUES.processExport, QUEUES.notifySend]);
     await app.close();
   });
 });
