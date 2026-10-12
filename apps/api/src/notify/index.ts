@@ -382,7 +382,7 @@ const asDate = (v: string | Date | null): Date | null => (v === null ? null : v 
  * over the matrix. A row with no actor left, or whose read, comment or import
  * is gone, is not shown and not pushed (PRD §19.5).
  */
-function viewSql(where: SQL, limit: number, focusActor: string | null = null): SQL {
+export function viewSql(where: SQL, limit: number, focusActor: string | null = null): SQL {
   const actorCanSeeRead = sql`(r.visibility <> 'private' AND (
     (r.visibility = 'public' AND NOT rp.is_private)
     OR EXISTS (SELECT 1 FROM follows f WHERE f.follower_id = na.actor_id AND f.followee_id = n.user_id AND f.state = 'accepted')))`;

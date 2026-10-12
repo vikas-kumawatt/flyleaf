@@ -18,7 +18,7 @@
 
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { View, FlatList, Pressable, RefreshControl, ActivityIndicator, StyleSheet } from 'react-native';
-import { useRouter } from 'expo-router';
+import { useFocusEffect, useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
@@ -31,6 +31,7 @@ import { useActionGate } from '@/ui/ActionGate';
 import { FeedCard } from '@/ui/FeedCard';
 import { ImportProgressBanner } from '@/ui/ImportProgressBanner';
 import { type FeedActivityItem } from '@/lib/feedCard';
+import { badgeLabel } from '@/lib/notifications';
 import {
   EMPTY_FEED,
   FEED_PAGE_SIZE,
@@ -71,6 +72,25 @@ export default function HomeScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { user } = useSession();
+  // The bell's unread badge (SO-33), refreshed whenever Home is shown.
+  const [unread, setUnread] = useState(0);
+  useFocusEffect(
+    useCallback(() => {
+      if (!user) {
+        setUnread(0);
+        return;
+      }
+      let live = true;
+      api
+        .getUnreadNotificationCount()
+        .then((r) => live && setUnread(r.unread_count))
+        .catch(() => {});
+      return () => {
+        live = false;
+      };
+    }, [user]),
+  );
+  const badge = badgeLabel(unread);
   const signedIn = Boolean(user);
   const { promptAuth } = useActionGate();
   const { repository } = useOfflineSync();
@@ -434,12 +454,20 @@ export default function HomeScreen() {
               <Pressable
                 onPress={() => {
                   void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                  router.push('/notifications');
                 }}
                 accessibilityRole="button"
-                accessibilityLabel="Notifications"
+                accessibilityLabel={badge ? `Notifications, ${badge} unread` : 'Notifications'}
                 style={styles.headerIconButton}
               >
                 <Ionicons name="notifications-outline" size={22} color={c.ink} />
+                {badge ? (
+                  <View style={[styles.badge, { backgroundColor: c.accent, borderColor: c.ground }]}>
+                    <Txt variant="micro" style={{ color: c.ground, fontSize: 10, lineHeight: 12, fontWeight: '700' }}>
+                      {badge}
+                    </Txt>
+                  </View>
+                ) : null}
               </Pressable>
             ) : (
               <Pressable
@@ -516,6 +544,18 @@ const styles = StyleSheet.create({
   headerIconButton: {
     minWidth: 44,
     minHeight: 44,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  badge: {
+    position: 'absolute',
+    top: 6,
+    right: 4,
+    minWidth: 16,
+    height: 16,
+    paddingHorizontal: 3,
+    borderRadius: radius.pill,
+    borderWidth: 1.5,
     alignItems: 'center',
     justifyContent: 'center',
   },

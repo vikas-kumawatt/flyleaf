@@ -563,6 +563,13 @@ CREATE TABLE notifications (
   created_at  timestamptz NOT NULL DEFAULT now()
 );
 CREATE INDEX notifications_user_idx ON notifications (user_id, created_at DESC);
+-- As built (SO-30, 0043): rows aggregate, so the sort key is updated_at
+-- (index (user_id, updated_at DESC, id DESC) WHERE in_app); actors live in
+-- notification_actors (one row each, pushed_at per actor); plus group_key,
+-- data, in_app, push_state/push_reason/pushed_at/digest_at. Alongside:
+-- notification_preferences, push_tokens, push_tickets, rate_limit_events.
+-- Who and what a row may show is decided at read and send time
+-- (notify/index.ts viewSql: blocks both ways, mutes, canView() on the read).
 
 CREATE TABLE reports (
   id           uuid PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -772,6 +779,7 @@ export interface Cache {
 **As built (Audit 15): one layer, two stores.**
 - **Declaring limits:** `platform/rate-limits.ts` holds every limit as a row of `RATE_LIMITS`: number, window, store and its PRD section. Routes get groups in `config.limits` from one map in `app.ts`. Any unlisted POST/PUT/PATCH/DELETE defaults to *writes*. A `preValidation` hook checks the Global tier and the route's groups, keyed by account when signed in and by IP otherwise. Services call `limits.enforce(name, key, tx?)` where the rule needs their knowledge: a follow that creates a row, a review that is new, an import that is not a replay. Inside a transaction they pass `tx`, so the count commits or rolls back with the write.
 - **Exact store, `PgRateLimiter`:** auth, comments, follows, reviews, imports, exports, uploads and username changes. `rate_limits.expires_at` lets the retention sweep delete ended buckets.
+- **Rolling store, `PgRollingRateLimiter` (SO-31, 0043):** one `rate_limit_events` row per counted event, under an advisory lock, so a window is any N seconds. For the push ceilings (`push:day` 5/24 h, `push:thread`, `push:follow`), where a fixed window letting 2N through across its boundary would break a promise to the user. Counted by the notification worker only; a refusal is not recorded. Events are swept after 2 days.
 - **Fast store, `MemoryRateLimiter`:** in-process fixed windows for Global, search, writes, progress, events and the username check. A Global check in Postgres cost 26–35 % of a cheap route's throughput in the sandbox measurement, against noise in process (`docs/audit/perf/15a-rate-limit-overhead-sandbox.md`).
 - **Refusals** are `429 rate_limited` with `Retry-After` and `X-RateLimit-*`.
 - **Redis:** the trigger above moves both stores to Redis, one implementation each.
@@ -788,7 +796,7 @@ Every third-party service is a **port** (an interface in `apps/api/src/providers
 |---|---|---|---|
 | Object storage | `ObjectStorage`: `createUpload`, `createDownloadUrl`, `head`, `getStream`, `put`, `delete` | `disk` (dev), `memory` (tests), `s3` (AWS, R2, B2, MinIO) | `STORAGE_DRIVER` |
 | Email | `EmailSender.send` | `console` (dev), `memory`, `smtp` (nodemailer: any relay) | `EMAIL_DRIVER` |
-| Push | `PushSender.send` → one result per message | `memory`, `expo` (Expo push HTTPS API) | `PUSH_DRIVER` |
+| Push | `PushSender.send` → one result per message; `receipts(ids)` → delivery receipts (SO-30) | `memory`, `expo` (Expo push HTTPS API) | `PUSH_DRIVER` |
 | Error reporting | `ErrorReporter.capture` | `noop` (default), `memory`, `sentry` (store endpoint) | `ERROR_DRIVER` |
 | Catalog source | `CatalogSource`: `search`, `lookupIsbn`, `lookupWork`, `lookupAuthor`, `coverUrl` | Open Library, through the shared `OutboundClient` (§5.2) | — |
 
@@ -1034,7 +1042,9 @@ Hard constraints after ranking: ≤2 consecutive cards per actor, ≤3 per book 
 | Monthly | `catalog.dedupe`, 00:00 on the 1st |
 | Nightly | `shelves.reconcile` 03:00 · `follows.reconcile` 03:15 · `reads.reconcile` 03:30 · `works.reconcile` 03:40 · `storage.cleanup` 03:45 · `activity.prune` 03:55 · `authors.repair` 04:05 · `retention.sweep` 04:20 |
 | Weekly | `search.suggestions.refresh` Sun 04:00 · `search.zero.summary` Mon 04:30 |
-| On demand | `imports.process` · `exports.process` |
+| Every 5 min | `notify.reminders` (due reading reminders, SO-32) |
+| Every 15 min | `notify.receipts` (Expo delivery receipts; dead tokens deleted, SO-30) |
+| On demand | `imports.process` · `exports.process` · `notify.send` (enqueued in the transaction that wrote the notification; quiet hours, aggregation and the 5-a-day cap applied at send time, SO-31) |
 
 **Each batch process connects with its own memory and time budget.** The values are in `JOB_DB_SETTINGS`, sent in the connection startup packet:
 
