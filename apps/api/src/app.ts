@@ -36,6 +36,7 @@ import { exportsPlugin } from './exports/index.js';
 import { socialPlugin } from './social/index.js';
 import { activityPlugin } from './activity/index.js';
 import { interactionsPlugin } from './interactions/index.js';
+import { Notifier, bossNotifyQueue, notificationsPlugin, type NotifyQueue } from './notify/index.js';
 import { PgRateLimiter, type Cache, type RateLimiter } from './platform/index.js';
 import { RateLimits, registerRateLimitHook, type LimitGroup } from './platform/rate-limits.js';
 import type { EmailSender } from './providers/email/index.js';
@@ -341,6 +342,11 @@ export interface BuildAppOptions {
   spec?: boolean;
   /** What /.well-known serves for App Links (D-07-1). Default: from the environment. */
   appLinks?: AppLinks;
+  /**
+   * Where notification pushes are queued (SO-30). Default: pg-boss when
+   * `boss` is given, else none (the in-app rows are still written).
+   */
+  notifyQueue?: NotifyQueue;
 }
 
 /** Routes whose group is not the default for their method (Audit 15, §1). */
@@ -494,12 +500,17 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
     await app.register(readingRoutes(options.reading), { prefix: '/v1' });
   }
   if (options.db) {
+    // One Notifier for every write that notifies (SO-30). Pushes go through
+    // the job queue in the write's transaction, never from the request.
+    const notifier = new Notifier(options.notifyQueue ?? (options.boss ? bossNotifyQueue(options.boss) : undefined));
     await app.register(reviewsPlugin, { db: options.db, cache: options.cache, limits: rateLimits });
     await app.register(interactionsPlugin, {
       prefix: '/v1',
       db: options.db,
       limiter,
+      notifier,
     });
+    await app.register(notificationsPlugin, { prefix: '/v1', db: options.db });
     await app.register(adminAuthRoutes(options.db, rateLimits));
     await app.register(adminDedupeRoutes(options.db));
     await app.register(adminCatalogRoutes(options.db));
@@ -529,6 +540,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
       prefix: '/v1',
       db: options.db,
       limits: rateLimits,
+      notifier,
     });
     await app.register(activityPlugin, {
       prefix: '/v1',

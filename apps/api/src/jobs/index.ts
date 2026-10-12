@@ -44,6 +44,12 @@ import type { ObjectStorage } from '../providers/storage/index.js';
 import { ExportService } from '../exports/index.js';
 import { cleanupStorage, type CleanupResult } from '../uploads/index.js';
 import { FEED_HORIZON_DAYS } from '../activity/index.js';
+import { NOTIFY_QUEUES, Notifier, bossNotifyQueue, type NotifySendJob } from '../notify/index.js';
+import {
+  deliverNotification, processReceipts, sendDueReminders, type DeliveryOutcome, type ReceiptResult, type ReminderResult,
+} from '../notify/delivery.js';
+import type { PushSender } from '../providers/push/index.js';
+import { PgRollingRateLimiter } from '../platform/index.js';
 
 /**
  * Every queue, named once.
@@ -130,6 +136,16 @@ export const QUEUES = {
    * in the same transaction.
    */
   summariseZeroResults: 'search.zero.summary',
+  /**
+   * One notification's push (SO-30/31): enqueued in the transaction that
+   * wrote the notification, never sent in a request. Applies quiet hours,
+   * aggregation, the per-thread hour and the 5-a-day cap at send time.
+   */
+  notifySend: NOTIFY_QUEUES.send,
+  /** Every 5 minutes: due reading reminders (SO-32, PRD §19.2 item 14). */
+  notifyReminders: NOTIFY_QUEUES.reminders,
+  /** Every 15 minutes: Expo delivery receipts; dead tokens deleted (PV-05 → SO-30). */
+  notifyReceipts: NOTIFY_QUEUES.receipts,
 } as const;
 
 export type QueueName = (typeof QUEUES)[keyof typeof QUEUES];
@@ -415,6 +431,7 @@ export async function processImportJobHandler(
   jobs: Job<ProcessImportJobRequest>[],
   db: Db,
   storage: ObjectStorage,
+  notifier?: Notifier,
 ): Promise<ProcessImportJobResult> {
   const job = jobs.at(-1);
   const importId = job?.data?.importId ?? '';
@@ -426,7 +443,7 @@ export async function processImportJobHandler(
     };
   }
 
-  const res = await processImport(db, storage, importId);
+  const res = await processImport(db, storage, importId, { notifier });
 
   return {
     importId: job.data.importId,
@@ -522,6 +539,8 @@ export interface WorkerDeps {
   dedupeDb?: Db;
   storage: ObjectStorage;
   mailer: EmailSender;
+  /** SO-30. Without it the notify jobs are not registered (tests that do not send push). */
+  push?: PushSender;
 }
 
 export async function registerQueues(boss: PgBoss, log: JobLog, deps?: WorkerDeps): Promise<void> {
@@ -655,10 +674,33 @@ export async function registerQueues(boss: PgBoss, log: JobLog, deps?: WorkerDep
       return result;
     });
 
+    const notifyQueue = bossNotifyQueue(boss);
+    const notifier = new Notifier(deps.push ? notifyQueue : undefined);
+
+    if (deps.push) {
+      const delivery = { db, push: deps.push, limiter: new PgRollingRateLimiter(db), queue: notifyQueue };
+      await boss.work<NotifySendJob, DeliveryOutcome[]>(QUEUES.notifySend, async (jobs) => {
+        const results: DeliveryOutcome[] = [];
+        for (const job of jobs) results.push(await deliverNotification(delivery, job.data));
+        log.info({ queue: QUEUES.notifySend, ids: jobs.map((j) => j.id), results }, 'job handled');
+        return results;
+      });
+      await boss.work<void, ReminderResult>(QUEUES.notifyReminders, async (jobs) => {
+        const result = await sendDueReminders(delivery);
+        log.info({ queue: QUEUES.notifyReminders, ids: jobs.map((j) => j.id), ...result }, 'job handled');
+        return result;
+      });
+      await boss.work<void, ReceiptResult>(QUEUES.notifyReceipts, async (jobs) => {
+        const result = await processReceipts(delivery);
+        log.info({ queue: QUEUES.notifyReceipts, ids: jobs.map((j) => j.id), ...result }, 'job handled');
+        return result;
+      });
+    }
+
     await boss.work<ProcessImportJobRequest, ProcessImportJobResult>(
       QUEUES.processImport,
       async (jobs) => {
-        const result = await processImportJobHandler(jobs, db, storage);
+        const result = await processImportJobHandler(jobs, db, storage, notifier);
         log.info(
           {
             queue: QUEUES.processImport,

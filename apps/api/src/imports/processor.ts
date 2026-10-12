@@ -20,11 +20,14 @@ import { scoreHeaderMatch } from './detector.js';
 import { lookupIsbns, matchImportRow, rowIsbns, type IsbnLookup, type MatchResult } from './matcher.js';
 import { commitImportRow } from './committer.js';
 import type { ImportSource } from './index.js';
+import type { Notifier } from '../notify/index.js';
 import type { NormalizedImportRow, SourceColumnConfig } from './types.js';
 
 export interface ProcessImportOptions {
   chunkSize?: number;
   sourceOverride?: ImportSource;
+  /** SO-30: "import complete" (PRD §19.2 item 7), written with the completed state. */
+  notifier?: Notifier;
 }
 
 export interface ProcessImportResult {
@@ -177,16 +180,22 @@ export async function processImport(
     const finalMatched = Number(finalCounts?.matched ?? 0);
     const finalUnmatched = Number(finalCounts?.unmatched ?? 0);
 
-    await db
-      .update(imports)
-      .set({
-        state: 'completed',
-        matched: finalMatched,
-        unmatched: finalUnmatched,
-        finishedAt: new Date(),
-        updatedAt: new Date(),
-      })
-      .where(eq(imports.id, importId));
+    // The state and the "import complete" notification commit together
+    // (PRD §19.2 item 7: once; a retried job finds it already sent).
+    await db.transaction(async (tx) => {
+      const t = tx as unknown as Db;
+      await t
+        .update(imports)
+        .set({
+          state: 'completed',
+          matched: finalMatched,
+          unmatched: finalUnmatched,
+          finishedAt: new Date(),
+          updatedAt: new Date(),
+        })
+        .where(eq(imports.id, importId));
+      await options.notifier?.importCompleted(t, job.userId, importId);
+    });
 
     return {
       importId,

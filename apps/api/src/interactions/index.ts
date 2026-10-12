@@ -24,6 +24,7 @@ import { reads, readLikes, readComments, profiles } from '../db/schema.js';
 import { ApiError, requireViewer } from '../http.js';
 import { avatarUrl } from '../uploads/index.js';
 import { canViewWith, loadRelationship, requireVerified } from '../authorization/index.js';
+import { Notifier } from '../notify/index.js';
 import {
   readIdParamsSchema,
   likeResponseSchema,
@@ -142,6 +143,8 @@ export class InteractionService {
   constructor(
     private readonly db: Db,
     private readonly limiter: RateLimiter = new PgRateLimiter(db),
+    /** SO-30: like and comment notifications, written with the like or comment. */
+    private readonly notifier: Notifier = new Notifier(),
   ) {}
 
   /**
@@ -208,10 +211,16 @@ export class InteractionService {
         'Only finished or abandoned reads can be liked.',
       );
     }
-    await this.db
-      .insert(readLikes)
-      .values({ readId, userId: viewer })
-      .onConflictDoNothing();
+    await this.db.transaction(async (tx) => {
+      const t = tx as unknown as Db;
+      const inserted = await t
+        .insert(readLikes)
+        .values({ readId, userId: viewer })
+        .onConflictDoNothing()
+        .returning({ readId: readLikes.readId });
+      // Only a like that is new: a replayed like notifies nobody twice.
+      if (inserted.length > 0) await this.notifier.like(t, viewer, readId);
+    });
     const { likeCount } = await this.#currentCounts(readId);
     return { liked: true, like_count: likeCount };
   }
@@ -220,9 +229,15 @@ export class InteractionService {
   async unlike(viewer: string, readId: string): Promise<{ liked: false; like_count: number }> {
     // Visibility still applies: a blocked caller learns nothing, even here.
     await this.#accessibleRead(viewer, readId);
-    await this.db
-      .delete(readLikes)
-      .where(and(eq(readLikes.readId, readId), eq(readLikes.userId, viewer)));
+    await this.db.transaction(async (tx) => {
+      const t = tx as unknown as Db;
+      const deleted = await t
+        .delete(readLikes)
+        .where(and(eq(readLikes.readId, readId), eq(readLikes.userId, viewer)))
+        .returning({ readId: readLikes.readId });
+      // The liker leaves the notification ("Ana and 2 others" counts true).
+      if (deleted.length > 0) await this.notifier.unlike(t, viewer, readId);
+    });
     const { likeCount } = await this.#currentCounts(readId);
     return { liked: false, like_count: likeCount };
   }
@@ -398,10 +413,15 @@ export class InteractionService {
     await enforceWith(this.limiter, 'comments', viewer);
 
     const id = randomUUID();
-    const [inserted] = await this.db
-      .insert(readComments)
-      .values({ id, readId, userId: viewer, body: trimmed })
-      .returning({ createdAt: readComments.createdAt });
+    const inserted = await this.db.transaction(async (tx) => {
+      const t = tx as unknown as Db;
+      const [row] = await t
+        .insert(readComments)
+        .values({ id, readId, userId: viewer, body: trimmed })
+        .returning({ createdAt: readComments.createdAt });
+      await this.notifier.comment(t, viewer, readId, id);
+      return row;
+    });
 
     const [author] = await this.db
       .select({
@@ -433,21 +453,26 @@ export class InteractionService {
       .from(readComments)
       .where(and(eq(readComments.id, commentId), sql`${readComments.deletedAt} IS NULL`));
     if (!row || row.userId !== viewer) throw ApiError.notFound('Comment not found.');
-    await this.db
-      .update(readComments)
-      .set({ deletedAt: new Date() })
-      .where(eq(readComments.id, commentId));
+    await this.db.transaction(async (tx) => {
+      const t = tx as unknown as Db;
+      await t
+        .update(readComments)
+        .set({ deletedAt: new Date() })
+        .where(eq(readComments.id, commentId));
+      await this.notifier.commentDeleted(t, commentId);
+    });
   }
 }
 
 export interface InteractionsPluginOptions {
   db: Db;
   limiter?: RateLimiter;
+  notifier?: Notifier;
 }
 
 /** Routes: PRD §24 — `/reads/{id}/like` and `/reads/{id}/comments`. */
 export const interactionsPlugin: FastifyPluginAsync<InteractionsPluginOptions> = async (app, opts) => {
-  const service = new InteractionService(opts.db, opts.limiter);
+  const service = new InteractionService(opts.db, opts.limiter, opts.notifier);
   const errors = { 404: errorResponseSchema, 409: errorResponseSchema };
 
   app.post<{ Params: { id: string } }>(

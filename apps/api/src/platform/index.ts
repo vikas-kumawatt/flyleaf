@@ -302,6 +302,39 @@ export class MemoryCache implements Cache {
 }
 
 /**
+ * The shared limiter's rolling store (SO-31, 0043): one `rate_limit_events`
+ * row per counted event, so "5 in a day" means any 24 hours. The fixed-window
+ * PgRateLimiter restarts its window, which lets 2N through across a boundary:
+ * acceptable for abuse limits, not for a "hard ceiling" a person was promised
+ * (PRD §19.3). A refused attempt is not recorded: it was not delivered. One
+ * transaction under an advisory lock on the bucket, so two workers cannot both
+ * take the last slot.
+ */
+export class PgRollingRateLimiter implements RateLimiter {
+  constructor(private db: Db) {}
+
+  async allow(bucket: string, limit: number, windowSeconds: number): Promise<boolean> {
+    return (await this.hit(bucket, limit, windowSeconds)).allowed;
+  }
+
+  async hit(bucket: string, limit: number, windowSeconds: number): Promise<RateLimitHit> {
+    return this.db.transaction(async (tx) => {
+      const t = tx as unknown as Db;
+      await t.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${`rate:${bucket}`}))`);
+      const [row] = await t.execute<{ n: number; retry: number | null }>(sql`
+        SELECT count(*)::int AS n,
+          greatest(1, ceil(extract(epoch FROM (min(at) + make_interval(secs => ${windowSeconds}) - now()))))::int AS retry
+        FROM rate_limit_events
+        WHERE bucket = ${bucket} AND at > now() - make_interval(secs => ${windowSeconds})`);
+      const n = Number(row?.n ?? 0);
+      if (n >= limit) return { allowed: false, count: n + 1, retryAfterSeconds: Number(row?.retry ?? windowSeconds) };
+      await t.execute(sql`INSERT INTO rate_limit_events (bucket) VALUES (${bucket})`);
+      return { allowed: true, count: n + 1, retryAfterSeconds: windowSeconds };
+    });
+  }
+}
+
+/**
  * Postgres-backed rate limiter.
  *
  * Used for AUTH endpoints specifically, where correctness matters more than

@@ -16,6 +16,7 @@ import { users, profiles, follows, blocks, mutes, works } from '../db/schema.js'
 import { ApiError, requireViewer } from '../http.js';
 import { resolveWorkId } from '../catalog/resolve.js';
 import { canViewWith, loadRelationship, requireVerified } from '../authorization/index.js';
+import { Notifier } from '../notify/index.js';
 import {
   followResponseSchema,
   pendingFollowRequestsResponseSchema,
@@ -114,6 +115,8 @@ export class SocialService {
     private readonly db: Db,
     /** §11.7 follow limits (Audit 15). Default: none, as before. */
     private readonly limits: RateLimits = RateLimits.off(),
+    /** SO-30: follow and request notifications, written with the follow. */
+    private readonly notifier: Notifier = new Notifier(),
   ) {
     this.activityService = new ActivityService(db);
   }
@@ -213,6 +216,9 @@ export class SocialService {
           visibility: 'public',
         });
       }
+      // PRD §19.2 items 1 and 2: a new follower, or a request to a private
+      // account. Only when this statement made the row, so a replay is silent.
+      if (row.state !== 'none') await this.notifier.follow(t, viewer, targetUserId, row.state);
       return row.state;
     });
 
@@ -241,6 +247,7 @@ export class SocialService {
           and(eq(follows.followerId, viewer), eq(follows.followeeId, targetUserId)),
         );
       await this.activityService.deleteFollowActivity(t, viewer, targetUserId);
+      await this.notifier.unfollow(t, viewer, targetUserId);
     });
 
     return {
@@ -307,6 +314,9 @@ export class SocialService {
         metadata: { followeeId: viewer },
         visibility: 'public',
       });
+      // The request is answered. No "new follower" either: the recipient
+      // accepted it themselves.
+      await this.notifier.requestResolved(t, requesterId, viewer);
     });
 
     return {
@@ -320,15 +330,19 @@ export class SocialService {
    * Reject a pending follow request.
    */
   async rejectFollowRequest(viewer: string, requesterId: string): Promise<FollowResult> {
-    await this.db
-      .delete(follows)
-      .where(
-        and(
-          eq(follows.followerId, requesterId),
-          eq(follows.followeeId, viewer),
-          eq(follows.state, 'pending'),
-        ),
-      );
+    await this.db.transaction(async (tx) => {
+      const t = tx as unknown as Db;
+      await t
+        .delete(follows)
+        .where(
+          and(
+            eq(follows.followerId, requesterId),
+            eq(follows.followeeId, viewer),
+            eq(follows.state, 'pending'),
+          ),
+        );
+      await this.notifier.requestResolved(t, requesterId, viewer);
+    });
 
     return {
       status: 'none',
@@ -716,10 +730,11 @@ export interface SocialPluginOptions {
   db: Db;
   prefix?: string;
   limits?: RateLimits;
+  notifier?: Notifier;
 }
 
 export const socialPlugin: FastifyPluginAsync<SocialPluginOptions> = async (app, options) => {
-  const service = new SocialService(options.db, options.limits);
+  const service = new SocialService(options.db, options.limits, options.notifier);
 
   // Follow / request to follow
   const followHandler = async (req: any) => {

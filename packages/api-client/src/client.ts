@@ -120,6 +120,11 @@ import type {
   ExportListResponse,
   ExportLinkResponse,
   CreateExportRequest,
+  NotificationsResponse,
+  UnreadCountResponse,
+  NotificationPreferences,
+  UpdateNotificationPreferencesRequest,
+  RegisterPushTokenRequest,
 } from './types.js';
 
 /** ?year=&tz= for the stats routes, only what is given. */
@@ -1219,6 +1224,50 @@ export class FlyleafClient {
     const queryString = params.toString();
     const endpoint = `/users/${encodeURIComponent(userId)}/following${queryString ? `?${queryString}` : ''}`;
     return this.request<FollowUserListResponse>(endpoint, { method: 'GET' });
+  }
+  // ---------------------------------------------------------------- Notifications (SO-30 to SO-33)
+
+  async getNotifications(params?: { cursor?: string; limit?: number }): Promise<NotificationsResponse> {
+    const q = new URLSearchParams();
+    if (params?.cursor) q.set('cursor', params.cursor);
+    if (params?.limit !== undefined) q.set('limit', String(params.limit));
+    const qs = q.toString();
+    return this.request<NotificationsResponse>(`/notifications${qs ? `?${qs}` : ''}`, { method: 'GET' });
+  }
+
+  async getUnreadNotificationCount(): Promise<UnreadCountResponse> {
+    return this.request<UnreadCountResponse>('/notifications/unread-count', { method: 'GET' });
+  }
+
+  /** Marks the given notifications read; with no ids, all of them. */
+  async markNotificationsRead(ids?: string[]): Promise<UnreadCountResponse> {
+    return this.request<UnreadCountResponse>('/notifications/read', {
+      method: 'POST',
+      body: JSON.stringify(ids ? { ids } : {}),
+    });
+  }
+
+  async getNotificationPreferences(): Promise<NotificationPreferences> {
+    return this.request<NotificationPreferences>('/me/notification-preferences', { method: 'GET' });
+  }
+
+  async updateNotificationPreferences(data: UpdateNotificationPreferencesRequest): Promise<NotificationPreferences> {
+    return this.request<NotificationPreferences>('/me/notification-preferences', {
+      method: 'PATCH',
+      body: JSON.stringify(data),
+    });
+  }
+
+  /** On every app open (PRD §19.5: tokens refresh on launch). */
+  async registerPushToken(data: RegisterPushTokenRequest): Promise<{ registered: boolean }> {
+    return this.request<{ registered: boolean }>('/me/push-tokens', {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async unregisterPushToken(token: string): Promise<void> {
+    await this.request<null>(`/me/push-tokens/${encodeURIComponent(token)}`, { method: 'DELETE' });
   }
 }
 
