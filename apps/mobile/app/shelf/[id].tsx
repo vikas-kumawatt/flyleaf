@@ -26,6 +26,7 @@ import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import { api, type Shelf, type ShelfItem } from '@/lib/api';
 import { useSession } from '@/lib/session';
+import { ReportSheet, type ReportTarget } from '@/ui/ReportSheet';
 import { useActionGate } from '@/ui/ActionGate';
 import { track } from '@/lib/events';
 import { Button, Card, Cover, Screen, Stars, Txt } from '@/ui/components';
@@ -38,6 +39,7 @@ export default function ShelfDetailScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { user } = useSession();
+  const [reportTarget, setReportTarget] = useState<ReportTarget | null>(null);
   const { promptAuth } = useActionGate();
   const { id } = useLocalSearchParams<{ id: string }>();
 
@@ -367,6 +369,14 @@ export default function ShelfDetailScreen() {
               onPress={handleShare}
               style={{ paddingHorizontal: space[4] }}
             />
+            {user && !isOwner && (
+              <Button
+                variant="outline"
+                label="Report"
+                onPress={() => setReportTarget({ type: 'shelf', id: shelf.id })}
+                style={{ paddingHorizontal: space[3] }}
+              />
+            )}
           </View>
         </View>
 
@@ -507,6 +517,7 @@ export default function ShelfDetailScreen() {
           shelf={shelf}
         />
       )}
+      <ReportSheet target={reportTarget} onClose={() => setReportTarget(null)} />
     </Screen>
   );
 }

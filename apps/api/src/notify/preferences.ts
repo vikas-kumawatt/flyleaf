@@ -4,7 +4,10 @@
 // the day is inside quiet hours, when they end. The database holds only what
 // the user changed (notification_preferences, 0043); no row is every default.
 
-export type NotificationType = 'follow' | 'follow_request' | 'like' | 'comment' | 'import_complete';
+export type NotificationType = 'follow' | 'follow_request' | 'like' | 'comment' | 'import_complete' | 'reply' | 'moderation';
+
+/** Types a person can switch off: every type but the moderation notice (PRD §27.6 says the user is told). */
+export type CategorisedType = Exclude<NotificationType, 'moderation'>;
 
 /**
  * PRD §19.4: "per-category toggles (all 13 live categories), a push/in-app
@@ -15,7 +18,7 @@ export type NotificationType = 'follow' | 'follow_request' | 'like' | 'comment' 
  * such channel (item 9 is in-app only; 10, 11 and 13 are push only; 12 is
  * in-app only). `emits`: something in the product sends it today. The rest
  * are stored and returned so Settings can show all 13 (LA-02), and switch on
- * when their feature ships (replies, mentions, Year in Review, invites,
+ * when their feature ships (replies since SO-4x; mentions, Year in Review, invites,
  * milestones, author follows, the weekly summary).
  */
 export const NOTIFICATION_CATEGORIES = [
@@ -23,7 +26,7 @@ export const NOTIFICATION_CATEGORIES = [
   { key: 'follow_request', item: 2, push: true, inApp: true, emits: true },
   { key: 'likes', item: 3, push: true, inApp: true, emits: true },
   { key: 'comments', item: 4, push: true, inApp: true, emits: true },
-  { key: 'comment_replies', item: 5, push: true, inApp: true, emits: false },
+  { key: 'comment_replies', item: 5, push: true, inApp: true, emits: true },
   { key: 'mentions', item: 6, push: true, inApp: true, emits: false },
   { key: 'import_complete', item: 7, push: true, inApp: true, emits: true },
   { key: 'year_in_review', item: 8, push: true, inApp: true, emits: false },
@@ -36,12 +39,13 @@ export const NOTIFICATION_CATEGORIES = [
 
 export type CategoryKey = (typeof NOTIFICATION_CATEGORIES)[number]['key'];
 
-export const CATEGORY_OF: Record<NotificationType, CategoryKey> = {
+export const CATEGORY_OF: Record<CategorisedType, CategoryKey> = {
   follow: 'new_follower',
   follow_request: 'follow_request',
   like: 'likes',
   comment: 'comments',
   import_complete: 'import_complete',
+  reply: 'comment_replies',
 };
 
 const CATEGORY_BY_KEY = new Map<string, (typeof NOTIFICATION_CATEGORIES)[number]>(
@@ -132,6 +136,9 @@ export function resolvePreferences(row: StoredPreferences | null | undefined): R
 
 /** Whether a notification of this type is wanted at all, and on which channels. */
 export function channelsFor(prefs: ResolvedPreferences, type: NotificationType): { inApp: boolean; push: boolean } {
+  // A moderation notice is not a category (§19.2 has none): always in the
+  // list, never pushed. The user is told which rule applied (PRD §27.6).
+  if (type === 'moderation') return { inApp: true, push: false };
   const c = prefs.categories[CATEGORY_OF[type]];
   return { inApp: c.in_app === true, push: prefs.pushEnabled && c.push === true };
 }

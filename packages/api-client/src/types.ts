@@ -1304,7 +1304,8 @@ export interface FollowUserListResponse {
 
 // ---------------------------------------------------------------- Notifications (SO-30 to SO-33)
 
-export type NotificationType = 'follow' | 'follow_request' | 'like' | 'comment' | 'import_complete';
+/** reply: a comment in a thread you commented in (SO-4x). moderation: a decision about your content (PRD §27.6). */
+export type NotificationType = 'follow' | 'follow_request' | 'like' | 'comment' | 'import_complete' | 'reply' | 'moderation';
 
 export interface NotificationActor {
   id: string;
@@ -1392,4 +1393,131 @@ export interface RegisterPushTokenRequest {
   platform: 'android' | 'ios';
   /** IANA zone of the device: quiet hours and the reminder are read in it. */
   timezone?: string;
+}
+
+// ---------------------------------------------------------------- Moderation (SO-40 to SO-42)
+
+export type ReportSubjectType = 'review' | 'comment' | 'user' | 'shelf' | 'work';
+/** PRD §6.44's reason picker. */
+export type ReportReason = 'spam' | 'harassment' | 'hate_speech' | 'spoilers' | 'nsfw' | 'copyright' | 'fake_review' | 'other';
+/** PRD §27.3: the rule a moderator applies. */
+export type ModerationRule = 'spoilers' | 'spam' | 'harassment' | 'hate_speech' | 'fake_review' | 'impersonation' | 'vote_manipulation';
+
+export interface CreateReportRequest {
+  subject_type: ReportSubjectType;
+  subject_id: string;
+  reason: ReportReason;
+  detail?: string | null;
+}
+
+export interface Report {
+  id: string;
+  subject_type: ReportSubjectType;
+  subject_id: string;
+  reason: ReportReason;
+  /** PRD §27.6: open or reviewed, never the outcome for someone else. */
+  status: 'open' | 'reviewed';
+  created_at: string;
+  reviewed_at: string | null;
+}
+
+export interface ReportResponse {
+  report: Report;
+}
+
+export interface MyReportsResponse {
+  reports: Report[];
+}
+
+export interface ModerationAppeal {
+  /** upheld: the decision stands. overturned: it was reversed. */
+  state: 'pending' | 'upheld' | 'overturned';
+  body: string;
+  appealed_at: string;
+  resolved_at: string | null;
+}
+
+export interface ModerationNotice {
+  id: string;
+  subject_type: ReportSubjectType;
+  subject_id: string;
+  rule: ModerationRule;
+  rule_label: string;
+  summary: string;
+  consequences: string[];
+  created_at: string;
+  reversed: boolean;
+  can_appeal: boolean;
+  appeal: ModerationAppeal | null;
+}
+
+export interface ModerationNoticesResponse {
+  notices: ModerationNotice[];
+}
+
+export interface AdminModerationAction {
+  id: string;
+  subject_type: ReportSubjectType;
+  subject_id: string;
+  target_user_id: string | null;
+  decision: 'dismiss' | 'enforce' | 'resolve';
+  rule: ModerationRule | null;
+  step: number | null;
+  effects: Record<string, unknown>;
+  reason: string;
+  created_at: string;
+  reversed_at: string | null;
+  appeal: { state: string; body: string; appealed_at: string; resolved_at: string | null } | null;
+}
+
+export interface AdminReportCase {
+  subject_type: ReportSubjectType;
+  subject_id: string;
+  owner: { id: string; username: string | null } | null;
+  report_count: number;
+  weight: number;
+  first_reported_at: string;
+  last_reported_at: string;
+  reasons: string[];
+  auto_rules: string[];
+  snapshot: Record<string, unknown>;
+}
+
+export interface AdminReportQueueResponse {
+  cases: AdminReportCase[];
+  open_cases: number;
+  pending_appeals: number;
+}
+
+export interface AdminReportCaseDetail {
+  subject_type: ReportSubjectType;
+  subject_id: string;
+  subject: Record<string, unknown> | null;
+  owner: {
+    id: string; username: string | null; display_name: string | null; created_at: string;
+    suspended_until: string | null; banned_at: string | null; deleted_at: string | null;
+    ratings_excluded_at: string | null; review_flag_until: string | null;
+  } | null;
+  reports: Array<{
+    id: string; source: string; auto_rule: string | null; reason: string; detail: string | null;
+    snapshot: Record<string, unknown>; state: string; created_at: string; resolved_at: string | null;
+    reporter: { id: string; username: string | null } | null; reporter_reputation: number | null;
+  }>;
+  open_reports: number;
+  history: Array<{
+    id: string; subject_type: string; subject_id: string; decision: string; rule: string | null; step: number | null;
+    reason: string; created_at: string; reversed_at: string | null; appeal_state: string | null;
+  }>;
+  ladder: Array<{ rule: ModerationRule; label: string; strikes: number; step: number; consequences: string[]; needs_admin: boolean }>;
+}
+
+export interface AdminReportActionRequest {
+  decision: 'dismiss' | 'enforce' | 'resolve';
+  rule?: ModerationRule;
+  /** At least 10 characters; kept in the audit log. */
+  reason: string;
+}
+
+export interface AdminAppealsResponse {
+  appeals: Array<AdminModerationAction & { owner: { id: string; username: string | null } | null; needs_admin: boolean }>;
 }

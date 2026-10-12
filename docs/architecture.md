@@ -583,6 +583,14 @@ CREATE TABLE reports (
   resolved_at  timestamptz,
   resolved_by  uuid REFERENCES users(id)
 );
+-- As built (SO-40 to SO-42, 0044): reports also carry source ('user' |
+-- 'automated') and auto_rule, subject_owner_id, a snapshot of the reported
+-- text, action_id; one open report per reporter per subject. Decisions live in
+-- moderation_actions (decision dismiss|enforce|resolve, the §27.3 rule and
+-- ladder step, effects with the values replaced, the one appeal). Hidden
+-- content keeps its row: reviews/read_comments/shelves.hidden_at (also
+-- soft-deleted); users.suspended_until, banned_at, ratings_excluded_at,
+-- review_flag_until; reads.rating_excluded (latest_ratings skips it).
 ```
 
 ### 3.7 Operations

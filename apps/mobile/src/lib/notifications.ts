@@ -84,6 +84,7 @@ export const HOME = '/';
  *   flyleaf://import[/unmatched?id=I]         → Profile tab → Import (→ Unmatched rows)
  *   flyleaf://reading                         → Reading tab
  *   flyleaf://notifications                   → Home → Notifications
+ *   flyleaf://moderation/M                    → Profile tab → Moderation notice M (SO-42)
  *
  * Ids must be UUIDs; anything else, or an unknown path, is Home. The links
  * come from our own server, but a push payload is still input.
@@ -138,6 +139,11 @@ export function backStackFor(url: string): string[] {
       return parts.length === 1 ? ['/reading'] : [HOME];
     case 'notifications':
       return parts.length === 1 ? [HOME, '/notifications'] : [HOME];
+    case 'moderation': {
+      // A decision about your content (PRD §27.6): under the Profile tab.
+      const m = id(a);
+      return m && parts.length === 2 ? ['/profile', `/moderation/${m}`] : [HOME];
+    }
     default:
       return [HOME];
   }

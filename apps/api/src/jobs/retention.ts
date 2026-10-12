@@ -19,6 +19,12 @@ export const EVENT_RETENTION_MONTHS = 13;
 export const ZERO_RESULT_RETENTION_DAYS = 30;
 /** D-10-3: a query's text is kept in the weekly summary only with this many distinct searchers. */
 export const SUMMARY_MIN_SEARCHERS = 5;
+/**
+ * Owner decision on SO-3x (12 Oct 2026): notifications are kept 180 days, like
+ * activity (PRD §23.5 names no number for them). Counted from `updated_at`, so
+ * a like group still gaining likes is not cut off from its own first like.
+ */
+export const NOTIFICATION_RETENTION_DAYS = 180;
 /** Columns of an import file line kept after its row is committed (D-15-5). */
 const IMPORT_ROW_KEEP = '(title|author|isbn)';
 
@@ -28,6 +34,8 @@ export interface RetentionResult {
   rateLimits: number;
   /** The rolling store's events past the longest rolling window (0043). */
   rateLimitEvents: number;
+  /** Notifications past NOTIFICATION_RETENTION_DAYS (actors cascade). */
+  notifications: number;
   events: number;
   zeroResults: number;
   shelves: number;
@@ -64,7 +72,8 @@ async function deleteInBatches(db: Db, run: (limit: number) => Promise<number>, 
 async function hardDeleteAccounts(db: Db, storage: ObjectStorage | null): Promise<{ accounts: number; objects: number }> {
   const due = await db.execute<{ id: string }>(sql`
     SELECT id FROM users
-    WHERE deleted_at IS NOT NULL AND deleted_at < now() - make_interval(days => ${SOFT_DELETE_DAYS})
+    WHERE deleted_at IS NOT NULL AND banned_at IS NULL
+      AND deleted_at < now() - make_interval(days => ${SOFT_DELETE_DAYS})
     ORDER BY deleted_at LIMIT 200`);
   let accounts = 0;
   let objects = 0;
@@ -136,6 +145,16 @@ export async function retentionSweep(db: Db, storage: ObjectStorage | null, opts
       SELECT ctid FROM rate_limit_events WHERE at < now() - interval '2 days' LIMIT ${limit})
     RETURNING 1`)).length, b);
 
+  // Owner decision on SO-3x: notifications after 180 days, like activity.
+  // Their actors go with them (ON DELETE CASCADE); a push ticket names a
+  // notification without a key and is gone within a day anyway.
+  const notifications = await deleteInBatches(db, async (limit) => (await db.execute(sql`
+    DELETE FROM notifications WHERE id IN (
+      SELECT id FROM notifications
+      WHERE updated_at < now() - make_interval(days => ${NOTIFICATION_RETENTION_DAYS})
+      LIMIT ${limit})
+    RETURNING 1`)).length, b);
+
   // D-10-1: zero-result queries after a flat 30 days, every event after 13 months.
   const zeroResults = await deleteInBatches(db, async (limit) => (await db.execute(sql`
     DELETE FROM events WHERE id IN (
@@ -154,15 +173,19 @@ export async function retentionSweep(db: Db, storage: ObjectStorage | null, opts
   const shelves = await deleteInBatches(db, async (limit) => (await db.execute(sql`
     DELETE FROM shelves WHERE id IN (
       SELECT id FROM shelves
-      WHERE deleted_at IS NOT NULL AND deleted_at < now() - make_interval(days => ${SOFT_DELETE_DAYS})
+      WHERE deleted_at IS NOT NULL AND hidden_at IS NULL AND deleted_at < now() - make_interval(days => ${SOFT_DELETE_DAYS})
       LIMIT ${limit})
     RETURNING 1`)).length, b);
 
   // PRD §23.5: deleted reviews purged after 30 days (their activity went at delete time).
+  // Content a moderator hid (hidden_at, 0044) is also soft-deleted but is never
+  // purged here: §27.5 "hidden rather than deleted", and an appeal can restore
+  // it. The same holds for comments and shelves, and a banned account (banned_at)
+  // is never hard-deleted.
   const reviews = await deleteInBatches(db, async (limit) => (await db.execute(sql`
     DELETE FROM reviews WHERE id IN (
       SELECT id FROM reviews
-      WHERE deleted_at IS NOT NULL AND deleted_at < now() - make_interval(days => ${SOFT_DELETE_DAYS})
+      WHERE deleted_at IS NOT NULL AND hidden_at IS NULL AND deleted_at < now() - make_interval(days => ${SOFT_DELETE_DAYS})
       LIMIT ${limit})
     RETURNING 1`)).length, b);
 
@@ -170,7 +193,7 @@ export async function retentionSweep(db: Db, storage: ObjectStorage | null, opts
   const comments = await deleteInBatches(db, async (limit) => (await db.execute(sql`
     DELETE FROM read_comments WHERE id IN (
       SELECT id FROM read_comments
-      WHERE deleted_at IS NOT NULL AND deleted_at < now() - make_interval(days => ${SOFT_DELETE_DAYS})
+      WHERE deleted_at IS NOT NULL AND hidden_at IS NULL AND deleted_at < now() - make_interval(days => ${SOFT_DELETE_DAYS})
       LIMIT ${limit})
     RETURNING 1`)).length, b);
 
@@ -204,7 +227,7 @@ export async function retentionSweep(db: Db, storage: ObjectStorage | null, opts
   const avatarObjects = await sweepAvatarObjects(db, storage);
 
   return {
-    rateLimits, rateLimitEvents, events, zeroResults, shelves, reviews, comments, accounts, accountObjects,
+    rateLimits, rateLimitEvents, notifications, events, zeroResults, shelves, reviews, comments, accounts, accountObjects,
     orphanMutes, importRowsTrimmed, avatarObjects, workedAt: new Date().toISOString(),
   };
 }

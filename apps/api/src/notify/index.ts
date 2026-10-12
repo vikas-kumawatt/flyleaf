@@ -152,7 +152,7 @@ interface Emit {
   type: NotificationType;
   recipientId: string;
   actorId: string | null;
-  objectType: 'user' | 'read' | 'comment' | 'import';
+  objectType: 'user' | 'read' | 'comment' | 'import' | 'moderation_action';
   objectId: string;
   /** Aggregating types: the open group this joins. */
   groupKey?: string;
@@ -201,6 +201,37 @@ export class Notifier {
     await this.#emit(t, {
       type: 'comment', recipientId: owner, actorId, objectType: 'comment', objectId: commentId, data: { readId },
     });
+    await this.#replies(t, actorId, owner, readId, commentId);
+  }
+
+  /**
+   * PRD §19.2 item 5, owner decision on SO-3x: everyone else with a live
+   * comment in the thread hears about a new comment there. Not the read's
+   * owner (they get `comment`), not the commenter. One open row per thread
+   * (`reply:<read id>`), gaining actors while unread; the push is at most one
+   * per thread per hour (delivery: push:thread). Blocks, mutes and whether the
+   * recipient can still see the read are checked here and again at read time.
+   */
+  async #replies(t: Db, actorId: string, ownerId: string, readId: string, commentId: string): Promise<void> {
+    const participants = await t.execute<{ user_id: string }>(sql`
+      SELECT DISTINCT user_id FROM read_comments
+      WHERE read_id = ${readId}::uuid AND deleted_at IS NULL
+        AND user_id <> ${actorId}::uuid AND user_id <> ${ownerId}::uuid`);
+    for (const p of participants) {
+      await this.#emit(t, {
+        type: 'reply', recipientId: p.user_id, actorId, objectType: 'read', objectId: readId,
+        groupKey: `reply:${readId}`, data: { readId, commentId },
+      });
+    }
+  }
+
+  /**
+   * A moderation notice (PRD §27.6): which rule applied and that the user may
+   * appeal, or how an appeal ended. In the list only; not a category the user
+   * can switch off. `text` is composed by the moderation module.
+   */
+  async moderationNotice(t: Db, userId: string, actionId: string, data: { text: string } & Record<string, unknown>): Promise<void> {
+    await this.#emit(t, { type: 'moderation', recipientId: userId, actorId: null, objectType: 'moderation_action', objectId: actionId, data });
   }
 
   /** PRD §19.5: a notification for deleted content is removed from the list. */
@@ -237,6 +268,19 @@ export class Notifier {
         const [r] = await t.execute<{ visibility: string; status: string }>(sql`
           SELECT visibility, status FROM reads WHERE id = ${readId}::uuid`);
         if (!r || !canViewWith(e.actorId, e.recipientId, rel, r.visibility)) return;
+      }
+      if (e.type === 'reply') {
+        // The recipient must still be able to see the thread's read (canView,
+        // recipient as viewer), and not have muted its owner.
+        const [r] = await t.execute<{ visibility: string; user_id: string }>(sql`
+          SELECT visibility, user_id FROM reads WHERE id = ${e.objectId}::uuid`);
+        if (!r) return;
+        const toOwner = await loadRelationship(t, e.recipientId, r.user_id);
+        if (!canViewWith(e.recipientId, r.user_id, toOwner, r.visibility)) return;
+        const [mo] = await t.execute<{ muted: boolean }>(sql`
+          SELECT EXISTS (SELECT 1 FROM mutes WHERE user_id = ${e.recipientId}::uuid
+            AND target_type = 'user' AND target_id = ${r.user_id}::uuid) AS muted`);
+        if (mo?.muted) return;
       }
     } else {
       const [u] = await t.execute<{ ok: boolean }>(sql`
@@ -347,6 +391,10 @@ export interface NotificationView {
   importMatched: number | null;
   importUnmatched: number | null;
   importSource: string | null;
+  /** A reply: whose read the thread is on. */
+  owner: { username: string; displayName: string | null } | null;
+  objectId: string | null;
+  data: Record<string, unknown>;
 }
 
 type ViewRow = {
@@ -360,6 +408,8 @@ type ViewRow = {
   read_id: string | null; work_id: string | null; work_title: string | null; review_id: string | null;
   comment_id: string | null; import_id: string | null; import_matched: number | null; import_unmatched: number | null;
   import_source: string | null;
+  owner_username: string | null; owner_display_name: string | null;
+  object_id: string | null; data: unknown;
 };
 
 /** A uuid[] as either driver returns it: an array, or Postgres's '{a,b}' text. */
@@ -389,7 +439,8 @@ export function viewSql(where: SQL, limit: number, focusActor: string | null = n
     OR EXISTS (SELECT 1 FROM follows f WHERE f.follower_id = na.actor_id AND f.followee_id = n.user_id AND f.state = 'accepted')))`;
   return sql`
     SELECT n.id, n.user_id, n.type, n.read_at, n.created_at, n.updated_at, n.updated_at::text AS cursor_at,
-      n.pushed_at, n.push_state, n.digest_at,
+      n.pushed_at, n.push_state, n.digest_at, n.data, n.object_id,
+      op.username AS owner_username, op.display_name AS owner_display_name,
       act.actor_count, act.actor_id, act.new_count, act.new_actor_ids, act.new_actor_ids[1] AS new_actor_id, act.focus_visible,
       pa.username AS actor_username, pa.display_name AS actor_display_name, pa.avatar_key AS actor_avatar_key,
       pn.username AS new_actor_username, pn.display_name AS new_actor_display_name,
@@ -400,7 +451,8 @@ export function viewSql(where: SQL, limit: number, focusActor: string | null = n
     JOIN profiles rp ON rp.user_id = n.user_id
     LEFT JOIN read_comments c ON n.object_type = 'comment' AND c.id = n.object_id AND c.deleted_at IS NULL
     LEFT JOIN reads r ON r.id = (CASE n.object_type WHEN 'read' THEN n.object_id WHEN 'comment' THEN c.read_id END)
-      AND r.user_id = n.user_id AND r.status IN ('finished', 'dnf')
+      AND (r.user_id = n.user_id OR n.type = 'reply') AND r.status IN ('finished', 'dnf')
+    LEFT JOIN profiles op ON op.user_id = r.user_id
     LEFT JOIN works w ON w.id = r.work_id
     LEFT JOIN reviews rv ON rv.read_id = r.id AND rv.deleted_at IS NULL
     LEFT JOIN imports i ON n.object_type = 'import' AND i.id = n.object_id AND i.user_id = n.user_id
@@ -425,6 +477,9 @@ export function viewSql(where: SQL, limit: number, focusActor: string | null = n
             WHERE f.follower_id = na.actor_id AND f.followee_id = n.user_id AND f.state = 'pending')
           WHEN 'like' THEN ${actorCanSeeRead}
           WHEN 'comment' THEN ${actorCanSeeRead}
+          -- A reply's actor counts while they have a live comment in the thread.
+          WHEN 'reply' THEN EXISTS (SELECT 1 FROM read_comments rc
+            WHERE rc.read_id = r.id AND rc.user_id = na.actor_id AND rc.deleted_at IS NULL)
           ELSE true END
     ) act ON true
     LEFT JOIN profiles pa ON pa.user_id = act.actor_id
@@ -434,6 +489,21 @@ export function viewSql(where: SQL, limit: number, focusActor: string | null = n
         WHEN 'import_complete' THEN i.id IS NOT NULL
         WHEN 'like' THEN r.id IS NOT NULL AND act.actor_count > 0
         WHEN 'comment' THEN r.id IS NOT NULL AND c.id IS NOT NULL AND act.actor_count > 0
+        -- Someone else's read: the recipient must still see it, by canView()'s
+        -- rules (the owner live, no block either way, not private; public on a
+        -- public account, else an accepted follow), and not have muted its owner.
+        WHEN 'reply' THEN r.id IS NOT NULL AND act.actor_count > 0
+          AND r.visibility <> 'private'
+          AND EXISTS (SELECT 1 FROM users ou WHERE ou.id = r.user_id AND ou.deleted_at IS NULL)
+          AND NOT EXISTS (SELECT 1 FROM blocks b
+            WHERE (b.blocker_id = n.user_id AND b.blocked_id = r.user_id)
+               OR (b.blocker_id = r.user_id AND b.blocked_id = n.user_id))
+          AND NOT EXISTS (SELECT 1 FROM mutes m
+            WHERE m.user_id = n.user_id AND m.target_type = 'user' AND m.target_id = r.user_id)
+          AND ((r.visibility = 'public' AND NOT op.is_private)
+            OR EXISTS (SELECT 1 FROM follows f
+              WHERE f.follower_id = n.user_id AND f.followee_id = r.user_id AND f.state = 'accepted'))
+        WHEN 'moderation' THEN EXISTS (SELECT 1 FROM moderation_actions ma WHERE ma.id = n.object_id)
         ELSE act.actor_count > 0 END
     ORDER BY n.updated_at DESC, n.id DESC
     LIMIT ${limit}`;
@@ -470,6 +540,9 @@ function toView(r: ViewRow): NotificationView {
     importMatched: r.import_matched === null ? null : Number(r.import_matched),
     importUnmatched: r.import_unmatched === null ? null : Number(r.import_unmatched),
     importSource: r.import_source,
+    owner: r.owner_username ? { username: r.owner_username, displayName: r.owner_display_name } : null,
+    objectId: r.object_id,
+    data: (typeof r.data === 'string' ? JSON.parse(r.data) : r.data ?? {}) as Record<string, unknown>,
   };
 }
 
@@ -540,6 +613,18 @@ export function compose(
       return {
         text: `${lead} commented on ${what}`,
         deepLink: `flyleaf://read/${v.readId}/comments${q(work, v.reviewId ? `review=${v.reviewId}` : '')}`,
+      };
+    case 'reply': {
+      const whose = v.owner ? `${nameOf(v.owner)}'s` : 'a';
+      return {
+        text: `${lead} also commented on ${whose} ${v.reviewId ? 'review' : 'read'} of ${title}`,
+        deepLink: `flyleaf://read/${v.readId}/comments${q(work, v.reviewId ? `review=${v.reviewId}` : '')}`,
+      };
+    }
+    case 'moderation':
+      return {
+        text: typeof v.data.text === 'string' ? v.data.text : 'A moderator reviewed your content.',
+        deepLink: `flyleaf://moderation/${v.objectId}`,
       };
     case 'import_complete': {
       const source = SOURCE_NAMES[v.importSource ?? ''] ?? 'library';
@@ -799,7 +884,7 @@ export const notificationItemSchema = {
   type: 'object',
   properties: {
     id: { type: 'string', format: 'uuid' },
-    type: { type: 'string', enum: ['follow', 'follow_request', 'like', 'comment', 'import_complete'] },
+    type: { type: 'string', enum: ['follow', 'follow_request', 'like', 'comment', 'import_complete', 'reply', 'moderation'] },
     text: { type: 'string' },
     deep_link: { type: 'string', description: 'flyleaf:// URL of the screen this opens' },
     read: { type: 'boolean' },

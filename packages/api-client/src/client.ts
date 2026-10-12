@@ -125,6 +125,17 @@ import type {
   NotificationPreferences,
   UpdateNotificationPreferencesRequest,
   RegisterPushTokenRequest,
+  CreateReportRequest,
+  ReportResponse,
+  MyReportsResponse,
+  ModerationNotice,
+  ModerationNoticesResponse,
+  ReportSubjectType,
+  AdminReportQueueResponse,
+  AdminReportCaseDetail,
+  AdminReportActionRequest,
+  AdminModerationAction,
+  AdminAppealsResponse,
 } from './types.js';
 
 /** ?year=&tz= for the stats routes, only what is given. */
@@ -1268,6 +1279,75 @@ export class FlyleafClient {
 
   async unregisterPushToken(token: string): Promise<void> {
     await this.request<null>(`/me/push-tokens/${encodeURIComponent(token)}`, { method: 'DELETE' });
+  }
+
+  // ---------------------------------------------------------------- Moderation (SO-40 to SO-42)
+
+  /** PRD §6.44. 201 for a new report; a repeat of an open one returns it unchanged. */
+  async createReport(data: CreateReportRequest): Promise<ReportResponse> {
+    return this.request<ReportResponse>('/reports', { method: 'POST', body: JSON.stringify(data) });
+  }
+
+  async getMyReports(params?: { limit?: number; offset?: number }): Promise<MyReportsResponse> {
+    const q = new URLSearchParams();
+    if (params?.limit !== undefined) q.set('limit', String(params.limit));
+    if (params?.offset !== undefined) q.set('offset', String(params.offset));
+    const qs = q.toString();
+    return this.request<MyReportsResponse>(`/me/reports${qs ? `?${qs}` : ''}`, { method: 'GET' });
+  }
+
+  async getModerationNotices(): Promise<ModerationNoticesResponse> {
+    return this.request<ModerationNoticesResponse>('/me/moderation', { method: 'GET' });
+  }
+
+  async getModerationNotice(id: string): Promise<ModerationNotice> {
+    return this.request<ModerationNotice>(`/me/moderation/${encodeURIComponent(id)}`, { method: 'GET' });
+  }
+
+  /** Once per decision (PRD §27.6). */
+  async appealModeration(id: string, body: string): Promise<ModerationNotice> {
+    return this.request<ModerationNotice>(`/me/moderation/${encodeURIComponent(id)}/appeal`, {
+      method: 'POST',
+      body: JSON.stringify({ body }),
+    });
+  }
+
+  async adminGetReportQueue(params?: { subject_type?: ReportSubjectType; limit?: number; offset?: number }): Promise<AdminReportQueueResponse> {
+    const q = new URLSearchParams();
+    if (params?.subject_type) q.set('subject_type', params.subject_type);
+    if (params?.limit !== undefined) q.set('limit', String(params.limit));
+    if (params?.offset !== undefined) q.set('offset', String(params.offset));
+    const qs = q.toString();
+    return this.request<AdminReportQueueResponse>(`/admin/reports${qs ? `?${qs}` : ''}`, { method: 'GET' });
+  }
+
+  async adminGetReportCase(subjectType: ReportSubjectType, subjectId: string): Promise<AdminReportCaseDetail> {
+    return this.request<AdminReportCaseDetail>(
+      `/admin/reports/${encodeURIComponent(subjectType)}/${encodeURIComponent(subjectId)}`,
+      { method: 'GET' },
+    );
+  }
+
+  async adminActOnReport(subjectType: ReportSubjectType, subjectId: string, data: AdminReportActionRequest): Promise<AdminModerationAction> {
+    return this.request<AdminModerationAction>(
+      `/admin/reports/${encodeURIComponent(subjectType)}/${encodeURIComponent(subjectId)}/action`,
+      { method: 'POST', body: JSON.stringify(data) },
+    );
+  }
+
+  async adminGetAppeals(params?: { limit?: number; offset?: number }): Promise<AdminAppealsResponse> {
+    const q = new URLSearchParams();
+    if (params?.limit !== undefined) q.set('limit', String(params.limit));
+    if (params?.offset !== undefined) q.set('offset', String(params.offset));
+    const qs = q.toString();
+    return this.request<AdminAppealsResponse>(`/admin/appeals${qs ? `?${qs}` : ''}`, { method: 'GET' });
+  }
+
+  async adminResolveAppeal(id: string, data: { decision: 'uphold' | 'overturn'; reason: string }): Promise<AdminModerationAction> {
+    return this.request<AdminModerationAction>(`/admin/appeals/${encodeURIComponent(id)}/resolve`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
   }
 }
 

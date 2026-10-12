@@ -42,6 +42,8 @@ const maturityOverrideBody = z.object({
 
 export function adminNavbar(currentPath: string, admin: { email: string; role: string }): string {
   const links = [
+    { path: '/admin/reports', label: 'Reports' },
+    { path: '/admin/appeals', label: 'Appeals' },
     { path: '/admin/merges', label: 'Merge Review' },
     { path: '/admin/catalog/maturity', label: 'Maturity Review' },
     { path: '/admin/ingest', label: 'Ingestion Status' },

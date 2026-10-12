@@ -17,6 +17,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as Haptics from 'expo-haptics';
 import { api, FlyleafApiError, type Profile, type ReadingStats } from '@/lib/api';
 import { useSession } from '@/lib/session';
+import { ReportSheet, type ReportTarget } from '@/ui/ReportSheet';
 import { useActionGate } from '@/ui/ActionGate';
 import { useOfflineSync } from '@/offline/sync';
 import { useVerifyEmailPrompt } from '@/ui/VerifyEmail';
@@ -37,6 +38,7 @@ export default function UserProfileScreen() {
   const insets = useSafeAreaInsets();
   const { id } = useLocalSearchParams<{ id: string }>();
   const { user } = useSession();
+  const [reportTarget, setReportTarget] = useState<ReportTarget | null>(null);
   const { promptAuth } = useActionGate();
   const { setFollowing } = useOfflineSync();
   const { prompt: promptVerify } = useVerifyEmailPrompt();
@@ -373,6 +375,16 @@ export default function UserProfileScreen() {
                   />
                 </View>
               )}
+              {profile.followStatus !== 'self' && user && (
+                <Pressable
+                  onPress={() => setReportTarget({ type: 'user', id: profile.id })}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Report @${profile.username}`}
+                  style={{ minHeight: 44, justifyContent: 'center', alignSelf: 'flex-start' }}
+                >
+                  <Txt variant="caption" color="muted">Report profile</Txt>
+                </Pressable>
+              )}
             </View>
 
             {/* Privacy Check */}
@@ -506,6 +518,7 @@ export default function UserProfileScreen() {
           </>
         )}
       </ScrollView>
+      <ReportSheet target={reportTarget} onClose={() => setReportTarget(null)} />
     </Screen>
   );
 }

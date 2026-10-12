@@ -23,6 +23,8 @@ import { reviewsPlugin, type ReviewService } from './reviews/index.js';
 import { adminDedupeRoutes } from './admin/dedupe.js';
 import { adminAuthRoutes } from './admin/routes.js';
 import { adminCatalogRoutes } from './admin/catalog-routes.js';
+import { moderationPlugin } from './moderation/routes.js';
+import { adminModerationRoutes } from './moderation/admin-routes.js';
 import { auditContext, logAdminAction, lookupAdmin, verifyAdminToken } from './admin/auth.js';
 import { telemetryRoutes } from './telemetry/index.js';
 import { reportApiError } from './telemetry/errors.js';
@@ -511,6 +513,9 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
       notifier,
     });
     await app.register(notificationsPlugin, { prefix: '/v1', db: options.db });
+    // Moderation (SO-40 to SO-42): reports and notices for the app, the queue for the console.
+    await app.register(moderationPlugin, { prefix: '/v1', db: options.db, notifier });
+    await app.register(adminModerationRoutes(options.db, notifier));
     await app.register(adminAuthRoutes(options.db, rateLimits));
     await app.register(adminDedupeRoutes(options.db));
     await app.register(adminCatalogRoutes(options.db));

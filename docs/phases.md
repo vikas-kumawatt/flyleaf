@@ -254,7 +254,8 @@ Importing your own thousand-book library is the **best load test the catalog wil
 ### Progress
 
 - **Done:** social graph, blocks and mutes (`SO-01`–`SO-06`); feed with ranking, aggregation, diversity and cold start (`SO-10`–`SO-15`); interaction — likes and single-level comments on reads, trigger-maintained counters with nightly reconciliation, review ranking with a friends-first tier and an exploration slot (`SO-20`–`SO-23`).
-- **Next:** notifications (`SO-3x`), moderation (`SO-4x`), public pages (`SO-5x`).
+- **Done since:** notifications (`SO-30`–`SO-33`, replies and 180-day retention added with SO-4x); moderation (`SO-40`–`SO-42`): reports from every surface, automated layer 1, the admin report queue with the §27.3 enforcement ladder and appeals.
+- **Next:** public pages (`SO-5x`).
 - **Learned in `SO-2x`:** the PRD §10.7 weights cannot make social proximity dominant on their own (the other terms sum to 0.65, a follow is worth 0.28), so friends-first is a tier, not a weight. And a like must be an idempotent verb, not a toggle, or the offline queue's replay undoes it.
 
 ### Why public pages are in this phase
@@ -266,7 +267,7 @@ Without them every share is a dead link for anyone without the app, which breaks
 - [ ] Median follows at day 7 ≥ 5
 - [ ] **Nobody has an empty feed** — verified for every beta user
 - [ ] Block is complete: neither party can see the other anywhere
-- [ ] A report reaches the admin queue and can be actioned end to end
+- [x] A report reaches the admin queue and can be actioned end to end — built in `SO-4x`; one test covers the whole path (`moderation-admin.test.ts`, *Phase 4 exit*)
 
 **Audit (Parts 13–15).**
 - **Social graph:** the follower counters lost updates under concurrency, and a block could be detected through unfollow and mute answers. Both are fixed. PRD §11.7 anti-abuse limits are enforced (Part 15).

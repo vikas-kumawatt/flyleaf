@@ -31,6 +31,7 @@ import * as Haptics from 'expo-haptics';
 import { api, type Work, type Review } from '@/lib/api';
 import { starBars } from '@/lib/ratingBars';
 import { useSession } from '@/lib/session';
+import { ReportSheet, type ReportTarget } from '@/ui/ReportSheet';
 import { useGuestShelf } from '@/lib/guest';
 import { useActionGate } from '@/ui/ActionGate';
 import { useOfflineSync } from '@/offline/sync';
@@ -71,6 +72,7 @@ const heartsLabel = (n: number) => `${n.toLocaleString()} ${n === 1 ? 'heart' : 
 export default function WorkScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const { user } = useSession();
+  const [reportTarget, setReportTarget] = useState<ReportTarget | null>(null);
   const { promptAuth } = useActionGate();
   const { setLiked: setQueuedLike } = useOfflineSync();
   const { isSaved, addBook, removeBook } = useGuestShelf();
@@ -507,6 +509,16 @@ export default function WorkScreen() {
               ]}
             >
               <Ionicons name={isMuted ? "volume-mute" : "volume-mute-outline"} size={18} color={isMuted ? c.accent : c.muted} />
+            </Pressable>
+          )}
+          {user && (
+            <Pressable
+              onPress={() => setReportTarget({ type: 'work', id: work.id })}
+              accessibilityRole="button"
+              accessibilityLabel="Report book"
+              style={[sheet.row, { minHeight: 44, paddingHorizontal: space[3], borderRadius: radius.md, borderWidth: 1, borderColor: c.line, backgroundColor: c.surface, justifyContent: 'center' }]}
+            >
+              <Ionicons name="flag-outline" size={18} color={c.muted} />
             </Pressable>
           )}
         </View>
@@ -1012,6 +1024,7 @@ export default function WorkScreen() {
         onClose={() => setShelfSheetVisible(false)}
         work={work}
       />
+      <ReportSheet target={reportTarget} onClose={() => setReportTarget(null)} />
     </Screen>
   );
 }

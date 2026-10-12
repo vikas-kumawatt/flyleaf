@@ -377,7 +377,14 @@ export const users = pgTable('users', {
   role: text('role').notNull().default('user'),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   deletedAt: timestamp('deleted_at', { withTimezone: true }),
+  // Moderation (0044, SO-42): a posting suspension, a ban (the account is also
+  // soft-deleted), ratings left out of aggregates, reviews queued (§27.3).
+  suspendedUntil: timestamp('suspended_until', { withTimezone: true }),
+  bannedAt: timestamp('banned_at', { withTimezone: true }),
+  ratingsExcludedAt: timestamp('ratings_excluded_at', { withTimezone: true }),
+  reviewFlagUntil: timestamp('review_flag_until', { withTimezone: true }),
 }, (t) => [
+  index('users_ratings_excluded_idx').on(t.id).where(sql`${t.ratingsExcludedAt} IS NOT NULL`),
   check('users_role_ck', sql`${t.role} IN ('user','moderator','admin')`),
   // Audit 13 (0036): the small set of soft-deleted accounts, which lists leave out.
   index('users_deleted_idx').on(t.id).where(sql`${t.deletedAt} IS NOT NULL`),
@@ -466,6 +473,8 @@ export const reads = pgTable('reads', {
   source: text('source').notNull().default('app'),
   visibility: text('visibility').notNull().default('public'),
   likeCount: integer('like_count').notNull().default(0),
+  /** §27.3 fake reviews: this read's rating is left out of every aggregate (0044). */
+  ratingExcluded: boolean('rating_excluded').notNull().default(false),
   commentCount: integer('comment_count').notNull().default(0),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
@@ -727,6 +736,8 @@ export const reviews = pgTable('reviews', {
   publishedAt: timestamp('published_at', { withTimezone: true }).notNull().defaultNow(),
   editedAt: timestamp('edited_at', { withTimezone: true }),
   deletedAt: timestamp('deleted_at', { withTimezone: true }),
+  /** Hidden by a moderator (0044): also soft-deleted; the owner cannot revive it. */
+  hiddenAt: timestamp('hidden_at', { withTimezone: true }),
 }, (t) => [
   check('reviews_body_length_ck', sql`char_length(${t.body}) <= 10000`),
   check('reviews_visibility_ck', sql`${t.visibility} IN ('public','followers','private')`),
@@ -756,6 +767,8 @@ export const readComments = pgTable('read_comments', {
   body: text('body').notNull(),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   deletedAt: timestamp('deleted_at', { withTimezone: true }),
+  /** Hidden by a moderator (0044): also soft-deleted. */
+  hiddenAt: timestamp('hidden_at', { withTimezone: true }),
 }, (t) => [
   check('read_comments_body_ck', sql`char_length(btrim(${t.body})) BETWEEN 1 AND 2000`),
   index('read_comments_read_idx').on(t.readId, t.createdAt, t.id),
@@ -894,6 +907,8 @@ export const shelves = pgTable('shelves', {
   saveCount: integer('save_count').notNull().default(0),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   deletedAt: timestamp('deleted_at', { withTimezone: true }),
+  /** Hidden by a moderator (0044): also soft-deleted; not restorable by the owner. */
+  hiddenAt: timestamp('hidden_at', { withTimezone: true }),
 }, (t) => [
   check('shelves_name_length_ck', sql`char_length(${t.name}) <= 60`),
   check('shelves_privacy_ck', sql`${t.privacy} IN ('public','followers','private')`),
@@ -1117,14 +1132,16 @@ export const notifications = pgTable('notifications', {
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 }, (t) => [
-  check('notifications_type_ck', sql`${t.type} IN ('follow','follow_request','like','comment','import_complete')`),
-  check('notifications_object_type_ck', sql`${t.objectType} IS NULL OR ${t.objectType} IN ('user','read','comment','import')`),
+  check('notifications_type_ck', sql`${t.type} IN ('follow','follow_request','like','comment','import_complete','reply','moderation')`),
+  check('notifications_object_type_ck', sql`${t.objectType} IS NULL OR ${t.objectType} IN ('user','read','comment','import','moderation_action')`),
   check('notifications_push_state_ck', sql`${t.pushState} IN ('none','queued','sent','skipped')`),
   index('notifications_user_idx').on(t.userId, t.updatedAt.desc(), t.id.desc()).where(sql`${t.inApp}`),
   index('notifications_unread_idx').on(t.userId).where(sql`${t.readAt} IS NULL AND ${t.inApp}`),
   uniqueIndex('notifications_open_group_uq').on(t.userId, t.groupKey).where(sql`${t.readAt} IS NULL AND ${t.groupKey} IS NOT NULL`),
   uniqueIndex('notifications_import_once_uq').on(t.objectId).where(sql`${t.type} = 'import_complete'`),
   index('notifications_object_idx').on(t.objectType, t.objectId),
+  // 0044: the 180-day retention sweep (owner decision on SO-3x).
+  index('notifications_updated_idx').on(t.updatedAt),
 ]);
 
 /** Who is in a notification. An unlike or unfollow removes the actor again. */
@@ -1190,4 +1207,77 @@ export const rateLimitEvents = pgTable('rate_limit_events', {
 }, (t) => [
   index('rate_limit_events_bucket_idx').on(t.bucket, t.at),
   index('rate_limit_events_at_idx').on(t.at),
+]);
+
+// ---------------------------------------------------------------------------
+// Moderation (SO-40 to SO-42, 0044; PRD §27, §6.44)
+// ---------------------------------------------------------------------------
+
+/**
+ * One decision on a reported subject. `effects` records what an enforcement
+ * did and the values it replaced, so an overturned appeal can undo it. The
+ * appeal (PRD §27.6: once) lives on the action it appeals.
+ */
+export const moderationActions = pgTable('moderation_actions', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  subjectType: text('subject_type').notNull(),
+  subjectId: uuid('subject_id').notNull(),
+  targetUserId: uuid('target_user_id').references(() => users.id, { onDelete: 'cascade' }),
+  decision: text('decision').notNull(),
+  rule: text('rule'),
+  step: smallint('step'),
+  effects: jsonb('effects').notNull().default(sql`'{}'::jsonb`),
+  reason: text('reason').notNull(),
+  actorId: uuid('actor_id').references(() => users.id, { onDelete: 'set null' }),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  reversedAt: timestamp('reversed_at', { withTimezone: true }),
+  appealBody: text('appeal_body'),
+  appealedAt: timestamp('appealed_at', { withTimezone: true }),
+  appealState: text('appeal_state'),
+  appealResolvedAt: timestamp('appeal_resolved_at', { withTimezone: true }),
+  appealResolvedBy: uuid('appeal_resolved_by').references(() => users.id, { onDelete: 'set null' }),
+  appealReason: text('appeal_reason'),
+}, (t) => [
+  check('moderation_actions_subject_ck', sql`${t.subjectType} IN ('review','comment','user','shelf','work')`),
+  check('moderation_actions_decision_ck', sql`${t.decision} IN ('dismiss','enforce','resolve')`),
+  check('moderation_actions_rule_ck', sql`${t.rule} IS NULL OR ${t.rule} IN ('spoilers','spam','harassment','hate_speech','fake_review','impersonation','vote_manipulation')`),
+  check('moderation_actions_enforce_ck', sql`(${t.decision} = 'enforce') = (${t.rule} IS NOT NULL AND ${t.step} IS NOT NULL)`),
+  check('moderation_actions_appeal_state_ck', sql`${t.appealState} IS NULL OR ${t.appealState} IN ('pending','upheld','overturned')`),
+  check('moderation_actions_appeal_body_ck', sql`${t.appealBody} IS NULL OR char_length(${t.appealBody}) BETWEEN 1 AND 2000`),
+  index('moderation_actions_strikes_idx').on(t.targetUserId, t.rule).where(sql`${t.decision} = 'enforce' AND ${t.reversedAt} IS NULL`),
+  index('moderation_actions_appeals_idx').on(t.appealedAt).where(sql`${t.appealState} = 'pending'`),
+  index('moderation_actions_subject_idx').on(t.subjectType, t.subjectId),
+  index('moderation_actions_target_idx').on(t.targetUserId, t.createdAt.desc()),
+]);
+
+/** One report: a person's (source 'user') or layer 1's (source 'automated'). */
+export const reports = pgTable('reports', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  reporterId: uuid('reporter_id').references(() => users.id, { onDelete: 'set null' }),
+  source: text('source').notNull().default('user'),
+  autoRule: text('auto_rule'),
+  subjectType: text('subject_type').notNull(),
+  subjectId: uuid('subject_id').notNull(),
+  subjectOwnerId: uuid('subject_owner_id').references(() => users.id, { onDelete: 'cascade' }),
+  reason: text('reason').notNull(),
+  detail: text('detail'),
+  snapshot: jsonb('snapshot').notNull().default(sql`'{}'::jsonb`),
+  state: text('state').notNull().default('open'),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  resolvedAt: timestamp('resolved_at', { withTimezone: true }),
+  resolvedBy: uuid('resolved_by').references(() => users.id, { onDelete: 'set null' }),
+  actionId: uuid('action_id').references(() => moderationActions.id, { onDelete: 'set null' }),
+}, (t) => [
+  check('reports_source_ck', sql`${t.source} IN ('user','automated')`),
+  check('reports_auto_rule_ck', sql`(${t.source} = 'automated') = (${t.autoRule} IS NOT NULL)`),
+  check('reports_subject_ck', sql`${t.subjectType} IN ('review','comment','user','shelf','work')`),
+  check('reports_reason_ck', sql`${t.reason} IN ('spam','harassment','hate_speech','spoilers','nsfw','copyright','fake_review','other')`),
+  check('reports_detail_ck', sql`${t.detail} IS NULL OR char_length(${t.detail}) <= 1000`),
+  check('reports_state_ck', sql`${t.state} IN ('open','actioned','dismissed')`),
+  uniqueIndex('reports_open_reporter_uq').on(t.reporterId, t.subjectType, t.subjectId).where(sql`${t.state} = 'open' AND ${t.reporterId} IS NOT NULL`),
+  uniqueIndex('reports_open_auto_uq').on(t.subjectType, t.subjectId, t.autoRule).where(sql`${t.state} = 'open' AND ${t.source} = 'automated'`),
+  index('reports_open_subject_idx').on(t.subjectType, t.subjectId).where(sql`${t.state} = 'open'`),
+  index('reports_open_created_idx').on(t.createdAt).where(sql`${t.state} = 'open'`),
+  index('reports_reporter_idx').on(t.reporterId, t.createdAt.desc()),
+  index('reports_owner_idx').on(t.subjectOwnerId, t.createdAt.desc()),
 ]);

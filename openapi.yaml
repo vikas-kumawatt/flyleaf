@@ -1713,6 +1713,30 @@ paths:
                       - message
                 required:
                   - error
+        "403":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      code:
+                        type: string
+                        description: Machine-readable error code
+                      message:
+                        type: string
+                        description: Human-readable error description
+                      field:
+                        type: string
+                        description: Invalid field name if applicable
+                    required:
+                      - code
+                      - message
+                required:
+                  - error
         "422":
           description: Default Response
           content:
@@ -6620,6 +6644,30 @@ paths:
                       - message
                 required:
                   - error
+        "403":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      code:
+                        type: string
+                        description: Machine-readable error code
+                      message:
+                        type: string
+                        description: Human-readable error description
+                      field:
+                        type: string
+                        description: Invalid field name if applicable
+                    required:
+                      - code
+                      - message
+                required:
+                  - error
         "404":
           description: Default Response
           content:
@@ -6645,6 +6693,30 @@ paths:
                 required:
                   - error
         "409":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      code:
+                        type: string
+                        description: Machine-readable error code
+                      message:
+                        type: string
+                        description: Human-readable error description
+                      field:
+                        type: string
+                        description: Invalid field name if applicable
+                    required:
+                      - code
+                      - message
+                required:
+                  - error
+        "422":
           description: Default Response
           content:
             application/json:
@@ -6775,6 +6847,8 @@ paths:
                             - like
                             - comment
                             - import_complete
+                            - reply
+                            - moderation
                         text:
                           type: string
                         deep_link:
@@ -7449,6 +7523,2163 @@ paths:
         "204":
           description: Default Response
         "401":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      code:
+                        type: string
+                        description: Machine-readable error code
+                      message:
+                        type: string
+                        description: Human-readable error description
+                      field:
+                        type: string
+                        description: Invalid field name if applicable
+                    required:
+                      - code
+                      - message
+                required:
+                  - error
+  /reports:
+    post:
+      summary: Report a review, comment, profile, shelf or book (PRD §6.44, §27.2
+        layer 2)
+      tags:
+        - moderation
+      description: Anything the caller may not see is a 404. A second report of the
+        same open subject returns the first (200).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                subject_type:
+                  type: string
+                  enum:
+                    - review
+                    - comment
+                    - user
+                    - shelf
+                    - work
+                subject_id:
+                  type: string
+                  format: uuid
+                reason:
+                  type: string
+                  enum:
+                    - spam
+                    - harassment
+                    - hate_speech
+                    - spoilers
+                    - nsfw
+                    - copyright
+                    - fake_review
+                    - other
+                  description: PRD §6.44
+                detail:
+                  type:
+                    - string
+                    - "null"
+                  maxLength: 1000
+              required:
+                - subject_type
+                - subject_id
+                - reason
+              additionalProperties: false
+      responses:
+        "200":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  report:
+                    type: object
+                    properties:
+                      id:
+                        type: string
+                        format: uuid
+                      subject_type:
+                        type: string
+                        enum:
+                          - review
+                          - comment
+                          - user
+                          - shelf
+                          - work
+                      subject_id:
+                        type: string
+                        format: uuid
+                      reason:
+                        type: string
+                        enum:
+                          - spam
+                          - harassment
+                          - hate_speech
+                          - spoilers
+                          - nsfw
+                          - copyright
+                          - fake_review
+                          - other
+                      status:
+                        type: string
+                        enum:
+                          - open
+                          - reviewed
+                        description: "PRD §27.6: never the outcome for someone else"
+                      created_at:
+                        type: string
+                        format: date-time
+                      reviewed_at:
+                        type:
+                          - "null"
+                          - string
+                        format: date-time
+                    required:
+                      - id
+                      - subject_type
+                      - subject_id
+                      - reason
+                      - status
+                      - created_at
+                      - reviewed_at
+                required:
+                  - report
+        "201":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  report:
+                    type: object
+                    properties:
+                      id:
+                        type: string
+                        format: uuid
+                      subject_type:
+                        type: string
+                        enum:
+                          - review
+                          - comment
+                          - user
+                          - shelf
+                          - work
+                      subject_id:
+                        type: string
+                        format: uuid
+                      reason:
+                        type: string
+                        enum:
+                          - spam
+                          - harassment
+                          - hate_speech
+                          - spoilers
+                          - nsfw
+                          - copyright
+                          - fake_review
+                          - other
+                      status:
+                        type: string
+                        enum:
+                          - open
+                          - reviewed
+                        description: "PRD §27.6: never the outcome for someone else"
+                      created_at:
+                        type: string
+                        format: date-time
+                      reviewed_at:
+                        type:
+                          - "null"
+                          - string
+                        format: date-time
+                    required:
+                      - id
+                      - subject_type
+                      - subject_id
+                      - reason
+                      - status
+                      - created_at
+                      - reviewed_at
+                required:
+                  - report
+        "400":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      code:
+                        type: string
+                        description: Machine-readable error code
+                      message:
+                        type: string
+                        description: Human-readable error description
+                      field:
+                        type: string
+                        description: Invalid field name if applicable
+                    required:
+                      - code
+                      - message
+                required:
+                  - error
+        "401":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      code:
+                        type: string
+                        description: Machine-readable error code
+                      message:
+                        type: string
+                        description: Human-readable error description
+                      field:
+                        type: string
+                        description: Invalid field name if applicable
+                    required:
+                      - code
+                      - message
+                required:
+                  - error
+        "404":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      code:
+                        type: string
+                        description: Machine-readable error code
+                      message:
+                        type: string
+                        description: Human-readable error description
+                      field:
+                        type: string
+                        description: Invalid field name if applicable
+                    required:
+                      - code
+                      - message
+                required:
+                  - error
+        "422":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      code:
+                        type: string
+                        description: Machine-readable error code
+                      message:
+                        type: string
+                        description: Human-readable error description
+                      field:
+                        type: string
+                        description: Invalid field name if applicable
+                    required:
+                      - code
+                      - message
+                required:
+                  - error
+        "429":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      code:
+                        type: string
+                        description: Machine-readable error code
+                      message:
+                        type: string
+                        description: Human-readable error description
+                      field:
+                        type: string
+                        description: Invalid field name if applicable
+                    required:
+                      - code
+                      - message
+                required:
+                  - error
+  /me/reports:
+    get:
+      summary: Your reports and whether each has been reviewed (PRD §27.6)
+      tags:
+        - moderation
+      parameters:
+        - schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 30
+          in: query
+          name: limit
+          required: false
+        - schema:
+            type: integer
+            minimum: 0
+            default: 0
+          in: query
+          name: offset
+          required: false
+      responses:
+        "200":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  reports:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: string
+                          format: uuid
+                        subject_type:
+                          type: string
+                          enum:
+                            - review
+                            - comment
+                            - user
+                            - shelf
+                            - work
+                        subject_id:
+                          type: string
+                          format: uuid
+                        reason:
+                          type: string
+                          enum:
+                            - spam
+                            - harassment
+                            - hate_speech
+                            - spoilers
+                            - nsfw
+                            - copyright
+                            - fake_review
+                            - other
+                        status:
+                          type: string
+                          enum:
+                            - open
+                            - reviewed
+                          description: "PRD §27.6: never the outcome for someone else"
+                        created_at:
+                          type: string
+                          format: date-time
+                        reviewed_at:
+                          type:
+                            - "null"
+                            - string
+                          format: date-time
+                      required:
+                        - id
+                        - subject_type
+                        - subject_id
+                        - reason
+                        - status
+                        - created_at
+                        - reviewed_at
+                required:
+                  - reports
+        "401":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      code:
+                        type: string
+                        description: Machine-readable error code
+                      message:
+                        type: string
+                        description: Human-readable error description
+                      field:
+                        type: string
+                        description: Invalid field name if applicable
+                    required:
+                      - code
+                      - message
+                required:
+                  - error
+  /me/moderation:
+    get:
+      summary: "Moderation decisions about your content: the rule applied and your
+        appeal (PRD §27.6)"
+      tags:
+        - moderation
+      responses:
+        "200":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  notices:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: string
+                          format: uuid
+                        subject_type:
+                          type: string
+                          enum:
+                            - review
+                            - comment
+                            - user
+                            - shelf
+                            - work
+                        subject_id:
+                          type: string
+                          format: uuid
+                        rule:
+                          type: string
+                          enum:
+                            - spoilers
+                            - spam
+                            - harassment
+                            - hate_speech
+                            - fake_review
+                            - impersonation
+                            - vote_manipulation
+                        rule_label:
+                          type: string
+                        summary:
+                          type: string
+                        consequences:
+                          type: array
+                          items:
+                            type: string
+                        created_at:
+                          type: string
+                          format: date-time
+                        reversed:
+                          type: boolean
+                        can_appeal:
+                          type: boolean
+                        appeal:
+                          type:
+                            - "null"
+                            - object
+                          properties:
+                            state:
+                              type: string
+                              enum:
+                                - pending
+                                - upheld
+                                - overturned
+                              description: "upheld: the decision stands"
+                            body:
+                              type: string
+                            appealed_at:
+                              type: string
+                              format: date-time
+                            resolved_at:
+                              type:
+                                - "null"
+                                - string
+                              format: date-time
+                          required:
+                            - state
+                            - body
+                            - appealed_at
+                            - resolved_at
+                      required:
+                        - id
+                        - subject_type
+                        - subject_id
+                        - rule
+                        - rule_label
+                        - summary
+                        - consequences
+                        - created_at
+                        - reversed
+                        - can_appeal
+                        - appeal
+                required:
+                  - notices
+        "401":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      code:
+                        type: string
+                        description: Machine-readable error code
+                      message:
+                        type: string
+                        description: Human-readable error description
+                      field:
+                        type: string
+                        description: Invalid field name if applicable
+                    required:
+                      - code
+                      - message
+                required:
+                  - error
+  /me/moderation/{id}:
+    get:
+      summary: One moderation decision about your content
+      tags:
+        - moderation
+      parameters:
+        - schema:
+            type: string
+            format: uuid
+          in: path
+          name: id
+          required: true
+      responses:
+        "200":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id:
+                    type: string
+                    format: uuid
+                  subject_type:
+                    type: string
+                    enum:
+                      - review
+                      - comment
+                      - user
+                      - shelf
+                      - work
+                  subject_id:
+                    type: string
+                    format: uuid
+                  rule:
+                    type: string
+                    enum:
+                      - spoilers
+                      - spam
+                      - harassment
+                      - hate_speech
+                      - fake_review
+                      - impersonation
+                      - vote_manipulation
+                  rule_label:
+                    type: string
+                  summary:
+                    type: string
+                  consequences:
+                    type: array
+                    items:
+                      type: string
+                  created_at:
+                    type: string
+                    format: date-time
+                  reversed:
+                    type: boolean
+                  can_appeal:
+                    type: boolean
+                  appeal:
+                    type:
+                      - "null"
+                      - object
+                    properties:
+                      state:
+                        type: string
+                        enum:
+                          - pending
+                          - upheld
+                          - overturned
+                        description: "upheld: the decision stands"
+                      body:
+                        type: string
+                      appealed_at:
+                        type: string
+                        format: date-time
+                      resolved_at:
+                        type:
+                          - "null"
+                          - string
+                        format: date-time
+                    required:
+                      - state
+                      - body
+                      - appealed_at
+                      - resolved_at
+                required:
+                  - id
+                  - subject_type
+                  - subject_id
+                  - rule
+                  - rule_label
+                  - summary
+                  - consequences
+                  - created_at
+                  - reversed
+                  - can_appeal
+                  - appeal
+        "401":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      code:
+                        type: string
+                        description: Machine-readable error code
+                      message:
+                        type: string
+                        description: Human-readable error description
+                      field:
+                        type: string
+                        description: Invalid field name if applicable
+                    required:
+                      - code
+                      - message
+                required:
+                  - error
+        "404":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      code:
+                        type: string
+                        description: Machine-readable error code
+                      message:
+                        type: string
+                        description: Human-readable error description
+                      field:
+                        type: string
+                        description: Invalid field name if applicable
+                    required:
+                      - code
+                      - message
+                required:
+                  - error
+  /me/moderation/{id}/appeal:
+    post:
+      summary: Appeal a decision, once (PRD §27.6). A person reviews it.
+      tags:
+        - moderation
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                body:
+                  type: string
+                  minLength: 1
+                  maxLength: 2000
+              required:
+                - body
+              additionalProperties: false
+      parameters:
+        - schema:
+            type: string
+            format: uuid
+          in: path
+          name: id
+          required: true
+      responses:
+        "200":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id:
+                    type: string
+                    format: uuid
+                  subject_type:
+                    type: string
+                    enum:
+                      - review
+                      - comment
+                      - user
+                      - shelf
+                      - work
+                  subject_id:
+                    type: string
+                    format: uuid
+                  rule:
+                    type: string
+                    enum:
+                      - spoilers
+                      - spam
+                      - harassment
+                      - hate_speech
+                      - fake_review
+                      - impersonation
+                      - vote_manipulation
+                  rule_label:
+                    type: string
+                  summary:
+                    type: string
+                  consequences:
+                    type: array
+                    items:
+                      type: string
+                  created_at:
+                    type: string
+                    format: date-time
+                  reversed:
+                    type: boolean
+                  can_appeal:
+                    type: boolean
+                  appeal:
+                    type:
+                      - "null"
+                      - object
+                    properties:
+                      state:
+                        type: string
+                        enum:
+                          - pending
+                          - upheld
+                          - overturned
+                        description: "upheld: the decision stands"
+                      body:
+                        type: string
+                      appealed_at:
+                        type: string
+                        format: date-time
+                      resolved_at:
+                        type:
+                          - "null"
+                          - string
+                        format: date-time
+                    required:
+                      - state
+                      - body
+                      - appealed_at
+                      - resolved_at
+                required:
+                  - id
+                  - subject_type
+                  - subject_id
+                  - rule
+                  - rule_label
+                  - summary
+                  - consequences
+                  - created_at
+                  - reversed
+                  - can_appeal
+                  - appeal
+        "400":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      code:
+                        type: string
+                        description: Machine-readable error code
+                      message:
+                        type: string
+                        description: Human-readable error description
+                      field:
+                        type: string
+                        description: Invalid field name if applicable
+                    required:
+                      - code
+                      - message
+                required:
+                  - error
+        "401":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      code:
+                        type: string
+                        description: Machine-readable error code
+                      message:
+                        type: string
+                        description: Human-readable error description
+                      field:
+                        type: string
+                        description: Invalid field name if applicable
+                    required:
+                      - code
+                      - message
+                required:
+                  - error
+        "404":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      code:
+                        type: string
+                        description: Machine-readable error code
+                      message:
+                        type: string
+                        description: Human-readable error description
+                      field:
+                        type: string
+                        description: Invalid field name if applicable
+                    required:
+                      - code
+                      - message
+                required:
+                  - error
+        "409":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      code:
+                        type: string
+                        description: Machine-readable error code
+                      message:
+                        type: string
+                        description: Human-readable error description
+                      field:
+                        type: string
+                        description: Invalid field name if applicable
+                    required:
+                      - code
+                      - message
+                required:
+                  - error
+        "422":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      code:
+                        type: string
+                        description: Machine-readable error code
+                      message:
+                        type: string
+                        description: Human-readable error description
+                      field:
+                        type: string
+                        description: Invalid field name if applicable
+                    required:
+                      - code
+                      - message
+                required:
+                  - error
+  /admin/reports:
+    get:
+      summary: Open reports grouped by subject, heaviest first (PRD §27.5)
+      tags:
+        - Admin Moderation
+      parameters:
+        - schema:
+            type: string
+            enum:
+              - review
+              - comment
+              - user
+              - shelf
+              - work
+          in: query
+          name: subject_type
+          required: false
+        - schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 50
+          in: query
+          name: limit
+          required: false
+        - schema:
+            type: integer
+            minimum: 0
+            default: 0
+          in: query
+          name: offset
+          required: false
+      responses:
+        "200":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  cases:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        subject_type:
+                          type: string
+                          enum:
+                            - review
+                            - comment
+                            - user
+                            - shelf
+                            - work
+                        subject_id:
+                          type: string
+                          format: uuid
+                        owner:
+                          type:
+                            - "null"
+                            - object
+                          properties:
+                            id:
+                              type: string
+                              format: uuid
+                            username:
+                              type:
+                                - "null"
+                                - string
+                        report_count:
+                          type: integer
+                        weight:
+                          type: number
+                          description: Sum of reporter reputations (an automated report counts 1)
+                        first_reported_at:
+                          type: string
+                          format: date-time
+                        last_reported_at:
+                          type: string
+                          format: date-time
+                        reasons:
+                          type: array
+                          items:
+                            type: string
+                        auto_rules:
+                          type: array
+                          items:
+                            type: string
+                        snapshot:
+                          type: object
+                          additionalProperties: true
+                  open_cases:
+                    type: integer
+                  pending_appeals:
+                    type: integer
+                required:
+                  - cases
+                  - open_cases
+                  - pending_appeals
+        "400":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      code:
+                        type: string
+                        description: Machine-readable error code
+                      message:
+                        type: string
+                        description: Human-readable error description
+                      field:
+                        type: string
+                        description: Invalid field name if applicable
+                    required:
+                      - code
+                      - message
+                required:
+                  - error
+        "401":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      code:
+                        type: string
+                        description: Machine-readable error code
+                      message:
+                        type: string
+                        description: Human-readable error description
+                      field:
+                        type: string
+                        description: Invalid field name if applicable
+                    required:
+                      - code
+                      - message
+                required:
+                  - error
+        "403":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      code:
+                        type: string
+                        description: Machine-readable error code
+                      message:
+                        type: string
+                        description: Human-readable error description
+                      field:
+                        type: string
+                        description: Invalid field name if applicable
+                    required:
+                      - code
+                      - message
+                required:
+                  - error
+        "404":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      code:
+                        type: string
+                        description: Machine-readable error code
+                      message:
+                        type: string
+                        description: Human-readable error description
+                      field:
+                        type: string
+                        description: Invalid field name if applicable
+                    required:
+                      - code
+                      - message
+                required:
+                  - error
+  /admin/reports/{subjectType}/{subjectId}:
+    get:
+      summary: "One reported subject in context: the content, its reports, the owner's
+        history and the ladder"
+      tags:
+        - Admin Moderation
+      parameters:
+        - schema:
+            type: string
+            enum:
+              - review
+              - comment
+              - user
+              - shelf
+              - work
+          in: path
+          name: subjectType
+          required: true
+        - schema:
+            type: string
+            format: uuid
+          in: path
+          name: subjectId
+          required: true
+      responses:
+        "200":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  subject_type:
+                    type: string
+                  subject_id:
+                    type: string
+                    format: uuid
+                  subject:
+                    type:
+                      - "null"
+                      - object
+                    additionalProperties: true
+                  owner:
+                    type:
+                      - "null"
+                      - object
+                    properties:
+                      id:
+                        type: string
+                        format: uuid
+                      username:
+                        type:
+                          - "null"
+                          - string
+                      display_name:
+                        type:
+                          - "null"
+                          - string
+                      created_at:
+                        type: string
+                        format: date-time
+                      suspended_until:
+                        type:
+                          - "null"
+                          - string
+                        format: date-time
+                      banned_at:
+                        type:
+                          - "null"
+                          - string
+                        format: date-time
+                      deleted_at:
+                        type:
+                          - "null"
+                          - string
+                        format: date-time
+                      ratings_excluded_at:
+                        type:
+                          - "null"
+                          - string
+                        format: date-time
+                      review_flag_until:
+                        type:
+                          - "null"
+                          - string
+                        format: date-time
+                  reports:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: string
+                          format: uuid
+                        source:
+                          type: string
+                        auto_rule:
+                          type:
+                            - "null"
+                            - string
+                        reason:
+                          type: string
+                        detail:
+                          type:
+                            - "null"
+                            - string
+                        snapshot:
+                          type: object
+                          additionalProperties: true
+                        state:
+                          type: string
+                        created_at:
+                          type: string
+                          format: date-time
+                        resolved_at:
+                          type:
+                            - "null"
+                            - string
+                          format: date-time
+                        reporter:
+                          type:
+                            - "null"
+                            - object
+                          properties:
+                            id:
+                              type: string
+                              format: uuid
+                            username:
+                              type:
+                                - "null"
+                                - string
+                        reporter_reputation:
+                          type:
+                            - "null"
+                            - number
+                  open_reports:
+                    type: integer
+                  history:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: string
+                          format: uuid
+                        subject_type:
+                          type: string
+                        subject_id:
+                          type: string
+                          format: uuid
+                        decision:
+                          type: string
+                        rule:
+                          type:
+                            - "null"
+                            - string
+                        step:
+                          type:
+                            - "null"
+                            - integer
+                        reason:
+                          type: string
+                        created_at:
+                          type: string
+                          format: date-time
+                        reversed_at:
+                          type:
+                            - "null"
+                            - string
+                          format: date-time
+                        appeal_state:
+                          type:
+                            - "null"
+                            - string
+                  ladder:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        rule:
+                          type: string
+                        label:
+                          type: string
+                        strikes:
+                          type: integer
+                        step:
+                          type: integer
+                        consequences:
+                          type: array
+                          items:
+                            type: string
+                        needs_admin:
+                          type: boolean
+                required:
+                  - subject_type
+                  - subject_id
+                  - subject
+                  - owner
+                  - reports
+                  - open_reports
+                  - history
+                  - ladder
+        "400":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      code:
+                        type: string
+                        description: Machine-readable error code
+                      message:
+                        type: string
+                        description: Human-readable error description
+                      field:
+                        type: string
+                        description: Invalid field name if applicable
+                    required:
+                      - code
+                      - message
+                required:
+                  - error
+        "401":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      code:
+                        type: string
+                        description: Machine-readable error code
+                      message:
+                        type: string
+                        description: Human-readable error description
+                      field:
+                        type: string
+                        description: Invalid field name if applicable
+                    required:
+                      - code
+                      - message
+                required:
+                  - error
+        "403":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      code:
+                        type: string
+                        description: Machine-readable error code
+                      message:
+                        type: string
+                        description: Human-readable error description
+                      field:
+                        type: string
+                        description: Invalid field name if applicable
+                    required:
+                      - code
+                      - message
+                required:
+                  - error
+        "404":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      code:
+                        type: string
+                        description: Machine-readable error code
+                      message:
+                        type: string
+                        description: Human-readable error description
+                      field:
+                        type: string
+                        description: Invalid field name if applicable
+                    required:
+                      - code
+                      - message
+                required:
+                  - error
+  /admin/reports/{subjectType}/{subjectId}/action:
+    post:
+      summary: Dismiss, resolve (books) or enforce a rule on a reported subject;
+        closes its open reports
+      tags:
+        - Admin Moderation
+      description: "Enforce applies the rule's next enforcement-ladder step (PRD
+        §27.3). Steps that suspend, ban or change an account need the admin
+        role. reason: 10+ characters, kept in the audit log."
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                decision:
+                  type: string
+                  enum:
+                    - dismiss
+                    - enforce
+                    - resolve
+                rule:
+                  type: string
+                  enum:
+                    - spoilers
+                    - spam
+                    - harassment
+                    - hate_speech
+                    - fake_review
+                    - impersonation
+                    - vote_manipulation
+                reason:
+                  type: string
+                  maxLength: 2000
+              required:
+                - decision
+                - reason
+              additionalProperties: false
+      parameters:
+        - schema:
+            type: string
+            enum:
+              - review
+              - comment
+              - user
+              - shelf
+              - work
+          in: path
+          name: subjectType
+          required: true
+        - schema:
+            type: string
+            format: uuid
+          in: path
+          name: subjectId
+          required: true
+      responses:
+        "200":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id:
+                    type: string
+                    format: uuid
+                  subject_type:
+                    type: string
+                    enum:
+                      - review
+                      - comment
+                      - user
+                      - shelf
+                      - work
+                  subject_id:
+                    type: string
+                    format: uuid
+                  target_user_id:
+                    type:
+                      - "null"
+                      - string
+                    format: uuid
+                  decision:
+                    type: string
+                    enum:
+                      - dismiss
+                      - enforce
+                      - resolve
+                  rule:
+                    type:
+                      - "null"
+                      - string
+                    enum:
+                      - spoilers
+                      - spam
+                      - harassment
+                      - hate_speech
+                      - fake_review
+                      - impersonation
+                      - vote_manipulation
+                      - null
+                  step:
+                    type:
+                      - "null"
+                      - integer
+                  effects:
+                    type: object
+                    additionalProperties: true
+                  reason:
+                    type: string
+                  created_at:
+                    type: string
+                    format: date-time
+                  reversed_at:
+                    type:
+                      - "null"
+                      - string
+                    format: date-time
+                  appeal:
+                    type:
+                      - "null"
+                      - object
+                    properties:
+                      state:
+                        type: string
+                      body:
+                        type: string
+                      appealed_at:
+                        type: string
+                        format: date-time
+                      resolved_at:
+                        type:
+                          - "null"
+                          - string
+                        format: date-time
+                required:
+                  - id
+                  - subject_type
+                  - subject_id
+                  - target_user_id
+                  - decision
+                  - rule
+                  - step
+                  - effects
+                  - reason
+                  - created_at
+                  - reversed_at
+                  - appeal
+        "400":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      code:
+                        type: string
+                        description: Machine-readable error code
+                      message:
+                        type: string
+                        description: Human-readable error description
+                      field:
+                        type: string
+                        description: Invalid field name if applicable
+                    required:
+                      - code
+                      - message
+                required:
+                  - error
+        "401":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      code:
+                        type: string
+                        description: Machine-readable error code
+                      message:
+                        type: string
+                        description: Human-readable error description
+                      field:
+                        type: string
+                        description: Invalid field name if applicable
+                    required:
+                      - code
+                      - message
+                required:
+                  - error
+        "403":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      code:
+                        type: string
+                        description: Machine-readable error code
+                      message:
+                        type: string
+                        description: Human-readable error description
+                      field:
+                        type: string
+                        description: Invalid field name if applicable
+                    required:
+                      - code
+                      - message
+                required:
+                  - error
+        "404":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      code:
+                        type: string
+                        description: Machine-readable error code
+                      message:
+                        type: string
+                        description: Human-readable error description
+                      field:
+                        type: string
+                        description: Invalid field name if applicable
+                    required:
+                      - code
+                      - message
+                required:
+                  - error
+        "409":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      code:
+                        type: string
+                        description: Machine-readable error code
+                      message:
+                        type: string
+                        description: Human-readable error description
+                      field:
+                        type: string
+                        description: Invalid field name if applicable
+                    required:
+                      - code
+                      - message
+                required:
+                  - error
+        "422":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      code:
+                        type: string
+                        description: Machine-readable error code
+                      message:
+                        type: string
+                        description: Human-readable error description
+                      field:
+                        type: string
+                        description: Invalid field name if applicable
+                    required:
+                      - code
+                      - message
+                required:
+                  - error
+  /admin/appeals:
+    get:
+      summary: Pending appeals, oldest first (PRD §27.6)
+      tags:
+        - Admin Moderation
+      parameters:
+        - schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 50
+          in: query
+          name: limit
+          required: false
+        - schema:
+            type: integer
+            minimum: 0
+            default: 0
+          in: query
+          name: offset
+          required: false
+      responses:
+        "200":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  appeals:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: string
+                          format: uuid
+                        subject_type:
+                          type: string
+                          enum:
+                            - review
+                            - comment
+                            - user
+                            - shelf
+                            - work
+                        subject_id:
+                          type: string
+                          format: uuid
+                        target_user_id:
+                          type:
+                            - "null"
+                            - string
+                          format: uuid
+                        decision:
+                          type: string
+                          enum:
+                            - dismiss
+                            - enforce
+                            - resolve
+                        rule:
+                          type:
+                            - "null"
+                            - string
+                          enum:
+                            - spoilers
+                            - spam
+                            - harassment
+                            - hate_speech
+                            - fake_review
+                            - impersonation
+                            - vote_manipulation
+                            - null
+                        step:
+                          type:
+                            - "null"
+                            - integer
+                        effects:
+                          type: object
+                          additionalProperties: true
+                        reason:
+                          type: string
+                        created_at:
+                          type: string
+                          format: date-time
+                        reversed_at:
+                          type:
+                            - "null"
+                            - string
+                          format: date-time
+                        appeal:
+                          type:
+                            - "null"
+                            - object
+                          properties:
+                            state:
+                              type: string
+                            body:
+                              type: string
+                            appealed_at:
+                              type: string
+                              format: date-time
+                            resolved_at:
+                              type:
+                                - "null"
+                                - string
+                              format: date-time
+                        owner:
+                          type:
+                            - "null"
+                            - object
+                          properties:
+                            id:
+                              type: string
+                              format: uuid
+                            username:
+                              type:
+                                - "null"
+                                - string
+                        needs_admin:
+                          type: boolean
+                      required:
+                        - id
+                        - subject_type
+                        - subject_id
+                        - target_user_id
+                        - decision
+                        - rule
+                        - step
+                        - effects
+                        - reason
+                        - created_at
+                        - reversed_at
+                        - appeal
+                required:
+                  - appeals
+        "400":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      code:
+                        type: string
+                        description: Machine-readable error code
+                      message:
+                        type: string
+                        description: Human-readable error description
+                      field:
+                        type: string
+                        description: Invalid field name if applicable
+                    required:
+                      - code
+                      - message
+                required:
+                  - error
+        "401":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      code:
+                        type: string
+                        description: Machine-readable error code
+                      message:
+                        type: string
+                        description: Human-readable error description
+                      field:
+                        type: string
+                        description: Invalid field name if applicable
+                    required:
+                      - code
+                      - message
+                required:
+                  - error
+        "403":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      code:
+                        type: string
+                        description: Machine-readable error code
+                      message:
+                        type: string
+                        description: Human-readable error description
+                      field:
+                        type: string
+                        description: Invalid field name if applicable
+                    required:
+                      - code
+                      - message
+                required:
+                  - error
+        "404":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      code:
+                        type: string
+                        description: Machine-readable error code
+                      message:
+                        type: string
+                        description: Human-readable error description
+                      field:
+                        type: string
+                        description: Invalid field name if applicable
+                    required:
+                      - code
+                      - message
+                required:
+                  - error
+  /admin/appeals/{id}/resolve:
+    post:
+      summary: Uphold (the decision stands) or overturn (everything it did is undone)
+        an appeal
+      tags:
+        - Admin Moderation
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                decision:
+                  type: string
+                  enum:
+                    - uphold
+                    - overturn
+                reason:
+                  type: string
+                  maxLength: 2000
+              required:
+                - decision
+                - reason
+              additionalProperties: false
+      parameters:
+        - schema:
+            type: string
+            format: uuid
+          in: path
+          name: id
+          required: true
+      responses:
+        "200":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id:
+                    type: string
+                    format: uuid
+                  subject_type:
+                    type: string
+                    enum:
+                      - review
+                      - comment
+                      - user
+                      - shelf
+                      - work
+                  subject_id:
+                    type: string
+                    format: uuid
+                  target_user_id:
+                    type:
+                      - "null"
+                      - string
+                    format: uuid
+                  decision:
+                    type: string
+                    enum:
+                      - dismiss
+                      - enforce
+                      - resolve
+                  rule:
+                    type:
+                      - "null"
+                      - string
+                    enum:
+                      - spoilers
+                      - spam
+                      - harassment
+                      - hate_speech
+                      - fake_review
+                      - impersonation
+                      - vote_manipulation
+                      - null
+                  step:
+                    type:
+                      - "null"
+                      - integer
+                  effects:
+                    type: object
+                    additionalProperties: true
+                  reason:
+                    type: string
+                  created_at:
+                    type: string
+                    format: date-time
+                  reversed_at:
+                    type:
+                      - "null"
+                      - string
+                    format: date-time
+                  appeal:
+                    type:
+                      - "null"
+                      - object
+                    properties:
+                      state:
+                        type: string
+                      body:
+                        type: string
+                      appealed_at:
+                        type: string
+                        format: date-time
+                      resolved_at:
+                        type:
+                          - "null"
+                          - string
+                        format: date-time
+                required:
+                  - id
+                  - subject_type
+                  - subject_id
+                  - target_user_id
+                  - decision
+                  - rule
+                  - step
+                  - effects
+                  - reason
+                  - created_at
+                  - reversed_at
+                  - appeal
+        "400":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      code:
+                        type: string
+                        description: Machine-readable error code
+                      message:
+                        type: string
+                        description: Human-readable error description
+                      field:
+                        type: string
+                        description: Invalid field name if applicable
+                    required:
+                      - code
+                      - message
+                required:
+                  - error
+        "401":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      code:
+                        type: string
+                        description: Machine-readable error code
+                      message:
+                        type: string
+                        description: Human-readable error description
+                      field:
+                        type: string
+                        description: Invalid field name if applicable
+                    required:
+                      - code
+                      - message
+                required:
+                  - error
+        "403":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      code:
+                        type: string
+                        description: Machine-readable error code
+                      message:
+                        type: string
+                        description: Human-readable error description
+                      field:
+                        type: string
+                        description: Invalid field name if applicable
+                    required:
+                      - code
+                      - message
+                required:
+                  - error
+        "404":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      code:
+                        type: string
+                        description: Machine-readable error code
+                      message:
+                        type: string
+                        description: Human-readable error description
+                      field:
+                        type: string
+                        description: Invalid field name if applicable
+                    required:
+                      - code
+                      - message
+                required:
+                  - error
+        "422":
           description: Default Response
           content:
             application/json:
@@ -10493,7 +12724,55 @@ paths:
                       - message
                 required:
                   - error
+        "403":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      code:
+                        type: string
+                        description: Machine-readable error code
+                      message:
+                        type: string
+                        description: Human-readable error description
+                      field:
+                        type: string
+                        description: Invalid field name if applicable
+                    required:
+                      - code
+                      - message
+                required:
+                  - error
         "409":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      code:
+                        type: string
+                        description: Machine-readable error code
+                      message:
+                        type: string
+                        description: Human-readable error description
+                      field:
+                        type: string
+                        description: Invalid field name if applicable
+                    required:
+                      - code
+                      - message
+                required:
+                  - error
+        "422":
           description: Default Response
           content:
             application/json:
@@ -11553,7 +13832,55 @@ paths:
                       - message
                 required:
                   - error
+        "403":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      code:
+                        type: string
+                        description: Machine-readable error code
+                      message:
+                        type: string
+                        description: Human-readable error description
+                      field:
+                        type: string
+                        description: Invalid field name if applicable
+                    required:
+                      - code
+                      - message
+                required:
+                  - error
         "404":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      code:
+                        type: string
+                        description: Machine-readable error code
+                      message:
+                        type: string
+                        description: Human-readable error description
+                      field:
+                        type: string
+                        description: Invalid field name if applicable
+                    required:
+                      - code
+                      - message
+                required:
+                  - error
+        "422":
           description: Default Response
           content:
             application/json:
