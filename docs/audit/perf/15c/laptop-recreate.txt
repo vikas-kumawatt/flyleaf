@@ -1,0 +1,12 @@
+# step 3: settings after the recreate
+536870912 3221225472
+Filesystem                Size      Used Available Use% Mounted on
+shm                     512.0M      1.0M    511.0M   0% /dev/shm
+100
+512MB
+# step 4: migrations
+flyleaf_dev|43
+flyleaf|43
+# recovery lines in the log since the recreate
+2026-10-12 06:54:58.541 UTC [32] LOG:  database system was shut down at 2026-10-12 06:54:54 UTC
+2026-10-12 06:54:58.588 UTC [1] LOG:  database system is ready to accept connections

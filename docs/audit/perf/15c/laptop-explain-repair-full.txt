@@ -1,0 +1,111 @@
+SET
+SET
+range [00000000-0000-0000-0000-000000000000, 0055ea5b-cd3a-49b9-8c02-42d07b662486)
+BEGIN
+--- before (0040): the set arm
+                                                                      QUERY PLAN                                                                      
+------------------------------------------------------------------------------------------------------------------------------------------------------
+ Update on authors a  (cost=468968.35..644738.42 rows=0 width=0)
+   ->  Hash Right Semi Join  (cost=468968.35..644738.42 rows=7409 width=19)
+         Hash Cond: (wa.author_id = a.id)
+         ->  Hash Join  (cost=299393.42..460669.28 rows=3791117 width=28)
+               Hash Cond: (wa.work_id = w.id)
+               ->  Seq Scan on work_authors wa  (cost=0.00..73342.17 rows=3791117 width=38)
+               ->  Hash  (cost=240663.63..240663.63 rows=3198863 width=22)
+                     ->  Seq Scan on works w  (cost=0.00..240663.63 rows=3198863 width=22)
+                           Filter: (merged_into_id IS NULL)
+         ->  Hash  (cost=168715.07..168715.07 rows=68789 width=22)
+               ->  Bitmap Heap Scan on authors a  (cost=2508.62..168715.07 rows=68789 width=22)
+                     Recheck Cond: ((id >= '00000000-0000-0000-0000-000000000000'::uuid) AND (id < '0055ea5b-cd3a-49b9-8c02-42d07b662486'::uuid))
+                     Filter: (NOT has_works)
+                     ->  Bitmap Index Scan on authors_pkey  (cost=0.00..2491.42 rows=77086 width=0)
+                           Index Cond: ((id >= '00000000-0000-0000-0000-000000000000'::uuid) AND (id < '0055ea5b-cd3a-49b9-8c02-42d07b662486'::uuid))
+ JIT:
+   Functions: 24
+   Options: Inlining true, Optimization true, Expressions true, Deforming true
+(18 rows)
+
+ROLLBACK
+BEGIN
+--- after (0042): the set arm, driven by the range's credits
+                                                                        QUERY PLAN                                                                        
+----------------------------------------------------------------------------------------------------------------------------------------------------------
+ Update on authors a  (cost=189675.29..189760.50 rows=0 width=0)
+   InitPlan 2
+     ->  Bitmap Heap Scan on work_authors wa  (cost=414.33..189674.73 rows=9378 width=16)
+           Recheck Cond: ((author_id >= '00000000-0000-0000-0000-000000000000'::uuid) AND (author_id < '0055ea5b-cd3a-49b9-8c02-42d07b662486'::uuid))
+           Filter: (SubPlan 1)
+           ->  Bitmap Index Scan on work_authors_author_idx  (cost=0.00..411.99 rows=18756 width=0)
+                 Index Cond: ((author_id >= '00000000-0000-0000-0000-000000000000'::uuid) AND (author_id < '0055ea5b-cd3a-49b9-8c02-42d07b662486'::uuid))
+           SubPlan 1
+             ->  Index Scan using works_pkey on works w  (cost=0.43..8.45 rows=1 width=1)
+                   Index Cond: (id = wa.work_id)
+   ->  Index Scan using authors_pkey on authors a  (cost=0.56..85.77 rows=9 width=7)
+         Index Cond: (id = ANY ((InitPlan 2).col1))
+         Filter: (NOT has_works)
+ JIT:
+   Functions: 15
+   Options: Inlining false, Optimization false, Expressions true, Deforming true
+(16 rows)
+
+ROLLBACK
+BEGIN
+--- before (0040): the clear arm
+                                                                               QUERY PLAN                                                                               
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Update on authors a  (cost=318403.62..380301.17 rows=0 width=0)
+   ->  Nested Loop  (cost=318403.62..380301.17 rows=7403 width=47)
+         ->  HashAggregate  (cost=318403.06..318477.09 rows=7403 width=56)
+               Group Key: "ANY_subquery".id
+               ->  Subquery Scan on "ANY_subquery"  (cost=2494.35..318384.55 rows=7403 width=56)
+                     ->  LockRows  (cost=2494.35..318310.52 rows=7403 width=34)
+                           ->  Nested Loop Anti Join  (cost=2494.35..318236.49 rows=7403 width=34)
+                                 ->  Bitmap Heap Scan on authors x  (cost=2493.49..168699.95 rows=8297 width=22)
+                                       Recheck Cond: ((id >= '00000000-0000-0000-0000-000000000000'::uuid) AND (id < '0055ea5b-cd3a-49b9-8c02-42d07b662486'::uuid))
+                                       Filter: has_works
+                                       ->  Bitmap Index Scan on authors_pkey  (cost=0.00..2491.42 rows=77086 width=0)
+                                             Index Cond: ((id >= '00000000-0000-0000-0000-000000000000'::uuid) AND (id < '0055ea5b-cd3a-49b9-8c02-42d07b662486'::uuid))
+                                 ->  Nested Loop  (cost=0.86..18.76 rows=2 width=28)
+                                       ->  Index Scan using work_authors_author_idx on work_authors wa  (cost=0.43..9.85 rows=2 width=38)
+                                             Index Cond: (author_id = x.id)
+                                       ->  Index Scan using works_pkey on works w  (cost=0.43..4.45 rows=1 width=22)
+                                             Index Cond: (id = wa.work_id)
+                                             Filter: (merged_into_id IS NULL)
+         ->  Index Scan using authors_pkey on authors a  (cost=0.56..8.36 rows=1 width=22)
+               Index Cond: (id = "ANY_subquery".id)
+ JIT:
+   Functions: 26
+   Options: Inlining false, Optimization false, Expressions true, Deforming true
+(23 rows)
+
+ROLLBACK
+BEGIN
+--- after (0042): the clear arm, has_works IS TRUE
+                                                                               QUERY PLAN                                                                               
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Update on authors a  (cost=318403.62..380301.17 rows=0 width=0)
+   ->  Nested Loop  (cost=318403.62..380301.17 rows=7403 width=47)
+         ->  HashAggregate  (cost=318403.06..318477.09 rows=7403 width=56)
+               Group Key: "ANY_subquery".id
+               ->  Subquery Scan on "ANY_subquery"  (cost=2494.35..318384.55 rows=7403 width=56)
+                     ->  LockRows  (cost=2494.35..318310.52 rows=7403 width=34)
+                           ->  Nested Loop Anti Join  (cost=2494.35..318236.49 rows=7403 width=34)
+                                 ->  Bitmap Heap Scan on authors x  (cost=2493.49..168699.95 rows=8297 width=22)
+                                       Recheck Cond: ((id >= '00000000-0000-0000-0000-000000000000'::uuid) AND (id < '0055ea5b-cd3a-49b9-8c02-42d07b662486'::uuid))
+                                       Filter: (has_works IS TRUE)
+                                       ->  Bitmap Index Scan on authors_pkey  (cost=0.00..2491.42 rows=77086 width=0)
+                                             Index Cond: ((id >= '00000000-0000-0000-0000-000000000000'::uuid) AND (id < '0055ea5b-cd3a-49b9-8c02-42d07b662486'::uuid))
+                                 ->  Nested Loop  (cost=0.86..18.76 rows=2 width=28)
+                                       ->  Index Scan using work_authors_author_idx on work_authors wa  (cost=0.43..9.85 rows=2 width=38)
+                                             Index Cond: (author_id = x.id)
+                                       ->  Index Scan using works_pkey on works w  (cost=0.43..4.45 rows=1 width=22)
+                                             Index Cond: (id = wa.work_id)
+                                             Filter: (merged_into_id IS NULL)
+         ->  Index Scan using authors_pkey on authors a  (cost=0.56..8.36 rows=1 width=22)
+               Index Cond: (id = "ANY_subquery".id)
+ JIT:
+   Functions: 26
+   Options: Inlining false, Optimization false, Expressions true, Deforming true
+(23 rows)
+
+ROLLBACK

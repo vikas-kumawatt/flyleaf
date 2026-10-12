@@ -306,7 +306,7 @@
     No behaviour changes, so it **passes on main**, as it should. Mutations seen failing: the credit range removed (`{set: 8}` for `{set: 4}`), and the merged-work check removed (`{set: 6, cleared: 4}`).
   - *the set arm has one plan shape…* and *the set arm's plan: an InitPlan over work_authors_author_idx…*: **seen failing on main: yes** (`JOIN works`/`EXISTS` in the source; `Nested Loop` in the plan).
   - PGlite's plan is only a regression guard. The planner proof is the sandbox files above.
-- **Still to do:** the laptop EXPLAIN on `flyleaf` (`15c-laptop.md` › 2), then `authors.repair` on a ≥ 16 GB machine.
+- **Laptop EXPLAIN on `flyleaf`: done**, the expected plan (› 15c laptop). **Still to do:** `authors.repair` on a ≥ 16 GB machine.
 
 ### A-15-032 · P2 · The repair's clear arm read the whole partial GIN index `authors_credited_trgm_idx` per range (fixed in `0042`)
 - **Evidence (sandbox, first range, estimate 77,016):**
@@ -374,12 +374,18 @@
 
 **GitHub Actions (PR #7, run 38144192558, commit `a044390`): green in 762 s, all 9 steps**, with the same counts as the sandbox run: 83 files, 1,731 passed, 10 skipped (no MinIO); mobile 214; migrations applied on Postgres 18.6.
 
-### 15c laptop (to fill in from `15c-laptop.md`)
-- 0042 on `flyleaf_dev`: _time_; on `flyleaf`: _time_; `activity_object_idx` valid on both: _ _.
-- `flyleaf` EXPLAIN, repair first range, after arms: _ _ (`perf/15c/laptop-explain-repair-full.txt`).
-- `flyleaf` EXPLAIN, activity statements (activity rows: _ _): _ _ (`perf/15c/laptop-explain-activity-full.txt`).
-- Recreate: ShmSize _ _, `/dev/shm` _ _, `max_connections` _ _, `shared_buffers` _ _.
-- Migrations: `flyleaf_dev` _ _ / `flyleaf` _ _ (expect 43 / 43).
+### 15c laptop (2026-10-12, `15c-laptop.md`, run by Claude Code)
+- **Preflight:** `main` at `a853e3b`, `npm ci`; no API or worker running, no other connections; `flyleaf-pg` on `0.0.0.0:5432`; both databases at 42.
+- **0042:** `flyleaf_dev` **8.6 s**, `flyleaf` **9.1 s** (wall clock of `npm run migrate`, tsx start-up included), `migrations applied` on both (`perf/15c/laptop-migrate-{dev,full}.txt`). `activity_object_idx` **valid on both** (`t`, `t`; first try): 8 kB on `flyleaf_dev`, 2,096 kB on `flyleaf` (`perf/15c/laptop-index-valid.txt`).
+  - **Checklist error:** `15c-laptop.md` › 1 says `flyleaf_dev` has ~142k activity rows. It has **0**: the 142,152 rows are on `flyleaf`. Hence the 8 kB (empty) index on `flyleaf_dev`.
+- **`flyleaf` EXPLAIN, repair first range** (`[0000…, 0055ea5b…)`, `perf/15c/laptop-explain-repair-full.txt`): **as expected.**
+  - Before, set arm: Hash Right Semi Join over a Hash Join of Seq Scans on `work_authors` (3.79M est.) and `works` (3.2M), cost 468,968..644,738. This is the shape 15b saw, except that 15b's was parallel; here, with the script's `work_mem` 32 MB and `max_parallel_workers_per_gather` 1, the planner chose a serial plan.
+  - **After, set arm:** InitPlan → Bitmap Index Scan on `work_authors_author_idx` with both range bounds, filtered by SubPlan → `works_pkey`; then `authors_pkey` on `id = ANY (InitPlan)`; **no Seq Scan, no Hash Join**; cost 189,675..189,761.
+  - **After, clear arm:** `authors_pkey` on the range (`has_works IS TRUE`), then a Nested Loop Anti Join that probes `work_authors_author_idx` and `works_pkey`; **no `authors_credited_trgm_idx`**. The plan and costs are the same as the 0040 clear arm on this range: on `flyleaf` the planner did not pick the trigram index here before either (A-15-032's residual-risk note).
+- **`flyleaf` EXPLAIN, activity statements** (activity rows: **142,152**, `perf/15c/laptop-explain-activity-full.txt`): all three (syncReviewActivity UPDATE and DELETE, updateActivityVisibility(read)) are **`Index Scan using activity_object_idx`**, cost 0.42..8.44 / 8.44 / 12.23; no Seq Scan.
+- **Recreate** (`docker compose up -d postgres`; healthy in ~8 s; `perf/15c/laptop-recreate.txt`): ShmSize **536870912** (was 67108864), Memory **3221225472**, `/dev/shm` **512M**, `max_connections` **100**, `shared_buffers` **512MB**. Log: clean shutdown, then `ready to accept connections`; no crash recovery.
+- **Migrations:** `flyleaf_dev` **43** / `flyleaf` **43**.
+- **Not in this session** (as planned): the `review:post` bench on `flyleaf_dev`, and `authors.repair` on `flyleaf` (≥ 16 GB machine).
 
 ## Carried to "Part 15" by earlier parts, beyond the brief
 
