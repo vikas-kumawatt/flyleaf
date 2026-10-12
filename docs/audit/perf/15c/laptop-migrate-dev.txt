@@ -1,0 +1,9 @@
+
+> @flyleaf/api@0.0.1 migrate
+> tsx src/migrate.ts
+
+migrations applied
+
+real	0m8.559s
+user	0m0.198s
+sys	0m0.153s

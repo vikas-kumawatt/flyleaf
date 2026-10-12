@@ -1,0 +1,32 @@
+review a0a2cb24-aeb2-4743-9ffd-aa8cef513f5e read 90d65256-5a4a-4fa3-9adc-ad7352c6e4da
+ activity_rows 
+---------------
+        142152
+(1 row)
+
+BEGIN
+--- syncReviewActivity: the UPDATE every review save runs
+                                                     QUERY PLAN                                                      
+---------------------------------------------------------------------------------------------------------------------
+ Update on activity  (cost=0.42..8.44 rows=1 width=126)
+   ->  Index Scan using activity_object_idx on activity  (cost=0.42..8.44 rows=1 width=126)
+         Index Cond: ((object_type = 'review'::text) AND (object_id = 'a0a2cb24-aeb2-4743-9ffd-aa8cef513f5e'::uuid))
+(3 rows)
+
+--- syncReviewActivity: the DELETE (review deleted, private or imported)
+                                                     QUERY PLAN                                                      
+---------------------------------------------------------------------------------------------------------------------
+ Delete on activity  (cost=0.42..8.44 rows=0 width=0)
+   ->  Index Scan using activity_object_idx on activity  (cost=0.42..8.44 rows=1 width=6)
+         Index Cond: ((object_type = 'review'::text) AND (object_id = 'a0a2cb24-aeb2-4743-9ffd-aa8cef513f5e'::uuid))
+(3 rows)
+
+--- updateActivityVisibility(read): a read's visibility change
+                                                    QUERY PLAN                                                     
+-------------------------------------------------------------------------------------------------------------------
+ Update on activity  (cost=0.42..12.23 rows=0 width=0)
+   ->  Index Scan using activity_object_idx on activity  (cost=0.42..12.23 rows=2 width=38)
+         Index Cond: ((object_type = 'read'::text) AND (object_id = '90d65256-5a4a-4fa3-9adc-ad7352c6e4da'::uuid))
+(3 rows)
+
+ROLLBACK

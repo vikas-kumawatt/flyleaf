@@ -18,4 +18,4 @@ The numbers are good for plan shapes, buffer counts and same-machine ratios only
 | `repair-sweep-sandbox.txt` | A-15-027: `authors.repair` over all 770 ranges, before and after, with the same drift. |
 | `explain-activity-{before,after}-sandbox.txt` | A-15-029: the three statements, before and after `activity_object_idx`. |
 | `review-post-{before,after}-sandbox-{1,2,3}.{md,json}` | A-15-029: the bench runner's `review:post`, three runs each. |
-| `laptop-*.txt` | Written by `15c-laptop.md` on `flyleaf`. |
+| `laptop-*.txt` | Written by `15c-laptop.md` on the laptop (2026-10-12): `migrate-{dev,full}`, `index-valid` (both databases), `explain-{repair,activity}-full` (`flyleaf`), `recreate` (steps 3–4). |
