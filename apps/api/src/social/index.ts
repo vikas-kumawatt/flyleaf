@@ -16,7 +16,7 @@ import { users, profiles, follows, blocks, mutes, works } from '../db/schema.js'
 import { ApiError, requireViewer } from '../http.js';
 import { FollowSuggestions, SUGGESTION_DEFAULT, SUGGESTION_MAX } from './suggestions.js';
 import { resolveWorkId } from '../catalog/resolve.js';
-import { canViewWith, loadRelationship, requireNotSuspended, requireVerified } from '../authorization/index.js';
+import { canViewWith, loadRelationship, requireNotSuspended } from '../authorization/index.js';
 import { Notifier } from '../notify/index.js';
 import {
   errorResponseSchema,
@@ -174,8 +174,10 @@ export class SocialService {
    * Follow a user (or request to follow if target account is private).
    */
   async followUser(viewer: string, targetUserId: string): Promise<FollowResult> {
-    // D-04-1: first, so the refusal says nothing about the target.
-    await requireVerified(this.db, viewer);
+    // No email check (owner decision on SO-5x, 13 Oct 2026, reversing D-04-1
+    // for follows only): a follow publishes nothing, and a new account is
+    // bounded by PRD §11.7's 20-in-24-hours limit (follow:new) below. Reviews
+    // and comments still need a verified email.
     // SO-42: a suspension stops follows too (§27.3 harassment).
     await requireNotSuspended(this.db, viewer);
 

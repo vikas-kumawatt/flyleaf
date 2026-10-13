@@ -35,6 +35,7 @@ import {
   type ExtremeBook,
   type MostReadAuthor,
   type ReadingStats,
+  type GoalResponse,
   type TelemetryEvent,
   type PostEventsResponse,
   type BudgetMetricsResponse,
@@ -123,6 +124,7 @@ export type {
   ExtremeBook,
   MostReadAuthor,
   ReadingStats,
+  GoalResponse,
   TelemetryEvent,
   PostEventsResponse,
   BudgetMetricsResponse,
@@ -374,8 +376,14 @@ export const api = {
   myProfile: () => client.getMyProfile(),
   updateProfile: (data: UpdateProfileRequest) => client.updateProfile(data),
   userProfile: (userId: string) => client.getUserProfile(userId),
+  userByUsername: (username: string) => client.getUserByUsername(username),
   myStats: (year?: string, tz?: string) => client.getMyStats(year, tz),
   userStats: (userId: string, year?: string, tz?: string) => client.getUserStats(userId, year, tz),
+  // ST-05 goals: the profile ring only (PRD §8.6).
+  myGoal: (year?: number, tz?: string) => client.getMyGoal(year, tz),
+  userGoal: (userId: string, year?: number, tz?: string) => client.getUserGoal(userId, year, tz),
+  setMyGoal: (goal: { year: number; target_books: number; target_pages?: number | null }, tz?: string) => client.setMyGoal(goal, tz),
+  deleteMyGoal: (year: number) => client.deleteMyGoal(year),
 
   // The telemetry session id rides along for the zero-result summary (D-10-3).
   search: (q: string) => client.search(q, 20, getSessionId()),

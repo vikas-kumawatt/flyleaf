@@ -24,7 +24,6 @@ import { track } from '@/lib/events';
 import { suggestionReason, toFollowAll } from '@/lib/followSuggestions';
 import { useSession } from '@/lib/session';
 import { useOfflineSync } from '@/offline/sync';
-import { useVerifyEmailPrompt } from '@/ui/VerifyEmail';
 import { Button, Card, Cover, EmptyState, Screen, Txt, sheet } from '@/ui/components';
 import { space, useTheme } from '@/ui/tokens';
 
@@ -34,7 +33,6 @@ export default function FollowSuggestionsScreen() {
   const insets = useSafeAreaInsets();
   const { user } = useSession();
   const { setFollowing } = useOfflineSync();
-  const { prompt: promptVerify } = useVerifyEmailPrompt();
 
   const [users, setUsers] = useState<FollowSuggestion[]>([]);
   const [loading, setLoading] = useState(true);
@@ -69,16 +67,8 @@ export default function FollowSuggestionsScreen() {
     else router.replace('/');
   };
 
-  const canFollow = () => {
-    if (user?.emailVerified === false) {
-      promptVerify();
-      return false;
-    }
-    return true;
-  };
-
   const follow = async (ids: string[]) => {
-    if (ids.length === 0 || busy || !canFollow()) return;
+    if (ids.length === 0 || busy) return;
     setBusy(true);
     void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     try {

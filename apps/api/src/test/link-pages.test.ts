@@ -10,6 +10,7 @@ import { eq } from 'drizzle-orm';
 
 import { buildApp } from '../app.js';
 import { IdentityService } from '../identity/index.js';
+import { APP_LINK_PATHS } from '../identity/link-pages.js';
 import { readFileSync } from 'node:fs';
 import { PRODUCTION_APP_BASE_URL, PgRateLimiter, parseAppLinks, type AppLinks, type Db } from '../platform/index.js';
 import { MemoryEmailSender } from '../providers/email/index.js';
@@ -255,7 +256,11 @@ describe('/.well-known (App Links, Universal Links)', () => {
           details: [
             {
               appIDs: ['ABCDE12345.app.flyleaf.skeleton'],
-              components: [{ '/': '/verify-email' }, { '/': '/reset-password' }],
+              components: [
+                { '/': '/verify-email' }, { '/': '/reset-password' },
+                // Owner decision on SO-5x: the public pages open the app too.
+                { '/': '/@*' }, { '/': '/book/*' }, { '/': '/u/*' },
+              ],
             },
           ],
         },
@@ -287,4 +292,41 @@ it("the app's App Links and associated domains name the production APP_BASE_URL 
   expect(filterHosts.length).toBeGreaterThan(0);
   expect(domains.length).toBeGreaterThan(0);
   expect(new Set([...filterHosts, ...domains])).toEqual(new Set([host]));
+});
+
+// Owner decision on SO-5x (13 Oct 2026): the public pages open the app. The
+// Android filters and the iOS components must name the same paths, or a link
+// opens the app on one platform and the browser on the other.
+it("app.json's https paths and the served AASA components are the same list", () => {
+  const appJson = JSON.parse(readFileSync(new URL('../../../mobile/app.json', import.meta.url), 'utf8'));
+  const android = (appJson.expo.android.intentFilters as { data: { scheme?: string; path?: string; pathPrefix?: string }[] }[])
+    .flatMap((f) => f.data)
+    .filter((d) => d.scheme === 'https')
+    .map((d) => d.path ?? `${d.pathPrefix}*`)
+    .map((p) => p.replace(/\/\*$/, '/*'));
+  expect(new Set(android)).toEqual(new Set(APP_LINK_PATHS));
+  expect(APP_LINK_PATHS).toEqual(expect.arrayContaining(['/@*', '/book/*', '/u/*']));
+});
+
+// The app resolves /@username and /u/username through the API (SO-5x owner
+// decision): a former name still opens the account it belonged to.
+describe('GET /v1/users/by-username/:username', () => {
+  it('finds the current name in any case and a former name; a malformed or unknown name is the same 404', async () => {
+    const u = await makeUser(db, `links_old_${Date.now() % 100000}`);
+    const oldName = u.username;
+    const renamed = await app.inject({ method: 'PATCH', url: '/v1/me/username', headers: u.auth, payload: { username: `links_new_${Date.now() % 100000}` } });
+    expect(renamed.statusCode, renamed.payload).toBe(200);
+    const newName = renamed.json().username as string;
+    for (const name of [newName, newName.toUpperCase(), oldName]) {
+      const res = await app.inject({ method: 'GET', url: `/v1/users/by-username/${encodeURIComponent(name)}` });
+      expect(res.statusCode, name).toBe(200);
+      expect(res.json().id).toBe(u.id);
+      expect(res.json().username).toBe(newName);
+    }
+    const unknown = await app.inject({ method: 'GET', url: '/v1/users/by-username/nobody_by_that_name' });
+    expect(unknown.statusCode).toBe(404);
+    const odd = await app.inject({ method: 'GET', url: `/v1/users/by-username/${encodeURIComponent("x' OR 1=1 --")}` });
+    expect(odd.statusCode).toBe(404);
+    expect(odd.body).toBe(unknown.body);
+  });
 });

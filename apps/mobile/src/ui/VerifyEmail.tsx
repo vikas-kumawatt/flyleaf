@@ -3,7 +3,8 @@
 // - VerifyEmailBanner: persistent while /v1/me says emailVerified is false.
 //   "Unverified email → allow log in but show a persistent verification banner."
 // - VerifyEmailProvider: a prompt whenever the server refuses a write with
-//   403 email_unverified (review, comment, follow), from any screen.
+//   403 email_unverified (review, comment), from any screen. Follows need no
+//   verified email since the owner decision on SO-5x (13 Oct 2026).
 
 import React, { createContext, useCallback, useContext, useEffect, useState } from 'react';
 import { Modal, Pressable, View } from 'react-native';
@@ -93,7 +94,7 @@ export function VerifyEmailProvider({ children }: { children: React.ReactNode })
           >
             <Txt variant="displayM">Verify your email first</Txt>
             <Txt variant="body" color="muted">
-              Reviews, comments and follows need a verified email address. Tap the link we sent to {user?.email ?? 'your email'}.
+              Reviews and comments need a verified email address. Tap the link we sent to {user?.email ?? 'your email'}.
             </Txt>
             {notice || checkNotice ? (
               <Txt variant="caption" color="accent">
@@ -138,7 +139,7 @@ export function VerifyEmailBanner() {
       }}
     >
       <Txt variant="caption" color="ink2" style={{ flex: 1 }}>
-        {notice ?? 'Verify your email to post reviews, comment and follow.'}
+        {notice ?? 'Verify your email to post reviews and comment.'}
       </Txt>
       <Pressable
         onPress={() => void resend()}

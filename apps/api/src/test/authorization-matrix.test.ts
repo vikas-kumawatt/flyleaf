@@ -24,7 +24,7 @@ import { MemoryEmailSender } from '../providers/email/index.js';
 import { MemoryObjectStorage } from '../providers/storage/index.js';
 import {
   users, reviews, shelves, shelfItems, shelfSaves, readComments, readLikes, follows, blocks,
-  imports, importRows, exports, refreshTokens, reads,
+  imports, importRows, exports, refreshTokens, reads, goals,
 } from '../db/schema.js';
 import { freshDrizzle } from './pg.js';
 import { makeUser, makeWork, makeRead, unlimited, type TestUser } from './interaction-fixtures.js';
@@ -174,6 +174,7 @@ beforeAll(async () => {
       userId: user.id, tokenHash: randomUUID(), familyId: o.sessionFamily, expiresAt: new Date(Date.now() + 86_400_000),
     });
 
+    await db.insert(goals).values({ userId: user.id, year: 2026, targetBooks: 12 });
     owners[account] = o;
   }
 
@@ -219,6 +220,8 @@ const SINGLE: SingleRow[] = [
   { name: 'GET /v1/reads/:id/likes', vis: VIS, url: (o, v) => `/v1/reads/${o.read[v]}/likes`, randomUrl: () => `/v1/reads/${R()}/likes`, expected: oracle },
   { name: 'GET /v1/reads/:id/comments', vis: VIS, url: (o, v) => `/v1/reads/${o.read[v]}/comments`, randomUrl: () => `/v1/reads/${R()}/comments`, expected: oracle },
   { name: 'GET /v1/users/:id/stats', vis: null, url: (o) => `/v1/users/${o.user.id}/stats`, randomUrl: () => `/v1/users/${R()}/stats`, expected: accountOracle },
+  // ST-05: a goal is account-level, visible exactly where the stats are (§16.3, §8.6).
+  { name: 'GET /v1/users/:id/goal', vis: null, url: (o) => `/v1/users/${o.user.id}/goal?year=2026`, randomUrl: () => `/v1/users/${R()}/goal?year=2026`, expected: accountOracle },
   { name: 'GET /v1/users/:id/followers', vis: null, url: (o) => `/v1/users/${o.user.id}/followers`, randomUrl: () => `/v1/users/${R()}/followers`, expected: accountOracle },
   { name: 'GET /v1/users/:id/following', vis: null, url: (o) => `/v1/users/${o.user.id}/following`, randomUrl: () => `/v1/users/${R()}/following`, expected: accountOracle },
   { name: 'GET /v1/users/:id/shelves', vis: null, url: (o) => `/v1/users/${o.user.id}/shelves`, randomUrl: () => `/v1/users/${R()}/shelves`, expected: accountOracle },
@@ -327,14 +330,19 @@ function profileOracle(viewer: Viewer, account: Account): 'full' | 'restricted' 
 }
 
 describe('authorization matrix: profiles (§16.3, AC-13)', () => {
-  it('GET /v1/users/:id', async () => {
+  // GET /v1/users/by-username/:username (App Links, SO-5x owner decision) must
+  // answer exactly as GET /v1/users/:id, in any case of the name.
+  it.each([
+    ['GET /v1/users/:id', (o: OwnerFixture): string => `/v1/users/${o.user.id}`, (): string => `/v1/users/${R()}`],
+    ['GET /v1/users/by-username/:username', (o: OwnerFixture): string => `/v1/users/by-username/${o.user.username.toUpperCase()}`, (): string => '/v1/users/by-username/nobody_here'],
+  ] as const)('%s', async (_name, url, randomUrl) => {
     const mismatches: string[] = [];
     for (const account of ACCOUNTS) {
       for (const viewer of VIEWERS) {
         if (viewer === 'owner' && account === 'deleted') continue;
         const headers = headersFor(viewer, account);
-        const random = await get(`/v1/users/${R()}`, headers);
-        const res = await get(`/v1/users/${owners[account].user.id}`, headers);
+        const random = await get(randomUrl(), headers);
+        const res = await get(url(owners[account]), headers);
         const want = profileOracle(viewer, account);
         const label = `${viewer} → ${account}`;
         if (want === 'hidden') {
@@ -508,8 +516,9 @@ describe('authorization matrix: writes on another user\'s resource', () => {
 
 // ---------------------------------------------------------------------------
 // The ninth viewer: signed in, email unverified (D-04-1, PRD §25.3, §6.6).
-// Reading, logging and shelving stay open; reviews, comments and follows are
-// refused with 403 email_unverified, before any write.
+// Reading, logging, shelving and (owner decision on SO-5x, 13 Oct 2026)
+// following stay open; reviews and comments are refused with 403
+// email_unverified, before any write.
 // ---------------------------------------------------------------------------
 
 describe('authorization matrix: unverified accounts (D-04-1)', () => {
@@ -539,13 +548,18 @@ describe('authorization matrix: unverified accounts (D-04-1)', () => {
   });
 
   // Audit 15 removed the /v1/follows/:userId alias (A-13-009); the canonical route remains.
-  it.each([
-    ['POST /v1/users/:id/follow', (id: string) => `/v1/users/${id}/follow`],
-  ])('cannot follow via %s', async (_n, url) => {
-    const res = await app.inject({ method: 'POST', url: url(owners.public.user.id), headers: viewers.unverified.auth });
-    expect(refused(res)).toBe(true);
+  // Owner decision on SO-5x (13 Oct 2026): follows are allowed before
+  // verification. A follow publishes nothing; the new-account limit still
+  // applies (rate-limits.test.ts › "an unverified new account").
+  it('can follow before verifying, and the follow is written', async () => {
+    const res = await app.inject({ method: 'POST', url: `/v1/users/${owners.public.user.id}/follow`, headers: viewers.unverified.auth });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().status).toBe('accepted');
     const rows = await db.select().from(follows).where(eq(follows.followerId, viewers.unverified.id));
-    expect(rows).toHaveLength(0);
+    expect(rows.map((r) => r.followeeId)).toEqual([owners.public.user.id]);
+    // Undone, so the account stays a stranger to every owner for the rest of the matrix.
+    const undo = await app.inject({ method: 'DELETE', url: `/v1/users/${owners.public.user.id}/follow`, headers: viewers.unverified.auth });
+    expect(undo.statusCode).toBe(200);
   });
 
   it('can still read, log reads, like and shelve', async () => {

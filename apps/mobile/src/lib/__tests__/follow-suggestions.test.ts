@@ -36,15 +36,24 @@ describe('follow suggestions (SO-52)', () => {
     assert.deepEqual(toFollowAll([{ id: 'a' }], new Set(['a'])), []);
   });
 
-  test('the screen is registered, follows through the offline queue, gates unverified accounts and sends the PRD events', () => {
+  test('the screen is registered, follows through the offline queue, lets unverified accounts follow and sends the PRD events', () => {
     const screen = read('app/onboarding/follow.tsx');
     assert.match(read('app/_layout.tsx'), /name="onboarding\/follow"/);
     assert.match(screen, /api\.followSuggestions\(\)/);
     assert.match(screen, /setFollowing\(id, true\)/);
-    assert.match(screen, /emailVerified === false/);
+    // Owner decision on SO-5x: follows are allowed before email verification.
+    assert.doesNotMatch(screen, /emailVerified|promptVerify/);
     assert.match(screen, /track\('follow_suggestions_shown'/);
     assert.match(screen, /track\('user_followed', \{ source: 'onboarding' \}\)/);
     assert.match(screen, /Follow all/);
+  });
+
+  test('no follow button asks an unverified account to verify first (owner decision on SO-5x)', () => {
+    for (const file of ['app/user/[id].tsx', 'app/user/[id]/followers.tsx', 'app/user/[id]/following.tsx', 'app/onboarding/follow.tsx']) {
+      assert.doesNotMatch(read(file), /emailVerified === false/, file);
+    }
+    // Reviews and comments still need it, and the prompt says only that.
+    assert.match(read('src/ui/VerifyEmail.tsx'), /Reviews and comments need a verified email address/);
   });
 
   test('sign-up leads to it (skippable), and an empty Following feed links to it', () => {

@@ -15,12 +15,13 @@ import {
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as Haptics from 'expo-haptics';
-import { api, FlyleafApiError, type Profile, type ReadingStats } from '@/lib/api';
+import { api, FlyleafApiError, type GoalResponse, type Profile, type ReadingStats } from '@/lib/api';
+import { deviceTimeZone, goalRingModel, streakCopy } from '@/lib/statsView';
+import { GoalRing } from '@/ui/GoalRing';
 import { useSession } from '@/lib/session';
 import { ReportSheet, type ReportTarget } from '@/ui/ReportSheet';
 import { useActionGate } from '@/ui/ActionGate';
 import { useOfflineSync } from '@/offline/sync';
-import { useVerifyEmailPrompt } from '@/ui/VerifyEmail';
 import {
   Button,
   Card,
@@ -41,10 +42,10 @@ export default function UserProfileScreen() {
   const [reportTarget, setReportTarget] = useState<ReportTarget | null>(null);
   const { promptAuth } = useActionGate();
   const { setFollowing } = useOfflineSync();
-  const { prompt: promptVerify } = useVerifyEmailPrompt();
 
   const [profile, setProfile] = useState<Profile | null>(null);
   const [stats, setStats] = useState<ReadingStats | null>(null);
+  const [goal, setGoal] = useState<GoalResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [submittingFollow, setSubmittingFollow] = useState(false);
@@ -53,9 +54,12 @@ export default function UserProfileScreen() {
     if (!id) return;
     try {
       setLoading(true);
-      const [profileRes, statsRes] = await Promise.allSettled([
+      // Counted as this viewer may count them (§17.5); days in the viewer's zone.
+      const tz = deviceTimeZone();
+      const [profileRes, statsRes, goalRes] = await Promise.allSettled([
         api.userProfile(id),
-        api.userStats(id),
+        api.userStats(id, undefined, tz),
+        api.userGoal(id, undefined, tz),
       ]);
 
       if (profileRes.status === 'fulfilled') {
@@ -64,6 +68,7 @@ export default function UserProfileScreen() {
       if (statsRes.status === 'fulfilled') {
         setStats(statsRes.value);
       }
+      setGoal(goalRes.status === 'fulfilled' ? goalRes.value : null);
     } finally {
       setLoading(false);
     }
@@ -89,12 +94,8 @@ export default function UserProfileScreen() {
       });
       return;
     }
-    // The server refuses follows until the email is verified (D-04-1): say so
-    // now rather than queue a write that can only fail (D-07-2).
-    if (user.emailVerified === false) {
-      promptVerify();
-      return;
-    }
+    // Follows need no verified email (owner decision on SO-5x, 13 Oct 2026);
+    // reviews and comments still do.
     try {
       setSubmittingFollow(true);
       void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
@@ -130,7 +131,7 @@ export default function UserProfileScreen() {
         );
       }
     } catch (err) {
-      // email_unverified has its own prompt (VerifyEmailProvider); say so for the rest.
+      // email_unverified (an older server) has its own prompt (VerifyEmailProvider); say so for the rest.
       if (!(err instanceof FlyleafApiError && err.code === 'email_unverified')) {
         Alert.alert('Could not update', 'We could not reach Flyleaf. Try again in a moment.');
       }
@@ -488,6 +489,26 @@ export default function UserProfileScreen() {
                         </Card>
                       </View>
                     </Pressable>
+                    {/* Streak (§8.7, never a loss) and their goal ring (§8.6), only when they have them. */}
+                    {(streakCopy(stats) || goalRingModel(goal)) && (
+                      <View style={[sheet.row, { gap: space[2] }]}>
+                        {streakCopy(stats) && (
+                          <Card style={{ flex: 1, padding: space[3], justifyContent: 'center' }}>
+                            <Txt variant="title" tabular style={{ fontSize: 20, fontWeight: '800' }}>
+                              {streakCopy(stats)!.hero}
+                            </Txt>
+                            <Txt variant="caption" color="muted" style={{ fontSize: 11 }}>
+                              {streakCopy(stats)!.label}
+                            </Txt>
+                          </Card>
+                        )}
+                        {goalRingModel(goal) && (
+                          <Card style={{ padding: space[3], alignItems: 'center', justifyContent: 'center' }}>
+                            <GoalRing model={goalRingModel(goal)} />
+                          </Card>
+                        )}
+                      </View>
+                    )}
                   </View>
                 )}
 

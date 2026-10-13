@@ -53,6 +53,7 @@ import type {
   ProgressEventRequest,
   Read,
   ReadingStats,
+  GoalResponse,
   ReadListResponse,
   UserReadPage,
   ContentSettingsRequest,
@@ -363,6 +364,13 @@ export class FlyleafClient {
     });
   }
 
+  /** The profile behind a username, current or former (App Links for /@username). 404 like a random id. */
+  async getUserByUsername(username: string): Promise<Profile> {
+    return this.request<Profile>(`/users/by-username/${encodeURIComponent(username)}`, {
+      method: 'GET',
+    });
+  }
+
   async getMyProfile(): Promise<Profile> {
     return this.request<Profile>('/me/profile', {
       method: 'GET',
@@ -495,6 +503,25 @@ export class FlyleafClient {
   /** Deletes a read with its progress, review, likes, comments and activity (PRD §34.2). 404 if already gone. */
   async deleteRead(readId: string): Promise<DeleteReadResponse> {
     return this.request<DeleteReadResponse>(`/reads/${encodeURIComponent(readId)}`, { method: 'DELETE' });
+  }
+
+  /** ST-05: the viewer's goal for a year (default this year in tz). goal is null when none is set. */
+  async getMyGoal(year?: number | string, tz?: string): Promise<GoalResponse> {
+    return this.request<GoalResponse>(`/me/goal${statsQuery(year, tz)}`, { method: 'GET' });
+  }
+
+  /** A user's goal as this viewer may count it (§17.5); 404 where their stats are hidden. */
+  async getUserGoal(userId: string, year?: number | string, tz?: string): Promise<GoalResponse> {
+    return this.request<GoalResponse>(`/users/${encodeURIComponent(userId)}/goal${statsQuery(year, tz)}`, { method: 'GET' });
+  }
+
+  /** Set or change the goal: any time, downward included (§8.6). 422 invalid_goal outside 1–10,000 books / 1–10,000,000 pages. */
+  async setMyGoal(goal: { year: number; target_books: number; target_pages?: number | null }, tz?: string): Promise<GoalResponse> {
+    return this.request<GoalResponse>(`/me/goal${statsQuery(undefined, tz)}`, { method: 'PUT', body: JSON.stringify(goal) });
+  }
+
+  async deleteMyGoal(year: number): Promise<GoalResponse> {
+    return this.request<GoalResponse>(`/me/goal?year=${encodeURIComponent(String(year))}`, { method: 'DELETE' });
   }
 
   /** `tz`: the IANA zone whose days count for streaks and the default year (PRD §8.7). Default UTC. */

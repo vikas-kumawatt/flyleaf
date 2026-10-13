@@ -1,6 +1,6 @@
 // What the stats screen shows, as plain functions (SL-74, audit 10), so the
 // rules are tested against the code the screen runs rather than a copy.
-import type { RatingBucket, ReadingStats } from '@flyleaf/api-client';
+import type { GoalResponse, RatingBucket, ReadingStats } from '@flyleaf/api-client';
 
 export interface RatingRow {
   bucket: RatingBucket;
@@ -68,4 +68,126 @@ export function deviceTimeZone(): string | undefined {
   } catch {
     return undefined;
   }
+}
+
+// ---------------------------------------------------------------- ST-03
+
+export type CoverageKey = keyof ReadingStats['coverage'];
+
+/** What a book (or session) lacks when it is left out of each figure. */
+const MISSING: Record<CoverageKey, { one: string; many: string }> = {
+  pages: { one: 'is missing a page count', many: 'are missing page counts' },
+  months: { one: 'has no finish date', many: 'have no finish date' },
+  ratings: { one: 'is unrated', many: 'are unrated' },
+  vs_crowd: { one: 'has no other ratings yet', many: 'have no other ratings yet' },
+  formats: { one: 'has no known format', many: 'have no known format' },
+  authors: { one: 'has no author on record', many: 'have no author on record' },
+  genres: { one: 'has no genre on record', many: 'have no genre on record' },
+  decades: { one: 'has no publication year', many: 'have no publication year' },
+  languages: { one: 'has no language on record', many: 'have no language on record' },
+  velocity: { one: 'has no start date', many: 'have no start date' },
+  audio: { one: 'has no length or listening progress', many: 'have no length or listening progress' },
+  pace: { one: 'has no earlier page to count from', many: 'have no earlier page to count from' },
+  speed: { one: 'has no minutes or pages logged', many: 'have no minutes or pages logged' },
+};
+
+/** The unit each figure counts in: books, except the session-based ones. */
+function unit(key: CoverageKey, n: number): string {
+  if (key === 'pace' || key === 'speed') return n === 1 ? 'session' : 'sessions';
+  if (key === 'vs_crowd') return n === 1 ? 'rated book' : 'rated books';
+  if (key === 'audio') return n === 1 ? 'audiobook' : 'audiobooks';
+  return n === 1 ? 'book' : 'books';
+}
+
+/**
+ * PRD §17.4 / ST-03, "never fabricate": "Based on 180 of your 247 books — 67
+ * are missing page counts." Null when the figure is based on everything (or
+ * there is nothing to base it on). `whose` is "your" on your own stats and
+ * "their" on someone else's.
+ */
+export function coverageNote(
+  stats: Pick<ReadingStats, 'coverage'>,
+  key: CoverageKey,
+  whose: 'your' | 'their' = 'your',
+): string | null {
+  const c = stats.coverage?.[key];
+  if (!c || c.of === 0 || c.based_on >= c.of) return null;
+  const missing = c.of - c.based_on;
+  const why = missing === 1 ? `1 ${MISSING[key].one}` : `${missing.toLocaleString('en-GB')} ${MISSING[key].many}`;
+  return `Based on ${c.based_on.toLocaleString('en-GB')} of ${whose} ${c.of.toLocaleString('en-GB')} ${unit(key, c.of)} — ${why}.`;
+}
+
+// ---------------------------------------------------------------- ST-06
+
+export interface StreakCopy {
+  /** The big figure and its label, or null to show nothing at all. */
+  hero: string;
+  label: string;
+  /** "Longest: 47 days (12 Mar – 27 Apr)", when there is a longest to show beside a current one. */
+  detail: string | null;
+}
+
+const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+function shortDate(d: string): string {
+  return `${Number(d.slice(8, 10))} ${MONTHS[Number(d.slice(5, 7)) - 1]} ${d.slice(0, 4)}`;
+}
+const days = (n: number) => (n === 1 ? '1 day' : `${n} days`);
+
+/**
+ * PRD §8.7: a streak is never shown as a loss. A live streak shows its days;
+ * a broken one is shown as the longest, an achievement ("Longest streak: 47
+ * days"); someone who never logs progress sees nothing and is never told
+ * they are missing one (§8.3).
+ */
+export function streakCopy(
+  stats: Pick<ReadingStats, 'current_streak' | 'longest_streak' | 'longest_streak_range'>,
+): StreakCopy | null {
+  const range = stats.longest_streak_range
+    ? ` (${shortDate(stats.longest_streak_range.start)} – ${shortDate(stats.longest_streak_range.end)})`
+    : '';
+  if (stats.current_streak > 0) {
+    return {
+      hero: days(stats.current_streak),
+      label: 'Reading streak',
+      detail: stats.longest_streak > stats.current_streak ? `Longest: ${days(stats.longest_streak)}${range}` : null,
+    };
+  }
+  if (stats.longest_streak > 0) {
+    return { hero: days(stats.longest_streak), label: 'Longest streak', detail: range ? range.slice(2, -1) : null };
+  }
+  return null;
+}
+
+// ---------------------------------------------------------------- ST-05
+
+export interface GoalRingModel {
+  /** 0–1, the share of the ring drawn. */
+  progress: number;
+  /** "12/24" inside the ring. */
+  label: string;
+  accessibilityLabel: string;
+  reached: boolean;
+}
+
+/**
+ * PRD §8.6 [LOCKED]: the ring, and nothing else. It says how many of the
+ * target are read; never "behind", "ahead", "left" or a schedule.
+ */
+export function goalRingModel(goal: GoalResponse | null | undefined): GoalRingModel | null {
+  const g = goal?.goal;
+  if (!goal || !g) return null;
+  return {
+    progress: Math.max(0, Math.min(1, g.books_count / g.target_books)),
+    label: `${g.books_count}/${g.target_books}`,
+    accessibilityLabel: `Reading goal ${goal.year}: ${g.books_count} of ${g.target_books} books`,
+    reached: g.books_reached,
+  };
+}
+
+/** A goal target typed in a field: a whole number in range, else null (the field says why). */
+export function parseGoalTarget(text: string, max: number): number | null {
+  const t = text.trim();
+  if (!/^\d+$/.test(t)) return null;
+  const n = Number(t);
+  return n >= 1 && n <= max ? n : null;
 }

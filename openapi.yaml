@@ -127,8 +127,9 @@ paths:
                         type: string
                       emailVerified:
                         type: boolean
-                        description: "On GET /me. False: reviews, comments and follows answer 403
-                          email_unverified (D-04-1)."
+                        description: "On GET /me. False: reviews and comments answer 403
+                          email_unverified (D-04-1). Follows are allowed (owner
+                          decision on SO-5x)."
                       dobConfirmed:
                         type: boolean
                         description: "On GET /me. False: the date of birth was never entered; the
@@ -247,8 +248,9 @@ paths:
                         type: string
                       emailVerified:
                         type: boolean
-                        description: "On GET /me. False: reviews, comments and follows answer 403
-                          email_unverified (D-04-1)."
+                        description: "On GET /me. False: reviews and comments answer 403
+                          email_unverified (D-04-1). Follows are allowed (owner
+                          decision on SO-5x)."
                       dobConfirmed:
                         type: boolean
                         description: "On GET /me. False: the date of birth was never entered; the
@@ -1037,8 +1039,9 @@ paths:
                     type: string
                   emailVerified:
                     type: boolean
-                    description: "On GET /me. False: reviews, comments and follows answer 403
-                      email_unverified (D-04-1)."
+                    description: "On GET /me. False: reviews and comments answer 403
+                      email_unverified (D-04-1). Follows are allowed (owner
+                      decision on SO-5x)."
                   dobConfirmed:
                     type: boolean
                     description: "On GET /me. False: the date of birth was never entered; the
@@ -1147,8 +1150,9 @@ paths:
                     type: string
                   emailVerified:
                     type: boolean
-                    description: "On GET /me. False: reviews, comments and follows answer 403
-                      email_unverified (D-04-1)."
+                    description: "On GET /me. False: reviews and comments answer 403
+                      email_unverified (D-04-1). Follows are allowed (owner
+                      decision on SO-5x)."
                   dobConfirmed:
                     type: boolean
                     description: "On GET /me. False: the date of birth was never entered; the
@@ -1309,8 +1313,9 @@ paths:
                     type: string
                   emailVerified:
                     type: boolean
-                    description: "On GET /me. False: reviews, comments and follows answer 403
-                      email_unverified (D-04-1)."
+                    description: "On GET /me. False: reviews and comments answer 403
+                      email_unverified (D-04-1). Follows are allowed (owner
+                      decision on SO-5x)."
                   dobConfirmed:
                     type: boolean
                     description: "On GET /me. False: the date of birth was never entered; the
@@ -1923,6 +1928,135 @@ paths:
                 required:
                   - error
         "422":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      code:
+                        type: string
+                        description: Machine-readable error code
+                      message:
+                        type: string
+                        description: Human-readable error description
+                      field:
+                        type: string
+                        description: Invalid field name if applicable
+                    required:
+                      - code
+                      - message
+                required:
+                  - error
+  /users/by-username/{username}:
+    get:
+      summary: Get a profile by username
+      tags:
+        - Auth
+      description: The profile behind a username, current or former (renames, D-11-2),
+        with exactly the visibility of GET /users/:id. Used by the app to open
+        https://flyleaf.app/@username links. 404 is identical for a missing,
+        deleted, blocked or hidden account.
+      parameters:
+        - schema:
+            type: string
+            minLength: 1
+            maxLength: 64
+          in: path
+          name: username
+          required: true
+          description: A username, current or former, any case
+      responses:
+        "200":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id:
+                    type: string
+                    format: uuid
+                  username:
+                    type: string
+                  displayName:
+                    type:
+                      - "null"
+                      - string
+                  bio:
+                    type:
+                      - "null"
+                      - string
+                  avatarKey:
+                    type:
+                      - "null"
+                      - string
+                  avatarUrl:
+                    type:
+                      - "null"
+                      - string
+                    description: "GET /v1/avatars/…; null: the generated typographic avatar (PRD
+                      §6.7)."
+                  isPrivate:
+                    type: boolean
+                  followerCount:
+                    type: integer
+                  followingCount:
+                    type: integer
+                  favourite_work_ids:
+                    type: array
+                    items:
+                      type: string
+                      format: uuid
+                    maxItems: 4
+                  favourites:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: string
+                          format: uuid
+                        title:
+                          type: string
+                        author_name:
+                          type: string
+                        cover_id:
+                          type:
+                            - "null"
+                            - integer
+                      required:
+                        - id
+                        - title
+                        - author_name
+                    maxItems: 4
+                  createdAt:
+                    type: string
+                    format: date-time
+                  isRestricted:
+                    type: boolean
+                    description: "Private account, viewer not an accepted follower: header only
+                      (AC-13)."
+                  followStatus:
+                    type: string
+                    enum:
+                      - none
+                      - pending
+                      - accepted
+                      - self
+                  followedBy:
+                    type: boolean
+                required:
+                  - id
+                  - username
+                  - isPrivate
+                  - followerCount
+                  - followingCount
+                  - createdAt
+        "404":
           description: Default Response
           content:
             application/json:
@@ -3522,14 +3656,540 @@ paths:
                           - name
                           - count
                       - type: "null"
+                  books_in_progress:
+                    type: integer
+                    description: Reads now reading or paused, whatever the year (PRD §17.2).
+                  vs_crowd:
+                    type:
+                      - "null"
+                      - number
+                    description: "You vs the crowd (PRD §17.2): the mean of (your rating − the
+                      book's average rating without yours) over your rated
+                      finished books that someone else has rated. Negative: you
+                      rate below average. Null with no such book;
+                      coverage.vs_crowd gives the sample."
+                  genres:
+                    type: object
+                    description: "Genre donut (PRD §17.2): each finished book once, under its
+                      strongest genre (work_subjects weight); the top 8, the
+                      rest in other. Books with no genre are left out
+                      (coverage.genres)."
+                    properties:
+                      top:
+                        type: array
+                        items:
+                          type: object
+                          properties:
+                            name:
+                              type: string
+                            count:
+                              type: integer
+                          required:
+                            - name
+                            - count
+                      other:
+                        type: integer
+                    required:
+                      - top
+                      - other
+                  decades:
+                    type: array
+                    description: Finished books per decade of first publication, oldest first; books
+                      with no year are left out (coverage.decades).
+                    items:
+                      type: object
+                      properties:
+                        decade:
+                          type: integer
+                        count:
+                          type: integer
+                      required:
+                        - decade
+                        - count
+                  languages:
+                    type: array
+                    description: Finished books per language (chosen edition, else the work's
+                      original language), most first. The app shows it only with
+                      more than one language (PRD §17.2).
+                    items:
+                      type: object
+                      properties:
+                        language:
+                          type: string
+                        count:
+                          type: integer
+                      required:
+                        - language
+                        - count
+                  velocity:
+                    type: object
+                    description: "Days to finish (PRD §17.2 reading velocity): started_at to
+                      finished_at, both days included, for finished reads with
+                      both dates; overall median and the median per finish
+                      month."
+                    properties:
+                      median_days:
+                        type:
+                          - "null"
+                          - number
+                      by_month:
+                        type: array
+                        items:
+                          type: object
+                          properties:
+                            month:
+                              type: integer
+                            median_days:
+                              type:
+                                - "null"
+                                - number
+                          required:
+                            - month
+                            - median_days
+                    required:
+                      - median_days
+                      - by_month
+                  speed:
+                    type: object
+                    description: "Reading speed (PRD §8.4, §17.2): pages per hour over the sessions
+                      that carry minutes and a page rise since the read's
+                      previous page, total pages ÷ total minutes. Never
+                      estimated from the gap between events. Sample in
+                      coverage.speed."
+                    properties:
+                      pages_per_hour:
+                        type:
+                          - "null"
+                          - number
+                      pages:
+                        type: integer
+                      minutes:
+                        type: integer
+                    required:
+                      - pages_per_hour
+                      - pages
+                      - minutes
+                  pace:
+                    type: array
+                    description: "Reading pace over time (PRD §17.2): pages logged per Monday-start
+                      week in the user's zone (the rise in page between a read's
+                      progress events) and the 7-day average, from the first
+                      week with pages to the last."
+                    items:
+                      type: object
+                      properties:
+                        week_start:
+                          type: string
+                          format: date
+                        pages:
+                          type: integer
+                        pages_per_day:
+                          type: number
+                      required:
+                        - week_start
+                        - pages
+                        - pages_per_day
+                  time_of_day:
+                    type: array
+                    description: Progress events per local weekday (Monday first) and hour 0–23 (PRD
+                      §17.2 time-of-day heatmap).
+                    items:
+                      type: array
+                      items:
+                        type: integer
+                  fastest_read:
+                    anyOf:
+                      - type: object
+                        description: Fewest days to finish (velocity rule).
+                        properties:
+                          work_id:
+                            type: string
+                            format: uuid
+                          title:
+                            type: string
+                          author_name:
+                            type:
+                              - string
+                              - "null"
+                          page_count:
+                            type:
+                              - integer
+                              - "null"
+                          cover_id:
+                            type:
+                              - integer
+                              - "null"
+                          days:
+                            type: integer
+                        required:
+                          - work_id
+                          - title
+                          - days
+                      - type: "null"
+                  slowest_read:
+                    anyOf:
+                      - type: object
+                        description: Most days to finish (velocity rule).
+                        properties:
+                          work_id:
+                            type: string
+                            format: uuid
+                          title:
+                            type: string
+                          author_name:
+                            type:
+                              - string
+                              - "null"
+                          page_count:
+                            type:
+                              - integer
+                              - "null"
+                          cover_id:
+                            type:
+                              - integer
+                              - "null"
+                          days:
+                            type: integer
+                        required:
+                          - work_id
+                          - title
+                          - days
+                      - type: "null"
+                  highest_rated:
+                    anyOf:
+                      - type: object
+                        description: Highest rating; the most recent finish among equals.
+                        properties:
+                          work_id:
+                            type: string
+                            format: uuid
+                          title:
+                            type: string
+                          author_name:
+                            type:
+                              - string
+                              - "null"
+                          page_count:
+                            type:
+                              - integer
+                              - "null"
+                          cover_id:
+                            type:
+                              - integer
+                              - "null"
+                          rating:
+                            type: number
+                        required:
+                          - work_id
+                          - title
+                          - rating
+                      - type: "null"
+                  lowest_rated:
+                    anyOf:
+                      - type: object
+                        description: Lowest rating; the most recent finish among equals.
+                        properties:
+                          work_id:
+                            type: string
+                            format: uuid
+                          title:
+                            type: string
+                          author_name:
+                            type:
+                              - string
+                              - "null"
+                          page_count:
+                            type:
+                              - integer
+                              - "null"
+                          cover_id:
+                            type:
+                              - integer
+                              - "null"
+                          rating:
+                            type: number
+                        required:
+                          - work_id
+                          - title
+                          - rating
+                      - type: "null"
+                  oldest_publication:
+                    anyOf:
+                      - type: object
+                        description: Earliest first-publication year.
+                        properties:
+                          work_id:
+                            type: string
+                            format: uuid
+                          title:
+                            type: string
+                          author_name:
+                            type:
+                              - string
+                              - "null"
+                          page_count:
+                            type:
+                              - integer
+                              - "null"
+                          cover_id:
+                            type:
+                              - integer
+                              - "null"
+                          year:
+                            type: integer
+                        required:
+                          - work_id
+                          - title
+                          - year
+                      - type: "null"
+                  most_reread:
+                    anyOf:
+                      - type: object
+                        description: Most finished attempts of one work, two or more.
+                        properties:
+                          work_id:
+                            type: string
+                            format: uuid
+                          title:
+                            type: string
+                          author_name:
+                            type:
+                              - string
+                              - "null"
+                          page_count:
+                            type:
+                              - integer
+                              - "null"
+                          cover_id:
+                            type:
+                              - integer
+                              - "null"
+                          count:
+                            type: integer
+                        required:
+                          - work_id
+                          - title
+                          - count
+                      - type: "null"
                   dnf_count:
                     type: integer
                   dnf_rate:
                     type: number
                   current_streak:
                     type: integer
+                    description: "PRD §8.7 (ST-06): days with a progress event or a finish, in tz;
+                      up to 2 days without reading do not break it. Its length
+                      is the calendar span from its first to its last active
+                      day. 0 once broken (shown as the longest, never as a
+                      loss)."
                   longest_streak:
                     type: integer
+                    description: The longest streak by the same rule, all time.
+                  current_streak_range:
+                    anyOf:
+                      - type: object
+                        properties:
+                          start:
+                            type: string
+                            format: date
+                          end:
+                            type: string
+                            format: date
+                        required:
+                          - start
+                          - end
+                      - type: "null"
+                  longest_streak_range:
+                    anyOf:
+                      - type: object
+                        properties:
+                          start:
+                            type: string
+                            format: date
+                          end:
+                            type: string
+                            format: date
+                        required:
+                          - start
+                          - end
+                      - type: "null"
+                  coverage:
+                    type: object
+                    description: 'ST-03, PRD §17.4: what each figure is based on, "based on N of M".
+                      Books (finished reads in scope) except pace and speed,
+                      which count sessions (progress events in the window),
+                      vs_crowd (rated books) and audio (finished audiobooks).'
+                    properties:
+                      pages:
+                        type: object
+                        properties:
+                          based_on:
+                            type: integer
+                            minimum: 0
+                          of:
+                            type: integer
+                            minimum: 0
+                        required:
+                          - based_on
+                          - of
+                      months:
+                        type: object
+                        properties:
+                          based_on:
+                            type: integer
+                            minimum: 0
+                          of:
+                            type: integer
+                            minimum: 0
+                        required:
+                          - based_on
+                          - of
+                      ratings:
+                        type: object
+                        properties:
+                          based_on:
+                            type: integer
+                            minimum: 0
+                          of:
+                            type: integer
+                            minimum: 0
+                        required:
+                          - based_on
+                          - of
+                      vs_crowd:
+                        type: object
+                        properties:
+                          based_on:
+                            type: integer
+                            minimum: 0
+                          of:
+                            type: integer
+                            minimum: 0
+                        required:
+                          - based_on
+                          - of
+                      formats:
+                        type: object
+                        properties:
+                          based_on:
+                            type: integer
+                            minimum: 0
+                          of:
+                            type: integer
+                            minimum: 0
+                        required:
+                          - based_on
+                          - of
+                      authors:
+                        type: object
+                        properties:
+                          based_on:
+                            type: integer
+                            minimum: 0
+                          of:
+                            type: integer
+                            minimum: 0
+                        required:
+                          - based_on
+                          - of
+                      genres:
+                        type: object
+                        properties:
+                          based_on:
+                            type: integer
+                            minimum: 0
+                          of:
+                            type: integer
+                            minimum: 0
+                        required:
+                          - based_on
+                          - of
+                      decades:
+                        type: object
+                        properties:
+                          based_on:
+                            type: integer
+                            minimum: 0
+                          of:
+                            type: integer
+                            minimum: 0
+                        required:
+                          - based_on
+                          - of
+                      languages:
+                        type: object
+                        properties:
+                          based_on:
+                            type: integer
+                            minimum: 0
+                          of:
+                            type: integer
+                            minimum: 0
+                        required:
+                          - based_on
+                          - of
+                      velocity:
+                        type: object
+                        properties:
+                          based_on:
+                            type: integer
+                            minimum: 0
+                          of:
+                            type: integer
+                            minimum: 0
+                        required:
+                          - based_on
+                          - of
+                      audio:
+                        type: object
+                        properties:
+                          based_on:
+                            type: integer
+                            minimum: 0
+                          of:
+                            type: integer
+                            minimum: 0
+                        required:
+                          - based_on
+                          - of
+                      pace:
+                        type: object
+                        properties:
+                          based_on:
+                            type: integer
+                            minimum: 0
+                          of:
+                            type: integer
+                            minimum: 0
+                        required:
+                          - based_on
+                          - of
+                      speed:
+                        type: object
+                        properties:
+                          based_on:
+                            type: integer
+                            minimum: 0
+                          of:
+                            type: integer
+                            minimum: 0
+                        required:
+                          - based_on
+                          - of
+                    required:
+                      - pages
+                      - months
+                      - ratings
+                      - vs_crowd
+                      - formats
+                      - authors
+                      - genres
+                      - decades
+                      - languages
+                      - velocity
+                      - audio
+                      - pace
+                      - speed
                   excluded:
                     type: object
                     description: 'PRD §17.4 disclosure. undated: finished reads with no finish date
@@ -3558,6 +4218,18 @@ paths:
                   - dnf_rate
                   - current_streak
                   - longest_streak
+                  - current_streak_range
+                  - longest_streak_range
+                  - books_in_progress
+                  - vs_crowd
+                  - genres
+                  - decades
+                  - languages
+                  - velocity
+                  - speed
+                  - pace
+                  - time_of_day
+                  - coverage
         "401":
           description: Default Response
           content:
@@ -3796,14 +4468,540 @@ paths:
                           - name
                           - count
                       - type: "null"
+                  books_in_progress:
+                    type: integer
+                    description: Reads now reading or paused, whatever the year (PRD §17.2).
+                  vs_crowd:
+                    type:
+                      - "null"
+                      - number
+                    description: "You vs the crowd (PRD §17.2): the mean of (your rating − the
+                      book's average rating without yours) over your rated
+                      finished books that someone else has rated. Negative: you
+                      rate below average. Null with no such book;
+                      coverage.vs_crowd gives the sample."
+                  genres:
+                    type: object
+                    description: "Genre donut (PRD §17.2): each finished book once, under its
+                      strongest genre (work_subjects weight); the top 8, the
+                      rest in other. Books with no genre are left out
+                      (coverage.genres)."
+                    properties:
+                      top:
+                        type: array
+                        items:
+                          type: object
+                          properties:
+                            name:
+                              type: string
+                            count:
+                              type: integer
+                          required:
+                            - name
+                            - count
+                      other:
+                        type: integer
+                    required:
+                      - top
+                      - other
+                  decades:
+                    type: array
+                    description: Finished books per decade of first publication, oldest first; books
+                      with no year are left out (coverage.decades).
+                    items:
+                      type: object
+                      properties:
+                        decade:
+                          type: integer
+                        count:
+                          type: integer
+                      required:
+                        - decade
+                        - count
+                  languages:
+                    type: array
+                    description: Finished books per language (chosen edition, else the work's
+                      original language), most first. The app shows it only with
+                      more than one language (PRD §17.2).
+                    items:
+                      type: object
+                      properties:
+                        language:
+                          type: string
+                        count:
+                          type: integer
+                      required:
+                        - language
+                        - count
+                  velocity:
+                    type: object
+                    description: "Days to finish (PRD §17.2 reading velocity): started_at to
+                      finished_at, both days included, for finished reads with
+                      both dates; overall median and the median per finish
+                      month."
+                    properties:
+                      median_days:
+                        type:
+                          - "null"
+                          - number
+                      by_month:
+                        type: array
+                        items:
+                          type: object
+                          properties:
+                            month:
+                              type: integer
+                            median_days:
+                              type:
+                                - "null"
+                                - number
+                          required:
+                            - month
+                            - median_days
+                    required:
+                      - median_days
+                      - by_month
+                  speed:
+                    type: object
+                    description: "Reading speed (PRD §8.4, §17.2): pages per hour over the sessions
+                      that carry minutes and a page rise since the read's
+                      previous page, total pages ÷ total minutes. Never
+                      estimated from the gap between events. Sample in
+                      coverage.speed."
+                    properties:
+                      pages_per_hour:
+                        type:
+                          - "null"
+                          - number
+                      pages:
+                        type: integer
+                      minutes:
+                        type: integer
+                    required:
+                      - pages_per_hour
+                      - pages
+                      - minutes
+                  pace:
+                    type: array
+                    description: "Reading pace over time (PRD §17.2): pages logged per Monday-start
+                      week in the user's zone (the rise in page between a read's
+                      progress events) and the 7-day average, from the first
+                      week with pages to the last."
+                    items:
+                      type: object
+                      properties:
+                        week_start:
+                          type: string
+                          format: date
+                        pages:
+                          type: integer
+                        pages_per_day:
+                          type: number
+                      required:
+                        - week_start
+                        - pages
+                        - pages_per_day
+                  time_of_day:
+                    type: array
+                    description: Progress events per local weekday (Monday first) and hour 0–23 (PRD
+                      §17.2 time-of-day heatmap).
+                    items:
+                      type: array
+                      items:
+                        type: integer
+                  fastest_read:
+                    anyOf:
+                      - type: object
+                        description: Fewest days to finish (velocity rule).
+                        properties:
+                          work_id:
+                            type: string
+                            format: uuid
+                          title:
+                            type: string
+                          author_name:
+                            type:
+                              - string
+                              - "null"
+                          page_count:
+                            type:
+                              - integer
+                              - "null"
+                          cover_id:
+                            type:
+                              - integer
+                              - "null"
+                          days:
+                            type: integer
+                        required:
+                          - work_id
+                          - title
+                          - days
+                      - type: "null"
+                  slowest_read:
+                    anyOf:
+                      - type: object
+                        description: Most days to finish (velocity rule).
+                        properties:
+                          work_id:
+                            type: string
+                            format: uuid
+                          title:
+                            type: string
+                          author_name:
+                            type:
+                              - string
+                              - "null"
+                          page_count:
+                            type:
+                              - integer
+                              - "null"
+                          cover_id:
+                            type:
+                              - integer
+                              - "null"
+                          days:
+                            type: integer
+                        required:
+                          - work_id
+                          - title
+                          - days
+                      - type: "null"
+                  highest_rated:
+                    anyOf:
+                      - type: object
+                        description: Highest rating; the most recent finish among equals.
+                        properties:
+                          work_id:
+                            type: string
+                            format: uuid
+                          title:
+                            type: string
+                          author_name:
+                            type:
+                              - string
+                              - "null"
+                          page_count:
+                            type:
+                              - integer
+                              - "null"
+                          cover_id:
+                            type:
+                              - integer
+                              - "null"
+                          rating:
+                            type: number
+                        required:
+                          - work_id
+                          - title
+                          - rating
+                      - type: "null"
+                  lowest_rated:
+                    anyOf:
+                      - type: object
+                        description: Lowest rating; the most recent finish among equals.
+                        properties:
+                          work_id:
+                            type: string
+                            format: uuid
+                          title:
+                            type: string
+                          author_name:
+                            type:
+                              - string
+                              - "null"
+                          page_count:
+                            type:
+                              - integer
+                              - "null"
+                          cover_id:
+                            type:
+                              - integer
+                              - "null"
+                          rating:
+                            type: number
+                        required:
+                          - work_id
+                          - title
+                          - rating
+                      - type: "null"
+                  oldest_publication:
+                    anyOf:
+                      - type: object
+                        description: Earliest first-publication year.
+                        properties:
+                          work_id:
+                            type: string
+                            format: uuid
+                          title:
+                            type: string
+                          author_name:
+                            type:
+                              - string
+                              - "null"
+                          page_count:
+                            type:
+                              - integer
+                              - "null"
+                          cover_id:
+                            type:
+                              - integer
+                              - "null"
+                          year:
+                            type: integer
+                        required:
+                          - work_id
+                          - title
+                          - year
+                      - type: "null"
+                  most_reread:
+                    anyOf:
+                      - type: object
+                        description: Most finished attempts of one work, two or more.
+                        properties:
+                          work_id:
+                            type: string
+                            format: uuid
+                          title:
+                            type: string
+                          author_name:
+                            type:
+                              - string
+                              - "null"
+                          page_count:
+                            type:
+                              - integer
+                              - "null"
+                          cover_id:
+                            type:
+                              - integer
+                              - "null"
+                          count:
+                            type: integer
+                        required:
+                          - work_id
+                          - title
+                          - count
+                      - type: "null"
                   dnf_count:
                     type: integer
                   dnf_rate:
                     type: number
                   current_streak:
                     type: integer
+                    description: "PRD §8.7 (ST-06): days with a progress event or a finish, in tz;
+                      up to 2 days without reading do not break it. Its length
+                      is the calendar span from its first to its last active
+                      day. 0 once broken (shown as the longest, never as a
+                      loss)."
                   longest_streak:
                     type: integer
+                    description: The longest streak by the same rule, all time.
+                  current_streak_range:
+                    anyOf:
+                      - type: object
+                        properties:
+                          start:
+                            type: string
+                            format: date
+                          end:
+                            type: string
+                            format: date
+                        required:
+                          - start
+                          - end
+                      - type: "null"
+                  longest_streak_range:
+                    anyOf:
+                      - type: object
+                        properties:
+                          start:
+                            type: string
+                            format: date
+                          end:
+                            type: string
+                            format: date
+                        required:
+                          - start
+                          - end
+                      - type: "null"
+                  coverage:
+                    type: object
+                    description: 'ST-03, PRD §17.4: what each figure is based on, "based on N of M".
+                      Books (finished reads in scope) except pace and speed,
+                      which count sessions (progress events in the window),
+                      vs_crowd (rated books) and audio (finished audiobooks).'
+                    properties:
+                      pages:
+                        type: object
+                        properties:
+                          based_on:
+                            type: integer
+                            minimum: 0
+                          of:
+                            type: integer
+                            minimum: 0
+                        required:
+                          - based_on
+                          - of
+                      months:
+                        type: object
+                        properties:
+                          based_on:
+                            type: integer
+                            minimum: 0
+                          of:
+                            type: integer
+                            minimum: 0
+                        required:
+                          - based_on
+                          - of
+                      ratings:
+                        type: object
+                        properties:
+                          based_on:
+                            type: integer
+                            minimum: 0
+                          of:
+                            type: integer
+                            minimum: 0
+                        required:
+                          - based_on
+                          - of
+                      vs_crowd:
+                        type: object
+                        properties:
+                          based_on:
+                            type: integer
+                            minimum: 0
+                          of:
+                            type: integer
+                            minimum: 0
+                        required:
+                          - based_on
+                          - of
+                      formats:
+                        type: object
+                        properties:
+                          based_on:
+                            type: integer
+                            minimum: 0
+                          of:
+                            type: integer
+                            minimum: 0
+                        required:
+                          - based_on
+                          - of
+                      authors:
+                        type: object
+                        properties:
+                          based_on:
+                            type: integer
+                            minimum: 0
+                          of:
+                            type: integer
+                            minimum: 0
+                        required:
+                          - based_on
+                          - of
+                      genres:
+                        type: object
+                        properties:
+                          based_on:
+                            type: integer
+                            minimum: 0
+                          of:
+                            type: integer
+                            minimum: 0
+                        required:
+                          - based_on
+                          - of
+                      decades:
+                        type: object
+                        properties:
+                          based_on:
+                            type: integer
+                            minimum: 0
+                          of:
+                            type: integer
+                            minimum: 0
+                        required:
+                          - based_on
+                          - of
+                      languages:
+                        type: object
+                        properties:
+                          based_on:
+                            type: integer
+                            minimum: 0
+                          of:
+                            type: integer
+                            minimum: 0
+                        required:
+                          - based_on
+                          - of
+                      velocity:
+                        type: object
+                        properties:
+                          based_on:
+                            type: integer
+                            minimum: 0
+                          of:
+                            type: integer
+                            minimum: 0
+                        required:
+                          - based_on
+                          - of
+                      audio:
+                        type: object
+                        properties:
+                          based_on:
+                            type: integer
+                            minimum: 0
+                          of:
+                            type: integer
+                            minimum: 0
+                        required:
+                          - based_on
+                          - of
+                      pace:
+                        type: object
+                        properties:
+                          based_on:
+                            type: integer
+                            minimum: 0
+                          of:
+                            type: integer
+                            minimum: 0
+                        required:
+                          - based_on
+                          - of
+                      speed:
+                        type: object
+                        properties:
+                          based_on:
+                            type: integer
+                            minimum: 0
+                          of:
+                            type: integer
+                            minimum: 0
+                        required:
+                          - based_on
+                          - of
+                    required:
+                      - pages
+                      - months
+                      - ratings
+                      - vs_crowd
+                      - formats
+                      - authors
+                      - genres
+                      - decades
+                      - languages
+                      - velocity
+                      - audio
+                      - pace
+                      - speed
                   excluded:
                     type: object
                     description: 'PRD §17.4 disclosure. undated: finished reads with no finish date
@@ -3832,6 +5030,575 @@ paths:
                   - dnf_rate
                   - current_streak
                   - longest_streak
+                  - current_streak_range
+                  - longest_streak_range
+                  - books_in_progress
+                  - vs_crowd
+                  - genres
+                  - decades
+                  - languages
+                  - velocity
+                  - speed
+                  - pace
+                  - time_of_day
+                  - coverage
+        "404":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      code:
+                        type: string
+                        description: Machine-readable error code
+                      message:
+                        type: string
+                        description: Human-readable error description
+                      field:
+                        type: string
+                        description: Invalid field name if applicable
+                    required:
+                      - code
+                      - message
+                required:
+                  - error
+        "422":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      code:
+                        type: string
+                        description: Machine-readable error code
+                      message:
+                        type: string
+                        description: Human-readable error description
+                      field:
+                        type: string
+                        description: Invalid field name if applicable
+                    required:
+                      - code
+                      - message
+                required:
+                  - error
+  /me/goal:
+    get:
+      summary: Get my reading goal
+      tags:
+        - Reading
+      description: "The viewer's goal for a year (default: this year in tz) and
+        progress, private reads included (PRD §8.6, §17.5). goal is null when
+        none is set. For the profile ring only."
+      parameters:
+        - schema:
+            type: string
+          in: query
+          name: year
+          required: false
+          description: "YYYY, 1900 or later. Default (GET): the current year in tz.
+            Required on DELETE."
+        - schema:
+            type: string
+            maxLength: 64
+          in: query
+          name: tz
+          required: false
+          description: IANA zone for the default year. Default UTC.
+      security:
+        - BearerAuth: []
+      responses:
+        "200":
+          description: "PRD §8.6 [LOCKED]: a reading goal and progress, counted as this
+            viewer may count it (§17.5). Shown only as the profile ring."
+          content:
+            application/json:
+              schema:
+                type: object
+                description: "PRD §8.6 [LOCKED]: a reading goal and progress, counted as this
+                  viewer may count it (§17.5). Shown only as the profile ring."
+                properties:
+                  year:
+                    type: integer
+                  goal:
+                    anyOf:
+                      - type: object
+                        properties:
+                          target_books:
+                            type: integer
+                          target_pages:
+                            type:
+                              - integer
+                              - "null"
+                          books_count:
+                            type: integer
+                            description: Finished reads with a finish date in the year.
+                          pages_count:
+                            type: integer
+                            description: Their pages (D-08-3 page rule); a book without a page count adds
+                              none.
+                          books_reached:
+                            type: boolean
+                          pages_reached:
+                            type:
+                              - boolean
+                              - "null"
+                          pages_coverage:
+                            type: object
+                            properties:
+                              based_on:
+                                type: integer
+                                minimum: 0
+                              of:
+                                type: integer
+                                minimum: 0
+                            required:
+                              - based_on
+                              - of
+                        required:
+                          - target_books
+                          - target_pages
+                          - books_count
+                          - pages_count
+                          - books_reached
+                          - pages_reached
+                          - pages_coverage
+                      - type: "null"
+                required:
+                  - year
+                  - goal
+        "401":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      code:
+                        type: string
+                        description: Machine-readable error code
+                      message:
+                        type: string
+                        description: Human-readable error description
+                      field:
+                        type: string
+                        description: Invalid field name if applicable
+                    required:
+                      - code
+                      - message
+                required:
+                  - error
+        "422":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      code:
+                        type: string
+                        description: Machine-readable error code
+                      message:
+                        type: string
+                        description: Human-readable error description
+                      field:
+                        type: string
+                        description: Invalid field name if applicable
+                    required:
+                      - code
+                      - message
+                required:
+                  - error
+    put:
+      summary: Set my reading goal
+      tags:
+        - Reading
+      description: "Sets or changes the goal for a year: a book target (1–10,000) and
+        an optional page target (1–10,000,000). Any time, downward included, no
+        friction (PRD §8.6)."
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                year:
+                  type: integer
+                  minimum: 1900
+                  maximum: 9999
+                target_books:
+                  type: integer
+                  minimum: 1
+                  maximum: 10000
+                target_pages:
+                  type:
+                    - integer
+                    - "null"
+                  minimum: 1
+                  maximum: 10000000
+              required:
+                - year
+                - target_books
+      parameters:
+        - schema:
+            type: string
+          in: query
+          name: year
+          required: false
+          description: "YYYY, 1900 or later. Default (GET): the current year in tz.
+            Required on DELETE."
+        - schema:
+            type: string
+            maxLength: 64
+          in: query
+          name: tz
+          required: false
+          description: IANA zone for the default year. Default UTC.
+      security:
+        - BearerAuth: []
+      responses:
+        "200":
+          description: "PRD §8.6 [LOCKED]: a reading goal and progress, counted as this
+            viewer may count it (§17.5). Shown only as the profile ring."
+          content:
+            application/json:
+              schema:
+                type: object
+                description: "PRD §8.6 [LOCKED]: a reading goal and progress, counted as this
+                  viewer may count it (§17.5). Shown only as the profile ring."
+                properties:
+                  year:
+                    type: integer
+                  goal:
+                    anyOf:
+                      - type: object
+                        properties:
+                          target_books:
+                            type: integer
+                          target_pages:
+                            type:
+                              - integer
+                              - "null"
+                          books_count:
+                            type: integer
+                            description: Finished reads with a finish date in the year.
+                          pages_count:
+                            type: integer
+                            description: Their pages (D-08-3 page rule); a book without a page count adds
+                              none.
+                          books_reached:
+                            type: boolean
+                          pages_reached:
+                            type:
+                              - boolean
+                              - "null"
+                          pages_coverage:
+                            type: object
+                            properties:
+                              based_on:
+                                type: integer
+                                minimum: 0
+                              of:
+                                type: integer
+                                minimum: 0
+                            required:
+                              - based_on
+                              - of
+                        required:
+                          - target_books
+                          - target_pages
+                          - books_count
+                          - pages_count
+                          - books_reached
+                          - pages_reached
+                          - pages_coverage
+                      - type: "null"
+                required:
+                  - year
+                  - goal
+        "401":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      code:
+                        type: string
+                        description: Machine-readable error code
+                      message:
+                        type: string
+                        description: Human-readable error description
+                      field:
+                        type: string
+                        description: Invalid field name if applicable
+                    required:
+                      - code
+                      - message
+                required:
+                  - error
+        "422":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      code:
+                        type: string
+                        description: Machine-readable error code
+                      message:
+                        type: string
+                        description: Human-readable error description
+                      field:
+                        type: string
+                        description: Invalid field name if applicable
+                    required:
+                      - code
+                      - message
+                required:
+                  - error
+    delete:
+      summary: Remove my reading goal
+      tags:
+        - Reading
+      description: Removes the goal for ?year=YYYY. Idempotent.
+      parameters:
+        - schema:
+            type: string
+          in: query
+          name: year
+          required: false
+          description: "YYYY, 1900 or later. Default (GET): the current year in tz.
+            Required on DELETE."
+        - schema:
+            type: string
+            maxLength: 64
+          in: query
+          name: tz
+          required: false
+          description: IANA zone for the default year. Default UTC.
+      security:
+        - BearerAuth: []
+      responses:
+        "200":
+          description: "PRD §8.6 [LOCKED]: a reading goal and progress, counted as this
+            viewer may count it (§17.5). Shown only as the profile ring."
+          content:
+            application/json:
+              schema:
+                type: object
+                description: "PRD §8.6 [LOCKED]: a reading goal and progress, counted as this
+                  viewer may count it (§17.5). Shown only as the profile ring."
+                properties:
+                  year:
+                    type: integer
+                  goal:
+                    anyOf:
+                      - type: object
+                        properties:
+                          target_books:
+                            type: integer
+                          target_pages:
+                            type:
+                              - integer
+                              - "null"
+                          books_count:
+                            type: integer
+                            description: Finished reads with a finish date in the year.
+                          pages_count:
+                            type: integer
+                            description: Their pages (D-08-3 page rule); a book without a page count adds
+                              none.
+                          books_reached:
+                            type: boolean
+                          pages_reached:
+                            type:
+                              - boolean
+                              - "null"
+                          pages_coverage:
+                            type: object
+                            properties:
+                              based_on:
+                                type: integer
+                                minimum: 0
+                              of:
+                                type: integer
+                                minimum: 0
+                            required:
+                              - based_on
+                              - of
+                        required:
+                          - target_books
+                          - target_pages
+                          - books_count
+                          - pages_count
+                          - books_reached
+                          - pages_reached
+                          - pages_coverage
+                      - type: "null"
+                required:
+                  - year
+                  - goal
+        "401":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      code:
+                        type: string
+                        description: Machine-readable error code
+                      message:
+                        type: string
+                        description: Human-readable error description
+                      field:
+                        type: string
+                        description: Invalid field name if applicable
+                    required:
+                      - code
+                      - message
+                required:
+                  - error
+        "422":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      code:
+                        type: string
+                        description: Machine-readable error code
+                      message:
+                        type: string
+                        description: Human-readable error description
+                      field:
+                        type: string
+                        description: Invalid field name if applicable
+                    required:
+                      - code
+                      - message
+                required:
+                  - error
+  /users/{id}/goal:
+    get:
+      summary: Get a user's reading goal
+      tags:
+        - Reading
+      description: "A user's goal and progress as this viewer may count it: only reads
+        the viewer may see (PRD §17.5). Visible exactly where their stats are
+        (§16.3); otherwise the random-id 404."
+      parameters:
+        - schema:
+            type: string
+          in: query
+          name: year
+          required: false
+          description: "YYYY, 1900 or later. Default (GET): the current year in tz.
+            Required on DELETE."
+        - schema:
+            type: string
+            maxLength: 64
+          in: query
+          name: tz
+          required: false
+          description: IANA zone for the default year. Default UTC.
+        - schema:
+            type: string
+            format: uuid
+          in: path
+          name: id
+          required: true
+          description: Resource UUID
+      responses:
+        "200":
+          description: "PRD §8.6 [LOCKED]: a reading goal and progress, counted as this
+            viewer may count it (§17.5). Shown only as the profile ring."
+          content:
+            application/json:
+              schema:
+                type: object
+                description: "PRD §8.6 [LOCKED]: a reading goal and progress, counted as this
+                  viewer may count it (§17.5). Shown only as the profile ring."
+                properties:
+                  year:
+                    type: integer
+                  goal:
+                    anyOf:
+                      - type: object
+                        properties:
+                          target_books:
+                            type: integer
+                          target_pages:
+                            type:
+                              - integer
+                              - "null"
+                          books_count:
+                            type: integer
+                            description: Finished reads with a finish date in the year.
+                          pages_count:
+                            type: integer
+                            description: Their pages (D-08-3 page rule); a book without a page count adds
+                              none.
+                          books_reached:
+                            type: boolean
+                          pages_reached:
+                            type:
+                              - boolean
+                              - "null"
+                          pages_coverage:
+                            type: object
+                            properties:
+                              based_on:
+                                type: integer
+                                minimum: 0
+                              of:
+                                type: integer
+                                minimum: 0
+                            required:
+                              - based_on
+                              - of
+                        required:
+                          - target_books
+                          - target_pages
+                          - books_count
+                          - pages_count
+                          - books_reached
+                          - pages_reached
+                          - pages_coverage
+                      - type: "null"
+                required:
+                  - year
+                  - goal
         "404":
           description: Default Response
           content:

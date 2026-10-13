@@ -141,6 +141,62 @@ export interface ReadingStats {
   longest_streak: number;
   /** PRD §17.4: what the figures leave out, so the screen can say so. */
   excluded: { undated: number; missing_page_count: number };
+  /** Reading or paused now, whatever the year (§17.2). */
+  books_in_progress: number;
+  /** Mean of (your rating − the book's average without yours); negative = below average. Null with nothing to compare. */
+  vs_crowd: number | null;
+  /** Each finished book once, under its strongest genre: top 8, the rest in other. */
+  genres: { top: Array<{ name: string; count: number }>; other: number };
+  decades: Array<{ decade: number; count: number }>;
+  /** Shown only with more than one language (§17.2). */
+  languages: Array<{ language: string; count: number }>;
+  /** Days to finish, start and finish day included. */
+  velocity: { median_days: number | null; by_month: Array<{ month: number; median_days: number | null }> };
+  /** Pages per hour from sessions with minutes and a page rise (§8.4); null when there are none. */
+  speed: { pages_per_hour: number | null; pages: number; minutes: number };
+  /** Pages per Monday-start week and the 7-day average. */
+  pace: Array<{ week_start: string; pages: number; pages_per_day: number }>;
+  /** Progress events per weekday (Monday first) × hour 0–23. */
+  time_of_day: number[][];
+  fastest_read?: (ExtremeBook & { days: number }) | null;
+  slowest_read?: (ExtremeBook & { days: number }) | null;
+  highest_rated?: (ExtremeBook & { rating: number }) | null;
+  lowest_rated?: (ExtremeBook & { rating: number }) | null;
+  oldest_publication?: (ExtremeBook & { year: number }) | null;
+  most_reread?: (ExtremeBook & { count: number }) | null;
+  /** §8.7 streak ranges (two-day grace; length is the span). */
+  current_streak_range: StatsDateRange | null;
+  longest_streak_range: StatsDateRange | null;
+  /** ST-03: "based on N of M" per figure (books, except pace and speed: sessions). */
+  coverage: Record<StatsCoverageKey, StatsCoverage>;
+}
+
+export interface StatsDateRange {
+  start: string;
+  end: string;
+}
+
+export interface StatsCoverage {
+  based_on: number;
+  of: number;
+}
+
+export type StatsCoverageKey =
+  | 'pages' | 'months' | 'ratings' | 'vs_crowd' | 'formats' | 'authors' | 'genres'
+  | 'decades' | 'languages' | 'velocity' | 'audio' | 'pace' | 'speed';
+
+/** ST-05, PRD §8.6: a reading goal and progress as this viewer may count it. For the profile ring only. */
+export interface GoalResponse {
+  year: number;
+  goal: {
+    target_books: number;
+    target_pages: number | null;
+    books_count: number;
+    pages_count: number;
+    books_reached: boolean;
+    pages_reached: boolean | null;
+    pages_coverage: StatsCoverage;
+  } | null;
 }
 
 export interface RegisterRequest {

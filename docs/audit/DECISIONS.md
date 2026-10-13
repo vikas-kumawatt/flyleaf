@@ -113,7 +113,7 @@ All earlier `DECISION NEEDED` items were answered in their parts:
 
 - Part 02: A-02-012, A-02-013, A-02-014, A-02-001, and 02b decisions 1, 2 and 4 (decision 3 is open question 1 above).
 - Part 03: D1–D7 (D5's follow-up is open question 5 above).
-- Part 04: D-04-1 and D-04-2.
+- Part 04: D-04-1 and D-04-2. **D-04-1 amended 13 Oct 2026** (owner decision on the SO-5x list, built with Phase 5 A): follows no longer need a verified email; reviews and comments still do; PRD §11.7's new-account follow limit still applies. See `docs/tasks.md` › SO-5x.
 - Part 05: D-05-1, D-05-2 and D-05-3.
 - Parts 06, 07 and PV: all decisions.
 - Part 08: D-08-1 to D-08-5.
