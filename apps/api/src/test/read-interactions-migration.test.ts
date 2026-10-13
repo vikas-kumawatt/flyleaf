@@ -53,7 +53,8 @@ describe('SO-20: read_likes / read_comments schema and counters', () => {
       `SELECT column_name FROM information_schema.columns WHERE table_name = 'read_comments'`,
     );
     const cols = rows.map((r) => r.column_name).sort();
-    expect(cols).toEqual(['body', 'created_at', 'deleted_at', 'id', 'read_id', 'user_id']);
+    // hidden_at: a moderator hid it (0044, SO-42). Still no parent_id.
+    expect(cols).toEqual(['body', 'created_at', 'deleted_at', 'hidden_at', 'id', 'read_id', 'user_id']);
   });
 
   it('like_count follows inserts and deletes on read_likes', async () => {

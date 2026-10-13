@@ -15,7 +15,7 @@ import type { Db } from '../platform/index.js';
 import { users, profiles, follows, blocks, mutes, works } from '../db/schema.js';
 import { ApiError, requireViewer } from '../http.js';
 import { resolveWorkId } from '../catalog/resolve.js';
-import { canViewWith, loadRelationship, requireVerified } from '../authorization/index.js';
+import { canViewWith, loadRelationship, requireNotSuspended, requireVerified } from '../authorization/index.js';
 import { Notifier } from '../notify/index.js';
 import {
   followResponseSchema,
@@ -174,6 +174,8 @@ export class SocialService {
   async followUser(viewer: string, targetUserId: string): Promise<FollowResult> {
     // D-04-1: first, so the refusal says nothing about the target.
     await requireVerified(this.db, viewer);
+    // SO-42: a suspension stops follows too (§27.3 harassment).
+    await requireNotSuspended(this.db, viewer);
 
     if (viewer === targetUserId) {
       throw ApiError.badRequest('cannot_follow_self', 'You cannot follow yourself.');

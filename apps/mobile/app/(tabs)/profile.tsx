@@ -693,6 +693,29 @@ export default function ProfileScreen() {
                   </Card>
                 )}
 
+                {/* Your reports and moderation notices (SO-40, SO-42; PRD §27.6) */}
+                <Card
+                  onPress={() => {
+                    void Haptics.selectionAsync();
+                    router.push('/profile/reports' as any);
+                  }}
+                  style={{ padding: space[3] }}
+                >
+                  <View style={sheet.rowBetween}>
+                    <View style={{ gap: 2 }}>
+                      <Txt variant="title" style={{ fontSize: 15, fontWeight: '700' }}>
+                        Your reports
+                      </Txt>
+                      <Txt variant="caption" color="muted">
+                        What you reported, and decisions about your content.
+                      </Txt>
+                    </View>
+                    <Txt variant="title" color="accent">
+                      →
+                    </Txt>
+                  </View>
+                </Card>
+
                 {/* Muted Content */}
                 <Card
                   onPress={() => {

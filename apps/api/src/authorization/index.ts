@@ -292,6 +292,21 @@ export async function requireVerified(db: Db, viewer: string): Promise<void> {
   }
 }
 
+/**
+ * A posting suspension (PRD §27.3, SO-42): until `suspended_until` the account
+ * can read, log and like, but cannot publish reviews, comments, shelves or
+ * profile text, or follow. 403, like the verification gate: it is about the
+ * caller's own account and reveals nothing about anyone else.
+ */
+export async function requireNotSuspended(db: Db, viewer: string): Promise<void> {
+  const [row] = await db.execute<{ until: string | Date | null }>(sql`
+    SELECT suspended_until AS until FROM users WHERE id = ${viewer}::uuid AND suspended_until > now()`);
+  if (row?.until) {
+    const until = new Date(row.until).toISOString().slice(0, 10);
+    throw ApiError.forbidden('account_suspended', `Posting is suspended on this account until ${until}.`);
+  }
+}
+
 const RESTRICTIVENESS: Record<string, number> = { public: 0, followers: 1, private: 2 };
 
 /**

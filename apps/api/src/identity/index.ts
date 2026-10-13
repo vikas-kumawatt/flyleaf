@@ -19,7 +19,8 @@ import { ApiError, requireViewer } from '../http.js';
 import { avatarUrl } from '../uploads/index.js';
 import { resolveWorkId } from '../catalog/resolve.js';
 import { isCommonPassword } from './common-passwords.js';
-import { canViewWith, loadRelationship } from '../authorization/index.js';
+import { canViewWith, loadRelationship, requireNotSuspended } from '../authorization/index.js';
+import { containsBlockedTerm, screenText } from '../moderation/filters.js';
 
 export type ProfileFavourite = {
   id: string;
@@ -122,7 +123,9 @@ export const RESERVED_USERNAMES: ReadonlySet<string> = new Set([
 export const usernameSchema = z
   .string()
   .regex(/^[a-z0-9_]{3,20}$/, '3–20 characters: lowercase letters, numbers and underscores.')
-  .refine((u) => !RESERVED_USERNAMES.has(u), 'That username is reserved.');
+  .refine((u) => !RESERVED_USERNAMES.has(u), 'That username is reserved.')
+  // SO-41 layer 1: a slur is refused as a username too (PRD §27.1).
+  .refine((u) => !containsBlockedTerm(u.replace(/_/g, ' ')), 'That username is not allowed.');
 
 /** A real calendar date `YYYY-MM-DD` from 1900 on, or null. */
 function parseDob(dobStr: string): { y: number; m: number; d: number } | null {
@@ -801,6 +804,16 @@ export class IdentityService {
           if (!resolved.includes(work)) resolved.push(work);
         }
         data = { ...data, favouriteWorkIds: resolved };
+      }
+
+      // Profile text is published content: a posting suspension covers it,
+      // and layer 1 screens it (SO-41/42). Privacy and favourites are not.
+      if (data.displayName !== undefined || data.bio !== undefined) {
+        await requireNotSuspended(this.db, userId);
+        await screenText(this.db, userId, 'profile', [
+          { field: 'displayName', text: data.displayName },
+          { field: 'bio', text: data.bio },
+        ]);
       }
 
       // Check if toggling from private to public
@@ -1593,6 +1606,7 @@ export function identityRoutes(service: IdentityService) {
           response: {
             200: updateProfileResponseSchema,
             401: errorResponseSchema,
+            403: errorResponseSchema,
             422: errorResponseSchema,
           },
         },

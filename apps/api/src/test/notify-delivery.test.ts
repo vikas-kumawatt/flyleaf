@@ -227,6 +227,10 @@ describe('SO-31: comments push at most once a thread an hour (PRD §19.2 item 4)
 
   it('the second comment in the hour stays in the list; another thread still pushes; an hour later it pushes again', async () => {
     const [b, c] = [await user('bob'), await user('carol')];
+    // bob is in the thread too: since replies (SO-4x), carol's comment would
+    // also queue one for him. This test is about alice's pushes only.
+    await db.execute(sql`INSERT INTO notification_preferences (user_id, categories)
+      VALUES (${b.id}::uuid, '{"comment_replies": {"push": false, "in_app": false}}'::jsonb)`);
     await comment(b, readId);
     await comment(c, readId);
     const other = await makeRead(db, alice.id, await makeWork(db, 'Tehanu'), { status: 'finished' });

@@ -157,13 +157,22 @@ export async function deliverNotification(deps: DeliveryDeps, job: NotifySendJob
       return skip(db, view.id, 'nothing_new');
     }
     who = { actor: view.newActor, others: view.newCount - 1 };
+  } else if (view.type === 'reply') {
+    // A reply's push is about its own comment: the job's commenter, alone,
+    // while they are still in the row (the list names the whole thread).
+    if (!job.actorId || !view.focusVisible) return skip(db, view.id, 'actor_gone');
+    const [a] = await db.execute<{ username: string; display_name: string | null }>(sql`
+      SELECT username, display_name FROM profiles WHERE user_id = ${job.actorId}::uuid`);
+    who = { actor: a ? { username: a.username, displayName: a.display_name } : null, others: 0 };
   } else {
     who = { actor: view.actor, others: Math.max(0, view.actorCount - 1) };
   }
 
   // PRD §19.2 item 4: a thread pushes at most once an hour. The comment is in
   // the list either way.
-  if (view.type === 'comment' && view.readId && !(await counted(deps.limiter, 'push:thread', `${view.userId}:${view.readId}`))) {
+  // Replies too (owner decision on SO-3x): a thread you commented in.
+  if ((view.type === 'comment' || view.type === 'reply') && view.readId
+    && !(await counted(deps.limiter, 'push:thread', `${view.userId}:${view.readId}`))) {
     return skip(db, view.id, 'thread_hourly');
   }
 

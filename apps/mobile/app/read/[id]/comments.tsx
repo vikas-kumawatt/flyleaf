@@ -22,6 +22,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as Haptics from 'expo-haptics';
 import { api, FlyleafApiError, type ReadComment } from '@/lib/api';
 import { useSession } from '@/lib/session';
+import { ReportSheet, type ReportTarget } from '@/ui/ReportSheet';
 import { useActionGate } from '@/ui/ActionGate';
 import { EmptyState, Screen, Txt, sheet } from '@/ui/components';
 import { radius, space, useTheme } from '@/ui/tokens';
@@ -47,6 +48,7 @@ export default function CommentThreadScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { user } = useSession();
+  const [reportTarget, setReportTarget] = useState<ReportTarget | null>(null);
   const { promptAuth } = useActionGate();
   const { id: readId } = useLocalSearchParams<{ id: string }>();
 
@@ -235,6 +237,19 @@ export default function CommentThreadScreen() {
                       @{item.author.username} · {relativeTime(item.created_at)}
                     </Txt>
                   </Pressable>
+                  {user && !item.viewer_can_delete && (
+                    <Pressable
+                      onPress={() => setReportTarget({ type: 'comment', id: item.id })}
+                      accessibilityRole="button"
+                      accessibilityLabel={`Report comment by @${item.author.username}`}
+                      hitSlop={12}
+                      style={{ minWidth: 44, minHeight: 44, alignItems: 'flex-end', justifyContent: 'center' }}
+                    >
+                      <Txt variant="micro" color="muted">
+                        Report
+                      </Txt>
+                    </Pressable>
+                  )}
                   {item.viewer_can_delete && (
                     <Pressable
                       onPress={() => remove(item)}
@@ -332,6 +347,7 @@ export default function CommentThreadScreen() {
           </View>
         )}
       </KeyboardAvoidingView>
+      <ReportSheet target={reportTarget} onClose={() => setReportTarget(null)} />
     </Screen>
   );
 }

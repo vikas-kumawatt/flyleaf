@@ -488,6 +488,8 @@ export function adminDedupeRoutes(db: Db) {
       <p class="meta">Review fuzzy duplicate candidates (PRD §40.3 Stage 3/4) &amp; reverse merges within 30 days</p>
     </div>
     <div style="display: flex; align-items: center; gap: 14px;">
+      <a href="/admin/reports" style="color: var(--accent); text-decoration: none; font-size: 13px; font-weight: 500;">Reports</a>
+      <a href="/admin/appeals" style="color: var(--accent); text-decoration: none; font-size: 13px; font-weight: 500;">Appeals</a>
       <a href="/admin/catalog/maturity" style="color: var(--accent); text-decoration: none; font-size: 13px; font-weight: 500;">Maturity</a>
       <a href="/admin/ingest" style="color: var(--accent); text-decoration: none; font-size: 13px; font-weight: 500;">Ingestion</a>
       <a href="/admin/audit-log" style="color: var(--accent); text-decoration: none; font-size: 13px; font-weight: 500;">Audit Trail</a>

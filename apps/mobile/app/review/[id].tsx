@@ -23,6 +23,7 @@ import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import { api, type Review } from '@/lib/api';
 import { useSession } from '@/lib/session';
+import { ReportSheet, type ReportTarget } from '@/ui/ReportSheet';
 import { useActionGate } from '@/ui/ActionGate';
 import { useOfflineSync } from '@/offline/sync';
 import { Button, Card, Cover, Screen, Stars, Txt, sheet } from '@/ui/components';
@@ -33,6 +34,7 @@ export default function ReviewDetailScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { user } = useSession();
+  const [reportTarget, setReportTarget] = useState<ReportTarget | null>(null);
   const { promptAuth } = useActionGate();
   const { setLiked: setQueuedLike } = useOfflineSync();
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -185,6 +187,16 @@ export default function ReviewDetailScreen() {
           >
             <Ionicons name="share-outline" size={22} color={c.ink} />
           </Pressable>
+          {user && !isAuthor && (
+            <Pressable
+              onPress={() => setReportTarget({ type: 'review', id: review.id })}
+              accessibilityRole="button"
+              accessibilityLabel="Report review"
+              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+            >
+              <Ionicons name="flag-outline" size={20} color={c.ink} />
+            </Pressable>
+          )}
           {isAuthor && (
             <Pressable
               onPress={handleDelete}
@@ -384,6 +396,7 @@ export default function ReviewDetailScreen() {
           </Txt>
         </View>
       </ScrollView>
+      <ReportSheet target={reportTarget} onClose={() => setReportTarget(null)} />
     </Screen>
   );
 }

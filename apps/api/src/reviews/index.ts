@@ -5,6 +5,7 @@
 //   - PRD §10.1–§10.7 (Review ranking algorithm, content requirements, likes)
 //   - Architecture §3.1, §3.5, §3.7 (reviews, read_likes, follows tables)
 
+import { screenReviewWritten, screenText } from '../moderation/filters.js';
 import { RateLimits } from '../platform/rate-limits.js';
 import { sql, eq, and, desc, asc, isNull, inArray, type SQL } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
@@ -27,6 +28,7 @@ import {
   mostRestrictive,
   mostRestrictiveSql,
   requireVerified,
+  requireNotSuspended,
   type Visibility,
 } from '../authorization/index.js';
 import {
@@ -532,14 +534,25 @@ export class ReviewService {
           hasSpoilers: reviews.hasSpoilers,
           spoilerAfterPage: reviews.spoilerAfterPage,
           visibility: reviews.visibility,
+          hiddenAt: reviews.hiddenAt,
         })
         .from(reviews)
         .where(eq(reviews.readId, readId));
       const live = existing && !existing.deletedAt ? existing : null;
 
+      // A review a moderator removed stays removed: writing over it would
+      // publish it again (SO-42). Its owner may appeal instead (PRD §27.6).
+      if (existing?.hiddenAt) {
+        throw ApiError.conflict('review_removed', 'This review was removed by a moderator. You can appeal the decision.');
+      }
+
       // Publishing a review (new, or reviving a deleted one) needs a verified
       // email (D-04-1); editing a live review does not. Checked before any write.
       if (!live) await requireVerified(tx, userId);
+      // SO-42: a suspended account cannot post or edit (PRD §27.3).
+      await requireNotSuspended(tx, userId);
+      // SO-41 layer 1: refused content is never written and never counted.
+      await screenText(tx, userId, 'review', [{ field: 'body', text: trimmed }]);
       // PRD §10.6: 10 reviews an hour, 30 a day. Publishing (new or revived)
       // counts; an edit is a Write (§24.4), counted by the route hook.
       if (!live) {
@@ -573,6 +586,8 @@ export class ReviewService {
         id = inserted!.id;
       }
       await syncReviewActivity(tx, id);
+      // SO-41: duplicate text and flagged accounts queue for a moderator.
+      await screenReviewWritten(tx, { reviewId: id, userId, workId: read.work_id, body: trimmed });
       return id;
     });
 
@@ -679,10 +694,10 @@ export class ReviewService {
     await this.db.transaction(async (t) => {
       const tx = t as unknown as Db;
       const [rev] = await tx.execute<{
-        id: string; user_id: string; read_id: string; has_spoilers: boolean;
+        id: string; user_id: string; read_id: string; work_id: string; body: string; has_spoilers: boolean;
         spoiler_after_page: number | null; page_count: number | null;
       }>(sql`
-        SELECT rv.id, rv.user_id, rv.read_id, rv.has_spoilers, rv.spoiler_after_page, e.page_count
+        SELECT rv.id, rv.user_id, rv.read_id, rv.work_id, rv.body, rv.has_spoilers, rv.spoiler_after_page, e.page_count
         FROM reviews rv
         JOIN reads r ON r.id = rv.read_id
         LEFT JOIN editions e ON e.id = r.edition_id
@@ -691,6 +706,8 @@ export class ReviewService {
 
       // Someone else's review is the same 404 as a missing one (PRD §25.3).
       if (!rev || rev.user_id !== userId) throw ApiError.notFound('Review not found');
+      await requireNotSuspended(tx, userId);
+      await screenText(tx, userId, 'review', [{ field: 'body', text: body }]);
 
       const spoilers = resolveSpoilers(
         input,
@@ -709,6 +726,7 @@ export class ReviewService {
 
       await writeRatingAndHeart(tx, rev.read_id, input);
       await syncReviewActivity(tx, reviewId);
+      await screenReviewWritten(tx, { reviewId, userId, workId: rev.work_id, body: body ?? rev.body });
     });
 
     return this.getReview(reviewId, userId);

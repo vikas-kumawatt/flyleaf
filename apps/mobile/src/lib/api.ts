@@ -76,6 +76,7 @@ import {
   type ExportListResponse,
   type CreateExportRequest,
   type UpdateNotificationPreferencesRequest,
+  type CreateReportRequest,
   type RegisterPushTokenRequest,
   type FollowResult,
   type PendingFollowRequest,
@@ -106,6 +107,10 @@ export type {
   NotificationItem,
   NotificationsResponse,
   NotificationPreferences,
+  Report,
+  ReportReason,
+  ReportSubjectType,
+  ModerationNotice,
 } from '@flyleaf/api-client';
 export type {
   User,
@@ -574,6 +579,13 @@ export const api = {
   updateNotificationPreferences: (data: UpdateNotificationPreferencesRequest) => client.updateNotificationPreferences(data),
   registerPushToken: (data: RegisterPushTokenRequest) => client.registerPushToken(data),
   unregisterPushToken: (token: string) => client.unregisterPushToken(token),
+
+  // Moderation (SO-40, SO-42)
+  createReport: (data: CreateReportRequest) => client.createReport(data),
+  getMyReports: (params?: { limit?: number; offset?: number }) => client.getMyReports(params),
+  getModerationNotices: () => client.getModerationNotices(),
+  getModerationNotice: (id: string) => client.getModerationNotice(id),
+  appealModeration: (id: string, body: string) => client.appealModeration(id, body),
 };
 
 /** Run by api.logout() before the session ends (push token removal, SO-30). */

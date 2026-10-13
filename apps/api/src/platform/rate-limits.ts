@@ -186,7 +186,7 @@ export const RATE_LIMITS = {
   },
   'push:thread': {
     limit: 1, windowSeconds: HOUR, store: 'rolling',
-    source: 'PRD §19.2 item 4 Review commented: max 1 per thread per hour',
+    source: 'PRD §19.2 item 4 Review commented: max 1 per thread per hour; item 5 Comment replies, the same per thread you commented in (owner decision on SO-3x)',
     message: 'Thread push limit reached.',
   },
   'push:follow': {

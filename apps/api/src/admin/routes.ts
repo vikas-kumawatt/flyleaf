@@ -350,6 +350,8 @@ export function adminAuthRoutes(db: Db, limits: RateLimits = RateLimits.off()) {
         <p style="color: var(--text-muted); font-size: 13px;">FN-93: Non-negotiable audit log across all administrative actions.</p>
       </div>
       <div class="nav">
+        <a href="/admin/reports">Reports</a>
+        <a href="/admin/appeals">Appeals</a>
         <a href="/admin/merges">Merge Review</a>
         <a href="/admin/catalog/maturity">Maturity</a>
         <a href="/admin/ingest">Ingestion</a>

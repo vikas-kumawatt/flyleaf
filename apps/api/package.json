@@ -19,6 +19,7 @@
     "ingest": "tsx src/ingest.ts",
     "dedupe": "tsx src/dedupe.ts",
     "admin": "tsx src/admin-cli.ts",
+    "moderation:hash-terms": "tsx src/moderation/hash-terms.ts",
     "devdb:build": "tsx src/devdb.ts",
     "ingest:fetch": "tsx src/fetch-dumps.ts",
     "typecheck": "tsc --noEmit",

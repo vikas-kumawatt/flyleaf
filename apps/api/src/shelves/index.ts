@@ -14,7 +14,8 @@ import { config, Db } from '../platform/index.js';
 import { ApiError, requireViewer } from '../http.js';
 import { resolveWorkId } from '../catalog/resolve.js';
 import { avatarUrl } from '../uploads/index.js';
-import { canViewSql, canViewWith, loadRelationship, type Visibility } from '../authorization/index.js';
+import { canViewSql, canViewWith, loadRelationship, requireNotSuspended, type Visibility } from '../authorization/index.js';
+import { screenText } from '../moderation/filters.js';
 import {
   shelves,
   shelfItems,
@@ -431,6 +432,9 @@ export class ShelvesService {
   async create(viewer: string, input: CreateShelfInput): Promise<ShelfDetail> {
     const trimmedName = this.#validName(input.name);
     this.#checkDescription(input.description);
+    // SO-42 suspension, SO-41 layer 1 (PRD §27.1: shelf names and descriptions).
+    await requireNotSuspended(this.db, viewer);
+    await screenText(this.db, viewer, 'shelf', [{ field: 'name', text: trimmedName }, { field: 'description', text: input.description }]);
 
     const privacy = input.privacy ?? 'public';
     if (!['public', 'followers', 'private'].includes(privacy)) {
@@ -518,6 +522,10 @@ export class ShelvesService {
   async update(viewer: string, id: string, input: UpdateShelfInput): Promise<ShelfDetail> {
     const nextName = input.name !== undefined ? this.#validName(input.name) : undefined;
     this.#checkDescription(input.description);
+    if (nextName !== undefined || input.description !== undefined) {
+      await requireNotSuspended(this.db, viewer);
+      await screenText(this.db, viewer, 'shelf', [{ field: 'name', text: nextName }, { field: 'description', text: input.description }]);
+    }
 
     if (input.privacy !== undefined && !['public', 'followers', 'private'].includes(input.privacy)) {
       throw new ApiError(400, 'invalid_privacy', 'Privacy must be public, followers, or private.', 'privacy');
@@ -581,7 +589,7 @@ export class ShelvesService {
       FROM shelves s
       JOIN profiles p ON p.user_id = s.user_id
       WHERE s.user_id = ${viewer}::uuid
-        AND s.deleted_at IS NOT NULL
+        AND s.deleted_at IS NOT NULL AND s.hidden_at IS NULL
         AND s.deleted_at > now() - make_interval(days => ${SHELF_RECOVERY_DAYS})
       ORDER BY s.deleted_at DESC, s.id DESC`);
     return {
@@ -606,7 +614,7 @@ export class ShelvesService {
       const [row] = await tx.execute<{ id: string }>(sql`
         SELECT id FROM shelves
         WHERE id = ${id}::uuid AND user_id = ${viewer}::uuid
-          AND deleted_at IS NOT NULL
+          AND deleted_at IS NOT NULL AND hidden_at IS NULL
           AND deleted_at > now() - make_interval(days => ${SHELF_RECOVERY_DAYS})
         FOR UPDATE`);
       if (!row) throw ApiError.notFound('Shelf not found.');
@@ -1436,7 +1444,9 @@ export const shelvesPlugin: FastifyPluginAsync<{ db: Db }> = async (fastify, opt
           201: shelfResponseSchema,
           400: errorResponseSchema,
           401: errorResponseSchema,
+          403: errorResponseSchema,
           409: errorResponseSchema,
+          422: errorResponseSchema,
         },
       },
     },
@@ -1587,7 +1597,9 @@ export const shelvesPlugin: FastifyPluginAsync<{ db: Db }> = async (fastify, opt
           200: shelfResponseSchema,
           400: errorResponseSchema,
           401: errorResponseSchema,
+          403: errorResponseSchema,
           404: errorResponseSchema,
+          422: errorResponseSchema,
         },
       },
     },

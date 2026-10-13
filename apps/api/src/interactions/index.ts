@@ -23,7 +23,8 @@ import { enforceWith, RATE_LIMITS } from '../platform/rate-limits.js';
 import { reads, readLikes, readComments, profiles } from '../db/schema.js';
 import { ApiError, requireViewer } from '../http.js';
 import { avatarUrl } from '../uploads/index.js';
-import { canViewWith, loadRelationship, requireVerified } from '../authorization/index.js';
+import { canViewWith, loadRelationship, requireNotSuspended, requireVerified } from '../authorization/index.js';
+import { screenText } from '../moderation/filters.js';
 import { Notifier } from '../notify/index.js';
 import {
   readIdParamsSchema,
@@ -408,6 +409,9 @@ export class InteractionService {
     if (await this.#isLocked(readId)) {
       throw ApiError.conflict('thread_locked', 'This review was removed; its comments are read-only.');
     }
+    // SO-42 suspension, SO-41 layer 1: before the rate limit, so a refusal costs nothing.
+    await requireNotSuspended(this.db, viewer);
+    await screenText(this.db, viewer, 'comment', [{ field: 'body', text: trimmed }]);
     // Counted only for comments that would otherwise be written, so a user
     // who fat-fingers a locked thread is not also throttled for it.
     await enforceWith(this.limiter, 'comments', viewer);
@@ -540,6 +544,8 @@ export const interactionsPlugin: FastifyPluginAsync<InteractionsPluginOptions> =
         response: {
           201: readCommentSchema,
           400: errorResponseSchema,
+          403: errorResponseSchema,
+          422: errorResponseSchema,
           429: errorResponseSchema,
           ...errors,
         },
