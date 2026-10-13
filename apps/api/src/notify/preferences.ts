@@ -4,7 +4,10 @@
 // the day is inside quiet hours, when they end. The database holds only what
 // the user changed (notification_preferences, 0043); no row is every default.
 
-export type NotificationType = 'follow' | 'follow_request' | 'like' | 'comment' | 'import_complete' | 'reply' | 'moderation';
+export type NotificationType =
+  | 'follow' | 'follow_request' | 'like' | 'comment' | 'import_complete' | 'reply' | 'moderation'
+  // Phase 5 C: PRD §19.2 items 8 and 12.
+  | 'year_in_review' | 'milestone';
 
 /** Types a person can switch off: every type but the moderation notice (PRD §27.6 says the user is told). */
 export type CategorisedType = Exclude<NotificationType, 'moderation'>;
@@ -18,8 +21,8 @@ export type CategorisedType = Exclude<NotificationType, 'moderation'>;
  * such channel (item 9 is in-app only; 10, 11 and 13 are push only; 12 is
  * in-app only). `emits`: something in the product sends it today. The rest
  * are stored and returned so Settings can show all 13 (LA-02), and switch on
- * when their feature ships (replies since SO-4x; mentions, Year in Review, invites,
- * milestones, author follows, the weekly summary).
+ * when their feature ships (replies since SO-4x; Year in Review and milestones
+ * since Phase 5 C; mentions, invites, author follows, the weekly summary).
  */
 export const NOTIFICATION_CATEGORIES = [
   { key: 'new_follower', item: 1, push: true, inApp: true, emits: true },
@@ -29,11 +32,11 @@ export const NOTIFICATION_CATEGORIES = [
   { key: 'comment_replies', item: 5, push: true, inApp: true, emits: true },
   { key: 'mentions', item: 6, push: true, inApp: true, emits: false },
   { key: 'import_complete', item: 7, push: true, inApp: true, emits: true },
-  { key: 'year_in_review', item: 8, push: true, inApp: true, emits: false },
+  { key: 'year_in_review', item: 8, push: true, inApp: true, emits: true },
   { key: 'invite_joined', item: 9, push: null, inApp: true, emits: false },
   { key: 'friend_finished_want', item: 10, push: false, inApp: null, emits: false },
   { key: 'author_new_book', item: 11, push: false, inApp: null, emits: false },
-  { key: 'milestones', item: 12, push: null, inApp: true, emits: false },
+  { key: 'milestones', item: 12, push: null, inApp: true, emits: true },
   { key: 'weekly_summary', item: 13, push: false, inApp: null, emits: false },
 ] as const satisfies readonly { key: string; item: number; push: boolean | null; inApp: boolean | null; emits: boolean }[];
 
@@ -46,6 +49,8 @@ export const CATEGORY_OF: Record<CategorisedType, CategoryKey> = {
   comment: 'comments',
   import_complete: 'import_complete',
   reply: 'comment_replies',
+  year_in_review: 'year_in_review',
+  milestone: 'milestones',
 };
 
 const CATEGORY_BY_KEY = new Map<string, (typeof NOTIFICATION_CATEGORIES)[number]>(

@@ -45,6 +45,7 @@ import { ExportService } from '../exports/index.js';
 import { cleanupStorage, type CleanupResult } from '../uploads/index.js';
 import { FEED_HORIZON_DAYS } from '../activity/index.js';
 import { NOTIFY_QUEUES, Notifier, bossNotifyQueue, type NotifySendJob } from '../notify/index.js';
+import { sendYearInReviewNotices, type YirNoticeResult } from '../notify/year-in-review.js';
 import {
   deliverNotification, processReceipts, sendDueReminders, type DeliveryOutcome, type ReceiptResult, type ReminderResult,
 } from '../notify/delivery.js';
@@ -146,6 +147,8 @@ export const QUEUES = {
   notifyReminders: NOTIFY_QUEUES.reminders,
   /** Every 15 minutes: Expo delivery receipts; dead tokens deleted (PV-05 → SO-30). */
   notifyReceipts: NOTIFY_QUEUES.receipts,
+  /** Every 30 minutes: Year in Review notices once 1 December comes in the reader's zone (ST-09). */
+  notifyYir: NOTIFY_QUEUES.yir,
 } as const;
 
 export type QueueName = (typeof QUEUES)[keyof typeof QUEUES];
@@ -697,6 +700,13 @@ export async function registerQueues(boss: PgBoss, log: JobLog, deps?: WorkerDep
         return result;
       });
     }
+
+    // ST-09: in-app even without a push sender; the push, if any, goes through notify.send.
+    await boss.work<void, YirNoticeResult>(QUEUES.notifyYir, async (jobs) => {
+      const result = await sendYearInReviewNotices(db, notifier);
+      log.info({ queue: QUEUES.notifyYir, ids: jobs.map((j) => j.id), ...result }, 'job handled');
+      return result;
+    });
 
     await boss.work<ProcessImportJobRequest, ProcessImportJobResult>(
       QUEUES.processImport,

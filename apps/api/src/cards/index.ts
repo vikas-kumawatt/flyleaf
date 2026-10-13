@@ -6,6 +6,7 @@
 //   GET /v1/cards/users/:id/stat/:stat       one statistic
 //   GET /v1/cards/users/:id/profile          the profile
 //   GET /v1/cards/users/:id/wall             the Wall collage, 4×4 or 3×5
+//   GET /v1/cards/users/:id/year/:year/:card one Year in Review card (ST-09): the reader's own
 //
 // PRIVACY: a card follows the screen it shares.
 //   - Who may fetch it: whoever may see that screen, through the same
@@ -20,6 +21,10 @@
 //     public, uses public-visible figures"), and every such card says so.
 //     A private or followers-only read never reaches one, so a card a
 //     follower or the owner shares carries nothing a stranger may not see.
+//   - A private account's profile, stat, Wall and Year in Review cards are
+//     its owner's alone (owner decision on Phase 5 B): a follower who may
+//     see the screen still gets the 404, so nothing of a private account
+//     leaves the app as an image unless its owner sends it.
 //   - A finish card is of one read: like GET /reads/:id, its owner may make
 //     one of their own private read, and nobody else can fetch it.
 //   - Explicit books (§7.8) are drawn without a cover and are left off the
@@ -49,9 +54,22 @@ import { clampText, cleanText, graphemes, orFallback } from './text.js';
 import {
   TEMPLATES, WALL_GRID,
   type FinishModel, type Poster, type ProfileModel, type ReviewModel, type StatBar, type StatModel, type WallLayout, type WallModel,
+  type YearModel,
 } from './templates.js';
+import { GENTLE_EQUIVALENT, YIR_CARD_KINDS, YearInReviewService, type YirCardKind } from '../reading/year-in-review.js';
 
-export const STAT_KINDS = ['books', 'pages', 'rating', 'author', 'genres', 'formats', 'streak'] as const;
+/**
+ * One card per figure on the stats screen (ST-04, PRD §17.3 "share on every
+ * card"). The first seven are ST-08's; the rest were added with ST-04.
+ */
+export const STAT_KINDS = [
+  'books', 'pages', 'rating', 'author', 'genres', 'formats', 'streak',
+  'audio', 'crowd', 'decades', 'languages', 'velocity', 'speed', 'pace', 'months', 'dnf', 'time',
+  'longest', 'shortest', 'fastest', 'slowest', 'highest', 'lowest', 'oldest', 'reread',
+] as const;
+/** The extremes (§17.2): a card about one book, drawn with its cover. */
+export const EXTREME_KINDS = ['longest', 'shortest', 'fastest', 'slowest', 'highest', 'lowest', 'oldest', 'reread'] as const;
+type ExtremeKind = (typeof EXTREME_KINDS)[number];
 export type StatKind = (typeof STAT_KINDS)[number];
 export const WALL_LAYOUTS = ['4x4', '3x5'] as const;
 
@@ -59,7 +77,7 @@ export const WALL_LAYOUTS = ['4x4', '3x5'] as const;
 export const LIMITS = { title: 90, author: 60, name: 40, quote: 420, bio: 140, posterTitle: 60, posterAuthor: 40, bar: 40 } as const;
 
 type CardKind = keyof typeof TEMPLATES;
-type Model = FinishModel | ReviewModel | StatModel | ProfileModel | WallModel;
+type Model = FinishModel | ReviewModel | StatModel | ProfileModel | WallModel | YearModel;
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const notFound = () => ApiError.notFound('Card not found.');
@@ -84,11 +102,50 @@ export function initials(name: string): string {
  * ST-03's sentence for a figure based on part of the books: "Based on 180
  * of 247 books — 67 have no page count." null when nothing is missing.
  */
-export function coverageLine(c: { based_on: number; of: number }, missing: [one: string, many: string]): string | null {
+export function coverageLine(
+  c: { based_on: number; of: number },
+  missing: [one: string, many: string],
+  unit: [one: string, many: string] = ['book', 'books'],
+): string | null {
   if (c.of === 0 || c.based_on >= c.of) return null;
   const left = c.of - c.based_on;
-  return `Based on ${num(c.based_on)} of ${num(c.of)} ${plural(c.of, 'book')} — ${num(left)} ${left === 1 ? missing[0] : missing[1]}.`;
+  return `Based on ${num(c.based_on)} of ${num(c.of)} ${c.of === 1 ? unit[0] : unit[1]} — ${num(left)} ${left === 1 ? missing[0] : missing[1]}.`;
 }
+
+const MONTH_NAMES = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+const DAY_NAMES = ['Mondays', 'Tuesdays', 'Wednesdays', 'Thursdays', 'Fridays', 'Saturdays', 'Sundays'];
+
+/** "en" → "English"; a code Intl does not know is shown as it is. */
+export function languageName(code: string): string {
+  try {
+    return new Intl.DisplayNames(['en'], { type: 'language' }).of(code) ?? code;
+  } catch {
+    return code;
+  }
+}
+
+/** 0 → "midnight", 13 → "1 pm": the start of an hour, fixed English. */
+export function hourName(h: number): string {
+  if (h === 0) return 'midnight';
+  if (h === 12) return 'noon';
+  return h < 12 ? `${h} am` : `${h - 12} pm`;
+}
+
+/** The book an extreme card is about, or null when there is none (§17.4: no card then). */
+export function extremeOf(kind: ExtremeKind, s: ReadingStats): ReadingStats['longest_book'] {
+  switch (kind) {
+    case 'longest': return s.longest_book;
+    case 'shortest': return s.shortest_book;
+    case 'fastest': return s.fastest_read;
+    case 'slowest': return s.slowest_read;
+    case 'highest': return s.highest_rated;
+    case 'lowest': return s.lowest_rated;
+    case 'oldest': return s.oldest_publication;
+    case 'reread': return s.most_reread;
+  }
+}
+
+export const isExtreme = (kind: StatKind): kind is ExtremeKind => (EXTREME_KINDS as readonly string[]).includes(kind);
 
 /** One statistic as a card, from public-only figures. Throws nothing_to_share where §17.4 forbids a figure. */
 export function statModel(kind: StatKind, s: ReadingStats, handle: string): StatModel {
@@ -165,6 +222,121 @@ export function statModel(kind: StatKind, s: ReadingStats, handle: string): Stat
         detail: range(s.longest_streak_range),
       };
     }
+    case 'audio':
+      if (s.audio_hours <= 0) throw nothing('no listening logged');
+      return {
+        ...base, heading: 'Listening', value: num(s.audio_hours), caption: s.audio_hours === 1 ? 'hour listened' : 'hours listened',
+        coverage: coverageLine(s.coverage.audio, ['has no length or listening progress', 'have no length or listening progress'], ['audiobook', 'audiobooks']),
+      };
+    case 'crowd': {
+      if (s.vs_crowd === null) throw nothing('no rated book that someone else has rated');
+      const d = s.vs_crowd;
+      return {
+        ...base, heading: 'Me vs the crowd',
+        value: d === 0 ? '0' : `${d > 0 ? '+' : '−'}${Math.abs(d).toFixed(1)}`,
+        caption: d === 0 ? 'I rate books just like everyone else' : d > 0 ? 'stars above the average, per book' : 'stars below the average, per book',
+        coverage: coverageLine(s.coverage.vs_crowd, ['has no other ratings yet', 'have no other ratings yet'], ['rated book', 'rated books']),
+      };
+    }
+    case 'decades': {
+      if (s.decades.length === 0) throw nothing('no finished book has a publication year');
+      const top = [...s.decades].sort((a, b) => b.count - a.count || a.decade - b.decade)[0]!;
+      return {
+        ...base, heading: 'Favourite decade', value: `${top.decade}s`, caption: `${num(top.count)} ${plural(top.count, 'book')} first published then`,
+        bars: [...s.decades].sort((a, b) => b.count - a.count || a.decade - b.decade).slice(0, 5)
+          .map((d) => ({ label: `${d.decade}s`, value: d.count, text: num(d.count) })),
+        coverage: coverageLine(s.coverage.decades, ['has no publication year', 'have no publication year']),
+      };
+    }
+    case 'languages': {
+      // §17.2: shown only when there is more than one language.
+      if (s.languages.length < 2) throw nothing('books in one language only');
+      return {
+        ...base, heading: 'Languages', value: num(s.languages.length), caption: 'languages read',
+        bars: s.languages.slice(0, 5).map((l) => ({ label: clampText(languageName(l.language), LIMITS.bar), value: l.count, text: num(l.count) })),
+        coverage: coverageLine(s.coverage.languages, ['has no language on record', 'have no language on record']),
+      };
+    }
+    case 'velocity':
+      if (s.velocity.median_days === null) throw nothing('no finished book has a start date');
+      return {
+        ...base, heading: 'Time to finish', value: num(s.velocity.median_days), caption: s.velocity.median_days === 1 ? 'day for a typical book' : 'days for a typical book',
+        detail: 'The median, start and finish day included',
+        coverage: coverageLine(s.coverage.velocity, ['has no start date', 'have no start date']),
+      };
+    case 'speed':
+      if (s.speed.pages_per_hour === null) throw nothing('no session has both minutes and pages');
+      return {
+        ...base, heading: 'Reading speed', value: num(s.speed.pages_per_hour), caption: 'pages an hour',
+        detail: `${num(s.speed.pages)} pages in ${num(s.speed.minutes)} timed minutes`,
+        coverage: coverageLine(s.coverage.speed, ['has no minutes or pages logged', 'have no minutes or pages logged'], ['session', 'sessions']),
+      };
+    case 'pace': {
+      const best = [...s.pace].sort((a, b) => b.pages - a.pages || a.week_start.localeCompare(b.week_start))[0];
+      if (!best || best.pages === 0) throw nothing('no pages logged in a session');
+      return {
+        ...base, heading: 'Biggest reading week', value: num(best.pages), caption: 'pages',
+        detail: `Week of ${cardDate(best.week_start)}`,
+        coverage: coverageLine(s.coverage.pace, ['has no earlier page to count from', 'have no earlier page to count from'], ['session', 'sessions']),
+      };
+    }
+    case 'months': {
+      // Months of one year: "all time" folds every year's March together.
+      if (s.year === 'all') throw nothing('months are per year; choose a year');
+      const top = [...s.monthly_pace].sort((a, b) => b.books - a.books || a.month - b.month)[0];
+      if (!top || top.books === 0) throw nothing('no dated finishes this year');
+      return {
+        ...base, heading: 'Biggest month', value: num(top.books), caption: `${plural(top.books, 'book')} in ${MONTH_NAMES[top.month - 1]}`,
+        bars: [...s.monthly_pace].filter((m) => m.books > 0).sort((a, b) => b.books - a.books || a.month - b.month).slice(0, 5)
+          .map((m) => ({ label: MONTH_NAMES[m.month - 1]!, value: m.books, text: num(m.books) })),
+        coverage: coverageLine(s.coverage.months, ['has no finish date', 'have no finish date']),
+      };
+    }
+    case 'dnf':
+      if (s.dnf_count === 0) throw nothing('no stopped books');
+      // design.md §8: "Stopped reading", never "gave up".
+      return {
+        ...base, heading: 'Stopped reading', value: num(s.dnf_count), caption: plural(s.dnf_count, 'book'),
+        detail: 'Not every book is for every reader.',
+      };
+    case 'time': {
+      let best: { day: number; hour: number; n: number } | null = null;
+      const byHour = Array.from({ length: 24 }, () => 0);
+      s.time_of_day.forEach((row, day) => row.forEach((n, hour) => {
+        byHour[hour]! += n;
+        if (n > 0 && (!best || n > best.n)) best = { day, hour, n };
+      }));
+      const hour = byHour.reduce((bi, n, i) => (n > byHour[bi]! ? i : bi), 0);
+      if (!best || byHour[hour] === 0) throw nothing('no reading sessions logged');
+      const b = best as { day: number; hour: number; n: number };
+      return {
+        ...base, heading: 'When I read', value: hourName(hour), caption: 'is my reading hour',
+        detail: `Most of all on ${DAY_NAMES[b.day]} at ${hourName(b.hour)}`,
+      };
+    }
+    default: {
+      const book = extremeOf(kind, s);
+      if (!book) throw nothing('no book to show');
+      const what: Record<ExtremeKind, { heading: string; value: string; caption: string }> = {
+        longest: { heading: 'Longest book', value: num(book.page_count ?? 0), caption: 'pages' },
+        shortest: { heading: 'Shortest book', value: num(book.page_count ?? 0), caption: 'pages' },
+        fastest: { heading: 'Fastest read', value: num(s.fastest_read?.days ?? 0), caption: s.fastest_read?.days === 1 ? 'day' : 'days' },
+        slowest: { heading: 'Slowest read', value: num(s.slowest_read?.days ?? 0), caption: s.slowest_read?.days === 1 ? 'day' : 'days' },
+        highest: { heading: 'Highest rated', value: (s.highest_rated?.rating ?? 0).toFixed(1), caption: 'stars' },
+        lowest: { heading: 'Lowest rated', value: (s.lowest_rated?.rating ?? 0).toFixed(1), caption: 'stars' },
+        oldest: { heading: 'Oldest book', value: String(s.oldest_publication?.year ?? ''), caption: 'first published' },
+        reread: { heading: 'Most re-read', value: num(s.most_reread?.count ?? 0), caption: 'times read' },
+      };
+      const w = what[kind as ExtremeKind];
+      return {
+        ...base, heading: w.heading, value: w.value, caption: w.caption,
+        poster: {
+          title: clampText(orFallback(book.title, 'Untitled'), LIMITS.posterTitle),
+          author: clampText(book.author_name, LIMITS.posterAuthor) || null,
+          cover: null,
+        },
+      };
+    }
   }
 }
 
@@ -189,6 +361,8 @@ export interface CardServiceOptions {
   fetchBytes?: FetchBytes;
   renderer?: CardRenderer;
   coverBudgetMs?: number;
+  /** ST-09: when Year in Review opens (tests pass a fixed clock). */
+  now?: () => Date;
 }
 
 export interface Card {
@@ -203,10 +377,12 @@ export class CardService {
   readonly images: CardImages;
   readonly #reading: ReadingService;
   readonly #reviews: ReviewService;
+  readonly #yir: YearInReviewService;
 
   constructor(private readonly db: Db, opts: CardServiceOptions = {}) {
+    this.#yir = new YearInReviewService(db, { now: opts.now });
     this.renderer = opts.renderer ?? new CardRenderer();
-    this.images = new CardImages(opts.storage ?? null, opts.fetchBytes, opts.coverBudgetMs);
+    this.images = new CardImages(opts.storage ?? null, opts.fetchBytes, opts.coverBudgetMs, db);
     this.#reading = new ReadingService(db);
     this.#reviews = new ReviewService(db);
   }
@@ -215,10 +391,17 @@ export class CardService {
     return this.renderer.render(kind, model, () => (TEMPLATES[kind] as (m: Model) => ReturnType<typeof TEMPLATES.finish>)(model));
   }
 
-  async #account(viewer: string | null, userId: string): Promise<{ handle: string; name: string; avatarKey: string | null; bio: string | null; favourites: string[] }> {
+  /**
+   * The account a card is of, for a viewer who may see it. `aggregate`
+   * (profile, stat, Wall, Year in Review): owner decision on Phase 5 B — a
+   * private account's aggregate cards are its owner's alone to make; its
+   * followers get the random-id 404, like everyone else.
+   */
+  async #account(viewer: string | null, userId: string, opts: { aggregate?: boolean } = {}): Promise<{ handle: string; name: string; avatarKey: string | null; bio: string | null; favourites: string[] }> {
     if (!UUID_RE.test(userId)) throw notFound();
     const rel = await loadRelationship(this.db, viewer, userId);
     if (!canViewWith(viewer, userId, rel)) throw notFound();
+    if (opts.aggregate && rel.isOwnerPrivate && viewer !== userId) throw notFound();
     const [p] = await this.db.execute<{ username: string; display_name: string | null; avatar_key: string | null; bio: string | null; favourite_work_ids: string[] | string | null }>(sql`
       SELECT username, display_name, avatar_key, bio, favourite_work_ids FROM profiles WHERE user_id = ${userId}::uuid`);
     if (!p) throw notFound();
@@ -295,7 +478,7 @@ export class CardService {
   }
 
   async stat(viewer: string | null, userId: string, kind: StatKind, year?: string, tz?: string): Promise<StatModel> {
-    const account = await this.#account(viewer, userId);
+    const account = await this.#account(viewer, userId, { aggregate: true });
     let stats: ReadingStats;
     try {
       stats = await this.#reading.getStats(viewer, userId, year, tz, { publicOnly: true });
@@ -303,12 +486,53 @@ export class CardService {
       if (err instanceof ApiError && err.status === 404) throw notFound();
       throw err;
     }
-    return statModel(kind, stats, account.handle);
+    const model = statModel(kind, stats, account.handle);
+    if (model.poster && isExtreme(kind)) {
+      const book = extremeOf(kind, stats)!;
+      const [w] = await this.db.execute<{ explicit: boolean }>(sql`SELECT maturity = 'explicit' AS explicit FROM works WHERE id = ${book.work_id}::uuid`);
+      // §7.8: an explicit book is drawn without its cover.
+      const [cover] = await this.images.covers([w?.explicit ? null : book.cover_id]);
+      model.poster = { ...model.poster, cover: cover ?? null };
+    }
+    return model;
+  }
+
+  /**
+   * ST-09: one Year in Review card. The reader's own only (§17.5: "it is
+   * generated for you"); anyone else gets the random-id 404. Public figures
+   * only, from the same function as the screen. A card asked for by its
+   * full-variant name where the public figures are low-volume is the gentle
+   * card in its place.
+   */
+  async yearInReview(viewer: string | null, userId: string, year: string, kind: YirCardKind, tz?: string): Promise<YearModel> {
+    if (!UUID_RE.test(userId) || viewer === null || viewer !== userId) throw notFound();
+    const account = await this.#account(viewer, userId, { aggregate: true });
+    const yir = await this.#yir.get(viewer, userId, year, tz, { publicOnly: true });
+    if (!yir.unlocked) {
+      throw ApiError.unprocessable('year_in_review_locked', `Your ${yir.year} Year in Review opens on 1 December.`);
+    }
+    const alt = GENTLE_EQUIVALENT[kind];
+    const card = yir.cards.find((c) => c.kind === kind) ?? (alt ? yir.cards.find((c) => c.kind === alt) : undefined);
+    if (!card) throw nothing('no public reads for this card');
+    // §7.8: an explicit book is drawn without its cover.
+    const covers = await this.images.covers(card.books.slice(0, 4).map((b) => (b.explicit ? null : b.cover_id)));
+    return {
+      handle: account.handle,
+      year: yir.year,
+      heading: clampText(card.heading, LIMITS.title),
+      value: card.value,
+      caption: card.caption === null ? null : clampText(card.caption, LIMITS.title) || null,
+      detail: card.detail === null ? null : clampText(card.detail, LIMITS.title) || null,
+      note: card.note,
+      posters: card.books.slice(0, 4).map((b, i) => poster({ title: b.title, author_name: b.author_name, cover_id: null, explicit: b.explicit }, covers[i] ?? null)),
+      bars: card.bars.map((b) => ({ ...b, label: orFallback(clampText(b.label, LIMITS.bar), '—') })),
+      calendar: card.calendar,
+    };
   }
 
   async profile(viewer: string | null, userId: string, tz?: string): Promise<ProfileModel> {
     const zone = checkZone(tz);
-    const account = await this.#account(viewer, userId);
+    const account = await this.#account(viewer, userId, { aggregate: true });
     const year = Number(localDate(zone).slice(0, 4));
     const [counts, favRows, avatar] = await Promise.all([
       this.db.execute<{ this_year: number; all_time: number }>(sql`
@@ -342,7 +566,7 @@ export class CardService {
 
   async wall(viewer: string | null, userId: string, layout: WallLayout = '4x4', year?: string): Promise<WallModel> {
     if (year !== undefined && !/^\d{4}$/.test(year)) throw ApiError.unprocessable('invalid_year', 'Year is YYYY.', 'year');
-    const account = await this.#account(viewer, userId);
+    const account = await this.#account(viewer, userId, { aggregate: true });
     const { cols, rows } = WALL_GRID[layout];
     const slots = cols * rows;
     const range = year === undefined ? sql`` : sql`AND r.finished_at >= ${`${year}-01-01`}::date AND r.finished_at < ${`${Number(year) + 1}-01-01`}::date`;
@@ -467,6 +691,27 @@ export function cardsPlugin(opts: CardsPluginOptions) {
     }, async (req, reply) => {
       const c = cards();
       return send(req, reply, await c.render('stat', await c.stat(req.viewer, req.params.id, req.params.stat, req.query.year, req.query.tz)));
+    });
+
+    app.get<{ Params: { id: string; year: string; card: YirCardKind }; Querystring: { tz?: string } }>('/cards/users/:id/year/:year/:card', {
+      schema: {
+        tags: [tag], summary: 'Year in Review card',
+        description: 'One Year in Review story card (PRD §6.41, §17.6), for the reader themself only: anyone else, signed in or not, gets 404. Public reads only, and the card says so (§17.5). 422 year_in_review_locked before 1 December of the year in tz; 422 nothing_to_share when public reads give the card nothing to show. A full-variant card asked for where the public figures are under 5 books is its gentle counterpart.',
+        params: {
+          type: 'object',
+          properties: {
+            id: { type: 'string', format: 'uuid' },
+            year: { type: 'string', pattern: '^\\d{4}$' },
+            card: { type: 'string', enum: [...YIR_CARD_KINDS] },
+          },
+          required: ['id', 'year', 'card'],
+        },
+        querystring: { type: 'object', properties: { tz: { type: 'string', maxLength: 64, description: 'IANA zone: when the year opens. Default UTC.' } } },
+        response: { 200: pngResponse(), ...cardErrors() },
+      },
+    }, async (req, reply) => {
+      const c = cards();
+      return send(req, reply, await c.render('year', await c.yearInReview(req.viewer, req.params.id, req.params.year, req.params.card, req.query.tz)));
     });
 
     app.get<{ Params: { id: string }; Querystring: { tz?: string } }>('/cards/users/:id/profile', {

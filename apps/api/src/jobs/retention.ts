@@ -10,6 +10,7 @@ import { createHmac, randomBytes } from 'node:crypto';
 import { sql } from 'drizzle-orm';
 import type { Db } from '../platform/index.js';
 import type { ObjectStorage } from '../providers/storage/index.js';
+import { CARD_COVER_RETENTION_DAYS, coverKey } from '../cards/images.js';
 
 /** PRD §23.5 "Deleted reviews: soft-deleted 30 days, then purged"; shelves §15.6; accounts §23.5. */
 export const SOFT_DELETE_DAYS = 30;
@@ -46,6 +47,8 @@ export interface RetentionResult {
   orphanMutes: number;
   importRowsTrimmed: number;
   avatarObjects: number;
+  /** Share-card cover copies unused for 180 days (owner decision on Phase 5 B). */
+  cardCovers: number;
   workedAt: string;
 }
 
@@ -122,6 +125,39 @@ async function sweepAvatarObjects(db: Db, storage: ObjectStorage | null): Promis
     }
     await db.execute(sql`UPDATE uploads SET status = 'expired' WHERE id = ${row.id}::uuid AND status = 'consumed'`);
     n++;
+  }
+  return n;
+}
+
+/**
+ * Cover copies for share cards (0047) that no card has drawn for 180 days
+ * (owner decision on Phase 5 B): the object, then its row. A failed object
+ * delete keeps the row for the next run; a cover drawn while this runs
+ * keeps its row (the delete re-checks the date) and is copied again by the
+ * next card that finds the object gone.
+ */
+async function sweepCardCovers(db: Db, storage: ObjectStorage | null, batch: number): Promise<number> {
+  if (!storage) return 0;
+  let n = 0;
+  for (let round = 0; round < 100; round++) {
+    const stale = await db.execute<{ cover_id: number }>(sql`
+      SELECT cover_id FROM card_covers
+      WHERE last_used_at < now() - make_interval(days => ${CARD_COVER_RETENTION_DAYS})
+      ORDER BY last_used_at LIMIT ${Math.min(batch, 1000)}`);
+    let deleted = 0;
+    for (const { cover_id } of stale) {
+      try {
+        await storage.delete(coverKey(Number(cover_id)));
+      } catch {
+        continue;
+      }
+      deleted += (await db.execute(sql`
+        DELETE FROM card_covers WHERE cover_id = ${cover_id}
+          AND last_used_at < now() - make_interval(days => ${CARD_COVER_RETENTION_DAYS})
+        RETURNING 1`)).length;
+    }
+    n += deleted;
+    if (stale.length < Math.min(batch, 1000) || deleted === 0) break;
   }
   return n;
 }
@@ -225,10 +261,11 @@ export async function retentionSweep(db: Db, storage: ObjectStorage | null, opts
     RETURNING 1`)).length, b);
 
   const avatarObjects = await sweepAvatarObjects(db, storage);
+  const cardCovers = await sweepCardCovers(db, storage, b);
 
   return {
     rateLimits, rateLimitEvents, notifications, events, zeroResults, shelves, reviews, comments, accounts, accountObjects,
-    orphanMutes, importRowsTrimmed, avatarObjects, workedAt: new Date().toISOString(),
+    orphanMutes, importRowsTrimmed, avatarObjects, cardCovers, workedAt: new Date().toISOString(),
   };
 }
 

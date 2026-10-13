@@ -36,6 +36,9 @@ async function setup() {
   await app.ready();
   [alice, bob, carol, dave] = [await makeUser(db, 'alice'), await makeUser(db, 'bob'), await makeUser(db, 'carol'), await makeUser(db, 'dave')];
   readId = await makeRead(db, alice.id, await makeWork(db, 'Earthsea'), { status: 'finished' });
+  // Accounts that already had their first follower (ST-10's note is tested in milestones.test.ts).
+  await db.execute(sql`INSERT INTO milestones (user_id, key, seen_at)
+    SELECT id, 'first_follower', now() FROM users ON CONFLICT DO NOTHING`);
 }
 
 const req = (who: TestUser, method: 'GET' | 'POST' | 'DELETE' | 'PATCH', url: string, payload?: object) =>

@@ -5,7 +5,8 @@
 //   Fonts      assets/fonts, read once (scripts/build-card-fonts.sh; OFL,
 //              licences beside them). Literata for titles and quotes, Archivo
 //              for labels and numbers, Noto for Arabic, Hebrew, the main Indic
-//              scripts, Thai, Chinese/Japanese (Noto Sans SC) and Hangul.
+//              scripts, Thai, Chinese/Japanese (Noto Sans SC), Hangul, and
+//              (Phase 5 C) Sinhala, Odia, Tibetan, Ethiopic, Khmer, Myanmar.
 //              resvg loads no system fonts, so a card looks the same on every
 //              machine.
 //   Emoji      Twemoji SVGs from disk (text.ts).
@@ -41,7 +42,7 @@ export const CARD_WIDTH = 1080;
 export const CARD_HEIGHT = 1920;
 
 /** Bump when any template's drawing changes, so cached PNGs of the old design are not served. */
-export const TEMPLATE_VERSION = 'st-08.1';
+export const TEMPLATE_VERSION = 'st-c.1';
 
 const FONT_DIR = new URL('../../assets/fonts/', import.meta.url);
 
@@ -54,6 +55,8 @@ const FALLBACKS = [
   'Noto Sans Arabic', 'Noto Sans Hebrew', 'Noto Sans Devanagari', 'Noto Sans Bengali', 'Noto Sans Tamil',
   'Noto Sans Telugu', 'Noto Sans Kannada', 'Noto Sans Malayalam', 'Noto Sans Gujarati', 'Noto Sans Gurmukhi',
   'Noto Sans Thai', 'Noto Sans SC', 'Noto Sans KR',
+  // Owner decision on Phase 5 B, built in 5 C.
+  'Noto Sans Sinhala', 'Noto Sans Oriya', 'Noto Serif Tibetan', 'Noto Sans Ethiopic', 'Noto Sans Khmer', 'Noto Sans Myanmar',
 ];
 export const SERIF_STACK = [SERIF, ...FALLBACKS].map((f) => `"${f}"`).join(', ');
 export const SANS_STACK = [SANS, ...FALLBACKS].map((f) => `"${f}"`).join(', ');
@@ -78,6 +81,12 @@ const FONT_FILES: Array<[name: string, file: string, weight: 400 | 600]> = [
   ['Noto Sans Thai', 'NotoSansThai-Regular.ttf', 400],
   ['Noto Sans SC', 'NotoSansSC-Regular.ttf', 400],
   ['Noto Sans KR', 'NotoSansKR-Hangul-Regular.ttf', 400],
+  ['Noto Sans Sinhala', 'NotoSansSinhala-Regular.ttf', 400],
+  ['Noto Sans Oriya', 'NotoSansOriya-Regular.ttf', 400],
+  ['Noto Serif Tibetan', 'NotoSerifTibetan-Regular.ttf', 400],
+  ['Noto Sans Ethiopic', 'NotoSansEthiopic-Regular.ttf', 400],
+  ['Noto Sans Khmer', 'NotoSansKhmer-Regular.ttf', 400],
+  ['Noto Sans Myanmar', 'NotoSansMyanmar-Regular.ttf', 400],
 ];
 
 let fonts: Font[] | null = null;

@@ -34,6 +34,8 @@ import { NoopErrorReporter, type ErrorReporter } from './providers/errors/index.
 import { shelvesPlugin } from './shelves/index.js';
 import { publicPagesPlugin } from './web/public-pages.js';
 import { cardsPlugin } from './cards/index.js';
+import { yearInReviewRoutes } from './reading/year-in-review.js';
+import { milestoneRoutes } from './reading/milestones.js';
 import type { FetchBytes } from './cards/images.js';
 import type { CardRenderer } from './cards/render.js';
 import type { PgBoss } from 'pg-boss';
@@ -361,6 +363,8 @@ export interface BuildAppOptions {
    * its in-memory cache). Tests pass both.
    */
   cards?: { fetchBytes?: FetchBytes; renderer?: CardRenderer; coverBudgetMs?: number };
+  /** ST-09: the clock that decides when Year in Review opens (tests pass a fixed one). Cards use it too. */
+  yearInReview?: { now?: () => Date };
 }
 
 /** Routes whose group is not the default for their method (Audit 15, §1). */
@@ -522,6 +526,8 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
     await app.register(readingRoutes(options.reading), { prefix: '/v1' });
   }
   if (options.db) {
+    await app.register(yearInReviewRoutes(options.db, options.yearInReview), { prefix: '/v1' });
+    await app.register(milestoneRoutes(options.db), { prefix: '/v1' });
     // One Notifier for every write that notifies (SO-30). Pushes go through
     // the job queue in the write's transaction, never from the request.
     const notifier = new Notifier(options.notifyQueue ?? (options.boss ? bossNotifyQueue(options.boss) : undefined));
@@ -550,7 +556,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
     // Public pages for people without the app (SO-50, SO-51): book, profile, shelf.
     await app.register(publicPagesPlugin({ db: options.db, cache: options.cache }));
     // Share cards (ST-07, ST-08). Covers come from storage; without one, every card draws posters.
-    await app.register(cardsPlugin({ db: options.db, storage: options.storage ?? null, ...options.cards }), { prefix: '/v1' });
+    await app.register(cardsPlugin({ db: options.db, storage: options.storage ?? null, ...options.cards, now: options.yearInReview?.now }), { prefix: '/v1' });
     await app.register(importsPlugin, { prefix: '/v1', db: options.db, boss: options.boss, limits: rateLimits });
     if (options.storage) {
       const storage = options.storage;

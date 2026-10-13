@@ -8,6 +8,7 @@
 //   - DB triggers automatically maintain profiles.follower_count and following_count.
 //   - Complete block invisibility: follow operations targeting a blocked user return 404.
 
+import { Milestones } from '../reading/milestones.js';
 import { RateLimits } from '../platform/rate-limits.js';
 import type { FastifyInstance, FastifyPluginAsync } from 'fastify';
 import { and, desc, eq, isNull, or, sql } from 'drizzle-orm';
@@ -225,6 +226,8 @@ export class SocialService {
       // PRD §19.2 items 1 and 2: a new follower, or a request to a private
       // account. Only when this statement made the row, so a replay is silent.
       if (row.state !== 'none') await this.notifier.follow(t, viewer, targetUserId, row.state);
+      // ST-10: a first follower is a warm note (in-app only).
+      if (row.state === 'accepted') await new Milestones(this.notifier).afterFollow(t, targetUserId, viewer);
       return row.state;
     });
 
@@ -323,6 +326,8 @@ export class SocialService {
       // The request is answered. No "new follower" either: the recipient
       // accepted it themselves.
       await this.notifier.requestResolved(t, requesterId, viewer);
+      // ST-10: recorded, without the note: they accepted it themselves.
+      await new Milestones(this.notifier).afterFollow(t, viewer, requesterId, { notify: false });
     });
 
     return {

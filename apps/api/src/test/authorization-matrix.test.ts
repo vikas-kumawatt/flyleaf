@@ -50,6 +50,14 @@ function oracle(viewer: Viewer, account: Account, vis: Vis): boolean {
 /** Account-level content (stats, follower lists, the account itself): §16.3. */
 const accountOracle = (viewer: Viewer, account: Account) => oracle(viewer, account, 'public');
 
+/**
+ * Aggregate share cards (profile, stat, Wall, Year in Review): as the account,
+ * except that a private account's are its owner's alone (owner decision on
+ * Phase 5 B): its follower gets the random-id 404 too.
+ */
+const aggregateCardOracle = (viewer: Viewer, account: Account) =>
+  account === 'private' ? viewer === 'owner' : accountOracle(viewer, account);
+
 /** Owner-only resources (imports, exports, sessions). */
 const ownerOnly = (viewer: Viewer, account: Account) => viewer === 'owner' && account !== 'deleted';
 
@@ -175,6 +183,8 @@ beforeAll(async () => {
     });
 
     await db.insert(goals).values({ userId: user.id, year: 2026, targetBooks: 12 });
+    // ST-09: a dated public finish, so the owner has a 2025 Year in Review card (open since 1 Dec 2025).
+    await db.update(reads).set({ finishedAt: '2025-06-01', startedAt: '2025-06-01' }).where(eq(reads.id, o.read.public));
     owners[account] = o;
   }
 
@@ -230,13 +240,16 @@ const SINGLE: SingleRow[] = [
   { name: 'GET /v1/exports/:id', vis: null, url: (o) => `/v1/exports/${o.exportId}`, randomUrl: () => `/v1/exports/${R()}`, expected: ownerOnly, signedInOnly: true },
   // ST-07/ST-08 share cards: a card follows the screen it shares. A finish
   // card is the read's (GET /reads/:id); stat, profile and Wall cards are
-  // account-level like the stats; a review quote is its author's alone
+  // account-level like the stats, except that a private account's are its
+  // owner's alone (owner decision on Phase 5 B); a review quote is its author's alone
   // (PRD §41.4), so every other viewer, guests included, gets the 404.
   { name: 'GET /v1/cards/finish/:id', vis: VIS, url: (o, v) => `/v1/cards/finish/${o.read[v]}`, randomUrl: () => `/v1/cards/finish/${R()}`, expected: oracle },
   { name: 'GET /v1/cards/review/:id', vis: VIS, url: (o, v) => `/v1/cards/review/${o.review[v]}`, randomUrl: () => `/v1/cards/review/${R()}`, expected: (viewer, account) => ownerOnly(viewer, account) },
-  { name: 'GET /v1/cards/users/:id/stat/:stat', vis: null, url: (o) => `/v1/cards/users/${o.user.id}/stat/books?year=all`, randomUrl: () => `/v1/cards/users/${R()}/stat/books?year=all`, expected: accountOracle },
-  { name: 'GET /v1/cards/users/:id/profile', vis: null, url: (o) => `/v1/cards/users/${o.user.id}/profile`, randomUrl: () => `/v1/cards/users/${R()}/profile`, expected: accountOracle },
-  { name: 'GET /v1/cards/users/:id/wall', vis: null, url: (o) => `/v1/cards/users/${o.user.id}/wall`, randomUrl: () => `/v1/cards/users/${R()}/wall`, expected: accountOracle },
+  { name: 'GET /v1/cards/users/:id/stat/:stat', vis: null, url: (o) => `/v1/cards/users/${o.user.id}/stat/books?year=all`, randomUrl: () => `/v1/cards/users/${R()}/stat/books?year=all`, expected: aggregateCardOracle },
+  { name: 'GET /v1/cards/users/:id/profile', vis: null, url: (o) => `/v1/cards/users/${o.user.id}/profile`, randomUrl: () => `/v1/cards/users/${R()}/profile`, expected: aggregateCardOracle },
+  // ST-09: Year in Review is generated for its reader (§17.5): their own card, nobody else's.
+  { name: 'GET /v1/cards/users/:id/year/:year/:card', vis: null, url: (o) => `/v1/cards/users/${o.user.id}/year/2025/books`, randomUrl: () => `/v1/cards/users/${R()}/year/2025/books`, expected: ownerOnly },
+  { name: 'GET /v1/cards/users/:id/wall', vis: null, url: (o) => `/v1/cards/users/${o.user.id}/wall`, randomUrl: () => `/v1/cards/users/${R()}/wall`, expected: aggregateCardOracle },
 ];
 
 /**

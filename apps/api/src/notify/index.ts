@@ -53,6 +53,8 @@ export const NOTIFY_QUEUES = {
   reminders: 'notify.reminders',
   /** Every 15 minutes: Expo delivery receipts; dead tokens deleted (PV-05 → SO-30). */
   receipts: 'notify.receipts',
+  /** Every 30 minutes in December: Year in Review notices for readers whose 1 December has come (ST-09). */
+  yir: 'notify.yir',
 } as const;
 
 export interface NotifySendJob {
@@ -234,6 +236,29 @@ export class Notifier {
     await this.#emit(t, { type: 'moderation', recipientId: userId, actorId: null, objectType: 'moderation_action', objectId: actionId, data });
   }
 
+  /**
+   * PRD §19.2 item 8, "once annually" (ST-09): the reader's Year in Review
+   * opened. Push and in-app, through the same preferences, quiet hours and
+   * 5-a-day cap as everything else (delivery.ts). One per year per user
+   * (notifications_yir_once_uq); the notify.yir job claims the year first.
+   */
+  async yearInReview(t: Db, userId: string, year: number): Promise<void> {
+    await this.#emit(t, { type: 'year_in_review', recipientId: userId, actorId: null, objectType: 'user', objectId: userId, data: { year } });
+  }
+
+  /**
+   * PRD §19.2 item 12 and §18.4 (ST-10): a milestone, in the list only — the
+   * category has no push channel, so nothing is ever queued for it, and no
+   * activity is written (§18.4 "in-app, and never becomes a push"). Once per
+   * key (notifications_milestone_once_uq). The first follower names them,
+   * so a block or mute hides it like any follow.
+   */
+  async milestone(t: Db, userId: string, key: string, data: Record<string, unknown> = {}, actorId: string | null = null): Promise<void> {
+    await this.#emit(t, {
+      type: 'milestone', recipientId: userId, actorId, objectType: 'user', objectId: userId, data: { ...data, key },
+    });
+  }
+
   /** PRD §19.5: a notification for deleted content is removed from the list. */
   async commentDeleted(t: Db, commentId: string): Promise<void> {
     await t.execute(sql`DELETE FROM notifications WHERE object_type = 'comment' AND object_id = ${commentId}::uuid`);
@@ -301,6 +326,14 @@ export class Notifier {
         ON CONFLICT (user_id, group_key) WHERE read_at IS NULL AND group_key IS NOT NULL
         DO UPDATE SET updated_at = now(), in_app = EXCLUDED.in_app
         RETURNING id, push_state`);
+    } else if (e.type === 'year_in_review' || e.type === 'milestone') {
+      // Once a year / once per milestone: a replay or a second claim writes nothing.
+      [row] = await t.execute<{ id: string; push_state: string }>(sql`
+        INSERT INTO notifications (user_id, type, object_type, object_id, data, in_app)
+        VALUES (${e.recipientId}::uuid, ${e.type}, ${e.objectType}, ${e.objectId}::uuid, ${data}::jsonb, ${channels.inApp})
+        ON CONFLICT DO NOTHING
+        RETURNING id, push_state`);
+      if (!row) return;
     } else if (e.type === 'import_complete') {
       [row] = await t.execute<{ id: string; push_state: string }>(sql`
         INSERT INTO notifications (user_id, type, object_type, object_id, data, in_app)
@@ -504,6 +537,10 @@ export function viewSql(where: SQL, limit: number, focusActor: string | null = n
             OR EXISTS (SELECT 1 FROM follows f
               WHERE f.follower_id = n.user_id AND f.followee_id = r.user_id AND f.state = 'accepted'))
         WHEN 'moderation' THEN EXISTS (SELECT 1 FROM moderation_actions ma WHERE ma.id = n.object_id)
+        WHEN 'year_in_review' THEN true
+        -- A milestone is about the recipient; the first follower's names them
+        -- and goes like any follow when they are blocked, muted or gone.
+        WHEN 'milestone' THEN (n.data->>'key' <> 'first_follower' OR act.actor_count > 0)
         ELSE act.actor_count > 0 END
     ORDER BY n.updated_at DESC, n.id DESC
     LIMIT ${limit}`;
@@ -626,6 +663,12 @@ export function compose(
         text: typeof v.data.text === 'string' ? v.data.text : 'A moderator reviewed your content.',
         deepLink: `flyleaf://moderation/${v.objectId}`,
       };
+    case 'year_in_review': {
+      const year = Number(v.data.year);
+      return { text: `Your ${year} Year in Review is ready.`, deepLink: `flyleaf://year-in-review/${year}` };
+    }
+    case 'milestone':
+      return composeMilestone(v);
     case 'import_complete': {
       const source = SOURCE_NAMES[v.importSource ?? ''] ?? 'library';
       const matched = v.importMatched ?? 0;
@@ -637,6 +680,36 @@ export function compose(
       };
     }
   }
+}
+
+/**
+ * PRD §18.4: warm, never volume-chasing; nothing says what is next or how far
+ * away it is.
+ */
+function composeMilestone(v: NotificationView): Composed {
+  const key = String(v.data.key ?? '');
+  const books = /^books_(\d+)$/.exec(key);
+  if (books) {
+    const n = Number(books[1]);
+    return {
+      text: n === 1 ? 'You finished your first book on Flyleaf.' : `You've finished ${n.toLocaleString('en-GB')} books on Flyleaf.`,
+      deepLink: 'flyleaf://stats',
+    };
+  }
+  const goal = /^goal_(\d{4})$/.exec(key);
+  if (goal) return { text: `You reached your ${goal[1]} reading goal.`, deepLink: 'flyleaf://stats' };
+  if (key === 'first_review') {
+    const review = typeof v.data.review_id === 'string' ? v.data.review_id : null;
+    const work = typeof v.data.work_id === 'string' ? v.data.work_id : null;
+    return {
+      text: 'You wrote your first review. Thank you for sharing it.',
+      deepLink: review ? `flyleaf://review/${review}${work ? `?work=${work}` : ''}` : 'flyleaf://stats',
+    };
+  }
+  if (key === 'first_follower' && v.actor) {
+    return { text: `${nameOf(v.actor)} is your first follower. Welcome to reading together.`, deepLink: `flyleaf://user/${v.actor.id}` };
+  }
+  return { text: 'A milestone.', deepLink: 'flyleaf://stats' };
 }
 
 // ---------------------------------------------------------------------------
@@ -884,7 +957,7 @@ export const notificationItemSchema = {
   type: 'object',
   properties: {
     id: { type: 'string', format: 'uuid' },
-    type: { type: 'string', enum: ['follow', 'follow_request', 'like', 'comment', 'import_complete', 'reply', 'moderation'] },
+    type: { type: 'string', enum: ['follow', 'follow_request', 'like', 'comment', 'import_complete', 'reply', 'moderation', 'year_in_review', 'milestone'] },
     text: { type: 'string' },
     deep_link: { type: 'string', description: 'flyleaf:// URL of the screen this opens' },
     read: { type: 'boolean' },

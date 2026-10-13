@@ -18,6 +18,7 @@ import { ActionGateProvider } from '@/ui/ActionGate';
 import { VerifyEmailBanner, VerifyEmailProvider } from '@/ui/VerifyEmail';
 import { ConfirmDobPrompt } from '@/ui/ConfirmDob';
 import { PushBridge } from '@/ui/PushBridge';
+import { MilestoneBridge } from '@/ui/MilestoneBridge';
 import { ThemeProvider, useTheme, useThemeContext } from '@/ui/tokens';
 import { ErrorBoundary } from '@/ui/ErrorBoundary';
 import { initTelemetry } from '@/lib/events';
@@ -129,6 +130,7 @@ export default function RootLayout() {
                     <VerifyEmailProvider>
                       <Nav />
                       <PushBridge />
+                      <MilestoneBridge />
                       <ConfirmDobPrompt />
                     </VerifyEmailProvider>
                   </ActionGateProvider>

@@ -1,34 +1,30 @@
-// Reading Stats Screen (SL-74, PRD §6.18, §6.40).
+// Reading Stats (SL-74, ST-04; PRD §6.40, §17.2–17.4).
 //
-// Volume, temporal pace, taste profile, rating distribution, and extremes.
+// One statistic per card, vertically (§17.3), each with its own number, its
+// ST-03 disclosure ("Based on 180 of your 247 books — …"), its method on tap
+// and, on your own stats, a Share button that opens the preview of that
+// stat's server-rendered card (§6.45). The cards come from statCards(), so
+// a figure with nothing under it has no card rather than a made-up zero.
+//
+// From 1 December a banner opens your Year in Review (ST-09). No goal ring
+// here: §8.6 [LOCKED] keeps it on the profile.
 
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
-import {
-  View,
-  ScrollView,
-  Pressable,
-  ActivityIndicator,
-  StyleSheet,
-  RefreshControl,
-} from 'react-native';
-import { useRouter, useLocalSearchParams } from 'expo-router';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { ActivityIndicator, Pressable, RefreshControl, ScrollView, StyleSheet, View } from 'react-native';
+import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as Haptics from 'expo-haptics';
+import type { YearInReview } from '@flyleaf/api-client';
 import { useSession } from '@/lib/session';
 import { api, type ReadingStats } from '@/lib/api';
-import { coverageNote, deviceTimeZone, dnfPercent, excludedNote, formatShares, statsRatingRows, streakCopy } from '@/lib/statsView';
-import {
-  Button,
-  Card,
-  Cover,
-  EmptyState,
-  Screen,
-  Txt,
-  sheet,
-} from '@/ui/components';
+import { track } from '@/lib/events';
+import { deviceTimeZone } from '@/lib/statsView';
+import { statCards, statsEmpty } from '@/lib/statCards';
+import { encodeShareOptions, statShareOptions } from '@/lib/shareCard';
+import { yirBanner } from '@/lib/yearInReview';
+import { Button, Card, EmptyState, Screen, Txt, sheet } from '@/ui/components';
+import { StatCard } from '@/ui/StatCard';
 import { radius, space, useTheme } from '@/ui/tokens';
-
-const MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
 export default function StatsScreen() {
   const c = useTheme();
@@ -43,6 +39,7 @@ export default function StatsScreen() {
   const currentYear = new Date().getFullYear();
   const [selectedYear, setSelectedYear] = useState<string>(String(currentYear));
   const [stats, setStats] = useState<ReadingStats | null>(null);
+  const [yir, setYir] = useState<YearInReview | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
 
@@ -54,16 +51,23 @@ export default function StatsScreen() {
         ? await api.userStats(targetUserId, selectedYear, deviceTimeZone())
         : await api.myStats(selectedYear, deviceTimeZone());
       setStats(res);
+      track('stats_viewed', { year: selectedYear });
     } catch {
-      // Offline / error
+      // Offline / error: keep what is shown.
     } finally {
       setLoading(false);
     }
   }, [targetUserId, isOtherUser, selectedYear]);
 
   useEffect(() => {
-    loadStats();
+    void loadStats();
   }, [loadStats]);
+
+  // Your own Year in Review, once it is open (ST-09).
+  useEffect(() => {
+    if (isOtherUser || !user) return;
+    api.yearInReview(undefined, deviceTimeZone()).then(setYir).catch(() => setYir(null));
+  }, [isOtherUser, user]);
 
   const onRefresh = async () => {
     setRefreshing(true);
@@ -72,34 +76,15 @@ export default function StatsScreen() {
     setRefreshing(false);
   };
 
-  // Max books in a single month for pace bar scaling
-  const maxMonthBooks = useMemo(() => {
-    if (!stats?.monthly_pace) return 1;
-    return Math.max(1, ...stats.monthly_pace.map((m) => m.books));
-  }, [stats]);
-
-  // The ten half-star buckets (PRD §17.2) and the format split, unknown included.
-  const ratingRows = useMemo(() => statsRatingRows(stats?.rating_distribution), [stats]);
-  const formats = useMemo(() => formatShares(stats?.format_breakdown), [stats]);
-  // §17.4: what the figures leave out.
-  const excluded = stats ? excludedNote(stats) : null;
-  // ST-03: "Based on N of your M books — K are …" under each figure that lacks data.
-  const whose = isOtherUser ? 'their' : 'your';
-  const note = (key: Parameters<typeof coverageNote>[1]) => (stats ? coverageNote(stats, key, whose) : null);
-  // ST-06 / §8.7: a broken streak is shown as the longest, never as a loss.
-  const streak = stats ? streakCopy(stats) : null;
+  const cards = useMemo(() => (stats ? statCards(stats, isOtherUser ? 'their' : 'your') : []), [stats, isOtherUser]);
+  const banner = yirBanner(yir);
 
   return (
     <Screen style={{ flex: 1, backgroundColor: c.ground }}>
-      {/* Header */}
       <View
         style={{
-          paddingTop: insets.top + space[2],
-          paddingHorizontal: space[4],
-          paddingBottom: space[3],
-          backgroundColor: c.ground,
-          borderBottomWidth: 1,
-          borderBottomColor: c.line,
+          paddingTop: insets.top + space[2], paddingHorizontal: space[4], paddingBottom: space[3],
+          backgroundColor: c.ground, borderBottomWidth: 1, borderBottomColor: c.line,
         }}
       >
         <View style={sheet.rowBetween}>
@@ -117,11 +102,9 @@ export default function StatsScreen() {
               ← Back
             </Txt>
           </Pressable>
-
           <Txt variant="title" style={{ fontWeight: '700', fontSize: 18 }}>
             Reading Stats
           </Txt>
-
           <Pressable
             onPress={() => {
               void Haptics.selectionAsync();
@@ -138,12 +121,7 @@ export default function StatsScreen() {
           </Pressable>
         </View>
 
-        {/* Year Pills */}
-        <ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          contentContainerStyle={{ gap: space[2], marginTop: space[3] }}
-        >
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: space[2], marginTop: space[3] }}>
           {['all', String(currentYear), String(currentYear - 1), String(currentYear - 2)].map((yr) => (
             <Pressable
               key={yr}
@@ -151,21 +129,14 @@ export default function StatsScreen() {
                 void Haptics.selectionAsync();
                 setSelectedYear(yr);
               }}
+              accessibilityRole="button"
+              accessibilityState={{ selected: selectedYear === yr }}
               style={[
                 styles.yearPill,
-                {
-                  backgroundColor: selectedYear === yr ? c.ink : c.surface,
-                  borderColor: selectedYear === yr ? c.ink : c.line,
-                },
+                { backgroundColor: selectedYear === yr ? c.ink : c.surface, borderColor: selectedYear === yr ? c.ink : c.line },
               ]}
             >
-              <Txt
-                variant="caption"
-                style={{
-                  color: selectedYear === yr ? c.ground : c.ink,
-                  fontWeight: '600',
-                }}
-              >
+              <Txt variant="caption" style={{ color: selectedYear === yr ? c.ground : c.ink, fontWeight: '600' }}>
                 {yr === 'all' ? 'All-Time' : yr}
               </Txt>
             </Pressable>
@@ -174,338 +145,48 @@ export default function StatsScreen() {
       </View>
 
       <ScrollView
-        contentContainerStyle={{
-          paddingHorizontal: space[4],
-          paddingTop: space[4],
-          paddingBottom: insets.bottom + space[8],
-          gap: space[4],
-        }}
-        refreshControl={
-          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={c.accent} />
-        }
+        contentContainerStyle={{ paddingHorizontal: space[4], paddingTop: space[4], paddingBottom: insets.bottom + space[8], gap: space[3] }}
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={c.accent} />}
       >
+        {banner && (
+          <Card
+            onPress={() => router.push(`/year-in-review?year=${banner.year}` as any)}
+            style={{ padding: space[4], backgroundColor: c.accentSoft, borderColor: c.accent }}
+          >
+            <Txt variant="title" style={{ fontWeight: '700' }}>
+              {banner.title}
+            </Txt>
+            <Txt variant="caption" color="ink2">
+              {banner.subtitle}
+            </Txt>
+          </Card>
+        )}
+
         {loading && !stats ? (
           <ActivityIndicator size="large" color={c.accent} style={{ marginTop: space[6] }} />
-        ) : !stats || stats.books_count === 0 ? (
+        ) : statsEmpty(stats) ? (
           <EmptyState
-            title="No reading stats yet"
-            subtitle="As you finish books and log reading activity, your annual volume, pace, and taste insights appear here."
-            action={
-              <Button
-                label="Explore books"
-                variant="primary"
-                onPress={() => router.push('/(tabs)/discover' as any)}
-              />
-            }
+            title="Finish a few books and your stats will appear"
+            subtitle="Once three books are finished, this is where your year in reading takes shape."
+            action={<Button label="Explore books" variant="primary" onPress={() => router.push('/(tabs)/discover' as any)} />}
           />
         ) : (
-          <>
-            {/* 1. VOLUME HERO CARDS */}
-            <View style={{ gap: space[2] }}>
-              <Txt variant="title" style={{ fontSize: 16, fontWeight: '700' }}>
-                Volume & Habit
-              </Txt>
-
-              <View style={styles.metricsGrid}>
-                {/* Books count */}
-                <Card style={[styles.metricCard, { backgroundColor: c.surface }]}>
-                  <Txt variant="caption" color="muted">
-                    Books Finished
-                  </Txt>
-                  <Txt variant="title" style={styles.metricNumber}>
-                    {stats.books_count}
-                  </Txt>
-                </Card>
-
-                {/* Pages count */}
-                <Card style={[styles.metricCard, { backgroundColor: c.surface }]}>
-                  <Txt variant="caption" color="muted">
-                    Pages Read
-                  </Txt>
-                  <Txt variant="title" style={styles.metricNumber}>
-                    {stats.pages_count.toLocaleString()}
-                  </Txt>
-                </Card>
-
-                {/* Audio hours */}
-                <Card style={[styles.metricCard, { backgroundColor: c.surface }]}>
-                  <Txt variant="caption" color="muted">
-                    Audio Hours
-                  </Txt>
-                  <Txt variant="title" style={styles.metricNumber}>
-                    {stats.audio_hours}h
-                  </Txt>
-                </Card>
-
-                {/* Reading streak (§8.7): hidden for a reader who never logs progress. */}
-                {streak && (
-                  <Card style={[styles.metricCard, { backgroundColor: c.surface }]}>
-                    <Txt variant="caption" color="muted">
-                      {streak.label}
-                    </Txt>
-                    <Txt variant="title" style={styles.metricNumber}>
-                      {streak.hero}
-                    </Txt>
-                    {streak.detail && (
-                      <Txt variant="caption" color="muted">
-                        {streak.detail}
-                      </Txt>
-                    )}
-                  </Card>
-                )}
-              </View>
-            </View>
-
-            {excluded && (
-              <Txt variant="caption" color="muted">
-                {excluded}
-              </Txt>
-            )}
-            {note('audio') && (
-              <Txt variant="caption" color="muted">
-                Listening hours: {note('audio')}
-              </Txt>
-            )}
-
-            {/* 2. TEMPORAL PACE CHART */}
-            <Card style={{ padding: space[4], gap: space[3] }}>
-              <View style={sheet.rowBetween}>
-                <Txt variant="title" style={{ fontSize: 16, fontWeight: '700' }}>
-                  Monthly Pace
-                </Txt>
-                <Txt variant="caption" color="muted">
-                  Books per month
-                </Txt>
-              </View>
-
-              <View style={styles.chartContainer}>
-                {stats.monthly_pace.map((item, idx) => {
-                  const heightPercent = maxMonthBooks > 0 ? (item.books / maxMonthBooks) * 100 : 0;
-                  const isTopMonth = item.books === maxMonthBooks && item.books > 0;
-
-                  return (
-                    <View key={idx} style={styles.chartColumn}>
-                      {item.books > 0 && (
-                        <Txt variant="caption" style={{ fontSize: 10, color: c.accent, fontWeight: '700' }}>
-                          {item.books}
-                        </Txt>
-                      )}
-                      <View style={styles.barTrack}>
-                        <View
-                          style={[
-                            styles.barFill,
-                            {
-                              height: `${Math.max(item.books > 0 ? 8 : 2, heightPercent)}%`,
-                              backgroundColor: isTopMonth ? c.accent : c.line,
-                            },
-                          ]}
-                        />
-                      </View>
-                      <Txt variant="caption" color="muted" style={{ fontSize: 10, marginTop: 4 }}>
-                        {MONTH_NAMES[idx]}
-                      </Txt>
-                    </View>
-                  );
-                })}
-              </View>
-            </Card>
-
-            {/* 3. TASTE PROFILE: RATINGS & FORMATS */}
-            <View style={{ gap: space[3] }}>
-              <Txt variant="title" style={{ fontSize: 16, fontWeight: '700' }}>
-                Taste & Formats
-              </Txt>
-
-              <Card style={{ padding: space[4], gap: space[4] }}>
-                {/* Average Rating Banner */}
-                {stats.avg_rating !== null && (
-                  <View style={[sheet.rowBetween, { borderBottomWidth: 1, borderBottomColor: c.line, paddingBottom: space[3] }]}>
-                    <View>
-                      <Txt variant="caption" color="muted">
-                        Average Star Rating
-                      </Txt>
-                      <View style={[sheet.row, { gap: space[2], marginTop: 2 }]}>
-                        <Txt variant="title" style={{ fontSize: 28, fontWeight: '800', color: c.accent }}>
-                          ★ {typeof stats.avg_rating === 'number' ? stats.avg_rating.toFixed(2) : '—'}
-                        </Txt>
-                        <Txt variant="caption" color="muted" style={{ marginTop: 8 }}>
-                          across {Object.values(stats.rating_distribution).reduce((a, b) => a + b, 0)} rated books
-                        </Txt>
-                      </View>
-                      {note('ratings') && (
-                        <Txt variant="caption" color="muted">
-                          {note('ratings')}
-                        </Txt>
-                      )}
-                    </View>
-                  </View>
-                )}
-
-                {/* Rating Distribution Histogram */}
-                <View style={{ gap: space[2] }}>
-                  <Txt variant="caption" color="muted" style={{ fontWeight: '600' }}>
-                    Rating Distribution
-                  </Txt>
-                  {ratingRows.map(({ bucket, count, fill: fillPercent }) => {
-                    return (
-                      <View key={bucket} style={[sheet.row, { gap: space[2] }]}>
-                        <Txt variant="caption" style={{ width: 32, fontWeight: '600' }}>
-                          {bucket}★
-                        </Txt>
-                        <View style={[styles.histTrack, { backgroundColor: c.ground }]}>
-                          <View
-                            style={[
-                              styles.histFill,
-                              {
-                                width: `${fillPercent}%`,
-                                backgroundColor: count > 0 ? c.accent : 'transparent',
-                              },
-                            ]}
-                          />
-                        </View>
-                        <Txt variant="caption" color="muted" style={{ width: 28, textAlign: 'right' }}>
-                          {count}
-                        </Txt>
-                      </View>
-                    );
-                  })}
-                </View>
-
-                {/* Format Breakdown */}
-                {formats.length > 0 && (
-                  <View style={{ gap: space[2], borderTopWidth: 1, borderTopColor: c.line, paddingTop: space[3] }}>
-                    <Txt variant="caption" color="muted" style={{ fontWeight: '600' }}>
-                      Format Breakdown
-                    </Txt>
-                    <View style={[sheet.rowBetween, { gap: space[2] }]}>
-                      {formats.map(({ key: fmt, count, pct }) => {
-                        const label = fmt === 'print' ? 'Print' : fmt === 'ebook' ? 'eBook' : fmt === 'audiobook' ? 'Audio' : 'Unknown';
-
-                        return (
-                          <View
-                            key={fmt}
-                            style={[
-                              styles.formatBox,
-                              { backgroundColor: c.ground, borderColor: c.line },
-                            ]}
-                          >
-                            <Txt variant="title" style={{ fontSize: 18, fontWeight: '700' }}>
-                              {count}
-                            </Txt>
-                            <Txt variant="caption" color="muted">
-                              {label} ({pct}%)
-                            </Txt>
-                          </View>
-                        );
-                      })}
-                    </View>
-                    {note('formats') && (
-                      <Txt variant="caption" color="muted">
-                        {note('formats')}
-                      </Txt>
-                    )}
-                  </View>
-                )}
-
-                {/* DNF Stats */}
-                <View style={[sheet.rowBetween, { borderTopWidth: 1, borderTopColor: c.line, paddingTop: space[3] }]}>
-                  <Txt variant="caption" color="muted">
-                    Did Not Finish (DNF)
-                  </Txt>
-                  <Txt variant="caption" color="ink" style={{ fontWeight: '600' }}>
-                    {stats.dnf_count} {stats.dnf_count === 1 ? 'book' : 'books'} ({dnfPercent(stats.dnf_rate)}% rate)
-                  </Txt>
-                </View>
-              </Card>
-            </View>
-
-            {/* 4. READING EXTREMES */}
-            <View style={{ gap: space[3] }}>
-              <Txt variant="title" style={{ fontSize: 16, fontWeight: '700' }}>
-                Reading Extremes
-              </Txt>
-
-              <View style={{ gap: space[3] }}>
-                {/* Longest Book */}
-                {stats.longest_book && (
-                  <Card
-                    onPress={() => router.push(`/work/${stats.longest_book?.work_id}` as any)}
-                    style={{ padding: space[3] }}
-                  >
-                    <View style={sheet.rowTop}>
-                      <Cover coverId={stats.longest_book.cover_id} title={stats.longest_book.title} size="m" />
-                      <View style={{ flex: 1, marginLeft: space[3], gap: 2 }}>
-                        <Txt variant="caption" color="accent" style={{ fontWeight: '700' }}>
-                          LONGEST BOOK
-                        </Txt>
-                        <Txt variant="title" numberOfLines={1}>
-                          {stats.longest_book.title}
-                        </Txt>
-                        <Txt variant="caption" color="muted" numberOfLines={1}>
-                          {stats.longest_book.author_name}
-                        </Txt>
-                        <Txt variant="caption" style={{ fontWeight: '700', marginTop: 4 }}>
-                          {stats.longest_book.page_count?.toLocaleString()} pages
-                        </Txt>
-                      </View>
-                    </View>
-                  </Card>
-                )}
-
-                {/* Shortest Book */}
-                {stats.shortest_book && (
-                  <Card
-                    onPress={() => router.push(`/work/${stats.shortest_book?.work_id}` as any)}
-                    style={{ padding: space[3] }}
-                  >
-                    <View style={sheet.rowTop}>
-                      <Cover coverId={stats.shortest_book.cover_id} title={stats.shortest_book.title} size="m" />
-                      <View style={{ flex: 1, marginLeft: space[3], gap: 2 }}>
-                        <Txt variant="caption" color="accent" style={{ fontWeight: '700' }}>
-                          SHORTEST BOOK
-                        </Txt>
-                        <Txt variant="title" numberOfLines={1}>
-                          {stats.shortest_book.title}
-                        </Txt>
-                        <Txt variant="caption" color="muted" numberOfLines={1}>
-                          {stats.shortest_book.author_name}
-                        </Txt>
-                        <Txt variant="caption" style={{ fontWeight: '700', marginTop: 4 }}>
-                          {stats.shortest_book.page_count?.toLocaleString()} pages
-                        </Txt>
-                      </View>
-                    </View>
-                  </Card>
-                )}
-
-                {/* Most Read Author */}
-                {stats.most_read_author && (
-                  <Card style={{ padding: space[3] }}>
-                    <View style={sheet.rowBetween}>
-                      <View style={{ gap: 2 }}>
-                        <Txt variant="caption" color="accent" style={{ fontWeight: '700' }}>
-                          MOST READ AUTHOR
-                        </Txt>
-                        <Txt variant="title" style={{ fontSize: 16 }}>
-                          {stats.most_read_author.name}
-                        </Txt>
-                      </View>
-                      <View style={[styles.authorPill, { backgroundColor: c.ground, borderColor: c.line }]}>
-                        <Txt variant="caption" color="ink" style={{ fontWeight: '700' }}>
-                          {stats.most_read_author.count} {stats.most_read_author.count === 1 ? 'book' : 'books'}
-                        </Txt>
-                      </View>
-                    </View>
-                    {note('authors') && (
-                      <Txt variant="caption" color="muted" style={{ marginTop: space[2] }}>
-                        {note('authors')}
-                      </Txt>
-                    )}
-                  </Card>
-                )}
-              </View>
-            </View>
-          </>
+          cards.map((card) => (
+            <StatCard
+              key={card.kind}
+              card={card}
+              onOpenBook={(workId) => router.push(`/work/${workId}` as any)}
+              onShare={
+                isOtherUser || !targetUserId
+                  ? undefined
+                  : () => {
+                      void Haptics.selectionAsync();
+                      const options = statShareOptions(targetUserId, card.kind, selectedYear, deviceTimeZone());
+                      router.push(`/share?options=${encodeURIComponent(encodeShareOptions(options))}` as any);
+                    }
+              }
+            />
+          ))
         )}
       </ScrollView>
     </Screen>
@@ -521,66 +202,5 @@ const styles = StyleSheet.create({
     minHeight: 32,
     alignItems: 'center',
     justifyContent: 'center',
-  },
-  metricsGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: space[2],
-  },
-  metricCard: {
-    width: '48.5%',
-    padding: space[3],
-    gap: 4,
-  },
-  metricNumber: {
-    fontSize: 24,
-    fontWeight: '800',
-  },
-  chartContainer: {
-    flexDirection: 'row',
-    alignItems: 'flex-end',
-    height: 120,
-    gap: 4,
-    paddingTop: space[3],
-  },
-  chartColumn: {
-    flex: 1,
-    height: '100%',
-    alignItems: 'center',
-    justifyContent: 'flex-end',
-  },
-  barTrack: {
-    width: '100%',
-    height: 80,
-    justifyContent: 'flex-end',
-    alignItems: 'center',
-  },
-  barFill: {
-    width: 14,
-    borderRadius: radius.sm,
-  },
-  histTrack: {
-    flex: 1,
-    height: 12,
-    borderRadius: radius.pill,
-    overflow: 'hidden',
-  },
-  histFill: {
-    height: '100%',
-    borderRadius: radius.pill,
-  },
-  formatBox: {
-    flex: 1,
-    padding: space[2],
-    alignItems: 'center',
-    borderRadius: radius.sm,
-    borderWidth: 1,
-    gap: 2,
-  },
-  authorPill: {
-    paddingHorizontal: space[3],
-    paddingVertical: 4,
-    borderRadius: radius.pill,
-    borderWidth: 1,
   },
 });

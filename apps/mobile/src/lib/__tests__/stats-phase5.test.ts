@@ -38,9 +38,10 @@ describe('ST-03: every figure says what it is based on', () => {
     assert.match(coverageNote(withGap('vs_crowd', 2, 5), 'vs_crowd')!, /of your 5 rated books/);
   });
 
-  it('the stats screen shows the notes it has figures for', () => {
-    const screen = readFileSync(join(ROOT, 'app/stats.tsx'), 'utf8');
-    for (const key of ['ratings', 'formats', 'authors', 'audio']) assert.match(screen, new RegExp(`note\\('${key}'\\)`), key);
+  it('the stats screen shows a note for every figure (ST-04: its cards come from statCards)', () => {
+    const cards = readFileSync(join(ROOT, 'src/lib/statCards.ts'), 'utf8');
+    for (const key of KEYS) assert.match(cards, new RegExp(`note\\('${key}'\\)`), key);
+    assert.match(readFileSync(join(ROOT, 'app/stats.tsx'), 'utf8'), /statCards\(/);
   });
 });
 
@@ -66,10 +67,13 @@ describe('ST-06: streaks are an achievement, never a loss (PRD §8.7)', () => {
   it('no loss words anywhere in the copy, or on the screens that show it', () => {
     const all = [s(5, 5), s(1, 47, ['2025-03-12', '2025-04-27']), s(0, 47, ['2025-03-12', '2025-04-27'])].map((x) => JSON.stringify(x)).join(' ');
     assert.doesNotMatch(all, /lost|broke|broken|ended|missed|reset|0 days/i);
-    for (const f of ['app/stats.tsx', 'app/(tabs)/profile.tsx', 'app/user/[id].tsx']) {
+    for (const f of ['app/stats.tsx', 'src/lib/statCards.ts', 'app/(tabs)/profile.tsx', 'app/user/[id].tsx']) {
       const src = readFileSync(join(ROOT, f), 'utf8');
       assert.doesNotMatch(src, /current_streak\}|Daily Streak|\(best /, f);
-      assert.match(src, /streakCopy\(/, f);
+    }
+    // The streak is drawn through streakCopy on every screen that shows it (the stats screen through its cards).
+    for (const f of ['src/lib/statCards.ts', 'app/(tabs)/profile.tsx', 'app/user/[id].tsx']) {
+      assert.match(readFileSync(join(ROOT, f), 'utf8'), /streakCopy\(/, f);
     }
   });
 });

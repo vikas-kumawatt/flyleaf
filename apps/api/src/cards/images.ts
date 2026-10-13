@@ -14,9 +14,16 @@
 //            budget, and never has a hole.
 //   avatars  the profile's current avatar object (uploads), as stored.
 //
+// Retention (owner decision on Phase 5 B): every cover a card draws is
+// recorded in `card_covers` (0047), its last_used_at moved at most once a
+// day; the daily retention sweep deletes a copy unused for 180 days
+// (jobs/retention.ts), and the next card that needs it copies it again.
+//
 // Only JPEG and PNG are drawn (the magic bytes decide, not a header); a WebP
 // avatar is shown as initials. Nothing over MAX_IMAGE_BYTES is read.
 
+import { sql } from 'drizzle-orm';
+import type { Db } from '../platform/index.js';
 import type { ObjectStorage } from '../providers/storage/index.js';
 import { readAll } from '../providers/storage/index.js';
 import { outbound, type OutboundResult } from '../platform/outbound.js';
@@ -26,6 +33,8 @@ import type { CardImage } from './templates.js';
 export const MAX_IMAGE_BYTES = 2 * 1024 * 1024;
 /** How long a card waits for covers it has not copied yet. AC-18 gives the whole card 2 s. */
 export const COVER_BUDGET_MS = 1_200;
+/** Owner decision on Phase 5 B: a copied cover no card has drawn for this long is deleted. */
+export const CARD_COVER_RETENTION_DAYS = 180;
 /** A cover Open Library does not have is not asked for again for this long. */
 const MISSING_TTL_MS = 60 * 60 * 1000;
 
@@ -54,7 +63,18 @@ export class CardImages {
     private readonly storage: ObjectStorage | null,
     private readonly fetchBytes: FetchBytes = outboundFetch,
     private readonly budgetMs = COVER_BUDGET_MS,
+    /** Where cover use is recorded for the retention sweep; null records nothing (render-only tools). */
+    private readonly db: Db | null = null,
   ) {}
+
+  /** This cover was drawn: the sweep keeps it another 180 days. A failure here never fails a card. */
+  async #used(coverId: number): Promise<void> {
+    if (!this.db) return;
+    await this.db.execute(sql`
+      INSERT INTO card_covers (cover_id) VALUES (${coverId})
+      ON CONFLICT (cover_id) DO UPDATE SET last_used_at = now()
+      WHERE card_covers.last_used_at < now() - interval '1 day'`).catch(() => undefined);
+  }
 
   async #read(key: string): Promise<Buffer | null> {
     if (!this.storage) return null;
@@ -69,7 +89,10 @@ export class CardImages {
     if (!this.storage || !Number.isSafeInteger(coverId) || coverId <= 0) return null;
     const key = coverKey(coverId);
     const stored = await this.#read(key);
-    if (stored) return toImage(stored);
+    if (stored) {
+      await this.#used(coverId);
+      return toImage(stored);
+    }
     const missingUntil = this.#missing.get(coverId);
     if (missingUntil !== undefined && missingUntil > Date.now()) return null;
     const res = await this.fetchBytes(openLibraryCoverUrl(coverId));
@@ -83,6 +106,7 @@ export class CardImages {
       return null;
     }
     await this.storage.put(key, res.data.bytes, image.uri.slice(5, image.uri.indexOf(';')));
+    await this.#used(coverId);
     return image;
   }
 

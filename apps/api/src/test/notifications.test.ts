@@ -34,6 +34,10 @@ async function setup() {
   carol = await makeUser(db, 'carol');
   workId = await makeWork(db, 'A Wizard of Earthsea');
   readId = await makeRead(db, alice.id, workId, { status: 'finished' });
+  // Accounts that already had their first follower (ST-10's warm note is
+  // tested in milestones.test.ts): these tests count follow rows only.
+  await db.execute(sql`INSERT INTO milestones (user_id, key, seen_at)
+    SELECT id, 'first_follower', now() FROM users ON CONFLICT DO NOTHING`);
 }
 
 const req = (who: TestUser | null, method: 'GET' | 'POST' | 'DELETE' | 'PATCH' | 'PUT', url: string, payload?: object) =>

@@ -56,6 +56,8 @@ import type {
   GoalResponse,
   ShareCard,
   ShareCardImage,
+  YearInReview,
+  MilestonesResponse,
   ReadListResponse,
   UserReadPage,
   ContentSettingsRequest,
@@ -546,6 +548,7 @@ export class FlyleafClient {
       case 'stat': return `/cards/users/${id(card.userId)}/stat/${id(card.stat)}${q({ year: card.year, tz: card.tz })}`;
       case 'profile': return `/cards/users/${id(card.userId)}/profile${q({ tz: card.tz })}`;
       case 'wall': return `/cards/users/${id(card.userId)}/wall${q({ layout: card.layout, year: card.year })}`;
+      case 'year': return `/cards/users/${id(card.userId)}/year/${id(String(card.year))}/${id(card.card)}${q({ tz: card.tz })}`;
     }
   }
 
@@ -570,6 +573,23 @@ export class FlyleafClient {
       );
     }
     return { png: await res.arrayBuffer(), etag: res.headers?.get?.('etag') ?? null };
+  }
+
+  // ---------------------------------------------------------------- Year in Review (ST-09), milestones (ST-10)
+
+  /** The reader's own Year in Review. Year absent: the latest open one in tz. Locked before 1 December (unlocked: false). */
+  async getYearInReview(year?: number | string, tz?: string): Promise<YearInReview> {
+    return this.request<YearInReview>(`/me/year-in-review${statsQuery(year, tz)}`, { method: 'GET' });
+  }
+
+  /** Milestone moments not shown yet; with readId, whether that finish is the longest book yet. */
+  async getMilestones(readId?: string): Promise<MilestonesResponse> {
+    return this.request<MilestonesResponse>(`/me/milestones${readId ? `?read_id=${encodeURIComponent(readId)}` : ''}`, { method: 'GET' });
+  }
+
+  /** The app showed these moments. */
+  async markMilestonesSeen(keys: string[]): Promise<void> {
+    await this.request<null>('/me/milestones/seen', { method: 'POST', body: JSON.stringify({ keys }) });
   }
 
   /** `tz`: the IANA zone whose days count for streaks and the default year (PRD §8.7). Default UTC. */

@@ -7261,6 +7261,409 @@ paths:
                       - message
                 required:
                   - error
+  /me/year-in-review:
+    get:
+      summary: My Year in Review
+      tags:
+        - Reading
+      description: "Story cards for a year (default: the latest open one in tz), from
+        the same stats as GET /me/stats?year=, private reads included (PRD
+        §17.5). Opens on 1 December in tz and stays open (§6.41); before then
+        unlocked is false and cards is empty. Under 5 books the gentle variant
+        carries no counts (§17.6)."
+      parameters:
+        - schema:
+            type: string
+          in: query
+          name: year
+          required: false
+          description: "YYYY. Default: this year from 1 December in tz, else last year."
+        - schema:
+            type: string
+            maxLength: 64
+          in: query
+          name: tz
+          required: false
+          description: "IANA zone: the reader's day. Default UTC."
+      security:
+        - BearerAuth: []
+      responses:
+        "200":
+          description: "ST-09, PRD §6.41, §17.6: the reader's Year in Review from their
+            own full stats (§17.5)."
+          content:
+            application/json:
+              schema:
+                type: object
+                description: "ST-09, PRD §6.41, §17.6: the reader's Year in Review from their
+                  own full stats (§17.5)."
+                properties:
+                  year:
+                    type: integer
+                  unlocked:
+                    type: boolean
+                  unlocks_on:
+                    type: string
+                    format: date
+                    description: 1 December of the year, in the reader's time zone.
+                  variant:
+                    type:
+                      - "null"
+                      - string
+                    enum:
+                      - full
+                      - gentle
+                      - empty
+                      - null
+                    description: "gentle: under 5 books, no counts (§17.6). null while locked."
+                  cards:
+                    type: array
+                    items:
+                      type: object
+                      description: One story card, its words composed by the server so the screen and
+                        the share card say the same thing.
+                      properties:
+                        kind:
+                          type: string
+                          enum:
+                            - books
+                            - pages
+                            - genres
+                            - top
+                            - longest
+                            - author
+                            - crowd
+                            - calendar
+                            - goal
+                            - summary
+                            - shelf
+                            - favourite
+                            - genre_names
+                            - summary_gentle
+                        heading:
+                          type: string
+                        value:
+                          type:
+                            - "null"
+                            - string
+                          description: The figure, formatted; null on gentle cards, which carry no counts.
+                        caption:
+                          type:
+                            - "null"
+                            - string
+                        detail:
+                          type:
+                            - "null"
+                            - string
+                        note:
+                          type:
+                            - "null"
+                            - string
+                          description: 'ST-03: "Based on N of M books — K have …" when the figure is based
+                            on part of the books.'
+                        books:
+                          type: array
+                          items:
+                            type: object
+                            properties:
+                              work_id:
+                                type: string
+                                format: uuid
+                              title:
+                                type: string
+                              author_name:
+                                type:
+                                  - "null"
+                                  - string
+                              cover_id:
+                                type:
+                                  - "null"
+                                  - integer
+                              rating:
+                                type:
+                                  - "null"
+                                  - number
+                              explicit:
+                                type: boolean
+                            required:
+                              - work_id
+                              - title
+                              - author_name
+                              - cover_id
+                              - rating
+                              - explicit
+                        bars:
+                          type: array
+                          items:
+                            type: object
+                            properties:
+                              label:
+                                type: string
+                              value:
+                                type: integer
+                              text:
+                                type: string
+                            required:
+                              - label
+                              - value
+                              - text
+                        calendar:
+                          anyOf:
+                            - type: array
+                              items:
+                                type: array
+                                items:
+                                  type: integer
+                            - type: "null"
+                          description: Twelve months of days, 1 = read that day.
+                      required:
+                        - kind
+                        - heading
+                        - value
+                        - caption
+                        - detail
+                        - note
+                        - books
+                        - bars
+                        - calendar
+                required:
+                  - year
+                  - unlocked
+                  - unlocks_on
+                  - variant
+                  - cards
+        "401":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      code:
+                        type: string
+                        description: Machine-readable error code
+                      message:
+                        type: string
+                        description: Human-readable error description
+                      field:
+                        type: string
+                        description: Invalid field name if applicable
+                    required:
+                      - code
+                      - message
+                required:
+                  - error
+        "422":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      code:
+                        type: string
+                        description: Machine-readable error code
+                      message:
+                        type: string
+                        description: Human-readable error description
+                      field:
+                        type: string
+                        description: Invalid field name if applicable
+                    required:
+                      - code
+                      - message
+                required:
+                  - error
+  /me/milestones:
+    get:
+      summary: Milestone moments to show
+      tags: &a1
+        - Reading
+      description: "ST-10, PRD §18.4: milestones reached in the app that have not been
+        shown, oldest first (none while the milestones category is off). With
+        read_id (one of your finished reads): whether it is your longest book
+        yet, for the finish screen's inline note. In-app only: milestones are
+        never pushed and never in the feed."
+      parameters:
+        - schema:
+            type: string
+            format: uuid
+          in: query
+          name: read_id
+          required: false
+      security:
+        - BearerAuth: []
+      responses:
+        "200":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  milestones:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        key:
+                          type: string
+                          description: books_1 | books_10 | books_100 | books_500 | books_1000 |
+                            first_review | first_follower | goal_YYYY
+                        treatment:
+                          type: string
+                          enum:
+                            - full
+                            - subtle
+                            - note
+                          description: "PRD §18.4: full-screen, a subtle moment, or the list only."
+                        achieved_at:
+                          type: string
+                          format: date-time
+                        data:
+                          type: object
+                          additionalProperties: true
+                      required:
+                        - key
+                        - treatment
+                        - achieved_at
+                        - data
+                  longest_yet:
+                    type:
+                      - "null"
+                      - boolean
+                    description: null without read_id.
+                required:
+                  - milestones
+                  - longest_yet
+        "401":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      code:
+                        type: string
+                        description: Machine-readable error code
+                      message:
+                        type: string
+                        description: Human-readable error description
+                      field:
+                        type: string
+                        description: Invalid field name if applicable
+                    required:
+                      - code
+                      - message
+                required:
+                  - error
+        "422":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      code:
+                        type: string
+                        description: Machine-readable error code
+                      message:
+                        type: string
+                        description: Human-readable error description
+                      field:
+                        type: string
+                        description: Invalid field name if applicable
+                    required:
+                      - code
+                      - message
+                required:
+                  - error
+  /me/milestones/seen:
+    post:
+      summary: Mark milestone moments shown
+      tags: *a1
+      description: "The app showed these moments: they are not shown again. Unknown or
+        already-seen keys change nothing."
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                keys:
+                  type: array
+                  items:
+                    type: string
+                    maxLength: 32
+                  maxItems: 20
+              required:
+                - keys
+      security:
+        - BearerAuth: []
+      responses:
+        "204":
+          description: Default Response
+        "401":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      code:
+                        type: string
+                        description: Machine-readable error code
+                      message:
+                        type: string
+                        description: Human-readable error description
+                      field:
+                        type: string
+                        description: Invalid field name if applicable
+                    required:
+                      - code
+                      - message
+                required:
+                  - error
+        "422":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      code:
+                        type: string
+                        description: Machine-readable error code
+                      message:
+                        type: string
+                        description: Human-readable error description
+                      field:
+                        type: string
+                        description: Invalid field name if applicable
+                    required:
+                      - code
+                      - message
+                required:
+                  - error
   /reads/{id}/review:
     post:
       summary: Create or update review for a read
@@ -8616,6 +9019,8 @@ paths:
                             - import_complete
                             - reply
                             - moderation
+                            - year_in_review
+                            - milestone
                         text:
                           type: string
                         deep_link:
@@ -17385,8 +17790,157 @@ paths:
               - genres
               - formats
               - streak
+              - audio
+              - crowd
+              - decades
+              - languages
+              - velocity
+              - speed
+              - pace
+              - months
+              - dnf
+              - time
+              - longest
+              - shortest
+              - fastest
+              - slowest
+              - highest
+              - lowest
+              - oldest
+              - reread
           in: path
           name: stat
+          required: true
+      responses:
+        "200":
+          description: The card, 1080 × 1920 PNG.
+          content:
+            image/png:
+              schema:
+                type: string
+                format: binary
+        "404":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      code:
+                        type: string
+                        description: Machine-readable error code
+                      message:
+                        type: string
+                        description: Human-readable error description
+                      field:
+                        type: string
+                        description: Invalid field name if applicable
+                    required:
+                      - code
+                      - message
+                required:
+                  - error
+        "422":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      code:
+                        type: string
+                        description: Machine-readable error code
+                      message:
+                        type: string
+                        description: Human-readable error description
+                      field:
+                        type: string
+                        description: Invalid field name if applicable
+                    required:
+                      - code
+                      - message
+                required:
+                  - error
+        "429":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      code:
+                        type: string
+                        description: Machine-readable error code
+                      message:
+                        type: string
+                        description: Human-readable error description
+                      field:
+                        type: string
+                        description: Invalid field name if applicable
+                    required:
+                      - code
+                      - message
+                required:
+                  - error
+  /cards/users/{id}/year/{year}/{card}:
+    get:
+      summary: Year in Review card
+      tags:
+        - Share cards
+      description: "One Year in Review story card (PRD §6.41, §17.6), for the reader
+        themself only: anyone else, signed in or not, gets 404. Public reads
+        only, and the card says so (§17.5). 422 year_in_review_locked before 1
+        December of the year in tz; 422 nothing_to_share when public reads give
+        the card nothing to show. A full-variant card asked for where the public
+        figures are under 5 books is its gentle counterpart."
+      parameters:
+        - schema:
+            type: string
+            maxLength: 64
+          in: query
+          name: tz
+          required: false
+          description: "IANA zone: when the year opens. Default UTC."
+        - schema:
+            type: string
+            format: uuid
+          in: path
+          name: id
+          required: true
+        - schema:
+            type: string
+            pattern: ^\d{4}$
+          in: path
+          name: year
+          required: true
+        - schema:
+            type: string
+            enum:
+              - books
+              - pages
+              - genres
+              - top
+              - longest
+              - author
+              - crowd
+              - calendar
+              - goal
+              - summary
+              - shelf
+              - favourite
+              - genre_names
+              - summary_gentle
+          in: path
+          name: card
           required: true
       responses:
         "200":

@@ -117,6 +117,8 @@ async function main() {
   // and Expo delivery receipts every 15 (Expo has them 15 minutes after a send).
   await boss.schedule(QUEUES.notifyReminders, '*/5 * * * *');
   await boss.schedule(QUEUES.notifyReceipts, '*/15 * * * *');
+  // ST-09: Year in Review notices; returns at once outside the days some zone is in December.
+  await boss.schedule(QUEUES.notifyYir, '*/30 * * * *');
 
   log.info({ queues: Object.values(QUEUES), schema: 'pgboss' }, 'worker ready');
 

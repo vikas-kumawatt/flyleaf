@@ -12,10 +12,10 @@ import { describe, expect, it } from 'vitest';
 
 import { MAX_MARKS, bidiLayout, clampText, cleanText, emojiDataUri, graphemes, orFallback, twemojiName } from '../cards/text.js';
 import { CARD_HEIGHT, CARD_WIDTH, CardRenderer, contentHash, toPng, toSvg } from '../cards/render.js';
-import { C, TEMPLATES, finishCard, profileCard, reviewCard, statCard, wallCard } from '../cards/templates.js';
+import { C, TEMPLATES, finishCard, profileCard, reviewCard, statCard, wallCard, yearCard } from '../cards/templates.js';
 import { LIMITS, coverageLine, initials } from '../cards/index.js';
 import { decodePng, diffRatio, pixelsNot, type Pixels } from './png.js';
-import { HARD_STRINGS, cover, finishModel, profileModel, reviewModel, statModel, wallModel } from './card-fixtures.js';
+import { HARD_STRINGS, cover, finishModel, profileModel, reviewModel, statExtremeModel, statModel, wallModel, yearCalendarModel, yearGentleModel, yearTopModel } from './card-fixtures.js';
 
 const cp = (...points: number[]) => String.fromCodePoint(...points);
 const GOLDEN_DIR = new URL('./fixtures/cards/', import.meta.url);
@@ -118,6 +118,7 @@ const FIELDS: FieldCase[] = [
     build: (s) => wallCard({ ...wallModel, posters: wallModel.posters.map((p) => ({ ...p, cover: null, title: orFallback(clamp(s, LIMITS.posterTitle), 'Untitled'), author: clamp(s, LIMITS.posterAuthor) || null })) }),
     baseline: wallCard(wallModel),
   },
+  { name: 'year › caption', build: (s) => yearCard({ ...yearGentleModel, caption: clamp(s, LIMITS.title) || null }), baseline: yearCard(yearGentleModel) },
   { name: 'wall › name', build: (s) => wallCard({ ...wallModel, name: orFallback(clamp(s, LIMITS.name), 'aisha') }), baseline: wallCard(wallModel) },
 ];
 
@@ -183,6 +184,10 @@ const GOLDENS: Array<[string, ReturnType<typeof finishCard>]> = [
   ['finish-cjk', finishCard({ ...finishModel, title: `三体 ノルウェイの森 채식주의자 ${cp(0x1f4da)}`, author: '刘慈欣', rating: 5, hearted: false, finishedOn: null })],
   ['review', reviewCard(reviewModel)],
   ['stat', statCard(statModel)],
+  ['stat-extreme', statCard(statExtremeModel)],
+  ['year-calendar', yearCard(yearCalendarModel)],
+  ['year-top', yearCard(yearTopModel)],
+  ['year-gentle', yearCard(yearGentleModel)],
   ['profile', profileCard(profileModel)],
   ['wall-4x4', wallCard(wallModel)],
   ['wall-3x5', wallCard({ ...wallModel, layout: '3x5', count: 7, year: '2026', posters: wallModel.posters.slice(0, 7) })],

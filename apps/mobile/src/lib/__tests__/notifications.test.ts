@@ -99,6 +99,8 @@ describe('deep links resolve to the exact screen, with a back stack that makes s
     assert.deepEqual(backStackFor(`flyleaf://import/unmatched?id=${U}`), ['/profile', '/import', `/import/unmatched?id=${U}`]);
     assert.deepEqual(backStackFor('flyleaf://reading'), ['/reading']);
     assert.deepEqual(backStackFor('flyleaf://notifications'), [HOME, '/notifications']);
+    assert.deepEqual(backStackFor('flyleaf://stats'), ['/profile', '/stats']);
+    assert.deepEqual(backStackFor('flyleaf://year-in-review/2026'), ['/profile', '/stats', '/year-in-review?year=2026']);
   });
 
   test('every link the API composes resolves to a real screen, not Home', () => {
@@ -113,6 +115,9 @@ describe('deep links resolve to the exact screen, with a back stack that makes s
       `flyleaf://import/unmatched?id=${U}`,
       'flyleaf://import',
       'flyleaf://reading',
+      // Phase 5 C: milestones and Year in Review.
+      'flyleaf://stats',
+      'flyleaf://year-in-review/2026',
     ]) {
       assert.notEqual(targetOf(link), HOME, link);
     }
@@ -130,6 +135,9 @@ describe('deep links resolve to the exact screen, with a back stack that makes s
       'flyleaf://user/../admin',
       'flyleaf://import/unmatched?id=../../x',
       'flyleaf://settings',
+      'flyleaf://year-in-review/26',
+      'flyleaf://year-in-review/2026/x',
+      'flyleaf://stats/x',
       'flyleaf://%E0%A4%A',
     ]) {
       assert.deepEqual(backStackFor(bad), [HOME], bad);

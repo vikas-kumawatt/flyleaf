@@ -15,6 +15,7 @@ import {
   FlyleafClient,
   FlyleafApiError,
   type User,
+  type ShareCard,
   type Profile,
   type Edition,
   type EditionDetail,
@@ -384,6 +385,11 @@ export const api = {
   userGoal: (userId: string, year?: number, tz?: string) => client.getUserGoal(userId, year, tz),
   setMyGoal: (goal: { year: number; target_books: number; target_pages?: number | null }, tz?: string) => client.setMyGoal(goal, tz),
   deleteMyGoal: (year: number) => client.deleteMyGoal(year),
+  // ST-04 / ST-09 share cards (the preview fetches the PNG), ST-09 Year in Review, ST-10 milestones.
+  shareCard: (card: ShareCard) => client.getShareCard(card),
+  yearInReview: (year?: number, tz?: string) => client.getYearInReview(year, tz),
+  milestones: (readId?: string) => client.getMilestones(readId),
+  markMilestonesSeen: (keys: string[]) => client.markMilestonesSeen(keys),
 
   // The telemetry session id rides along for the zero-result summary (D-10-3).
   search: (q: string) => client.search(q, 20, getSessionId()),

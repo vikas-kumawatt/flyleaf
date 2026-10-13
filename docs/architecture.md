@@ -942,7 +942,7 @@ recover → requestID → logger → CORS → bodyLimit(1MB)
 
 ### The finish call
 
-One round trip produces the read update, the review, the activity row, the share card job and the milestone check, because they are one transaction plus one enqueued job.
+One round trip produces the read update, the review, the activity row, the share card job and the milestone check, because they are one transaction plus one enqueued job. *(Phase 5 C: the milestone check runs in the finish's transaction and writes a `milestones` row and an in-app notification, never activity or a push; the app reads moments from `GET /v1/me/milestones` once the offline finish has synced, rather than from the finish response. Share cards render on request, not as a job: ST-07.)*
 
 ```
 POST /v1/reads/{id}/finish
@@ -1059,6 +1059,7 @@ Hard constraints after ranking: ≤2 consecutive cards per actor, ≤3 per book 
 | Weekly | `search.suggestions.refresh` Sun 04:00 · `search.zero.summary` Mon 04:30 |
 | Every 5 min | `notify.reminders` (due reading reminders, SO-32) |
 | Every 15 min | `notify.receipts` (Expo delivery receipts; dead tokens deleted, SO-30) |
+| Every 30 min | `notify.yir` (Year in Review notices once 1 December comes in the reader's zone, once a year; a no-op outside the days some zone is in December, ST-09) |
 | On demand | `imports.process` · `exports.process` · `notify.send` (enqueued in the transaction that wrote the notification; quiet hours, aggregation and the 5-a-day cap applied at send time, SO-31) |
 
 **Each batch process connects with its own memory and time budget.** The values are in `JOB_DB_SETTINGS`, sent in the connection startup packet:
