@@ -93,6 +93,8 @@ import {
   type MutesResponse,
   type FollowUserListItem,
   type FollowUserListResponse,
+  type FollowSuggestion,
+  type FollowSuggestionsResponse,
 } from '@flyleaf/api-client';
 
 export type {
@@ -176,6 +178,8 @@ export type {
   MutesResponse,
   FollowUserListItem,
   FollowUserListResponse,
+  FollowSuggestion,
+  FollowSuggestionsResponse,
   Edition,
   EditionDetail,
   EditionLookupResponse,
@@ -548,6 +552,8 @@ export const api = {
 
   // Social & Follows (SO-01, SO-02)
   followUser: (userId: string) => client.followUser(userId),
+  /** SO-52: readers to follow during onboarding (PRD §6.11). */
+  followSuggestions: (limit?: number) => client.getFollowSuggestions(limit === undefined ? undefined : { limit }),
   unfollowUser: (userId: string) => client.unfollowUser(userId),
   getPendingFollowRequests: () => client.getPendingFollowRequests(),
   acceptFollowRequest: (requesterId: string) => client.acceptFollowRequest(requesterId),

@@ -16,7 +16,7 @@ import { auditContext } from '../admin/auth.js';
 import { adminNavbar } from '../admin/catalog-routes.js';
 import { escapeHtml, sendAdminHtml } from '../admin/html.js';
 import type { Notifier } from '../notify/index.js';
-import { MIN_ACTION_REASON, ModerationService, RULES, RULE_LABELS, SUBJECT_TYPES, type Rule, type SubjectType } from './index.js';
+import { MIN_ACTION_REASON, ModerationService, type ModerationDeps, RULES, RULE_LABELS, SUBJECT_TYPES, type Rule, type SubjectType } from './index.js';
 
 const uuid = { type: 'string', format: 'uuid' } as const;
 const freeObject = { type: 'object', additionalProperties: true } as const;
@@ -133,8 +133,8 @@ const subjectParams = {
 
 const errors = { 400: errorResponseSchema, 401: errorResponseSchema, 403: errorResponseSchema, 404: errorResponseSchema };
 
-export function adminModerationRoutes(db: Db, notifier?: Notifier) {
-  const service = new ModerationService(db, notifier);
+export function adminModerationRoutes(db: Db, notifier?: Notifier, deps: ModerationDeps = {}) {
+  const service = new ModerationService(db, notifier, deps);
   return async (app: FastifyInstance) => {
     app.get<{ Querystring: { subject_type?: SubjectType; limit?: number; offset?: number } }>(
       '/v1/admin/reports',

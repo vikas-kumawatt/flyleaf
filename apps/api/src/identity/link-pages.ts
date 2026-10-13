@@ -20,7 +20,7 @@ import { passwordSchema, type IdentityService } from './index.js';
 
 const APP_SCHEME = 'flyleaf://';
 /** Tokens are 43 characters (32 bytes, base64url); anything far longer is not one. */
-const MAX_TOKEN = 256;
+export const MAX_TOKEN = 256;
 
 export function linkPageCsp(nonce: string): string {
   return (
@@ -29,7 +29,7 @@ export function linkPageCsp(nonce: string): string {
   );
 }
 
-function sendPage(reply: FastifyReply, status: number, title: string, body: (nonce: string) => string) {
+export function sendPage(reply: FastifyReply, status: number, title: string, body: (nonce: string) => string) {
   const nonce = randomBytes(16).toString('base64');
   return reply
     .status(status)
@@ -68,17 +68,17 @@ ${body(nonce)}
 </html>`);
 }
 
-function appLink(path: string, token?: string): string {
+export function appLink(path: string, token?: string): string {
   const href = token ? `${APP_SCHEME}${path}?token=${encodeURIComponent(token)}` : `${APP_SCHEME}${path}`;
   return `<a class="app" href="${escapeHtml(href)}">Open in the app</a>`;
 }
 
-function queryToken(query: unknown): string | null {
+export function queryToken(query: unknown): string | null {
   const t = (query as { token?: unknown } | null)?.token;
   return typeof t === 'string' && t.length > 0 && t.length <= MAX_TOKEN ? t : null;
 }
 
-function bodyField(body: unknown, name: string): string {
+export function bodyField(body: unknown, name: string): string {
   const v = (body as Record<string, unknown> | null)?.[name];
   return typeof v === 'string' ? v : '';
 }

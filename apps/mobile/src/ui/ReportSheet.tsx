@@ -44,7 +44,7 @@ export function ReportSheet({ target, onClose }: { target: ReportTarget | null; 
       void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       setSent(true);
     } catch (err) {
-      setError(reportErrorMessage(err instanceof ApiError ? err.code : undefined));
+      setError(err instanceof ApiError ? reportErrorMessage(err.code, err.message) : reportErrorMessage(undefined));
     } finally {
       setSending(false);
     }

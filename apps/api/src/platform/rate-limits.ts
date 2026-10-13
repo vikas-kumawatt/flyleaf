@@ -12,7 +12,7 @@
 // Two stores, chosen per limit (architecture §4.1):
 //   - 'exact': the injected RateLimiter, PgRateLimiter today. One upsert per
 //     check, correct across instances and restarts. Auth, comments, follows,
-//     reviews, imports, exports, uploads, username changes: low volume, and a
+//     reviews, reports, imports, exports, uploads, username changes: low volume, and a
 //     limit a second instance silently doubled would be a security weakening.
 //   - 'rolling': PgRollingRateLimiter, one row per counted event, so the
 //     window is any N seconds rather than one that restarts. For ceilings a
@@ -139,6 +139,18 @@ export const RATE_LIMITS = {
     limit: 20, windowSeconds: DAY, store: 'exact',
     source: 'PRD §11.7 New accounts: cannot follow more than 20 users in the first 24 hours',
     message: 'New accounts can follow 20 readers in their first day. Try again tomorrow.',
+  },
+  // ---- Reports (owner decision on SO-4x, 13 Oct 2026; PRD §27.2 "eventually rate-limited" has no number).
+  // Counted per new report only: a repeat of an open report is the same report and costs nothing.
+  'reports:hour': {
+    limit: 5, windowSeconds: HOUR, store: 'exact',
+    source: 'Owner decision on SO-4x (13 Oct 2026): reports 5/hour per account (PRD §27.2 mass-reporters)',
+    message: 'You have sent a lot of reports. Try again later.',
+  },
+  'reports:day': {
+    limit: 20, windowSeconds: DAY, store: 'exact',
+    source: 'Owner decision on SO-4x (13 Oct 2026): reports 20/day per account (PRD §27.2 mass-reporters)',
+    message: 'You have sent a lot of reports today. Try again tomorrow.',
   },
   // ---- PRD §24.4 Import 3/day, Export 2/day.
   imports: {

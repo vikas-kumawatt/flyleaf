@@ -178,6 +178,12 @@ export const ONLINE_SQL: readonly string[] = [
   // of activity.
   dropIfInvalid('activity_object_idx'),
   `CREATE INDEX CONCURRENTLY IF NOT EXISTS activity_object_idx ON activity (object_type, object_id)`,
+  // SO-5x (owner decision on SO-4x): cross-account duplicate reviews. The
+  // hash of the case- and whitespace-normalised body, live reviews only; the
+  // query in moderation/filters.ts repeats the expression byte for byte, or
+  // the planner will not use it.
+  dropIfInvalid('reviews_body_norm_idx'),
+  `CREATE INDEX CONCURRENTLY IF NOT EXISTS reviews_body_norm_idx ON reviews (md5(lower(regexp_replace(btrim(body), '\\s+', ' ', 'g')))) WHERE deleted_at IS NULL`,
 ];
 
 /**

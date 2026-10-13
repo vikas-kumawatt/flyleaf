@@ -743,6 +743,11 @@ export const reviews = pgTable('reviews', {
   check('reviews_visibility_ck', sql`${t.visibility} IN ('public','followers','private')`),
   index('reviews_work_idx').on(t.workId, t.publishedAt),
   index('reviews_user_idx').on(t.userId, t.publishedAt),
+  // 0045: cross-account duplicates (owner decision on SO-4x). The query in
+  // moderation/filters.ts repeats this expression exactly.
+  index('reviews_body_norm_idx')
+    .on(sql`md5(lower(regexp_replace(btrim(${t.body}), '\\s+', ' ', 'g')))`)
+    .where(sql`${t.deletedAt} IS NULL`),
 ]);
 
 export const readLikes = pgTable('read_likes', {
@@ -1280,4 +1285,20 @@ export const reports = pgTable('reports', {
   index('reports_open_created_idx').on(t.createdAt).where(sql`${t.state} = 'open'`),
   index('reports_reporter_idx').on(t.reporterId, t.createdAt.desc()),
   index('reports_owner_idx').on(t.subjectOwnerId, t.createdAt.desc()),
+]);
+
+/**
+ * The emailed one-time appeal link for a banned account (owner decision on
+ * SO-4x, 0045): it cannot sign in, so its one appeal (PRD §27.6) arrives here.
+ * Only the token's SHA-256 is stored; the appeal spends it (used_at).
+ */
+export const moderationAppealLinks = pgTable('moderation_appeal_links', {
+  tokenHash: text('token_hash').primaryKey(),
+  actionId: uuid('action_id').notNull().references(() => moderationActions.id, { onDelete: 'cascade' }),
+  userId: uuid('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
+  usedAt: timestamp('used_at', { withTimezone: true }),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [
+  index('moderation_appeal_links_action_idx').on(t.actionId),
 ]);

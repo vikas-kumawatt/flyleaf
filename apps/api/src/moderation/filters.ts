@@ -8,6 +8,9 @@
 //                               surface), at most 2 links in a review: 422.
 //   Duplicate content         → the same review text on 3+ works → an
 //                               automated report (queued, never blocked).
+//                               Across accounts (review rings, owner decision
+//                               on SO-4x): the same text of 100+ characters
+//                               from another account → queued, never blocked.
 //   Spoiler flag (§27.3)      → an account on the third spoiler strike has its
 //                               new and edited reviews queued for 30 days.
 //   Rate limits               → PRD §24.4 / §10.6 / §11.7, in the shared layer
@@ -30,6 +33,13 @@ export const NEW_ACCOUNT_LINK_DAYS = 7;
 export const MAX_REVIEW_LINKS = 2;
 /** PRD §27.2 Duplicate content: "Same text posted on 3+ works → queue". */
 export const DUPLICATE_WORKS = 3;
+/**
+ * Owner decision on SO-4x (13 Oct 2026): the same review text from different
+ * accounts is queued (never blocked) when it is at least this long, counted in
+ * characters after case and whitespace normalisation. Shorter texts ("Loved
+ * it.", "A masterpiece") are common to many honest readers.
+ */
+export const CROSS_ACCOUNT_DUPLICATE_MIN_CHARS = 100;
 
 const LEET: Record<string, string> = { '0': 'o', '1': 'i', '3': 'e', '4': 'a', '5': 's', '7': 't', '@': 'a', '$': 's', '!': 'i' };
 
@@ -137,7 +147,7 @@ export async function screenText(db: Db, userId: string, surface: Surface, field
   }
 }
 
-export type AutoRule = 'duplicate_content' | 'flagged_account';
+export type AutoRule = 'duplicate_content' | 'duplicate_across_accounts' | 'flagged_account';
 
 /** Queues an automated report (one open per rule per subject). Returns whether a new one was written. */
 export async function queueAutomated(
@@ -147,7 +157,7 @@ export async function queueAutomated(
     subjectId: string;
     ownerId: string;
     autoRule: AutoRule;
-    reason: 'spam' | 'spoilers';
+    reason: 'spam' | 'spoilers' | 'fake_review';
     detail: string;
     snapshot: Record<string, unknown>;
   },
@@ -181,6 +191,25 @@ export async function screenReviewWritten(
       subjectType: 'review', subjectId: r.reviewId, ownerId: r.userId, autoRule: 'duplicate_content', reason: 'spam',
       detail: `The same text is on ${dup!.works} works by this reader.`, snapshot,
     });
+  }
+  // Review rings: the same text from other accounts. The expression matches
+  // reviews_body_norm_idx (0045) exactly, so this is an index probe.
+  const normalised = r.body.trim().replace(/\s+/g, ' ').toLowerCase();
+  if ([...normalised].length >= CROSS_ACCOUNT_DUPLICATE_MIN_CHARS) {
+    const others = await db.execute<{ id: string; user_id: string }>(sql`
+      SELECT id, user_id FROM reviews
+      WHERE md5(lower(regexp_replace(btrim(body), '\\s+', ' ', 'g')))
+          = md5(lower(regexp_replace(btrim(${r.body}::text), '\\s+', ' ', 'g')))
+        AND deleted_at IS NULL AND user_id <> ${r.userId}::uuid
+      ORDER BY published_at, id LIMIT 50`);
+    if (others.length > 0) {
+      const accounts = new Set(others.map((o) => o.user_id)).size;
+      await queueAutomated(db, {
+        subjectType: 'review', subjectId: r.reviewId, ownerId: r.userId, autoRule: 'duplicate_across_accounts', reason: 'fake_review',
+        detail: `The same text is in ${others.length}${others.length === 50 ? '+' : ''} review${others.length === 1 ? '' : 's'} by ${accounts} other account${accounts === 1 ? '' : 's'}.`,
+        snapshot: { ...snapshot, same_text_review_ids: others.slice(0, 10).map((o) => o.id) },
+      });
+    }
   }
   const [flag] = await db.execute<{ flagged: boolean }>(sql`
     SELECT review_flag_until IS NOT NULL AND review_flag_until > now() AS flagged FROM users WHERE id = ${r.userId}::uuid`);

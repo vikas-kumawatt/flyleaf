@@ -82,6 +82,7 @@ function Nav() {
         <Stack.Screen name="shelf/[id]/edit" options={{ presentation: 'modal', headerShown: false }} />
         <Stack.Screen name="shelf/[id]/reorder" options={{ presentation: 'modal', headerShown: false }} />
         <Stack.Screen name="user/[id]" options={{ presentation: 'card', headerShown: false }} />
+        <Stack.Screen name="onboarding/follow" options={{ presentation: 'card', headerShown: false, gestureEnabled: true }} />
         <Stack.Screen name="read/[id]/comments" options={{ presentation: 'card', headerShown: false }} />
         <Stack.Screen name="notifications" options={{ presentation: 'card', headerShown: false }} />
         <Stack.Screen name="u/[username]/shelves/[slug]" options={{ presentation: 'card', headerShown: false }} />

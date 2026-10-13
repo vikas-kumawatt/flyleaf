@@ -25,11 +25,14 @@ import { adminAuthRoutes } from './admin/routes.js';
 import { adminCatalogRoutes } from './admin/catalog-routes.js';
 import { moderationPlugin } from './moderation/routes.js';
 import { adminModerationRoutes } from './moderation/admin-routes.js';
+import { appealPages } from './moderation/appeal-pages.js';
+import { ModerationService } from './moderation/index.js';
 import { auditContext, logAdminAction, lookupAdmin, verifyAdminToken } from './admin/auth.js';
 import { telemetryRoutes } from './telemetry/index.js';
 import { reportApiError } from './telemetry/errors.js';
 import { NoopErrorReporter, type ErrorReporter } from './providers/errors/index.js';
-import { shelvesPlugin, shelvesWebPlugin } from './shelves/index.js';
+import { shelvesPlugin } from './shelves/index.js';
+import { publicPagesPlugin } from './web/public-pages.js';
 import type { PgBoss } from 'pg-boss';
 import { importsPlugin } from './imports/index.js';
 import { uploadsPlugin } from './uploads/index.js';
@@ -187,7 +190,7 @@ export function registerCoreHooks(app: FastifyInstance, options?: CoreHookOption
     }
     reply.header('x-content-type-options', 'nosniff');
     reply.header('x-frame-options', 'DENY');
-    // HTML (admin console, shelf share pages) gets a CSP (PRD §42 #9). A route
+    // HTML (admin console, public pages) gets a CSP (PRD §42 #9). A route
     // that sets a stricter one keeps it. The baseline allows inline script
     // and style because the admin pages use both; Part 06 moves them to nonces.
     const type = reply.getHeader('content-type');
@@ -365,6 +368,8 @@ const ROUTE_LIMIT_GROUPS: Record<string, readonly LimitGroup[]> = {
   'POST /verify-email': ['auth'],
   'GET /reset-password': ['auth'],
   'POST /reset-password': ['auth'],
+  'GET /appeal': ['auth'],
+  'POST /appeal': ['auth'],
   'POST /v1/admin/auth/login': ['auth'],
   'POST /admin/login': ['auth'],
   // Auth endpoints that need a session.
@@ -514,8 +519,10 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
     });
     await app.register(notificationsPlugin, { prefix: '/v1', db: options.db });
     // Moderation (SO-40 to SO-42): reports and notices for the app, the queue for the console.
-    await app.register(moderationPlugin, { prefix: '/v1', db: options.db, notifier });
-    await app.register(adminModerationRoutes(options.db, notifier));
+    await app.register(moderationPlugin, { prefix: '/v1', db: options.db, notifier, limits: rateLimits });
+    await app.register(adminModerationRoutes(options.db, notifier, { mailer: options.mailer }));
+    // A banned account's emailed one-time appeal link (owner decision on SO-4x).
+    await app.register(appealPages(new ModerationService(options.db, notifier)));
     await app.register(adminAuthRoutes(options.db, rateLimits));
     await app.register(adminDedupeRoutes(options.db));
     await app.register(adminCatalogRoutes(options.db));
@@ -525,7 +532,8 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
     // itself, so none saw it (Audit 15, A-15-001).
     await app.register(telemetryRoutes(options.db), { prefix: '/v1' });
     await app.register(shelvesPlugin, { prefix: '/v1', db: options.db });
-    await app.register(shelvesWebPlugin, { db: options.db });
+    // Public pages for people without the app (SO-50, SO-51): book, profile, shelf.
+    await app.register(publicPagesPlugin({ db: options.db, cache: options.cache }));
     await app.register(importsPlugin, { prefix: '/v1', db: options.db, boss: options.boss, limits: rateLimits });
     if (options.storage) {
       const storage = options.storage;
@@ -546,6 +554,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
       db: options.db,
       limits: rateLimits,
       notifier,
+      cache: options.cache,
     });
     await app.register(activityPlugin, {
       prefix: '/v1',

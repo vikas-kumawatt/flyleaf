@@ -6,7 +6,9 @@
 //   not see (a block either way, a private account, a private item, a deleted
 //   one) is the same 404 as a random id (PRD §11.4, §25.3). One open report
 //   per person per subject, so a double tap or an offline replay is one report.
-//   Reports are writes, in the shared limiter's `writes` group (PRD §24.4).
+//   Reports are writes, in the shared limiter's `writes` group (PRD §24.4),
+//   and a NEW report also counts against reports:hour (5) and reports:day (20)
+//   per account (owner decision on SO-4x); a repeat of an open one costs nothing.
 //
 //   Layer 3, human: the admin queue groups open reports by subject, heaviest
 //   first by reporter reputation (§27.2 Layer 2: upheld reports carry more
@@ -15,9 +17,15 @@
 //   and its audit row commit in one transaction (A-15-020's rule), and every
 //   enforcement tells the owner which rule applied and that they may appeal
 //   once (§27.6). An overturned appeal undoes exactly what the action did.
+//   A banned account cannot sign in, so its appeal comes through an emailed
+//   one-time link (owner decision on SO-4x): single use, 30 days, no sign-in
+//   (moderation/appeal-pages.ts).
 
+import { createHash, randomBytes } from 'node:crypto';
 import { sql } from 'drizzle-orm';
-import type { Db } from '../platform/index.js';
+import { config, type Db } from '../platform/index.js';
+import { RateLimits } from '../platform/rate-limits.js';
+import type { EmailSender } from '../providers/email/index.js';
 import { ApiError } from '../http.js';
 import { canViewWith, loadRelationship, mostRestrictive } from '../authorization/index.js';
 import { resolveWorkId } from '../catalog/resolve.js';
@@ -44,6 +52,14 @@ export * from './ladder.js';
 /** Same rule as the merge console (D-06-1): a typed reason of at least 10 characters. */
 export const MIN_ACTION_REASON = 10;
 export const APPEAL_MAX_LENGTH = 2000;
+/**
+ * How long a banned account's emailed appeal link works. The owner decided on
+ * a single-use, expiring link; 30 days matches the app's other grace periods
+ * (account deletion, shelf restore). Recorded as reversible in tasks.md.
+ */
+export const APPEAL_LINK_DAYS = 30;
+
+export const hashAppealToken = (raw: string) => createHash('sha256').update(raw).digest('hex');
 
 const SUBJECT_WORD: Record<SubjectType, string> = { review: 'review', comment: 'comment', user: 'profile', shelf: 'shelf', work: 'book' };
 
@@ -77,11 +93,34 @@ export interface Effects {
   consequences: string[];
 }
 
+export interface ModerationDeps {
+  /** reports:hour and reports:day. Default: off (a test app turns them on). */
+  limits?: RateLimits;
+  /** The banned account's appeal link and outcome. Default: none sent. */
+  mailer?: EmailSender;
+  /** Mail failures are reported, never returned (A-04-024's rule). */
+  onMailError?: (err: Error) => void;
+}
+
 export class ModerationService {
+  readonly #limits: RateLimits;
+  readonly #mailer: EmailSender | undefined;
+  readonly #onMailError: (err: Error) => void;
+
   constructor(
     private readonly db: Db,
     private readonly notifier: Notifier = new Notifier(),
-  ) {}
+    deps: ModerationDeps = {},
+  ) {
+    this.#limits = deps.limits ?? RateLimits.off();
+    this.#mailer = deps.mailer;
+    this.#onMailError = deps.onMailError ?? ((err) => console.error('[moderation] mail failed:', err.message));
+  }
+
+  #mail(message: { to: string; subject: string; text: string }) {
+    if (!this.#mailer) return;
+    void this.#mailer.send(message).catch((err: unknown) => this.#onMailError(err instanceof Error ? err : new Error(String(err))));
+  }
 
   // -------------------------------------------------------------------------
   // SO-40: reports
@@ -153,6 +192,17 @@ export class ModerationService {
     const target = await this.#reportable(viewer, input.subject_type, input.subject_id);
     if (target.ownerId === viewer) throw ApiError.badRequest('cannot_report_self', 'You cannot report your own content.', 'subject_id');
     const detail = input.detail?.trim() || null;
+    const existingOpen = () => this.db.execute<Row>(sql`
+      SELECT id, subject_type, subject_id, reason, state, created_at, resolved_at FROM reports
+      WHERE reporter_id = ${viewer}::uuid AND subject_type = ${input.subject_type}
+        AND subject_id = ${target.subjectId}::uuid AND state = 'open'`);
+    // Already reported and still open: the same report, unchanged, and not
+    // counted again (a double tap or an offline replay).
+    const [already] = await existingOpen();
+    if (already) return { report: reportView(already), created: false };
+    // Owner decision on SO-4x: 5 new reports an hour, 20 a day, per account.
+    await this.#limits.enforce('reports:hour', viewer);
+    await this.#limits.enforce('reports:day', viewer);
     const [inserted] = await this.db.execute<Row>(sql`
       INSERT INTO reports (reporter_id, source, subject_type, subject_id, subject_owner_id, reason, detail, snapshot)
       VALUES (${viewer}::uuid, 'user', ${input.subject_type}, ${target.subjectId}::uuid, ${target.ownerId}::uuid,
@@ -160,11 +210,8 @@ export class ModerationService {
       ON CONFLICT (reporter_id, subject_type, subject_id) WHERE state = 'open' AND reporter_id IS NOT NULL DO NOTHING
       RETURNING id, subject_type, subject_id, reason, state, created_at, resolved_at`);
     if (inserted) return { report: reportView(inserted), created: true };
-    // Already reported and still open: the same report, unchanged.
-    const [existing] = await this.db.execute<Row>(sql`
-      SELECT id, subject_type, subject_id, reason, state, created_at, resolved_at FROM reports
-      WHERE reporter_id = ${viewer}::uuid AND subject_type = ${input.subject_type}
-        AND subject_id = ${target.subjectId}::uuid AND state = 'open'`);
+    // Two at the same moment: the other one won.
+    const [existing] = await existingOpen();
     return { report: reportView(existing!), created: false };
   }
 
@@ -400,7 +447,8 @@ export class ModerationService {
       throw ApiError.unprocessable('resolve_is_for_catalog', 'Only book reports are resolved; dismiss or enforce instead.', 'decision');
     }
 
-    return this.db.transaction(async (t) => {
+    let banMail: { to: string; subject: string; text: string } | null = null;
+    const result = await this.db.transaction(async (t) => {
       const tx = t as unknown as Db;
       // Lock the open reports: a second moderator acting at the same moment
       // waits, then finds nothing open (409) instead of acting twice.
@@ -439,6 +487,9 @@ export class ModerationService {
           text: `${effects.summary} You can appeal once.`, rule: input.rule, subject_type: type, outcome: 'enforced',
         });
       }
+      // A banned account cannot sign in to read that notice or appeal: it
+      // gets a one-time link by email instead, sent once this commits.
+      if (effects?.banned && ownerId) banMail = await this.#appealLink(tx, ownerId, actionId, input.rule!, effects);
 
       await logAdminAction(tx, {
         actorId: admin.id,
@@ -453,6 +504,68 @@ export class ModerationService {
         ...ctx,
       });
       return actionView(action!);
+    });
+    if (banMail) this.#mail(banMail);
+    return result;
+  }
+
+  /** Writes a banned account's one-time appeal link (hash only); returns the email to send. */
+  async #appealLink(tx: Db, userId: string, actionId: string, rule: Rule, effects: Effects) {
+    const raw = randomBytes(32).toString('base64url');
+    const [u] = await tx.execute<{ email: string }>(sql`
+      INSERT INTO moderation_appeal_links (token_hash, action_id, user_id, expires_at)
+      VALUES (${hashAppealToken(raw)}, ${actionId}::uuid, ${userId}::uuid, now() + make_interval(days => ${APPEAL_LINK_DAYS}))
+      RETURNING (SELECT email FROM users WHERE id = ${userId}::uuid) AS email`);
+    return {
+      to: u!.email,
+      subject: 'Your Flyleaf account has been banned',
+      text: `Your Flyleaf account has been banned under our rule on ${RULE_LABELS[rule].toLowerCase()}.\n\n` +
+        `${effects.summary}\n\n` +
+        `If you think this is wrong, you can appeal once, without signing in. A person will review it:\n` +
+        `${config.appBaseUrl}/appeal?token=${raw}\n\n` +
+        `The link works once and expires in ${APPEAL_LINK_DAYS} days.`,
+    };
+  }
+
+  /** What the appeal page shows for a link: the decision, and whether the link can still be used. GET never spends it. */
+  async appealLinkState(raw: string): Promise<{ state: 'open' | 'used' | 'expired' | 'closed'; notice: NoticeView | null }> {
+    const [row] = await this.db.execute<Row>(sql`
+      SELECT a.*, l.used_at AS link_used_at, l.expires_at <= now() AS link_expired
+      FROM moderation_appeal_links l JOIN moderation_actions a ON a.id = l.action_id
+      WHERE l.token_hash = ${hashAppealToken(raw)}`);
+    if (!row) return { state: 'expired', notice: null };
+    const notice = noticeView(row);
+    if (row.link_used_at) return { state: 'used', notice };
+    if (row.link_expired) return { state: 'expired', notice: null };
+    if (!notice.can_appeal) return { state: 'closed', notice };
+    return { state: 'open', notice };
+  }
+
+  /**
+   * The appeal a banned account sends through its emailed link: the same one
+   * appeal as POST /me/moderation/:id/appeal, with the link as the proof of
+   * identity. The link is spent in the same transaction; a second use, an
+   * expired or unknown link is `invalid_or_expired_token`, an action already
+   * appealed or reversed is `appeal_closed`.
+   */
+  async appealByLink(raw: string, body: string): Promise<NoticeView> {
+    const text = body.trim();
+    if (!text) throw ApiError.badRequest('empty_body', 'Tell us why the decision is wrong.', 'body');
+    if ([...text].length > APPEAL_MAX_LENGTH) throw ApiError.badRequest('body_too_long', `An appeal is at most ${APPEAL_MAX_LENGTH} characters.`, 'body');
+    return this.db.transaction(async (t) => {
+      const tx = t as unknown as Db;
+      const [link] = await tx.execute<{ action_id: string; user_id: string }>(sql`
+        UPDATE moderation_appeal_links SET used_at = now()
+        WHERE token_hash = ${hashAppealToken(raw)} AND used_at IS NULL AND expires_at > now()
+        RETURNING action_id, user_id`);
+      if (!link) throw ApiError.badRequest('invalid_or_expired_token', 'This link has expired or was already used.');
+      const [row] = await tx.execute<Row>(sql`
+        UPDATE moderation_actions SET appeal_body = ${text}, appealed_at = now(), appeal_state = 'pending'
+        WHERE id = ${link.action_id}::uuid AND target_user_id = ${link.user_id}::uuid AND decision = 'enforce'
+          AND appeal_state IS NULL AND reversed_at IS NULL
+        RETURNING *`);
+      if (!row) throw ApiError.conflict('appeal_closed', 'This decision has already been appealed.');
+      return noticeView(row);
     });
   }
 
@@ -625,7 +738,8 @@ export class ModerationService {
    */
   async resolveAppeal(admin: AdminViewer, actionId: string, input: { decision: 'uphold' | 'overturn'; reason: string }, ctx: AuditContext) {
     const reason = typedReason(input.reason);
-    return this.db.transaction(async (t) => {
+    let outcomeMail: { to: string; subject: string; text: string } | null = null;
+    const result = await this.db.transaction(async (t) => {
       const tx = t as unknown as Db;
       const [action] = await tx.execute<Row>(sql`
         SELECT * FROM moderation_actions WHERE id = ${actionId}::uuid AND appeal_state = 'pending' FOR UPDATE`);
@@ -657,8 +771,19 @@ export class ModerationService {
         payload: { actionId, rule: action.rule, targetUserId: action.target_user_id },
         ...ctx,
       });
+      // A ban's appeal came by email (the account cannot sign in): so does the answer.
+      if (json<Effects>(action.effects)?.banned) {
+        const [u] = await tx.execute<{ email: string }>(sql`SELECT email FROM users WHERE id = ${action.target_user_id}::uuid`);
+        if (u) {
+          outcomeMail = input.decision === 'overturn'
+            ? { to: u.email, subject: 'Your Flyleaf appeal: the ban is lifted', text: 'We reviewed your appeal and reversed the decision. Your account is restored: you can sign in again.' }
+            : { to: u.email, subject: 'Your Flyleaf appeal', text: 'We reviewed your appeal. The decision stands, and the account stays banned.' };
+        }
+      }
       return actionView(updated!);
     });
+    if (outcomeMail) this.#mail(outcomeMail);
+    return result;
   }
 }
 

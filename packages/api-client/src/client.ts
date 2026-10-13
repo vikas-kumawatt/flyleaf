@@ -47,6 +47,7 @@ import type {
   MergeListResponse,
   PendingFollowRequestsResponse,
   FollowUserListResponse,
+  FollowSuggestionsResponse,
   PostEventsResponse,
   Profile,
   ProgressEventRequest,
@@ -1235,6 +1236,12 @@ export class FlyleafClient {
     const queryString = params.toString();
     const endpoint = `/users/${encodeURIComponent(userId)}/following${queryString ? `?${queryString}` : ''}`;
     return this.request<FollowUserListResponse>(endpoint, { method: 'GET' });
+  }
+
+  /** Readers to follow during onboarding (SO-52). Signed in only. */
+  async getFollowSuggestions(params?: { limit?: number }): Promise<FollowSuggestionsResponse> {
+    const qs = params?.limit !== undefined ? `?limit=${encodeURIComponent(String(params.limit))}` : '';
+    return this.request<FollowSuggestionsResponse>(`/me/follow-suggestions${qs}`, { method: 'GET' });
   }
   // ---------------------------------------------------------------- Notifications (SO-30 to SO-33)
 

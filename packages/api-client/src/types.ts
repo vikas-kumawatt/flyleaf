@@ -1299,6 +1299,24 @@ export interface FollowUserListResponse {
   total: number;
 }
 
+/** GET /v1/me/follow-suggestions (SO-52, PRD §6.11). */
+export type FollowSuggestionReason = 'favourites' | 'genres' | 'reviewer' | 'popular';
+
+export interface FollowSuggestion {
+  id: string;
+  username: string;
+  display_name: string | null;
+  avatar_url: string | null;
+  follower_count: number;
+  /** Up to four of their favourites, never an explicit book. */
+  favourites: { id: string; title: string; cover_id: number | null }[];
+  reason: FollowSuggestionReason;
+}
+
+export interface FollowSuggestionsResponse {
+  users: FollowSuggestion[];
+}
+
 
 
 

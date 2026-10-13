@@ -6,6 +6,8 @@ import { ApiError, requireViewer } from '../http.js';
 import type { Db } from '../platform/index.js';
 import { errorResponseSchema } from '../contract/schemas.js';
 import type { Notifier } from '../notify/index.js';
+import type { RateLimits } from '../platform/rate-limits.js';
+import type { EmailSender } from '../providers/email/index.js';
 import { APPEAL_MAX_LENGTH, ModerationService, REPORT_REASONS, RULES, SUBJECT_TYPES, type ReportInput } from './index.js';
 
 const uuid = { type: 'string', format: 'uuid' } as const;
@@ -72,10 +74,12 @@ const pageQuery = {
 export interface ModerationPluginOptions {
   db: Db;
   notifier?: Notifier;
+  /** reports:hour / reports:day (owner decision on SO-4x). */
+  limits?: RateLimits;
 }
 
 export const moderationPlugin: FastifyPluginAsync<ModerationPluginOptions> = async (app, opts) => {
-  const service = new ModerationService(opts.db, opts.notifier);
+  const service = new ModerationService(opts.db, opts.notifier, { limits: opts.limits });
 
   app.post<{ Body: ReportInput }>(
     '/reports',

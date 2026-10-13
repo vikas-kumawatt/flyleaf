@@ -41,22 +41,25 @@ export function reportTitle(subject: ReportSubjectType): string {
 
 /**
  * PRD §6.44: confirm, give the expected response window, never promise an
- * outcome. The window is an owner decision (tasks.md SO-40); until it is
- * set the copy names no number.
+ * outcome. The window is the owner's decision on SO-4x (13 Oct 2026):
+ * "We usually review reports within 2 days."
  */
+export const REPORT_RESPONSE_WINDOW = 'We usually review reports within 2 days.';
+
 export function reportConfirmation(): string {
-  return 'Thanks. A person will review this report. You can see its status in Settings → Your reports; we never share what happens to someone else\'s account.';
+  return `Thanks. ${REPORT_RESPONSE_WINDOW} You can see its status in Settings → Your reports; we never share what happens to someone else's account.`;
 }
 
 /** Reader-facing copy for every refusal POST /reports can give. */
-export function reportErrorMessage(code: string | undefined): string {
+export function reportErrorMessage(code: string | undefined, serverMessage?: string): string {
   switch (code) {
     case 'not_found':
       return 'This is no longer available.';
     case 'cannot_report_self':
       return 'You cannot report your own content.';
     case 'rate_limited':
-      return 'You are doing that too quickly. Try again in a minute.';
+      // Writes (per minute) or the report limits (5 an hour, 20 a day): the server says which.
+      return serverMessage || 'You are doing that too quickly. Try again later.';
     default:
       return 'Could not send the report. Try again.';
   }

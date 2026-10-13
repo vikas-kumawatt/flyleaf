@@ -227,13 +227,19 @@ const SINGLE: SingleRow[] = [
   { name: 'GET /v1/exports/:id', vis: null, url: (o) => `/v1/exports/${o.exportId}`, randomUrl: () => `/v1/exports/${R()}`, expected: ownerOnly, signedInOnly: true },
 ];
 
-/** Guest-only HTML/OG pages: public items only, and a denial looks like a missing page. */
+/**
+ * Public HTML pages (SH-10, SO-50, SO-51): rendered for a GUEST whoever asks
+ * (a browser sends no token), so every viewer state gets the guest's answer,
+ * and a denial is the random id's page byte for byte.
+ */
+const asGuest = (_viewer: Viewer, account: Account, vis: Vis) => oracle('guest', account, vis);
 const WEB: SingleRow[] = [
-  { name: 'GET /shelf/:id', vis: VIS, url: (o, v) => `/shelf/${o.shelf[v].id}`, randomUrl: () => `/shelf/${R()}`, expected: oracle },
+  { name: 'GET /shelf/:id', vis: VIS, url: (o, v) => `/shelf/${o.shelf[v].id}`, randomUrl: () => `/shelf/${R()}`, expected: asGuest },
   {
     name: 'GET /u/:username/shelves/:slug', vis: VIS,
-    url: (o, v) => `/u/${o.user.username}/shelves/${o.shelf[v].slug}`, randomUrl: () => `/u/nobody_here/shelves/shelf-public`, expected: oracle,
+    url: (o, v) => `/u/${o.user.username}/shelves/${o.shelf[v].slug}`, randomUrl: () => `/u/nobody_here/shelves/shelf-public`, expected: asGuest,
   },
+  { name: 'GET /@:username', vis: null, url: (o) => `/@${o.user.username}`, randomUrl: () => '/@nobody_here', expected: asGuest },
 ];
 
 async function runSingle(row: SingleRow, viewerList: readonly Viewer[]) {
@@ -270,8 +276,39 @@ describe('authorization matrix: single resources (FN-72)', () => {
     expect(await runSingle(row, VIEWERS)).toEqual([]);
   });
 
-  it.each(WEB.map((r) => [r.name, r] as const))('%s (web)', async (_name, row) => {
-    expect(await runSingle(row, ['guest'])).toEqual([]);
+  it.each(WEB.map((r) => [r.name, r] as const))('%s (web, every viewer sees the guest page)', async (_name, row) => {
+    expect(await runSingle(row, VIEWERS)).toEqual([]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Public pages as lists (SO-50): the profile page lists the owner's reviews
+// and shelves, the book page its reviews. An item appears iff a GUEST may see
+// it, whatever token comes with the request.
+// ---------------------------------------------------------------------------
+
+describe('authorization matrix: public pages show exactly what a guest may see (SO-50)', () => {
+  const ROWS = [
+    { name: 'GET /@:username › reviews', url: (o: OwnerFixture) => `/@${o.user.username}`, text: (a: Account, v: Vis) => `Review ${a} ${v}` },
+    { name: 'GET /@:username › shelves', url: (o: OwnerFixture) => `/@${o.user.username}`, text: (_a: Account, v: Vis) => `Shelf ${v}<` },
+    { name: 'GET /book/:id › reviews', url: () => `/book/${reviewWork}`, text: (a: Account, v: Vis) => `Review ${a} ${v}` },
+  ];
+  it.each(ROWS.map((r) => [r.name, r] as const))('%s', async (_name, row) => {
+    const mismatches: string[] = [];
+    for (const account of ACCOUNTS) {
+      for (const viewer of VIEWERS) {
+        if (viewer === 'owner' && account === 'deleted') continue;
+        const res = await get(row.url(owners[account]), headersFor(viewer, account));
+        const html = typeof res.body === 'string' ? res.body : '';
+        for (const vis of VIS) {
+          const want = oracle('guest', account, vis);
+          const has = res.status === 200 && html.includes(row.text(account, vis));
+          if (has && !want) mismatches.push(`${viewer} → ${account}, ${vis}: LEAKED`);
+          if (want && !has) mismatches.push(`${viewer} → ${account}, ${vis}: missing`);
+        }
+      }
+    }
+    expect(mismatches).toEqual([]);
   });
 });
 

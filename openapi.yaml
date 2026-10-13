@@ -18388,6 +18388,112 @@ paths:
                 required:
                   - users
                   - total
+  /me/follow-suggestions:
+    get:
+      summary: Readers to follow, for onboarding (PRD §6.11)
+      tags:
+        - Social
+      description: Ranked by genre overlap, then favourite-book overlap, then active
+        reviewers, then most followed. Never the caller, anyone they follow or
+        requested, anyone in a block with them either way, anyone they muted, or
+        a private, deleted, banned, unverified or suspended account. Overlap
+        counts public reads and favourites only.
+      parameters:
+        - schema:
+            type: integer
+            minimum: 1
+            maximum: 30
+            default: 15
+          in: query
+          name: limit
+          required: false
+      responses:
+        "200":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  users:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: string
+                          format: uuid
+                        username:
+                          type: string
+                        display_name:
+                          type:
+                            - "null"
+                            - string
+                        avatar_url:
+                          type:
+                            - "null"
+                            - string
+                        follower_count:
+                          type: integer
+                        favourites:
+                          type: array
+                          items:
+                            type: object
+                            properties:
+                              id:
+                                type: string
+                                format: uuid
+                              title:
+                                type: string
+                              cover_id:
+                                type:
+                                  - "null"
+                                  - integer
+                            required:
+                              - id
+                              - title
+                              - cover_id
+                        reason:
+                          type: string
+                          enum:
+                            - favourites
+                            - genres
+                            - reviewer
+                            - popular
+                      required:
+                        - id
+                        - username
+                        - display_name
+                        - avatar_url
+                        - follower_count
+                        - favourites
+                        - reason
+                required:
+                  - users
+        "401":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      code:
+                        type: string
+                        description: Machine-readable error code
+                      message:
+                        type: string
+                        description: Human-readable error description
+                      field:
+                        type: string
+                        description: Invalid field name if applicable
+                    required:
+                      - code
+                      - message
+                required:
+                  - error
   /feed:
     get:
       parameters:
