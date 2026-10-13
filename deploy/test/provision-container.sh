@@ -63,7 +63,7 @@ docker run --rm --name flyleaf-provision-box --network host "${proxy_env[@]}" "$
   mkdir -p /run/sshd
   git config --system --add safe.directory "*"
   cp -a /repo/deploy /root/deploy
-  # As if scp'd from Windows: no executable bits (docs/deploy.md step 3a).
+  # As if copied with scp from Windows: no executable bits (docs/deploy.md step 3a).
   find /root/deploy -name "*.sh" -exec chmod a-x {} +
 
   cat > /root/answers <<EOF
