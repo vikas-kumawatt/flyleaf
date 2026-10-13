@@ -40,5 +40,4 @@ glyph shapes.
 
 Emoji are **Twemoji** SVGs read from the `@twemoji/svg` 15.0.0 package on disk (`src/cards/text.ts`). Twemoji
 graphics: Copyright 2019 Twitter, Inc. and other contributors, and jdecked's fork, licensed under
-**CC-BY 4.0** (https://creativecommons.org/licenses/by/4.0/); the attribution appears here and must also appear in
-the app's licences screen. Emoji newer than Unicode 15 are drawn as nothing.
+**CC-BY 4.0** (https://creativecommons.org/licenses/by/4.0/); the attribution appears here and in the app's licences screen (`apps/mobile/app/licences.tsx`, Phase 5 C).

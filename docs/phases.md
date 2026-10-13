@@ -288,8 +288,8 @@ Stats screen with per-card sharing · goal ring on the profile · server-rendere
 **Year in Review must ship by late November.** The wrapped-content window is December; launching in January misses it by a year. If Phase 5 slips past mid-November, ship the stats screen and defer Year in Review by twelve months rather than shipping it late into an empty room.
 
 ### Exit criteria
-- [ ] Stats correct against hand-computed figures for your own account
-- [ ] Incomplete data disclosed, never fabricated ("based on 180 of your 247 books")
+- [ ] Stats correct against hand-computed figures for your own account — *the hand-computed test library exists (`stats-phase5` › ST-02); still to check against your real account on the laptop*
+- [x] Incomplete data disclosed, never fabricated ("based on 180 of your 247 books") (ST-03 on the API; ST-04: every card on the stats screen carries its note and a figure with no data has no card, and share cards refuse rather than draw a zero; 13 Oct 2026)
 - [x] Share cards render server-side and look identical everywhere (ST-07, ST-08: golden-image tests per template, 13 Oct 2026)
 
 ---
