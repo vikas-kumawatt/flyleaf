@@ -1,0 +1,11 @@
+# Monthly (architecture §11 rule 2), on the 2nd at 08:00 UTC: after the
+# 1st's monthly backup exists, and away from the nightly jobs.
+[Unit]
+Description=Flyleaf monthly restore drill
+
+[Timer]
+OnCalendar=*-*-02 08:00:00 UTC
+Persistent=true
+
+[Install]
+WantedBy=timers.target

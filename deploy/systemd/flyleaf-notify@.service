@@ -1,0 +1,8 @@
+# Mails OWNER_EMAIL that unit %i failed, with the end of its log. Started by
+# OnFailure= in flyleaf-backup.service and flyleaf-restore-drill.service.
+[Unit]
+Description=Flyleaf failure mail for %i
+
+[Service]
+Type=oneshot
+ExecStart=/opt/flyleaf/deploy/backup/notify.sh failure %i

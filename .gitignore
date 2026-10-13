@@ -41,3 +41,6 @@ apps/api/src/bench/tokens.json
 
 # dedupe backlog batch samples (npm run dedupe -- --backlog)
 apps/api/dedupe-batches/
+
+# catalog transfer (deploy/catalog/Export-Catalog.ps1): gigabytes, and not code
+catalog-export/

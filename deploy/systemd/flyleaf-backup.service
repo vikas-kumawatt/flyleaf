@@ -1,0 +1,18 @@
+# One backup run (deploy/backup/backup.sh): user data + catalog delta,
+# encrypted, copied to Google Drive, pruned to 30 daily / 12 monthly.
+# A failure mails OWNER_EMAIL (architecture §11: a backup failure pages, at a
+# higher severity than an outage). Logs: journalctl -u flyleaf-backup
+[Unit]
+Description=Flyleaf backup (user data, encrypted, off-site)
+After=docker.service network-online.target
+Wants=network-online.target
+OnFailure=flyleaf-notify@%n.service
+
+[Service]
+Type=oneshot
+ExecStart=/opt/flyleaf/deploy/backup/backup.sh
+# Root: it reads /etc/flyleaf and runs docker. Nothing else runs as root.
+Nice=10
+IOSchedulingClass=best-effort
+IOSchedulingPriority=7
+TimeoutStartSec=2h

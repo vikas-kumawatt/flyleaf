@@ -1,0 +1,7 @@
+# Scripts source lib/common.sh relative to their own directory.
+source-path=SCRIPTDIR
+source-path=SCRIPTDIR/..
+external-sources=true
+# FLYLEAF_HOST, S3_BUCKET and the rest arrive from load_app_env, which
+# shellcheck cannot follow; SC2153 would flag every one as a misspelling.
+disable=SC2153

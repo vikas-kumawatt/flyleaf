@@ -1,0 +1,48 @@
+# The Flyleaf API: the compiled build of the release that /opt/flyleaf/current
+# points at (deploy/release.sh). Logs: journalctl -u flyleaf-api
+[Unit]
+Description=Flyleaf API (apps/api dist/server.js)
+Wants=network-online.target
+# Postgres runs in Docker. The API waits for it itself (waitForDb), so this
+# only orders the start; it does not tie the API's lifetime to Docker's.
+After=network-online.target docker.service
+# Never give up restarting: an unattended server is better served by a
+# process that keeps retrying (with backoff, below) than by one that stops
+# after N failures and waits for a human.
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+User=flyleaf
+Group=flyleaf
+WorkingDirectory=/opt/flyleaf/current/apps/api
+EnvironmentFile=/etc/flyleaf/app.env
+# V8's heap stays under the unit's memory ceiling, so a leak ends in a clean
+# heap-limit crash and restart instead of the kernel OOM killer.
+Environment=NODE_OPTIONS=--max-old-space-size=384
+ExecStart=/usr/local/bin/node dist/server.js
+Restart=on-failure
+# Backoff: 5 s, growing to 5 min over 10 attempts (systemd >= 254; Ubuntu
+# 24.04 ships 255). A crash loop against a down database then costs little.
+RestartSec=5
+RestartSteps=10
+RestartMaxDelaySec=300
+# server.ts drains requests for up to 10 s on SIGTERM, then exits.
+TimeoutStopSec=20
+MemoryHigh=512M
+MemoryMax=640M
+
+# Hardening: the API writes nothing to disk (logs go to the journal, files
+# to object storage).
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+
+[Install]
+WantedBy=multi-user.target

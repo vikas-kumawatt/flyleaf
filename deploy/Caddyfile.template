@@ -1,0 +1,44 @@
+# Rendered by deploy/provision.sh into /etc/caddy/Caddyfile. Do not edit the
+# rendered copy: it is overwritten. @NAME@ markers come from /etc/flyleaf/app.env.
+{
+	# Let's Encrypt account contact: expiry warnings if renewal ever fails.
+	email @OWNER_EMAIL@
+	servers {
+		# HTTP/3 needs UDP 443, which the firewall does not open.
+		protocols h1 h2
+	}
+}
+
+# Caddy gets and renews the certificate for this name by itself; ports 80 and
+# 443 must reach this machine (Azure NSG + UFW) and the DNS name must point at
+# its public IP.
+@FLYLEAF_HOST@ {
+	# Object storage: phones PUT uploads and GET exports here with presigned
+	# URLs. Path style, so the bucket is the first path segment. The Host
+	# header passes through unchanged, which the S3 signature covers.
+	# No compression and no body limit on this path: the API's upload policy
+	# (10 MB for imports) is enforced by the signature itself.
+	@storage path /@S3_BUCKET@ /@S3_BUCKET@/*
+	handle @storage {
+		reverse_proxy 127.0.0.1:9000
+	}
+
+	handle {
+		encode zstd gzip
+		reverse_proxy 127.0.0.1:@PORT@ {
+			# Active check: while /readyz fails (the API cannot reach Postgres,
+			# or migrations are missing), Caddy answers 503 at once instead
+			# of holding every request until it times out.
+			health_uri /readyz
+			health_interval 15s
+			health_timeout 5s
+			# Passive check: a crashed API is marked down after 3 failures in 30s.
+			fail_duration 30s
+			max_fails 3
+		}
+	}
+
+	# No access log, deliberately. It would store full query strings, and
+	# those carry export download tokens and presigned signatures; the API's
+	# own request log (journalctl -u flyleaf-api) redacts them.
+}

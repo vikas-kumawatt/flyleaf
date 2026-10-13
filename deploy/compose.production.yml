@@ -1,0 +1,110 @@
+# Production data services for ONE small VM (4 GB RAM, 2 vCPU): Postgres and
+# MinIO. The API, the worker and Caddy run on the host under systemd.
+#
+# provision.sh copies this to /opt/flyleaf/compose/compose.yml and runs
+#   docker compose -p flyleaf --env-file /etc/flyleaf/app.env up -d --wait
+# Variables come from that rendered env file. Nothing here publishes a port
+# beyond 127.0.0.1: Docker's published ports bypass UFW, so loopback-only
+# binding is what keeps the database off the internet, not the firewall.
+#
+# MEMORY BUDGET (docker-compose.yml has the laptop version and its history).
+# About 3.8 GiB usable, shared as ceilings, not reservations:
+#   Postgres  mem_limit 2g   shared_buffers 512 MB + backends + /dev/shm when used
+#   MinIO     mem_limit 512m
+#   API       MemoryMax 640M (systemd), V8 heap capped at 384 MB
+#   worker    MemoryMax 640M (systemd), V8 heap capped at 384 MB
+#   OS, Docker, Caddy, sshd, journald: the rest
+# The ceilings add up to more than the machine has, on purpose: they never all
+# peak together, and a 2 GB swap file (provision.sh) turns the rare overlap
+# into slowness. Containers may swap (memswap_limit unset = 2x mem_limit), so
+# a Postgres backend over budget is slowed, not OOM-killed into crash
+# recovery (Audit 15, A-03-026).
+
+name: flyleaf
+
+services:
+  postgres:
+    image: ${POSTGRES_IMAGE}
+    container_name: flyleaf-pg
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: flyleaf
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: flyleaf
+    ports:
+      - "127.0.0.1:5432:5432"
+    # Settings, against docker-compose.yml's laptop values (Audits 15/15b/15c):
+    # - shared_buffers 512MB, work_mem 4MB, hash_mem_multiplier 2: unchanged.
+    #   They are what the planner work was measured under, and the API's
+    #   requests are short. Batch jobs set their own work_mem per connection
+    #   (JOB_DB_SETTINGS in apps/api/src/platform/index.ts).
+    # - effective_cache_size 1536MB (laptop 2GB): a planner hint for the OS
+    #   page cache, which is smaller here.
+    # - maintenance_work_mem 256MB for index builds (the catalog restore), but
+    #   autovacuum_work_mem 64MB: by default each of the 3 autovacuum workers
+    #   would take the full 256 MB.
+    # - max_connections 60 (laptop 100, which included tests and benches).
+    #   Pools: API 10 + its pg-boss producer 10, worker 4 + dedupe 1 + its
+    #   pg-boss 10, migrate 1, admin CLI 1, backup and restore drill 2,
+    #   superuser reserve 3 = 42, plus psql and margin.
+    # - max_wal_size 2GB (laptop 8GB, sized for the bulk ingest that does not
+    #   run here). The one bulk load is the catalog restore, which just
+    #   checkpoints more often.
+    # - shm_size 512m, as decided in Audit 15c (A-15-028): parallel hash joins
+    #   put their tables in /dev/shm, and Docker's 64 MB default fails them
+    #   with SQLSTATE 53100. It counts against mem_limit only while used.
+    # - max_parallel_workers 2: there are 2 vCPUs.
+    # - log_min_duration_statement 1s: slow statements reach `docker logs`.
+    mem_limit: 2g
+    shm_size: 512m
+    command: >
+      postgres
+      -c shared_buffers=512MB
+      -c effective_cache_size=1536MB
+      -c work_mem=4MB
+      -c hash_mem_multiplier=2
+      -c maintenance_work_mem=256MB
+      -c autovacuum_work_mem=64MB
+      -c max_connections=60
+      -c max_wal_size=2GB
+      -c min_wal_size=256MB
+      -c checkpoint_timeout=15min
+      -c checkpoint_completion_target=0.9
+      -c max_parallel_workers=2
+      -c log_min_duration_statement=1000
+    volumes:
+      # The parent of the version-specific PGDATA, as in docker-compose.yml
+      # (Postgres 18 keeps data in /var/lib/postgresql/18/docker).
+      - ${FLYLEAF_DATA:-/srv/flyleaf}/postgres:/var/lib/postgresql
+      # pg_dump/pg_restore work files (deploy/backup) and the catalog
+      # transfer (deploy/catalog). Files, not pipes: a custom-format archive
+      # written to a file has the data offsets that selective restores need.
+      - ${BACKUP_DIR:-/var/backups/flyleaf}/work:/backups
+      - ${IMPORT_DIR:-/srv/flyleaf/import}:/import:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U flyleaf -d flyleaf"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+
+  minio:
+    image: ${MINIO_IMAGE}
+    container_name: flyleaf-minio
+    restart: unless-stopped
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+    # 9000 is reached from outside only through Caddy (https://<host>/<bucket>/...).
+    # The console (9001) only through an SSH tunnel: docs/deploy.md.
+    ports:
+      - "127.0.0.1:9000:9000"
+      - "127.0.0.1:9001:9001"
+    mem_limit: 512m
+    volumes:
+      - ${FLYLEAF_DATA:-/srv/flyleaf}/minio:/data
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
