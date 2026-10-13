@@ -59,11 +59,17 @@ restart_and_check() {
 
 public_check() {
   has_systemd || return 0
-  if curl -fsS -m 10 "https://${FLYLEAF_HOST}/readyz" >/dev/null 2>&1; then
-    log "healthy through Caddy: https://${FLYLEAF_HOST}/readyz"
-  else
-    log "WARNING: https://${FLYLEAF_HOST}/readyz fails though the API is up: check Caddy (journalctl -u caddy) and the certificate"
-  fi
+  local url="https://${FLYLEAF_HOST}/readyz"
+  # Caddy checks /readyz itself every 15 s (Caddyfile health_interval) and
+  # answers 503 until a check sees the restarted API: allow two intervals.
+  for _ in $(seq 1 6); do
+    if curl -fsS -m 10 "$url" >/dev/null 2>&1; then
+      log "healthy through Caddy: $url"
+      return 0
+    fi
+    sleep 5
+  done
+  log "WARNING: $url still fails 30 s after the API came up: check Caddy (journalctl -u caddy) and the certificate"
 }
 
 status() {
