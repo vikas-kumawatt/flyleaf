@@ -20,6 +20,7 @@ import {
   Switch,
 } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
+import { requestMilestoneCheck } from '@/lib/milestones';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as SecureStore from 'expo-secure-store';
 import * as Haptics from 'expo-haptics';
@@ -249,6 +250,8 @@ export default function ReviewComposerScreen() {
         pageCount: read?.page_count,
       });
 
+      // ST-10: the first review is a moment, once it has synced.
+      requestMilestoneCheck();
       router.back();
     } catch (err: any) {
       Alert.alert('Error', err?.message || 'Could not post review. Your draft has been preserved.');

@@ -187,14 +187,78 @@ export type StatsCoverageKey =
 
 /** ST-05, PRD §8.6: a reading goal and progress as this viewer may count it. For the profile ring only. */
 /** ST-07/ST-08 share cards: which card, and its options. */
-export type StatCardKind = 'books' | 'pages' | 'rating' | 'author' | 'genres' | 'formats' | 'streak';
+export type StatCardKind =
+  | 'books' | 'pages' | 'rating' | 'author' | 'genres' | 'formats' | 'streak'
+  // ST-04: one card per figure on the stats screen.
+  | 'audio' | 'crowd' | 'decades' | 'languages' | 'velocity' | 'speed' | 'pace' | 'months' | 'dnf' | 'time'
+  | 'longest' | 'shortest' | 'fastest' | 'slowest' | 'highest' | 'lowest' | 'oldest' | 'reread';
 export type WallCardLayout = '4x4' | '3x5';
 export type ShareCard =
   | { template: 'finish'; readId: string }
   | { template: 'review'; reviewId: string }
   | { template: 'stat'; userId: string; stat: StatCardKind; year?: number | 'all'; tz?: string }
   | { template: 'profile'; userId: string; tz?: string }
-  | { template: 'wall'; userId: string; layout?: WallCardLayout; year?: number };
+  | { template: 'wall'; userId: string; layout?: WallCardLayout; year?: number }
+  /** ST-09: one Year in Review card, the reader's own only. */
+  | { template: 'year'; userId: string; year: number; card: YearInReviewCardKind; tz?: string };
+
+// ---------------------------------------------------------------- Year in Review (ST-09)
+
+export type YearInReviewCardKind =
+  | 'books' | 'pages' | 'genres' | 'top' | 'longest' | 'author' | 'crowd' | 'calendar' | 'goal' | 'summary'
+  | 'shelf' | 'favourite' | 'genre_names' | 'summary_gentle';
+
+export interface YearInReviewBook {
+  work_id: string;
+  title: string;
+  author_name: string | null;
+  cover_id: number | null;
+  rating: number | null;
+  explicit: boolean;
+}
+
+/** One story card. Its words come from the server, so the screen and the share card say the same thing. */
+export interface YearInReviewCard {
+  kind: YearInReviewCardKind;
+  heading: string;
+  /** The figure, formatted; null on every gentle card (no counts, PRD §17.6). */
+  value: string | null;
+  caption: string | null;
+  detail: string | null;
+  /** ST-03's sentence when the figure is based on part of the books. */
+  note: string | null;
+  books: YearInReviewBook[];
+  bars: Array<{ label: string; value: number; text: string }>;
+  /** Twelve months of days, 1 = read that day. */
+  calendar: number[][] | null;
+}
+
+export interface YearInReview {
+  year: number;
+  unlocked: boolean;
+  /** YYYY-12-01, in the reader's zone. */
+  unlocks_on: string;
+  variant: 'full' | 'gentle' | 'empty' | null;
+  cards: YearInReviewCard[];
+}
+
+// ---------------------------------------------------------------- Milestones (ST-10)
+
+export type MilestoneTreatment = 'full' | 'subtle' | 'note';
+
+export interface Milestone {
+  /** books_1 | books_10 | books_100 | books_500 | books_1000 | first_review | first_follower | goal_YYYY */
+  key: string;
+  treatment: MilestoneTreatment;
+  achieved_at: string;
+  data: Record<string, unknown>;
+}
+
+export interface MilestonesResponse {
+  milestones: Milestone[];
+  /** With read_id: is it the longest book yet (§18.4's inline note). null otherwise. */
+  longest_yet: boolean | null;
+}
 
 /** A rendered card: PNG bytes and the content hash (ETag) the server cached it under. */
 export interface ShareCardImage {
@@ -1395,7 +1459,7 @@ export interface FollowSuggestionsResponse {
 // ---------------------------------------------------------------- Notifications (SO-30 to SO-33)
 
 /** reply: a comment in a thread you commented in (SO-4x). moderation: a decision about your content (PRD §27.6). */
-export type NotificationType = 'follow' | 'follow_request' | 'like' | 'comment' | 'import_complete' | 'reply' | 'moderation';
+export type NotificationType = 'follow' | 'follow_request' | 'like' | 'comment' | 'import_complete' | 'reply' | 'moderation' | 'year_in_review' | 'milestone';
 
 export interface NotificationActor {
   id: string;

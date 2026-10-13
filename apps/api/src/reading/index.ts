@@ -146,6 +146,7 @@ export type Read = {
 };
 
 import { ActivityService } from '../activity/index.js';
+import { Milestones } from './milestones.js';
 
 /**
  * PRD §8.1 / §8.2 [LOCKED]: `finished` and `dnf` are terminal. Moving a
@@ -191,6 +192,7 @@ type AttemptRow = {
 
 export class ReadingService {
   private activityService: ActivityService;
+  readonly #milestones = new Milestones();
 
   constructor(private db: Db) {
     this.activityService = new ActivityService(db);
@@ -506,6 +508,10 @@ export class ReadingService {
         visibility: read.visibility,
         source: read.source ?? 'app',
       });
+    }
+    // ST-10: a finish in the app may reach a milestone (in-app only, no activity).
+    if (change.statusChanged && read.status === 'finished') {
+      await this.#milestones.afterFinish(db, viewer, { id: read.id, work_id: read.work_id, finished_at: read.finished_at ?? null });
     }
     return read;
   }

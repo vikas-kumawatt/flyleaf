@@ -1137,7 +1137,7 @@ export const notifications = pgTable('notifications', {
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 }, (t) => [
-  check('notifications_type_ck', sql`${t.type} IN ('follow','follow_request','like','comment','import_complete','reply','moderation')`),
+  check('notifications_type_ck', sql`${t.type} IN ('follow','follow_request','like','comment','import_complete','reply','moderation','year_in_review','milestone')`),
   check('notifications_object_type_ck', sql`${t.objectType} IS NULL OR ${t.objectType} IN ('user','read','comment','import','moderation_action')`),
   check('notifications_push_state_ck', sql`${t.pushState} IN ('none','queued','sent','skipped')`),
   index('notifications_user_idx').on(t.userId, t.updatedAt.desc(), t.id.desc()).where(sql`${t.inApp}`),
@@ -1147,6 +1147,9 @@ export const notifications = pgTable('notifications', {
   index('notifications_object_idx').on(t.objectType, t.objectId),
   // 0044: the 180-day retention sweep (owner decision on SO-3x).
   index('notifications_updated_idx').on(t.updatedAt),
+  // 0047: Year in Review once a year, a milestone once (PRD §19.2 items 8, 12).
+  uniqueIndex('notifications_yir_once_uq').on(t.userId, sql`(${t.data}->>'year')`).where(sql`${t.type} = 'year_in_review'`),
+  uniqueIndex('notifications_milestone_once_uq').on(t.userId, sql`(${t.data}->>'key')`).where(sql`${t.type} = 'milestone'`),
 ]);
 
 /** Who is in a notification. An unlike or unfollow removes the actor again. */
@@ -1308,6 +1311,37 @@ export const goals = pgTable('goals', {
   check('goals_year_ck', sql`${t.year} BETWEEN 1900 AND 9999`),
   check('goals_target_books_ck', sql`${t.targetBooks} BETWEEN 1 AND 10000`),
   check('goals_target_pages_ck', sql`${t.targetPages} IS NULL OR ${t.targetPages} BETWEEN 1 AND 10000000`),
+]);
+
+/** 0047: covers copied into our storage for share cards; deleted after 180 days unused (owner decision on Phase 5 B). */
+export const cardCovers = pgTable('card_covers', {
+  coverId: integer('cover_id').primaryKey(),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  lastUsedAt: timestamp('last_used_at', { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [
+  index('card_covers_last_used_idx').on(t.lastUsedAt),
+]);
+
+/** 0047, ST-10 (PRD §18.4): each milestone fires once per user. */
+export const milestones = pgTable('milestones', {
+  userId: uuid('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  key: text('key').notNull(),
+  achievedAt: timestamp('achieved_at', { withTimezone: true }).notNull().defaultNow(),
+  seenAt: timestamp('seen_at', { withTimezone: true }),
+  data: jsonb('data').notNull().default(sql`'{}'::jsonb`),
+}, (t) => [
+  primaryKey({ columns: [t.userId, t.key] }),
+  check('milestones_key_ck', sql`${t.key} ~ '^(books_(1|10|100|500|1000)|first_review|first_follower|goal_[0-9]{4})$'`),
+  index('milestones_unseen_idx').on(t.userId).where(sql`${t.seenAt} IS NULL`),
+]);
+
+/** 0047, ST-09 (PRD §19.2 item 8 "once annually"): the notify.yir job's claim per (user, year). */
+export const yearInReviewNotices = pgTable('year_in_review_notices', {
+  userId: uuid('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  year: integer('year').notNull(),
+  claimedAt: timestamp('claimed_at', { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [
+  primaryKey({ columns: [t.userId, t.year] }),
 ]);
 
 export const moderationAppealLinks = pgTable('moderation_appeal_links', {

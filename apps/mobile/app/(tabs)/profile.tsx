@@ -762,6 +762,29 @@ export default function ProfileScreen() {
                   </View>
                 </Card>
 
+                {/* Licences and data sources (owner decision on Phase 5 B; PRD §6.43) */}
+                <Card
+                  onPress={() => {
+                    void Haptics.selectionAsync();
+                    router.push('/licences' as any);
+                  }}
+                  style={{ padding: space[3] }}
+                >
+                  <View style={sheet.rowBetween}>
+                    <View style={{ gap: 2 }}>
+                      <Txt variant="title" style={{ fontSize: 15, fontWeight: '700' }}>
+                        Licences
+                      </Txt>
+                      <Txt variant="caption" color="muted">
+                        Fonts, emoji, data sources and open-source packages.
+                      </Txt>
+                    </View>
+                    <Txt variant="title" color="accent">
+                      →
+                    </Txt>
+                  </View>
+                </Card>
+
                 {/* Muted Content */}
                 <Card
                   onPress={() => {

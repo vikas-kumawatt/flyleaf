@@ -3,7 +3,8 @@
 // one model per template for the golden images.
 
 import { toPng } from '../cards/render.js';
-import type { CardImage, FinishModel, ProfileModel, ReviewModel, StatModel, WallModel } from '../cards/templates.js';
+import type { CardImage, FinishModel, ProfileModel, ReviewModel, StatModel, WallModel, YearModel } from '../cards/templates.js';
+import { calendarGrid } from '../reading/year-in-review.js';
 
 const COVER_SVG = `<svg xmlns="http://www.w3.org/2000/svg" width="400" height="600">
 <rect width="400" height="600" fill="#2F5D50"/><circle cx="200" cy="260" r="120" fill="#C8951F"/>
@@ -57,4 +58,31 @@ export const profileModel: ProfileModel = {
 export const wallModel: WallModel = {
   handle: 'aisha', name: 'Aisha Khan', layout: '4x4', count: 312, year: null,
   posters: Array.from({ length: 16 }, (_, i) => (i % 3 === 0 ? { title: `Book number ${i}`, author: 'An Author', cover: null } : { title: `Cover ${i}`, author: null, cover })),
+};
+
+/** ST-04: an extreme (one book, with its cover). */
+export const statExtremeModel: StatModel = {
+  handle: 'aisha', period: '2026', heading: 'Longest book', value: '1,248', caption: 'pages', detail: null, bars: [], coverage: null,
+  poster: { title: 'The Count of Monte Cristo', author: 'Alexandre Dumas', cover },
+};
+
+/** ST-09: Year in Review cards (full with a calendar, top four, and the gentle summary). */
+const yearDays = Array.from({ length: 120 }, (_, i) => new Date(Date.UTC(2026, 0, 1 + ((i * 37) % 365))).toISOString().slice(0, 10));
+export const yearCalendarModel: YearModel = {
+  handle: 'aisha', year: 2026, heading: 'Reading calendar', value: '120', caption: 'days with reading', detail: null, note: null,
+  posters: [], bars: [], calendar: calendarGrid(2026, yearDays),
+};
+export const yearTopModel: YearModel = {
+  handle: 'aisha', year: 2026, heading: 'Your top 4', value: null, caption: null, detail: null, note: null, bars: [], calendar: null,
+  posters: [
+    { title: 'Piranesi', author: 'Susanna Clarke', cover },
+    { title: 'The Remains of the Day', author: 'Kazuo Ishiguro', cover: null },
+    { title: '百年孤独', author: null, cover },
+    { title: 'Beloved', author: 'Toni Morrison', cover: null },
+  ],
+};
+export const yearGentleModel: YearModel = {
+  handle: 'aisha', year: 2026, heading: 'Your 2026 in books', value: null, caption: 'A year of good reading.', detail: null, note: null,
+  bars: [], calendar: null,
+  posters: [{ title: 'Piranesi', author: 'Susanna Clarke', cover }, { title: 'Small Things', author: null, cover: null }],
 };

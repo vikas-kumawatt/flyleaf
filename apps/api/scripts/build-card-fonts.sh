@@ -47,6 +47,18 @@ for fam in Devanagari Bengali Tamil Telugu Kannada Malayalam Gujarati Gurmukhi T
   inst "NotoSans$fam[wdth,wght].ttf" wdth=100 wght=400 -o "$OUT/NotoSans$fam-Regular.ttf"
 done
 
+# Owner decision on Phase 5 B: six more scripts (Phase 5 C). Google Fonts has
+# no Noto Sans Tibetan; Noto Serif Tibetan is the only Tibetan Noto there.
+for fam in Sinhala Oriya Ethiopic Khmer Myanmar; do
+  dir=notosans$(echo "$fam" | tr '[:upper:]' '[:lower:]')
+  get "$dir" "NotoSans$fam[wdth,wght].ttf"
+  inst "NotoSans$fam[wdth,wght].ttf" wdth=100 wght=400 -o "$fam.ttf"
+  sub "$fam.ttf" '*' "$OUT/NotoSans$fam-Regular.ttf"
+done
+get notoseriftibetan 'NotoSerifTibetan[wght].ttf'
+inst 'NotoSerifTibetan[wght].ttf' wght=400 -o tibetan.ttf
+sub tibetan.ttf '*' "$OUT/NotoSerifTibetan-Regular.ttf"
+
 get notosanssc 'NotoSansSC[wght].ttf'
 inst 'NotoSansSC[wght].ttf' wght=400 -o sc.ttf
 sub sc.ttf '*' "$OUT/NotoSansSC-Regular.ttf"

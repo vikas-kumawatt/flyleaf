@@ -330,6 +330,13 @@
       "when": 1789290000000,
       "tag": "0046_goals",
       "breakpoints": true
+    },
+    {
+      "idx": 47,
+      "version": "7",
+      "when": 1789300000000,
+      "tag": "0047_yir_milestones_card_covers",
+      "breakpoints": true
     }
   ]
 }

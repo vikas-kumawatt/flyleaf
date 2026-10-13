@@ -19,6 +19,7 @@ import {
   Alert,
 } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
+import { requestMilestoneCheck } from '@/lib/milestones';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as SecureStore from 'expo-secure-store';
 import * as Haptics from 'expo-haptics';
@@ -161,6 +162,8 @@ export default function FinishScreen() {
         pageCount: read?.page_count,
       });
 
+      // ST-10: a milestone, or "longest book yet", once this finish has synced.
+      requestMilestoneCheck(readId);
       router.back();
     } catch (err: any) {
       Alert.alert('Error', err?.message || 'Could not finish read.');

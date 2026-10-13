@@ -85,6 +85,8 @@ export const HOME = '/';
  *   flyleaf://reading                         → Reading tab
  *   flyleaf://notifications                   → Home → Notifications
  *   flyleaf://moderation/M                    → Profile tab → Moderation notice M (SO-42)
+ *   flyleaf://stats                           → Profile tab → Stats (a milestone, ST-10)
+ *   flyleaf://year-in-review/YYYY             → Profile tab → Stats → Year in Review (ST-09)
  *
  * Ids must be UUIDs; anything else, or an unknown path, is Home. The links
  * come from our own server, but a push payload is still input.
@@ -137,6 +139,14 @@ export function backStackFor(url: string): string[] {
     }
     case 'reading':
       return parts.length === 1 ? ['/reading'] : [HOME];
+    case 'stats':
+      // A milestone (ST-10): your stats, under the Profile tab.
+      return parts.length === 1 ? ['/profile', '/stats'] : [HOME];
+    case 'year-in-review': {
+      // ST-09: Profile → Stats → that year's Year in Review.
+      const y = /^\d{4}$/.test(a ?? '') ? a : null;
+      return y && parts.length === 2 ? ['/profile', '/stats', `/year-in-review?year=${y}`] : [HOME];
+    }
     case 'notifications':
       return parts.length === 1 ? [HOME, '/notifications'] : [HOME];
     case 'moderation': {

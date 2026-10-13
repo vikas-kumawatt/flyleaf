@@ -5,6 +5,7 @@
 //   - PRD §10.1–§10.7 (Review ranking algorithm, content requirements, likes)
 //   - Architecture §3.1, §3.5, §3.7 (reviews, read_likes, follows tables)
 
+import { Milestones } from '../reading/milestones.js';
 import { screenReviewWritten, screenText } from '../moderation/filters.js';
 import { RateLimits } from '../platform/rate-limits.js';
 import { sql, eq, and, desc, asc, isNull, inArray, type SQL } from 'drizzle-orm';
@@ -584,6 +585,8 @@ export class ReviewService {
           .values({ readId, userId, workId: read.work_id, body: trimmed, ...spoilers, visibility, publishedAt: new Date() })
           .returning({ id: reviews.id });
         id = inserted!.id;
+        // ST-10: the first review ever is a moment (in-app only).
+        await new Milestones().afterReview(tx as unknown as Db, userId, id, read.work_id);
       }
       await syncReviewActivity(tx, id);
       // SO-41: duplicate text and flagged accounts queue for a moderator.

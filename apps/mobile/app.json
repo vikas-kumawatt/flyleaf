@@ -57,7 +57,8 @@
           "photosPermission": "Flyleaf uses your photos to set your profile picture.",
           "cameraPermission": "Flyleaf uses the camera to scan book barcodes and to take a profile picture."
         }
-      ]
+      ],
+      "expo-sharing"
     ],
     "experiments": {
       "typedRoutes": true

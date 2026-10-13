@@ -81,6 +81,8 @@ export interface StatModel {
   bars: StatBar[];
   /** ST-03: "Based on 180 of 247 books — 67 have no page count." null when nothing is missing. */
   coverage: string | null;
+  /** ST-04 extremes: the book the figure is about. */
+  poster?: Poster | null;
 }
 
 export interface ProfileModel {
@@ -93,6 +95,22 @@ export interface ProfileModel {
   year: number;
   booksThisYear: number;
   booksAllTime: number;
+}
+
+/** ST-09: one Year in Review story card (composed in reading/year-in-review.ts). */
+export interface YearModel {
+  handle: string;
+  year: number;
+  heading: string;
+  value: string | null;
+  caption: string | null;
+  detail: string | null;
+  /** ST-03's sentence for the figure, if any. */
+  note: string | null;
+  posters: Poster[];
+  bars: StatBar[];
+  /** Twelve months of days, 1 = read that day. */
+  calendar: number[][] | null;
 }
 
 export type WallLayout = '4x4' | '3x5';
@@ -278,6 +296,13 @@ export function statCard(m: StatModel): CardNode {
       h('div', { style: { display: 'flex', fontSize: m.value.length > 6 ? 150 : 220, fontWeight: 600, lineHeight: 1, color: C.ink } }, m.value),
       m.caption ? textBlock(m.caption, { fontFamily: SERIF_STACK, fontWeight: 600, fontSize: 56, color: C.ink }, { lines: 2, lineHeight: 70 }) : null,
       m.detail ? h('div', { style: { display: 'flex', fontSize: 36, color: C.ink2, marginTop: 8 } }, m.detail) : null),
+    m.poster
+      ? h('div', { style: { display: 'flex', gap: 40, marginTop: 64, alignItems: 'flex-end' } },
+          poster(m.poster, 320, 480),
+          h('div', { style: { display: 'flex', flexDirection: 'column', gap: 12, flexGrow: 1, flexShrink: 1, width: 0 } },
+            textBlock(m.poster.title, { fontFamily: SERIF_STACK, fontWeight: 600, fontSize: 48, color: C.ink }, { lines: 4, lineHeight: 60 }),
+            m.poster.author ? textBlock(m.poster.author, { fontSize: 32, color: C.ink2 }, { lines: 2, lineHeight: 42 }) : null))
+      : null,
     m.bars.length > 0
       ? h('div', { style: { display: 'flex', flexDirection: 'column', marginTop: 64, gap: 22 } },
           ...m.bars.map((b, i) => h('div', { key: `b${i}`, style: { display: 'flex', flexDirection: 'column', gap: 8 } },
@@ -354,10 +379,57 @@ export function wallCard(m: WallModel): CardNode {
   );
 }
 
+const MONTH_INITIALS = ['J', 'F', 'M', 'A', 'M', 'J', 'J', 'A', 'S', 'O', 'N', 'D'];
+
+function calendarGrid(rows: number[][]): CardNode {
+  const CELL = 24;
+  const GAP = 4;
+  return h('div', { style: { display: 'flex', flexDirection: 'column', gap: GAP, marginTop: 56 } },
+    ...rows.map((days, m) => h('div', { key: `m${m}`, style: { display: 'flex', alignItems: 'center', gap: GAP } },
+      h('div', { style: { display: 'flex', width: 32, fontSize: 22, color: C.muted } }, MONTH_INITIALS[m]!),
+      ...days.map((on, d) => h('div', {
+        key: `d${d}`,
+        style: { display: 'flex', width: CELL, height: CELL, borderRadius: 4, backgroundColor: on ? C.accent : C.surface2 },
+      })))));
+}
+
+export function yearCard(m: YearModel): CardNode {
+  const one = m.posters.length === 1;
+  return frame(
+    label(`${m.year} · Year in Review`),
+    textBlock(m.heading, { fontFamily: SERIF_STACK, fontWeight: 600, fontSize: 64, color: C.ink, marginTop: 24 }, { lines: 2, lineHeight: 78 }),
+    m.value !== null || m.caption !== null || m.detail !== null
+      ? h('div', { style: { display: 'flex', flexDirection: 'column', marginTop: 40, gap: 8 } },
+          m.value !== null
+            ? h('div', { style: { display: 'flex', fontSize: m.value.length > 6 ? 150 : 200, fontWeight: 600, lineHeight: 1, color: C.ink } }, m.value)
+            : null,
+          m.caption ? textBlock(m.caption, { fontFamily: SERIF_STACK, fontWeight: 600, fontSize: 52, color: C.ink }, { lines: 3, lineHeight: 66 }) : null,
+          m.detail ? textBlock(m.detail, { fontSize: 34, color: C.ink2 }, { lines: 2, lineHeight: 44 }) : null)
+      : null,
+    m.posters.length > 0
+      ? h('div', { style: { display: 'flex', justifyContent: 'center', flexWrap: 'wrap', gap: 24, marginTop: 56 } },
+          // One book large; two to four in a 2-column grid.
+          ...m.posters.slice(0, 4).map((p, i) => (one ? poster(p, 480, 720, `p${i}`) : poster(p, 400, 600, `p${i}`))))
+      : null,
+    m.bars.length > 0
+      ? h('div', { style: { display: 'flex', flexDirection: 'column', marginTop: 56, gap: 22 } },
+          ...m.bars.map((b, i) => h('div', { key: `b${i}`, style: { display: 'flex', flexDirection: 'column', gap: 8 } },
+            h('div', { style: { display: 'flex', justifyContent: 'space-between', fontSize: 30, color: C.ink2 } },
+              textBlock(b.label, { fontSize: 30, color: C.ink2, flexShrink: 1 }, { lines: 1, lineHeight: 38 }),
+              h('div', { style: { display: 'flex', fontWeight: 600, color: C.ink, marginLeft: 24 } }, b.text)),
+            h('div', { style: { display: 'flex', height: 18, borderRadius: 9, backgroundColor: C.surface2 } },
+              h('div', { style: { display: 'flex', width: `${Math.max(2, Math.round((b.value / Math.max(1, ...m.bars.map((x) => x.value))) * 100))}%`, height: 18, borderRadius: 9, backgroundColor: C.accent } })))))
+      : null,
+    m.calendar ? calendarGrid(m.calendar) : null,
+    footer(m.handle, [m.note, 'Counted from public reads only.'].filter(Boolean).join(' ')),
+  );
+}
+
 export const TEMPLATES = {
   finish: finishCard,
   review: reviewCard,
   stat: statCard,
   profile: profileCard,
   wall: wallCard,
+  year: yearCard,
 } as const;
