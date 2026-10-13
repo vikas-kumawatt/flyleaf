@@ -9,7 +9,7 @@
 #
 # What it sets up, in order (docs/deploy.md has the why):
 #   swap  apt  upgrades  docker  caddy  node  user  kit  env  hosts  ssh
-#   firewall  journald  services  storage  proxy  units  deploykey
+#   firewall  journald  services  dbroles  storage  proxy  units  deploykey
 #
 # PROVISION_SKIP=step,step skips steps by name. It exists so deploy/test/ can
 # run this in a container without systemd or a kernel firewall; on a real
@@ -304,6 +304,13 @@ step_services() {
   compose up -d --wait --remove-orphans
 }
 
+step_dbroles() {
+  # flyleaf_owner owns the schema and runs migrations; flyleaf_app (the API
+  # and worker) reads and writes rows only. deploy/db/roles.sql has the why.
+  apply_db_roles
+  log "dbroles: flyleaf_owner (schema, migrations), flyleaf_app (API, worker: rows only)"
+}
+
 step_storage() {
   load_app_env
   # The bucket, and a key that can touch nothing else. mc ships in the image.
@@ -403,7 +410,7 @@ main() {
   fi
   local s
   for s in swap apt upgrades docker caddy node user kit env hosts ssh firewall journald \
-           services storage proxy units deploykey; do
+           services dbroles storage proxy units deploykey; do
     step "$s"
   done
   log "provision: done. Next: sudo $FLYLEAF_HOME/deploy/release.sh (docs/deploy.md)"

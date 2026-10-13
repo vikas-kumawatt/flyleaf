@@ -4,7 +4,7 @@ The runbook for the deploy session: one Azure VM (Ubuntu 24.04, 4 GB RAM, 64 GB 
 
 - **The kit:** `deploy/` (scripts, units, templates). Every script explains itself in its header.
 - **Architecture:** §11 (deployment, operational rules, observability), §12 (when to outgrow this).
-- **Tested:** `deploy/test/sandbox-e2e.sh` (56 checks: compose stack, catalog transfer, backups, drill, disaster restore) and `deploy/test/provision-container.sh` (provisioning twice + a real release in Ubuntu 24.04). What a sandbox could not test is listed at the end.
+- **Tested:** `deploy/test/sandbox-e2e.sh` (66 checks: compose stack, database roles, catalog transfer, backups, drill, disaster restore, and the API and worker running as the least-privileged role) and `deploy/test/provision-container.sh` (provisioning twice + a real release in Ubuntu 24.04). What a sandbox could not test is listed at the end.
 
 **Times** are rough estimates for planning a sitting, not measurements, except where marked *unknown until run*: the catalog's size and transfer times have never been measured.
 
@@ -160,7 +160,7 @@ EXPO_ACCESS_TOKEN=
 ssh -i ~/.ssh/flyleaf_azure flyleafadmin@<host> sudo bash ~/deploy/provision.sh
 ```
 
-What it does, in order: 2 GB swap file · apt packages · unattended security upgrades (reboot at 21:30 UTC = 03:00 IST when needed) · Docker (official repo) · Caddy (official repo) · Node 22 (nodejs.org, checksum verified) · user `flyleaf` and directories · installs the kit at `/opt/flyleaf/deploy` · renders `/etc/flyleaf/app.env` · maps `<host>` to 127.0.0.1 in `/etc/hosts` · SSH keys-only · UFW (22, 80, 443) · journald capped at 500 MB · Postgres 18 + MinIO containers · the storage bucket and a key limited to it · Caddyfile · systemd units · a read-only deploy key, printed at the end.
+What it does, in order: 2 GB swap file · apt packages · unattended security upgrades (reboot at 21:30 UTC = 03:00 IST when needed) · Docker (official repo) · Caddy (official repo) · Node 22 (nodejs.org, checksum verified) · user `flyleaf` and directories · installs the kit at `/opt/flyleaf/deploy` · renders `/etc/flyleaf/app.env` · maps `<host>` to 127.0.0.1 in `/etc/hosts` · SSH keys-only · UFW (22, 80, 443) · journald capped at 500 MB · Postgres 18 + MinIO containers · the database roles (below) · the storage bucket and a key limited to it · Caddyfile · systemd units · a read-only deploy key, printed at the end.
 
 Every step checks before it changes anything: running it again is safe, and is how any later change to `/etc/flyleaf/flyleaf.env` is applied.
 
@@ -333,10 +333,12 @@ Optional dead-man's switch (a mail when backups *stop*, which a failure mail can
 
 UptimeRobot (free plan), <https://dashboard.uptimerobot.com>:
 
-1. **Add New Monitor** → type **Keyword** → URL `https://<host>/readyz` → keyword `ready`, alert when **not exists** → interval: the shortest your plan allows → name `flyleaf readyz`.
+1. **Add New Monitor** → type **Keyword** → URL `https://<host>/readyz` → keyword `ready`, alert when **not exists** → interval **5 minutes** → name `flyleaf readyz`.
 2. Second monitor, type **HTTP(s)**: `https://<host>/healthz` (the process is up even when the database is not; the pair tells the two apart).
 3. Alert contact: your email (and the mobile app's push, if installed).
 4. If the plan offers SSL certificate expiry alerts, turn them on (architecture §11: expiring within 14 days).
+
+**Deviation from architecture §11:** §11 asks for an external pinger every 60 s. UptimeRobot's free plan checks every 5 minutes, so an outage can go unnoticed for up to about 5 minutes, plus the alert delay. Accepted for now (owner decision, to stay at $0); a paid plan or another pinger closes the gap without changes here.
 
 `/readyz` is also what Caddy checks every 15 s: while it fails, Caddy answers 503 at once instead of letting requests hang.
 
@@ -359,6 +361,22 @@ curl -fsS https://<host>/readyz && ssh … 'systemctl is-active flyleaf-api flyl
 
 ---
 
+## Database roles
+
+The API and the worker never connect as a superuser or as the schema's owner. `deploy/db/roles.sql`, applied by `provision.sh`, by every `release.sh` and by both restore scripts (`sudo /opt/flyleaf/deploy/db-roles.sh` by hand), sets up three roles:
+
+| Role | Used by | Can |
+|---|---|---|
+| `flyleaf` | backups, restores, `db-roles.sh` (through `docker exec`, never over the network by the app) | everything: the container's superuser (`POSTGRES_PASSWORD`) |
+| `flyleaf_owner` | migrations (`MIGRATION_DATABASE_URL`: `release.sh`, `app.sh migrate`, the restore scripts) | owns the database, the `public` and `drizzle` schemas and every table and function in them; runs DDL. Not a superuser, cannot create databases or roles. `pg_trgm` and `unaccent` are trusted extensions, so it can create them as the database's owner |
+| `flyleaf_app` | the API and the worker (`DATABASE_URL`), and `app.sh admin/ping/dedupe` | `SELECT`, `INSERT`, `UPDATE`, `DELETE` on the app's tables, sequences, `EXECUTE` on its functions. Nothing else: no table, index, function, schema, temporary table, database or extension; no `DROP`, `ALTER`, `TRUNCATE`; cannot read the migration journal, `SET ROLE` to the owner, or `COPY … TO PROGRAM` |
+
+**One exception, deliberately:** `flyleaf_app` owns the `pgboss` schema. pg-boss manages its own tables at run time: `create_queue()` creates a partition table per queue, and its maintenance adds and drops `queue_stats` partitions. So the role that runs pg-boss must own that schema. It holds job-queue state only, which backups leave out. `roles.sql` creates the schema in advance and `PGBOSS_CREATE_SCHEMA=false` stops pg-boss from trying to create it, because Postgres checks the database-wide CREATE right before `IF NOT EXISTS`.
+
+Tables that later migrations create are usable by the app at once: `ALTER DEFAULT PRIVILEGES` grants them, and `release.sh` re-applies the grants after every migration anyway. The three passwords are generated by `configure-env.sh` and live in `/etc/flyleaf/flyleaf.env`.
+
+Check it any time: `sudo docker exec flyleaf-pg psql -U flyleaf -d flyleaf -c '\du'`. Tested by `deploy/test/sandbox-e2e.sh` §10: 18 kinds of DDL refused for `flyleaf_app`; then the compiled API and worker, connected as `flyleaf_app`, run register, reads, a review, follows, the feed, shelves, a presigned upload, an import and an export processed by the worker, and all 14 scheduled jobs, with no permission error in either log.
+
 ## Routine operations
 
 | Task | Command (on the VM) |
@@ -366,6 +384,7 @@ curl -fsS https://<host>/readyz && ssh … 'systemctl is-active flyleaf-api flyl
 | Ship a new version | `sudo /opt/flyleaf/deploy/release.sh [branch/tag/commit]` |
 | Undo the last version (code only) | `sudo /opt/flyleaf/deploy/release.sh --rollback` |
 | What is running | `sudo /opt/flyleaf/deploy/release.sh --status` |
+| Re-apply the database roles and grants | `sudo /opt/flyleaf/deploy/db-roles.sh` |
 | Logs | `journalctl -u flyleaf-api -f` · `-u flyleaf-worker` · `-u caddy` · `sudo docker logs flyleaf-pg` |
 | Restart | `sudo systemctl restart flyleaf-api flyleaf-worker` |
 | Change a setting | edit `sudo nano /etc/flyleaf/flyleaf.env`, then `sudo /opt/flyleaf/deploy/provision.sh` |
@@ -402,9 +421,10 @@ The mail has the log tail. In order:
 
 ```
 sudo systemctl stop flyleaf-api flyleaf-worker
-sudo docker exec flyleaf-pg psql -U flyleaf -d postgres -c 'DROP DATABASE flyleaf WITH (FORCE)' -c 'CREATE DATABASE flyleaf'
+sudo docker exec flyleaf-pg psql -U flyleaf -d postgres -c 'DROP DATABASE flyleaf WITH (FORCE)'
+sudo /opt/flyleaf/deploy/db-roles.sh         # creates it again, owned by flyleaf_owner, with the app role's grants
 sudo rm -f /var/lib/flyleaf/catalog-base.env
-sudo /opt/flyleaf/deploy/app.sh migrate      # or restore a catalog (step 6c), which needs the empty database
+sudo /opt/flyleaf/deploy/app.sh migrate      # as flyleaf_owner; or restore a catalog (step 6c), which needs the empty database
 sudo systemctl start flyleaf-api flyleaf-worker
 ```
 

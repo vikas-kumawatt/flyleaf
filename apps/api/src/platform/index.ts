@@ -33,6 +33,14 @@ export const config = {
   appBaseUrl: APP_BASE_URL,
   corsOrigins: parseCorsOrigins(process.env.CORS_ORIGINS, APP_BASE_URL),
   appLinks: parseAppLinks(process.env),
+  /**
+   * Whether pg-boss may run `CREATE SCHEMA IF NOT EXISTS pgboss` on start
+   * (deploy kit). Postgres checks the database-level CREATE right before
+   * IF NOT EXISTS, so a role without it cannot start pg-boss even when the
+   * schema is already there. Production pre-creates the schema, owned by the
+   * app role (deploy/db/roles.sql), and sets PGBOSS_CREATE_SCHEMA=false.
+   */
+  pgbossCreateSchema: process.env.PGBOSS_CREATE_SCHEMA !== 'false',
 } as const;
 
 /** What /.well-known serves so the emailed links open the app (D-07-1). Null: that file 404s. */

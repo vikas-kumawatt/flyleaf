@@ -8,7 +8,8 @@
 #
 # 1. fetch REF and build it in /opt/flyleaf/releases/<commit> (npm ci, the
 #    api-client, tsc, then npm prune --omit=dev). An already-built commit is reused.
-# 2. run ITS migrations (node dist/migrate.js) while the old code still serves.
+# 2. run ITS migrations (node dist/migrate.js) as flyleaf_owner while the old
+#    code still serves, then re-apply the app role's grants.
 # 3. point /opt/flyleaf/current at it, restart the API and the worker.
 # 4. wait for /readyz on loopback; if it does not come up, point `current`
 #    back, restart, and exit non-zero. Then check https://<host>/readyz
@@ -123,8 +124,8 @@ release() {
   fi
   if [[ -f "$dir/.built" ]]; then log "reusing the build of $sha"; else build "$sha" "$dir"; fi
 
-  log "migrating with $sha"
-  RELEASE_DIR="$dir" run_as_app node dist/migrate.js
+  log "migrating with $sha (as flyleaf_owner)"
+  RELEASE_DIR="$dir" run_migrations
 
   switch_to "$dir"
   [[ -n "$prev" ]] && echo "$prev" > "$FLYLEAF_STATE/previous-release"

@@ -60,6 +60,9 @@ const productionEnv = (port) => ({
   SMTP_URL: 'smtps://check%40example.test:app-password@127.0.0.1:9',
   EMAIL_FROM: 'Flyleaf <check@example.test>',
   PUSH_DRIVER: 'expo',
+  // Passed through for a run as the least-privileged app role (deploy/db/roles.sql),
+  // which may not create pg-boss's schema itself.
+  ...(process.env.PGBOSS_CREATE_SCHEMA ? { PGBOSS_CREATE_SCHEMA: process.env.PGBOSS_CREATE_SCHEMA } : {}),
 });
 
 /** Starts `node <script>` and collects its output. */

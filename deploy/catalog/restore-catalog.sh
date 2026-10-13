@@ -71,12 +71,15 @@ if [[ $SERVICES == 1 ]] && has_systemd; then
   log "stopping the API and worker"
   systemctl stop flyleaf-api flyleaf-worker 2>/dev/null || true
 fi
-log "recreating database $PG_DB"
-pg -d postgres -q -c "DROP DATABASE IF EXISTS \"$PG_DB\" WITH (FORCE)" -c "CREATE DATABASE \"$PG_DB\""
+log "recreating database $PG_DB (owner flyleaf_owner)"
+pg -d postgres -q -c "DROP DATABASE IF EXISTS \"$PG_DB\" WITH (FORCE)"
+apply_db_roles   # creates it again, owned by flyleaf_owner, with the app role's grants
 
 # ---- restore --------------------------------------------------------------------
 log "pg_restore with $JOBS jobs (dump made $(field created_at), $(field dump_bytes) bytes)"
-docker exec "$PG_CONTAINER" pg_restore -U "$PG_USER" -d "$PG_DB" --no-owner --no-privileges \
+# --role: every object is created as flyleaf_owner, so it owns the schema
+# exactly as if its migrations had built it.
+docker exec "$PG_CONTAINER" pg_restore -U "$PG_USER" -d "$PG_DB" --role=flyleaf_owner --no-owner --no-privileges \
   --exit-on-error -j "$JOBS" "$CDIR/catalog.dump"
 
 # reader_count counted the laptop's users' reads, which did not come along.
@@ -122,8 +125,9 @@ if [[ $MIGRATE == 1 ]]; then
   log "migrating (dump had $(field migrations) migrations applied)"
   if [[ -n "${MIGRATE_CMD:-}" ]]; then
     bash -c "$MIGRATE_CMD"
+    apply_db_roles
   elif [[ -e "$FLYLEAF_HOME/current/apps/api/dist/migrate.js" ]]; then
-    run_as_app /usr/local/bin/node dist/migrate.js
+    run_migrations
   else
     die "no release at $FLYLEAF_HOME/current to migrate with: run deploy/release.sh, which migrates"
   fi
@@ -135,6 +139,7 @@ if [[ $MIGRATE == 1 ]]; then
   done < <(awk '$1 == "count"' "$MANIFEST")
 fi
 
+[[ $MIGRATE == 1 ]] || apply_db_roles
 log "ANALYZE"
 pg -d "$PG_DB" -q -c "ANALYZE"
 

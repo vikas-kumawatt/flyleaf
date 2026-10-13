@@ -115,7 +115,7 @@ docker exec "$PG_CONTAINER" pg_restore -U "$PG_USER" -d "$PG_DB" --data-only --d
   --no-owner --no-privileges --exit-on-error -L "$CWORK/data.list" "$CWORK/unpacked/user-data.dump"
 
 # ---- 4. migrate again (reader_count backfill) ----------------------------------
-if [[ -n "${MIGRATE_CMD:-}" ]]; then bash -c "$MIGRATE_CMD"; else run_as_app /usr/local/bin/node dist/migrate.js; fi
+if [[ -n "${MIGRATE_CMD:-}" ]]; then bash -c "$MIGRATE_CMD"; apply_db_roles; else run_migrations; fi
 
 # ---- 5. verify ------------------------------------------------------------------
 log "comparing with the backup's manifest"

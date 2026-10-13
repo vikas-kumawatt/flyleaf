@@ -490,6 +490,7 @@ export function makeBoss(
     ...(opts.db
       ? { db: opts.db, backend: opts.backend ?? 'postgres' }
       : { connectionString: config.databaseUrl }),
+    createSchema: config.pgbossCreateSchema,
     ...opts.options,
     schema: JOBS_SCHEMA,
   });

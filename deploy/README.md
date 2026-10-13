@@ -11,6 +11,7 @@ Everything needed to run Flyleaf on one small Linux server. **The runbook is [`d
 | `Caddyfile.template` | server | HTTPS for the host name; `/<bucket>/…` to MinIO, the rest to the API |
 | `systemd/` | server | API, worker, backup and drill timers, failure mail |
 | `release.sh` | server | Build a commit, migrate, switch, health-check, roll back on failure |
+| `db-roles.sh`, `db/roles.sql` | server | The database roles: `flyleaf_owner` owns the schema and runs migrations, `flyleaf_app` (API, worker) has rows only, no DDL |
 | `app.sh` | server | The app's own CLIs (admin accounts, ping, dedupe) as the app user |
 | `catalog/Export-Catalog.ps1` | laptop | Dump the catalog only (no user data) from the local `flyleaf` database |
 | `catalog/dump-catalog.sh` | laptop's Postgres container | What the .ps1 runs inside `flyleaf-pg` |
@@ -21,6 +22,6 @@ Everything needed to run Flyleaf on one small Linux server. **The runbook is [`d
 | `backup/restore-drill.sh` | server, monthly | Newest off-site backup into a scratch database; counts, checksums, foreign keys |
 | `backup/restore-full.sh` | server, disaster | Catalog + delta + user data into a fresh database, then every check |
 | `backup/notify.sh` | server | Mail to the owner through the app's Gmail SMTP |
-| `test/` | sandbox with Docker | `sandbox-e2e.sh` and `provision-container.sh`: the kit end to end. Not in CI (Docker, minutes) |
+| `test/` | sandbox with Docker | `sandbox-e2e.sh` (with `app-role-path.mjs`) and `provision-container.sh`: the kit end to end. Not in CI (Docker, minutes) |
 
 Shell scripts pass `shellcheck` (`.shellcheckrc` here); `apps/api/src/test/deploy-kit.test.ts` keeps `catalog-tables.txt` and the env template in step with the schema and the providers, and runs in CI.

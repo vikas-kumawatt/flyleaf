@@ -87,7 +87,7 @@ sed -i -e "s#^POSTGRES_IMAGE=.*#POSTGRES_IMAGE='$POSTGRES_TEST_IMAGE'#" \
 "$KIT/configure-env.sh" --render 2>/dev/null
 printf '[e2e]\ntype = local\n' > "$RCLONE_CONFIG"
 set -a; . "$FLYLEAF_APP_ENV"; set +a
-if [[ "$S3_ENDPOINT" == "https://$FLYLEAF_HOST" && "$APP_BASE_URL" == "https://$FLYLEAF_HOST" && "$DATABASE_URL" == *"$POSTGRES_PASSWORD@127.0.0.1:5432/flyleaf" ]]; then ok "derived values follow FLYLEAF_HOST and POSTGRES_PASSWORD"; else fail "derived values follow FLYLEAF_HOST and POSTGRES_PASSWORD"; fi
+if [[ "$S3_ENDPOINT" == "https://$FLYLEAF_HOST" && "$APP_BASE_URL" == "https://$FLYLEAF_HOST" && "$DATABASE_URL" == "postgres://flyleaf_app:$APP_DB_PASSWORD@127.0.0.1:5432/flyleaf" && "$MIGRATION_DATABASE_URL" == "postgres://flyleaf_owner:$OWNER_DB_PASSWORD@127.0.0.1:5432/flyleaf" && "$APP_DB_PASSWORD" != "$OWNER_DB_PASSWORD" ]]; then ok "derived values: URLs from FLYLEAF_HOST; the app connects as flyleaf_app, migrations as flyleaf_owner"; else fail "derived values"; fi
 
 if command -v caddy >/dev/null; then
   # shellcheck source=../provision.sh
@@ -111,6 +111,10 @@ ports="$(docker port flyleaf-pg; docker port flyleaf-minio)"
 grep -qv '^.* -> 127\.0\.0\.1:' <<<"$ports" && { echo "$ports"; fail "a port is published beyond loopback"; }
 ok "every published port is on 127.0.0.1 only"
 if [[ -d "$FLYLEAF_DATA/postgres/18/docker" ]]; then ok "PGDATA is in the bind mount ($FLYLEAF_DATA/postgres/18/docker)"; else fail "PGDATA is in the bind mount ($FLYLEAF_DATA/postgres/18/docker)"; fi
+if (. "$KIT/provision.sh"; step_dbroles; step_dbroles) 2>/dev/null; then ok "database roles applied twice (idempotent)"; else fail "dbroles step"; fi
+roles="$(pg_value postgres "SELECT string_agg(rolname || ':' || rolsuper || rolcreatedb || rolcreaterole, ' ' ORDER BY rolname) FROM pg_roles WHERE rolname IN ('flyleaf_owner', 'flyleaf_app')")"
+if [[ "$roles" == "flyleaf_app:falsefalsefalse flyleaf_owner:falsefalsefalse" ]]; then ok "owner and app roles: no superuser, createdb or createrole ($roles)"; else fail "roles: $roles"; fi
+if [[ "$(pg_value postgres "SELECT pg_get_userbyid(datdba) FROM pg_database WHERE datname = 'flyleaf'")" == flyleaf_owner ]]; then ok "database flyleaf owned by flyleaf_owner"; else fail "database owner"; fi
 if (. "$KIT/provision.sh"; step_storage; step_storage) 2>/dev/null; then ok "storage step runs twice (idempotent)"; else fail "storage step runs twice (idempotent)"; fi
 key_ok="$(MC_HOST_app="http://$S3_ACCESS_KEY_ID:$S3_SECRET_ACCESS_KEY@127.0.0.1:9000" docker exec -e MC_HOST_app flyleaf-minio sh -c \
   'echo hi > /tmp/o && mc cp -q /tmp/o app/flyleaf-files/probe >/dev/null && echo put-ok; mc mb app/other-bucket >/dev/null 2>&1 && echo mb-allowed || echo mb-denied')"
@@ -160,9 +164,10 @@ if ! grep -q 'CREATE SCHEMA pgboss' "$T/catalog.sql"; then ok "pg-boss schema le
 
 # --------------------------------------------------------------------------
 section "5. server: restore the catalog"
-export MIGRATE_CMD="cd '$REPO/apps/api' && DATABASE_URL='$DATABASE_URL' npm run --silent migrate >/dev/null"
+# Migrations run as flyleaf_owner, as release.sh runs them.
+export MIGRATE_CMD="cd '$REPO/apps/api' && DATABASE_URL='$MIGRATION_DATABASE_URL' npm run --silent migrate >/dev/null"
 bash -c "$MIGRATE_CMD"   # what a first release.sh does to the empty database
-ok "first release migrated an empty database"
+ok "first release migrated an empty database as flyleaf_owner (not a superuser)"
 cp -r "$EXPORT" "$IMPORT_DIR/damaged" && printf 'x' >> "$IMPORT_DIR/damaged/catalog.dump"
 expect_fail "restore-catalog: damaged dump" "catalog.dump is damaged" "$KIT/catalog/restore-catalog.sh" "$IMPORT_DIR/damaged"
 "$KIT/catalog/restore-catalog.sh" "$EXPORT" > "$T/restore-catalog.log" 2>&1 || { cat "$T/restore-catalog.log"; fail "restore-catalog"; }
@@ -173,6 +178,10 @@ if [[ "$(pg_value flyleaf 'SELECT count(*) FROM raw_payloads')" == 0 ]]; then ok
 if [[ "$(pg_value flyleaf "SELECT count(*) FROM search_suggestions")" -ge 1 ]]; then ok "search suggestions rebuilt"; else fail "search suggestions rebuilt"; fi
 if grep -q "^CATALOG_BASE_AT='$(awk '$1=="created_at"{print $2}' "$M")'$" "$FLYLEAF_STATE/catalog-base.env"; then ok "catalog-base.env records the dump's time"; else fail "catalog-base.env records the dump's time"; fi
 if [[ "$(pg_value flyleaf 'SELECT count(*) FROM drizzle.__drizzle_migrations')" == "$(awk '$1=="migrations"{print $2}' "$M")" ]]; then ok "migration journal came along (migrate had nothing to redo)"; else fail "migration journal came along (migrate had nothing to redo)"; fi
+not_owned="$(pg_value flyleaf "SELECT count(*) FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
+  WHERE n.nspname IN ('public', 'drizzle') AND c.relkind IN ('r','p','v','m','S') AND pg_get_userbyid(c.relowner) <> 'flyleaf_owner'")"
+if [[ "$not_owned" == 0 && "$(pg_value flyleaf "SELECT pg_get_userbyid(nspowner) FROM pg_namespace WHERE nspname = 'pgboss'")" == flyleaf_app ]]; then
+  ok "after the restore: every table owned by flyleaf_owner, pgboss by flyleaf_app"; else fail "ownership after restore ($not_owned not owned by flyleaf_owner)"; fi
 expect_fail "restore-catalog: database already has a catalog" "already has rows in works" "$KIT/catalog/restore-catalog.sh" "$EXPORT"
 
 # --------------------------------------------------------------------------
@@ -249,7 +258,8 @@ section "8. disaster: restore-full into a fresh database"
 before_reads="$(pg_value flyleaf "SELECT md5(string_agg(r::text, '|' ORDER BY r::text)) FROM reads r")"
 before_works="$(pg_value flyleaf "SELECT md5(string_agg(w.id::text || w.title || coalesce(w.merged_into_id::text, '-') || w.ol_log_count, '|' ORDER BY w.id)) FROM works w")"
 latest="$(find "$BACKUP_DIR/local" -name '*.tar.age' | sort | tail -1)"
-pg -d postgres -q -c 'DROP DATABASE flyleaf WITH (FORCE)' -c 'CREATE DATABASE flyleaf'
+pg -d postgres -q -c 'DROP DATABASE flyleaf WITH (FORCE)'
+bash "$KIT/db-roles.sh" 2>/dev/null   # the new machine's provision.sh
 bash -c "$MIGRATE_CMD"   # the new machine's first release
 "$KIT/backup/restore-full.sh" --catalog "$EXPORT" --backup "$latest" --yes > "$T/full.log" 2>&1 || { cat "$T/full.log"; fail "restore-full"; }
 if grep -q 'every reference resolves' "$T/full.log" && grep -q "  $n_user_tables counts and 7 content checksums identical" "$T/full.log"; then ok "restore-full.sh: all $n_user_tables counts, 7 checksums, every foreign key"; else fail "restore-full.sh: all $n_user_tables counts, 7 checksums, every foreign key"; fi
@@ -265,5 +275,61 @@ section "9. the catalog's off-site copy"
 C="$(find "$R/catalog" -name 'flyleaf-catalog-*.tar.age' | head -1)"
 if [[ -n "$C" ]] && age -d -i "$FLYLEAF_ETC/backup.agekey" "$C" | tar -t | sort | paste -sd' ' - | grep -qx 'catalog.dump manifest.txt'; then ok "catalog backup on the remote, encrypted, verified by MD5"; else fail "catalog backup on the remote, encrypted, verified by MD5"; fi
 if "$KIT/backup/backup-catalog.sh" "$EXPORT" 2>&1 | grep -q 'already exists'; then ok "backup-catalog.sh is idempotent"; else fail "backup-catalog.sh is idempotent"; fi
+
+# --------------------------------------------------------------------------
+section "10. the app role: rows only, no DDL"
+as_app_sql() {  # as_app_sql SQL: run as flyleaf_app over TCP, as the API connects
+  PGPASSWORD="$APP_DB_PASSWORD" docker exec -e PGPASSWORD flyleaf-pg \
+    psql -X -v ON_ERROR_STOP=1 -h 127.0.0.1 -U flyleaf_app -d flyleaf -Atq -c "$1"
+}
+refused=0
+while IFS='|' read -r stmt want; do
+  if out="$(as_app_sql "$stmt" 2>&1)"; then fail "flyleaf_app was allowed: $stmt"; fi
+  grep -qiE "$want" <<<"$out" || fail "flyleaf_app: '$stmt' failed, but not with /$want/: $out"
+  refused=$((refused + 1))
+done <<'SQL'
+CREATE TABLE public.evil (x int)|permission denied for schema public
+CREATE TABLE evil (x int)|permission denied for schema public
+DROP TABLE users|must be owner of table users
+DROP TABLE works CASCADE|must be owner of table works
+ALTER TABLE users ADD COLUMN evil int|must be owner of table users
+CREATE INDEX evil_idx ON users (email)|must be owner of table users
+TRUNCATE users|permission denied for table users
+CREATE SCHEMA evil|permission denied for database flyleaf
+DROP SCHEMA public CASCADE|must be owner of schema public
+CREATE TEMP TABLE evil (x int)|permission denied to create temporary tables
+CREATE DATABASE evil|permission denied to create database
+DROP DATABASE flyleaf|must be owner of database flyleaf
+CREATE FUNCTION public.evil() RETURNS int LANGUAGE sql AS 'SELECT 1'|permission denied for schema public
+CREATE EXTENSION pgcrypto|permission denied
+SET ROLE flyleaf_owner|permission denied to set role
+ALTER ROLE flyleaf_app SUPERUSER|permission denied to alter role
+COPY (SELECT 1) TO PROGRAM 'id'|permission denied to COPY to or from an external program
+SELECT * FROM drizzle.__drizzle_migrations|permission denied for schema drizzle
+SQL
+ok "flyleaf_app refused all $refused: CREATE/DROP/ALTER/TRUNCATE tables, CREATE/DROP schema and database, temp tables, functions, extensions, SET ROLE, COPY TO PROGRAM"
+if [[ "$(as_app_sql "SELECT count(*) > 0 FROM users")" == t ]] && as_app_sql "UPDATE users SET email = email WHERE false" >/dev/null; then
+  ok "flyleaf_app can read and write rows"; else fail "flyleaf_app cannot use its tables"; fi
+if as_app_sql "CREATE TABLE pgboss.probe (x int); DROP TABLE pgboss.probe" >/dev/null 2>&1; then
+  ok "flyleaf_app can create in pgboss only (pg-boss manages that schema itself)"; else fail "pgboss schema not usable by flyleaf_app"; fi
+
+# The compiled production start, as the app role.
+if (cd "$REPO/apps/api" && DATABASE_URL="$DATABASE_URL" PGBOSS_CREATE_SCHEMA=false npm run --silent start:check) > "$T/startcheck.log" 2>&1; then
+  ok "start:check as flyleaf_app: /readyz, worker ready, clean SIGTERM, dev adapters refused"; else cat "$T/startcheck.log"; fail "start:check as flyleaf_app"; fi
+
+# The API's main paths and every job, with API and worker on flyleaf_app.
+(cd "$REPO/apps/api" && DATABASE_URL="$MIGRATION_DATABASE_URL" npm run --silent seed -- ../../db/skeleton/books.csv) > "$T/seed.log" 2>&1 \
+  || { cat "$T/seed.log"; fail "seed"; }
+app_env=(env -u NODE_ENV -u STORAGE_DRIVER -u EMAIL_DRIVER -u PUSH_DRIVER -u S3_ENDPOINT -u HOST -u PORT -u TRUST_PROXY -u APP_BASE_URL
+         DATABASE_URL="$DATABASE_URL" PGBOSS_CREATE_SCHEMA=false LOG_LEVEL=warn STORAGE_DISK_DIR="$T/uploads")
+(cd "$REPO/apps/api" && exec "${app_env[@]}" node dist/server.js > "$T/api.log" 2>&1) & API_PID=$!
+(cd "$REPO/apps/api" && exec "${app_env[@]}" node dist/worker.js > "$T/worker.log" 2>&1) & WORKER_PID=$!
+for _ in $(seq 1 30); do curl -fsS -m 2 http://127.0.0.1:3000/healthz >/dev/null 2>&1 && break; sleep 1; done
+path_ok=0
+APP_DATABASE_URL="$DATABASE_URL" ADMIN_DATABASE_URL="postgres://flyleaf:$POSTGRES_PASSWORD@127.0.0.1:5432/flyleaf" \
+  node "$KIT/test/app-role-path.mjs" > "$T/path.log" 2>&1 && path_ok=1
+kill "$API_PID" "$WORKER_PID" 2>/dev/null; wait "$API_PID" "$WORKER_PID" 2>/dev/null || true
+if [[ $path_ok == 1 ]]; then ok "$(tail -1 "$T/path.log"): register, reads, review, follow, feed, shelves, upload, import and export through the worker, all 14 jobs"; else cat "$T/path.log"; tail -20 "$T/api.log" "$T/worker.log"; fail "app-role path"; fi
+if ! grep -qE "permission denied|42501" "$T/api.log" "$T/worker.log"; then ok "no permission error in the API or worker logs"; else grep -E "permission denied|42501" "$T/api.log" "$T/worker.log" | head; fail "permission errors logged"; fi
 
 printf '\n\033[32m%s checks passed\033[0m\n' "$PASS"

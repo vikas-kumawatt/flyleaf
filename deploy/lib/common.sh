@@ -108,3 +108,32 @@ run_as_app() {
   [[ -d "$dir" ]] || die "no release at $dir"
   ( load_app_env && cd "$dir" && runuser -u flyleaf -- "$@" )
 }
+
+# Applies deploy/db/roles.sql as the superuser. Needs the app environment for
+# the two passwords; they go to psql on stdin.
+apply_db_roles() {
+  load_app_env
+  : "${OWNER_DB_PASSWORD:?OWNER_DB_PASSWORD is not set (re-run configure-env.sh)}"
+  : "${APP_DB_PASSWORD:?APP_DB_PASSWORD is not set (re-run configure-env.sh)}"
+  [[ "$OWNER_DB_PASSWORD$APP_DB_PASSWORD" =~ ^[A-Za-z0-9]+$ ]] || die "database passwords must be letters and digits"
+  wait_for_pg
+  {
+    printf '\\set owner_password %s\n' "$OWNER_DB_PASSWORD"
+    printf '\\set app_password %s\n' "$APP_DB_PASSWORD"
+    printf '\\set db %s\n' "$PG_DB"
+    cat "$DEPLOY_DIR/db/roles.sql"
+  } | pg -d postgres -q >/dev/null
+}
+
+# Runs the migrations of the current release (or RELEASE_DIR) as the owner
+# role, then re-applies the grants: a table a migration created is the app's
+# to use at once.
+run_migrations() {
+  local dir="${RELEASE_DIR:-$FLYLEAF_HOME/current}/apps/api"
+  [[ -d "$dir" ]] || die "no release at $dir"
+  ( load_app_env
+    : "${MIGRATION_DATABASE_URL:?MIGRATION_DATABASE_URL is not set}"
+    export DATABASE_URL="$MIGRATION_DATABASE_URL"
+    cd "$dir" && runuser -u flyleaf -- /usr/local/bin/node dist/migrate.js )
+  apply_db_roles
+}

@@ -6,7 +6,7 @@
 #   sudo deploy/configure-env.sh --answers FILE     read them from FILE (must be mode 600)
 #   sudo deploy/configure-env.sh --render           only re-render app.env (provision.sh does this)
 #
-# Generated here, never typed: JWT_SECRET, POSTGRES_PASSWORD,
+# Generated here, never typed: JWT_SECRET, the three database passwords,
 # MINIO_ROOT_PASSWORD, the bucket-scoped S3 key pair, and the backup
 # encryption key pair (/etc/flyleaf/backup.agekey).
 #
@@ -99,6 +99,8 @@ create_or_fill() {
   # Generated secrets: hex where they end up inside a URL.
   is_placeholder "$env" JWT_SECRET && set_var "$env" JWT_SECRET "$(openssl rand -base64 48 | tr -d '\n')"
   is_placeholder "$env" POSTGRES_PASSWORD && set_var "$env" POSTGRES_PASSWORD "$(openssl rand -hex 24)"
+  is_placeholder "$env" OWNER_DB_PASSWORD && set_var "$env" OWNER_DB_PASSWORD "$(openssl rand -hex 24)"
+  is_placeholder "$env" APP_DB_PASSWORD && set_var "$env" APP_DB_PASSWORD "$(openssl rand -hex 24)"
   is_placeholder "$env" MINIO_ROOT_PASSWORD && set_var "$env" MINIO_ROOT_PASSWORD "$(openssl rand -hex 24)"
   is_placeholder "$env" S3_ACCESS_KEY_ID && set_var "$env" S3_ACCESS_KEY_ID "flyleaf-app-$(openssl rand -hex 4)"
   is_placeholder "$env" S3_SECRET_ACCESS_KEY && set_var "$env" S3_SECRET_ACCESS_KEY "$(openssl rand -hex 20)"

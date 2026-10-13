@@ -123,8 +123,17 @@ describe('deploy/env.production.example', () => {
     expect(derived.APP_BASE_URL).toBe(`https://${derived.FLYLEAF_HOST}`);
     expect(derived.S3_ENDPOINT).toBe(`https://${derived.FLYLEAF_HOST}`);
     expect(derived.S3_FORCE_PATH_STYLE).toBe('true');
-    expect(derived.DATABASE_URL).toBe(`postgres://flyleaf:${derived.POSTGRES_PASSWORD}@127.0.0.1:5432/flyleaf`);
     expect(derived.HOST).toBe('127.0.0.1');
+  });
+
+  it('connects the app as flyleaf_app and migrates as flyleaf_owner, never as the superuser', () => {
+    // deploy/db/roles.sql: the app role has rows only; the owner runs DDL.
+    expect(derived.DATABASE_URL).toBe(`postgres://flyleaf_app:${derived.APP_DB_PASSWORD}@127.0.0.1:5432/flyleaf`);
+    expect(derived.MIGRATION_DATABASE_URL).toBe(`postgres://flyleaf_owner:${derived.OWNER_DB_PASSWORD}@127.0.0.1:5432/flyleaf`);
+    expect(template.APP_DB_PASSWORD).toMatch(/^<.*>$/);
+    expect(template.OWNER_DB_PASSWORD).toMatch(/^<.*>$/);
+    // The app role may not create pg-boss's schema; roles.sql pre-creates it.
+    expect(template.PGBOSS_CREATE_SCHEMA).toBe('false');
   });
 
   it('pins its images and the bucket path cannot shadow an API route', () => {

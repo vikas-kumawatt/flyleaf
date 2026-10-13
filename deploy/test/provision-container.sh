@@ -6,12 +6,13 @@
 #
 # A container has no systemd, no kernel firewall and no Docker daemon of its
 # own, so these steps are skipped and the rest is checked for real:
-#   skipped:  firewall, services, storage (need a kernel/daemon), deploykey
+#   skipped:  firewall, services, storage (need a kernel/daemon of their own), deploykey
 #             (needs github.com:22)
 #   real:     swap file, apt, unattended-upgrades config, Docker packages,
 #             Caddy (+ rendered Caddyfile validated), Node from nodejs.org
 #             with its checksum, user and directories, env rendering,
-#             /etc/hosts, sshd drop-in (sshd -t), journald, unit files; then
+#             /etc/hosts, sshd drop-in (sshd -t), journald, database roles
+#             (on a Postgres 18 container, through the host's Docker), unit files; then
 #             a second run that must change nothing; then release.sh: clone,
 #             npm ci, build, prune, migrate against a real Postgres 18,
 #             switch, and the compiled API answering /readyz.
@@ -29,6 +30,8 @@ REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 BRANCH="$(git -C "$REPO" rev-parse --abbrev-ref HEAD)"
 PG=flyleaf-provision-pg
 PGPASS="provision-test-$(openssl rand -hex 6)"
+# Checked inside the box, whose script is single-quoted and so cannot hold one.
+export ROLE_SQL="SELECT string_agg(rolname || ':' || rolsuper::text, ' ' ORDER BY rolname) FROM pg_roles WHERE rolname IN ('flyleaf_app', 'flyleaf_owner')"
 
 cleanup() { docker rm -f "$PG" flyleaf-provision-box >/dev/null 2>&1 || true; }
 trap cleanup EXIT
@@ -46,8 +49,11 @@ ca_mount=()
 # Node (npm) ignores the system CA store: it gets the proxy CA explicitly.
 [[ -n "${PROXY_CA:-}" ]] && ca_mount=(-v "$PROXY_CA:/proxy-ca.crt:ro" -e NODE_EXTRA_CA_CERTS=/proxy-ca.crt)
 
+# The box drives the host's Docker (the socket) for the steps that talk to
+# Postgres: the dbroles step, and release.sh's migrations as flyleaf_owner.
 docker run --rm --name flyleaf-provision-box --network host "${proxy_env[@]}" "${ca_mount[@]}" \
-  -e BRANCH="$BRANCH" -e PGPASS="$PGPASS" \
+  -e BRANCH="$BRANCH" -e PGPASS="$PGPASS" -e PG_CONTAINER="$PG" -e ROLE_SQL \
+  -v /var/run/docker.sock:/var/run/docker.sock \
   -v "$REPO:/repo:ro" "$UBUNTU_IMAGE" bash -Eeuo pipefail -c '
   ok() { printf "  \033[32mok\033[0m %s\n" "$*"; }
   fail() { printf "  \033[31mFAIL\033[0m %s\n" "$*"; exit 1; }
@@ -99,6 +105,8 @@ EOF
   check "journald capped" grep -q "SystemMaxUse=500M" /etc/systemd/journald.conf.d/60-flyleaf.conf
   check "7 unit files installed" bash -c "[[ \$(ls /etc/systemd/system/flyleaf-* | wc -l) == 7 ]]"
   check "data directories" test -d /srv/flyleaf/postgres -a -d /srv/flyleaf/minio -a -d /var/backups/flyleaf/work
+  roles_ok() { [[ "$(docker exec "$PG_CONTAINER" psql -U flyleaf -d postgres -Atc "$ROLE_SQL")" == "flyleaf_app:false flyleaf_owner:false" ]]; }
+  check "database roles: flyleaf_owner and flyleaf_app, neither a superuser" roles_ok
 
   echo "-- provision.sh, second run (must change nothing)"
   snap() { find /etc/flyleaf /etc/caddy /etc/apt/apt.conf.d /etc/docker /etc/ssh/sshd_config.d /etc/systemd/system /etc/sysctl.d /etc/hosts /etc/fstab /usr/local/bin -type f -o -type l | sort | xargs md5sum 2>/dev/null; }
@@ -123,7 +131,11 @@ EOF
   ( set -a; . /etc/flyleaf/app.env; set +a; cd /opt/flyleaf/current/apps/api
     NODE_OPTIONS=--max-old-space-size=384 runuser -u flyleaf -- /usr/local/bin/node dist/server.js > /root/api.log 2>&1 & echo $! > /root/api.pid )
   for _ in $(seq 1 30); do curl -fsS -m 2 http://127.0.0.1:3000/readyz >/dev/null 2>&1 && break; sleep 1; done
-  check "API /readyz answers 200 as user flyleaf with NODE_ENV=production" curl -fsS -m 2 -o /dev/null http://127.0.0.1:3000/readyz
+  if curl -fsS -m 2 -o /dev/null http://127.0.0.1:3000/readyz; then
+    ok "API /readyz answers 200 as OS user flyleaf, DB role flyleaf_app, NODE_ENV=production"
+  else
+    tail -c 3000 /root/api.log; fail "API /readyz as flyleaf_app"
+  fi
   echo
   kill "$(cat /root/api.pid)"
   echo "-- all provisioning checks passed"
