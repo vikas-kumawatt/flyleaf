@@ -18,7 +18,6 @@ import { api, FlyleafApiError, type FollowUserListItem } from '@/lib/api';
 import { useSession } from '@/lib/session';
 import { useActionGate } from '@/ui/ActionGate';
 import { useOfflineSync } from '@/offline/sync';
-import { useVerifyEmailPrompt } from '@/ui/VerifyEmail';
 import { FOLLOW_PAGE_SIZE, appendFollowPage, hasMoreFollows } from '@/lib/socialValidation';
 import {
   Button,
@@ -38,7 +37,6 @@ export default function FollowingScreen() {
   const { user } = useSession();
   const { promptAuth } = useActionGate();
   const { setFollowing } = useOfflineSync();
-  const { prompt: promptVerify } = useVerifyEmailPrompt();
 
   const [users, setUsers] = useState<FollowUserListItem[]>([]);
   const [total, setTotal] = useState(0);
@@ -100,12 +98,8 @@ export default function FollowingScreen() {
       promptAuth({ title: `Sign up to follow @${targetUser.username}` });
       return;
     }
-    // The server refuses follows until the email is verified (D-04-1): say so
-    // now rather than queue a write that can only fail (D-07-2).
-    if (user.emailVerified === false) {
-      promptVerify();
-      return;
-    }
+    // Follows need no verified email (owner decision on SO-5x, 13 Oct 2026);
+    // reviews and comments still do.
     try {
       setProcessingId(targetUser.id);
       void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
@@ -124,7 +118,7 @@ export default function FollowingScreen() {
       }
       void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     } catch (err) {
-      // email_unverified has its own prompt (VerifyEmailProvider); say so for the rest.
+      // email_unverified (an older server) has its own prompt (VerifyEmailProvider); say so for the rest.
       if (!(err instanceof FlyleafApiError && err.code === 'email_unverified')) {
         Alert.alert('Could not update', 'We could not reach Flyleaf. Try again in a moment.');
       }

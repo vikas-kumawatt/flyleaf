@@ -658,6 +658,25 @@ export class IdentityService {
    * If the account is private and viewer cannot view, returns null -> 404 (never 403).
    */
   /**
+   * The profile behind a username (App Links for /@username and /u/username,
+   * owner decision on SO-5x): the current name in any case, or a name the
+   * account used to have (username_claims, 0037). Then exactly
+   * getProfile(viewer, id), so a name the viewer may not see is the same
+   * null (404) as a name nobody has.
+   */
+  async getProfileByUsername(viewer: string | null, raw: string): Promise<Profile | null> {
+    const name = raw.trim().toLowerCase();
+    if (!/^[a-z0-9_.-]{1,64}$/.test(name)) return null;
+    const [row] = await this.db.execute<{ user_id: string }>(sql`
+      SELECT p.user_id, true AS current FROM profiles p WHERE lower(p.username) = ${name}
+      UNION ALL
+      SELECT c.user_id, false FROM username_claims c WHERE c.username = ${name}
+      ORDER BY current DESC LIMIT 1`);
+    if (!row) return null;
+    return this.getProfile(viewer, row.user_id);
+  }
+
+  /**
    * Public profile lookup respecting privacy (Architecture §4, PRD §24, AC-13, SO-02).
    * Takes viewer as required first argument (FN-70).
    * If blocked: returns null -> 404 (never revealing block).
@@ -1186,6 +1205,7 @@ import {
   verifyEmailBodySchema,
   verifyEmailResponseSchema,
   usernameAvailableQuerySchema,
+  usernameParamSchema,
   changeUsernameBodySchema,
   usernameAvailableResponseSchema,
   resendVerificationResponseSchema,
@@ -1639,6 +1659,29 @@ export function identityRoutes(service: IdentityService) {
       async (req) => {
         const viewer = requireViewer(req);
         return service.changeUsername(viewer, (req.body as { username: string }).username);
+      },
+    );
+
+    // The same profile by username (App Links /@username, /u/username).
+    app.get<{ Params: { username: string } }>(
+      '/users/by-username/:username',
+      {
+        schema: {
+          tags: ['Auth'],
+          summary: 'Get a profile by username',
+          description:
+            'The profile behind a username, current or former (renames, D-11-2), with exactly the visibility of GET /users/:id. Used by the app to open https://flyleaf.app/@username links. 404 is identical for a missing, deleted, blocked or hidden account.',
+          params: usernameParamSchema,
+          response: {
+            200: profileSchema,
+            404: errorResponseSchema,
+          },
+        },
+      },
+      async (req) => {
+        const profile = await service.getProfileByUsername(req.viewer, req.params.username);
+        if (!profile) throw ApiError.notFound('No such user.');
+        return profile;
       },
     );
 

@@ -1292,6 +1292,24 @@ export const reports = pgTable('reports', {
  * SO-4x, 0045): it cannot sign in, so its one appeal (PRD §27.6) arrives here.
  * Only the token's SHA-256 is stored; the appeal spends it (used_at).
  */
+/**
+ * ST-05 reading goals (0046, PRD §8.6 [LOCKED]): one row per user and year.
+ * Progress is never stored; it is the per-viewer stats count (§17.5).
+ */
+export const goals = pgTable('goals', {
+  userId: uuid('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  year: integer('year').notNull(),
+  targetBooks: integer('target_books').notNull(),
+  targetPages: integer('target_pages'),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [
+  primaryKey({ columns: [t.userId, t.year] }),
+  check('goals_year_ck', sql`${t.year} BETWEEN 1900 AND 9999`),
+  check('goals_target_books_ck', sql`${t.targetBooks} BETWEEN 1 AND 10000`),
+  check('goals_target_pages_ck', sql`${t.targetPages} IS NULL OR ${t.targetPages} BETWEEN 1 AND 10000000`),
+]);
+
 export const moderationAppealLinks = pgTable('moderation_appeal_links', {
   tokenHash: text('token_hash').primaryKey(),
   actionId: uuid('action_id').notNull().references(() => moderationActions.id, { onDelete: 'cascade' }),

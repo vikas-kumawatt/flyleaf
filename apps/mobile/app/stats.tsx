@@ -16,7 +16,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as Haptics from 'expo-haptics';
 import { useSession } from '@/lib/session';
 import { api, type ReadingStats } from '@/lib/api';
-import { deviceTimeZone, dnfPercent, excludedNote, formatShares, statsRatingRows } from '@/lib/statsView';
+import { coverageNote, deviceTimeZone, dnfPercent, excludedNote, formatShares, statsRatingRows, streakCopy } from '@/lib/statsView';
 import {
   Button,
   Card,
@@ -83,6 +83,11 @@ export default function StatsScreen() {
   const formats = useMemo(() => formatShares(stats?.format_breakdown), [stats]);
   // §17.4: what the figures leave out.
   const excluded = stats ? excludedNote(stats) : null;
+  // ST-03: "Based on N of your M books — K are …" under each figure that lacks data.
+  const whose = isOtherUser ? 'their' : 'your';
+  const note = (key: Parameters<typeof coverageNote>[1]) => (stats ? coverageNote(stats, key, whose) : null);
+  // ST-06 / §8.7: a broken streak is shown as the longest, never as a loss.
+  const streak = stats ? streakCopy(stats) : null;
 
   return (
     <Screen style={{ flex: 1, backgroundColor: c.ground }}>
@@ -232,26 +237,33 @@ export default function StatsScreen() {
                   </Txt>
                 </Card>
 
-                {/* Reading Habit Streak */}
-                <Card style={[styles.metricCard, { backgroundColor: c.surface }]}>
-                  <Txt variant="caption" color="muted">
-                    Daily Streak
-                  </Txt>
-                  <View style={sheet.row}>
-                    <Txt variant="title" style={[styles.metricNumber, { color: '#f59e0b' }]}>
-                      {stats.current_streak}
+                {/* Reading streak (§8.7): hidden for a reader who never logs progress. */}
+                {streak && (
+                  <Card style={[styles.metricCard, { backgroundColor: c.surface }]}>
+                    <Txt variant="caption" color="muted">
+                      {streak.label}
                     </Txt>
-                    <Txt variant="caption" color="muted" style={{ marginLeft: 4, marginTop: 6 }}>
-                      (best {stats.longest_streak}d)
+                    <Txt variant="title" style={styles.metricNumber}>
+                      {streak.hero}
                     </Txt>
-                  </View>
-                </Card>
+                    {streak.detail && (
+                      <Txt variant="caption" color="muted">
+                        {streak.detail}
+                      </Txt>
+                    )}
+                  </Card>
+                )}
               </View>
             </View>
 
             {excluded && (
               <Txt variant="caption" color="muted">
                 {excluded}
+              </Txt>
+            )}
+            {note('audio') && (
+              <Txt variant="caption" color="muted">
+                Listening hours: {note('audio')}
               </Txt>
             )}
 
@@ -320,6 +332,11 @@ export default function StatsScreen() {
                           across {Object.values(stats.rating_distribution).reduce((a, b) => a + b, 0)} rated books
                         </Txt>
                       </View>
+                      {note('ratings') && (
+                        <Txt variant="caption" color="muted">
+                          {note('ratings')}
+                        </Txt>
+                      )}
                     </View>
                   </View>
                 )}
@@ -382,6 +399,11 @@ export default function StatsScreen() {
                         );
                       })}
                     </View>
+                    {note('formats') && (
+                      <Txt variant="caption" color="muted">
+                        {note('formats')}
+                      </Txt>
+                    )}
                   </View>
                 )}
 
@@ -474,6 +496,11 @@ export default function StatsScreen() {
                         </Txt>
                       </View>
                     </View>
+                    {note('authors') && (
+                      <Txt variant="caption" color="muted" style={{ marginTop: space[2] }}>
+                        {note('authors')}
+                      </Txt>
+                    )}
                   </Card>
                 )}
               </View>

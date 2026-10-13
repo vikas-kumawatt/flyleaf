@@ -27,6 +27,14 @@ export const idParamSchema = {
   required: ['id'],
 } as const;
 
+export const usernameParamSchema = {
+  type: 'object',
+  properties: {
+    username: { type: 'string', minLength: 1, maxLength: 64, description: 'A username, current or former, any case' },
+  },
+  required: ['username'],
+} as const;
+
 // ---------------------------------------------------------------- identity
 
 export const userSchema = {
@@ -37,7 +45,7 @@ export const userSchema = {
     username: { type: 'string' },
     emailVerified: {
       type: 'boolean',
-      description: 'On GET /me. False: reviews, comments and follows answer 403 email_unverified (D-04-1).',
+      description: 'On GET /me. False: reviews and comments answer 403 email_unverified (D-04-1). Follows are allowed (owner decision on SO-5x).',
     },
     dobConfirmed: {
       type: 'boolean',
@@ -678,6 +686,43 @@ export const extremeBookSchema = {
   required: ['work_id', 'title'],
 } as const;
 
+const withValue = (key: string, schema: object, description: string) => ({
+  anyOf: [
+    {
+      type: 'object',
+      description,
+      properties: { ...extremeBookSchema.properties, [key]: schema },
+      required: [...extremeBookSchema.required, key],
+    },
+    { type: 'null' },
+  ],
+});
+
+/** ST-03: "based on N of M" for one figure. */
+const coverageItemSchema = {
+  type: 'object',
+  properties: {
+    based_on: { type: 'integer', minimum: 0 },
+    of: { type: 'integer', minimum: 0 },
+  },
+  required: ['based_on', 'of'],
+} as const;
+
+const COVERAGE_KEYS = [
+  'pages', 'months', 'ratings', 'vs_crowd', 'formats', 'authors', 'genres', 'decades', 'languages', 'velocity', 'audio', 'pace', 'speed',
+] as const;
+
+const dateRangeSchema = {
+  anyOf: [
+    {
+      type: 'object',
+      properties: { start: { type: 'string', format: 'date' }, end: { type: 'string', format: 'date' } },
+      required: ['start', 'end'],
+    },
+    { type: 'null' },
+  ],
+} as const;
+
 export const readingStatsQuerySchema = {
   type: 'object',
   properties: {
@@ -744,10 +789,87 @@ export const readingStatsResponseSchema = {
         { type: 'null' },
       ],
     },
+    books_in_progress: { type: 'integer', description: 'Reads now reading or paused, whatever the year (PRD §17.2).' },
+    vs_crowd: {
+      type: ['number', 'null'],
+      description: 'You vs the crowd (PRD §17.2): the mean of (your rating − the book\'s average rating without yours) over your rated finished books that someone else has rated. Negative: you rate below average. Null with no such book; coverage.vs_crowd gives the sample.',
+    },
+    genres: {
+      type: 'object',
+      description: 'Genre donut (PRD §17.2): each finished book once, under its strongest genre (work_subjects weight); the top 8, the rest in other. Books with no genre are left out (coverage.genres).',
+      properties: {
+        top: { type: 'array', items: { type: 'object', properties: { name: { type: 'string' }, count: { type: 'integer' } }, required: ['name', 'count'] } },
+        other: { type: 'integer' },
+      },
+      required: ['top', 'other'],
+    },
+    decades: {
+      type: 'array',
+      description: 'Finished books per decade of first publication, oldest first; books with no year are left out (coverage.decades).',
+      items: { type: 'object', properties: { decade: { type: 'integer' }, count: { type: 'integer' } }, required: ['decade', 'count'] },
+    },
+    languages: {
+      type: 'array',
+      description: 'Finished books per language (chosen edition, else the work\'s original language), most first. The app shows it only with more than one language (PRD §17.2).',
+      items: { type: 'object', properties: { language: { type: 'string' }, count: { type: 'integer' } }, required: ['language', 'count'] },
+    },
+    velocity: {
+      type: 'object',
+      description: 'Days to finish (PRD §17.2 reading velocity): started_at to finished_at, both days included, for finished reads with both dates; overall median and the median per finish month.',
+      properties: {
+        median_days: { type: ['number', 'null'] },
+        by_month: {
+          type: 'array',
+          items: { type: 'object', properties: { month: { type: 'integer' }, median_days: { type: ['number', 'null'] } }, required: ['month', 'median_days'] },
+        },
+      },
+      required: ['median_days', 'by_month'],
+    },
+    speed: {
+      type: 'object',
+      description: 'Reading speed (PRD §8.4, §17.2): pages per hour over the sessions that carry minutes and a page rise since the read\'s previous page, total pages ÷ total minutes. Never estimated from the gap between events. Sample in coverage.speed.',
+      properties: {
+        pages_per_hour: { type: ['number', 'null'] },
+        pages: { type: 'integer' },
+        minutes: { type: 'integer' },
+      },
+      required: ['pages_per_hour', 'pages', 'minutes'],
+    },
+    pace: {
+      type: 'array',
+      description: 'Reading pace over time (PRD §17.2): pages logged per Monday-start week in the user\'s zone (the rise in page between a read\'s progress events) and the 7-day average, from the first week with pages to the last.',
+      items: {
+        type: 'object',
+        properties: { week_start: { type: 'string', format: 'date' }, pages: { type: 'integer' }, pages_per_day: { type: 'number' } },
+        required: ['week_start', 'pages', 'pages_per_day'],
+      },
+    },
+    time_of_day: {
+      type: 'array',
+      description: 'Progress events per local weekday (Monday first) and hour 0–23 (PRD §17.2 time-of-day heatmap).',
+      items: { type: 'array', items: { type: 'integer' } },
+    },
+    fastest_read: withValue('days', { type: 'integer' }, 'Fewest days to finish (velocity rule).'),
+    slowest_read: withValue('days', { type: 'integer' }, 'Most days to finish (velocity rule).'),
+    highest_rated: withValue('rating', { type: 'number' }, 'Highest rating; the most recent finish among equals.'),
+    lowest_rated: withValue('rating', { type: 'number' }, 'Lowest rating; the most recent finish among equals.'),
+    oldest_publication: withValue('year', { type: 'integer' }, 'Earliest first-publication year.'),
+    most_reread: withValue('count', { type: 'integer' }, 'Most finished attempts of one work, two or more.'),
     dnf_count: { type: 'integer' },
     dnf_rate: { type: 'number' },
-    current_streak: { type: 'integer' },
-    longest_streak: { type: 'integer' },
+    current_streak: {
+      type: 'integer',
+      description: 'PRD §8.7 (ST-06): days with a progress event or a finish, in tz; up to 2 days without reading do not break it. Its length is the calendar span from its first to its last active day. 0 once broken (shown as the longest, never as a loss).',
+    },
+    longest_streak: { type: 'integer', description: 'The longest streak by the same rule, all time.' },
+    current_streak_range: dateRangeSchema,
+    longest_streak_range: dateRangeSchema,
+    coverage: {
+      type: 'object',
+      description: 'ST-03, PRD §17.4: what each figure is based on, "based on N of M". Books (finished reads in scope) except pace and speed, which count sessions (progress events in the window), vs_crowd (rated books) and audio (finished audiobooks).',
+      properties: Object.fromEntries(COVERAGE_KEYS.map((k) => [k, coverageItemSchema])),
+      required: [...COVERAGE_KEYS],
+    },
     excluded: {
       type: 'object',
       description: 'PRD §17.4 disclosure. undated: finished reads with no finish date (counted in "all", never in a year or month). missing_page_count: finished reads in scope with no usable page count (they add no pages).',
@@ -772,7 +894,66 @@ export const readingStatsResponseSchema = {
     'dnf_rate',
     'current_streak',
     'longest_streak',
+    'current_streak_range',
+    'longest_streak_range',
+    'books_in_progress',
+    'vs_crowd',
+    'genres',
+    'decades',
+    'languages',
+    'velocity',
+    'speed',
+    'pace',
+    'time_of_day',
+    'coverage',
   ],
+} as const;
+
+// ---------------------------------------------------------------- goals (ST-05)
+
+export const goalQuerySchema = {
+  type: 'object',
+  properties: {
+    year: { type: 'string', description: 'YYYY, 1900 or later. Default (GET): the current year in tz. Required on DELETE.' },
+    tz: { type: 'string', maxLength: 64, description: 'IANA zone for the default year. Default UTC.' },
+  },
+} as const;
+
+export const goalBodySchema = {
+  type: 'object',
+  properties: {
+    year: { type: 'integer', minimum: 1900, maximum: 9999 },
+    target_books: { type: 'integer', minimum: 1, maximum: 10000 },
+    target_pages: { type: ['integer', 'null'], minimum: 1, maximum: 10000000 },
+  },
+  required: ['year', 'target_books'],
+} as const;
+
+export const goalResponseSchema = {
+  type: 'object',
+  description: 'PRD §8.6 [LOCKED]: a reading goal and progress, counted as this viewer may count it (§17.5). Shown only as the profile ring.',
+  properties: {
+    year: { type: 'integer' },
+    goal: {
+      anyOf: [
+        {
+          type: 'object',
+          properties: {
+            target_books: { type: 'integer' },
+            target_pages: { type: ['integer', 'null'] },
+            books_count: { type: 'integer', description: 'Finished reads with a finish date in the year.' },
+            pages_count: { type: 'integer', description: 'Their pages (D-08-3 page rule); a book without a page count adds none.' },
+            books_reached: { type: 'boolean' },
+            pages_reached: { type: ['boolean', 'null'] },
+            pages_coverage: coverageItemSchema,
+          },
+          required: ['target_books', 'target_pages', 'books_count', 'pages_count', 'books_reached', 'pages_reached', 'pages_coverage'],
+        },
+        { type: 'null' },
+      ],
+    },
+  },
+  required: ['year', 'goal'],
 } as const;
 
 // ---------------------------------------------------------------- reviews & social (SL-63, SL-64)

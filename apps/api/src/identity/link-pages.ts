@@ -22,6 +22,14 @@ const APP_SCHEME = 'flyleaf://';
 /** Tokens are 43 characters (32 bytes, base64url); anything far longer is not one. */
 export const MAX_TOKEN = 256;
 
+/**
+ * Paths the app opens from https links (iOS Universal Links components; the
+ * Android intent filters in apps/mobile/app.json list the same). The public
+ * pages joined with the owner decision on SO-5x; they take effect with the
+ * next native build.
+ */
+export const APP_LINK_PATHS = ['/verify-email', '/reset-password', '/@*', '/book/*', '/u/*'] as const;
+
 export function linkPageCsp(nonce: string): string {
   return (
     `default-src 'none'; script-src 'nonce-${nonce}'; style-src 'unsafe-inline'; ` +
@@ -223,7 +231,10 @@ ${appLink('')}`);
             details: [
               {
                 appIDs: [appLinks.ios.appId],
-                components: [{ '/': '/verify-email' }, { '/': '/reset-password' }],
+                // The account links, and (owner decision on SO-5x, 13 Oct
+                // 2026) the public pages, so a shared link opens the app
+                // when it is installed. app.json lists the same paths.
+                components: APP_LINK_PATHS.map((p) => ({ '/': p })),
               },
             ],
           },

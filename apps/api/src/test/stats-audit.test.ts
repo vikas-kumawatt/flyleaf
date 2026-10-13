@@ -13,7 +13,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { FastifyInstance } from 'fastify';
 import { eq } from 'drizzle-orm';
 import type { Db } from '../platform/index.js';
-import { authors, editions, follows, progressEvents, reads, workAuthors, works } from '../db/schema.js';
+import { authors, editions, follows, progressEvents, reads, subjects, workAuthors, workSubjects, works } from '../db/schema.js';
 import { buildApp } from '../app.js';
 import { CatalogService } from '../catalog/index.js';
 import { IdentityService } from '../identity/index.js';
@@ -49,6 +49,13 @@ interface Spec {
   author: string;
   /** Progress events: [days ago, audio position seconds | null]. */
   events?: Array<[number, number | null]>;
+  /** Phase 5 (ST-01): a value for every new stat, so a leak changes the answer. */
+  startedAt?: string;
+  genre?: string;
+  year?: number;
+  language?: string;
+  /** Page events: [days ago, page, minutes | null]. */
+  pageEvents?: Array<[number, number, number | null]>;
 }
 
 const DAY = 86_400_000;
@@ -56,14 +63,19 @@ const DAY = 86_400_000;
 // One library covering every stat: public, followers-only and private reads,
 // each with a distinguishing value so a leak changes the answer.
 const LIBRARY: Spec[] = [
-  { key: 'pub1', status: 'finished', vis: 'public', finishedAt: '2025-03-10', rating: '4.5', format: 'paperback', pages: 300, author: 'Author Public', events: [[20, null]] },
-  { key: 'pub2', status: 'finished', vis: 'public', finishedAt: '2025-07-02', rating: '3.0', format: 'hardcover', pages: 120, author: 'Author Public' },
-  { key: 'fol1', status: 'finished', vis: 'followers', finishedAt: '2025-04-10', rating: '2.0', format: 'ebook', pages: 500, author: 'Author Followers', events: [[10, null]] },
+  { key: 'pub1', status: 'finished', vis: 'public', finishedAt: '2025-03-10', rating: '4.5', format: 'paperback', pages: 300, author: 'Author Public', events: [[20, null]],
+    startedAt: '2025-03-01', genre: 'Mystery', year: 1934, language: 'en', pageEvents: [[22, 40, null], [21, 90, 60]] },
+  { key: 'pub2', status: 'finished', vis: 'public', finishedAt: '2025-07-02', rating: '3.0', format: 'hardcover', pages: 120, author: 'Author Public',
+    genre: 'Mystery', year: 2001, language: 'en' },
+  { key: 'fol1', status: 'finished', vis: 'followers', finishedAt: '2025-04-10', rating: '2.0', format: 'ebook', pages: 500, author: 'Author Followers', events: [[10, null]],
+    startedAt: '2025-04-08', genre: 'Romance', year: 1960, language: 'fr', pageEvents: [[12, 10, null], [11, 70, 30]] },
   { key: 'prv1', status: 'finished', vis: 'private', finishedAt: '2025-05-10', rating: '1.0', format: 'audiobook', pages: 900, audioDuration: 36_000, author: 'Author Private',
-    events: [[0, 7_200], [1, 3_600], [2, 1_800]] },
-  { key: 'prv2', status: 'finished', vis: 'private', finishedAt: '2025-05-11', rating: '0.5', format: 'paperback', pages: 40, author: 'Author Private' },
-  { key: 'prv3', status: 'finished', vis: 'private', finishedAt: '2025-05-12', rating: '5.0', format: 'paperback', pages: 50, author: 'Author Private' },
+    events: [[0, 7_200], [1, 3_600], [2, 1_800]], startedAt: '2025-01-02', genre: 'Horror', year: 1818, language: 'de' },
+  { key: 'prv2', status: 'finished', vis: 'private', finishedAt: '2025-05-11', rating: '0.5', format: 'paperback', pages: 40, author: 'Author Private',
+    startedAt: '2025-05-11', genre: 'Horror', year: 1890, language: 'de', pageEvents: [[5, 5, null], [4, 40, 15]] },
+  { key: 'prv3', status: 'finished', vis: 'private', finishedAt: '2025-05-12', rating: '5.0', format: 'paperback', pages: 50, author: 'Author Private', genre: 'Poetry' },
   { key: 'prvDnf', status: 'dnf', vis: 'private', abandonedAt: '2025-06-01', format: 'paperback', pages: 200, author: 'Author Private' },
+  { key: 'prvNow', status: 'reading', vis: 'private', author: 'Author Private', pages: 100 },
 ];
 
 describe('reading stats (Audit 10, SL-74)', () => {
@@ -93,11 +105,20 @@ describe('reading stats (Audit 10, SL-74)', () => {
   async function workFor(s: Spec) {
     const known = workIds.get(s.key);
     if (known) return known;
-    const [w] = await db.insert(works).values({ title: `Book ${s.key}` }).returning({ id: works.id });
+    const [w] = await db
+      .insert(works)
+      .values({ title: `Book ${s.key}`, firstPublishYear: s.year ?? null, originalLanguage: s.language ?? null })
+      .returning({ id: works.id });
     await db.insert(workAuthors).values({ workId: w!.id, authorId: await authorId(s.author), position: 0 });
+    if (s.genre) {
+      const slug = `genre-${s.genre.toLowerCase()}`;
+      await db.insert(subjects).values({ slug, name: s.genre, kind: 'genre' }).onConflictDoNothing();
+      const [g] = await db.select({ id: subjects.id }).from(subjects).where(eq(subjects.slug, slug));
+      await db.insert(workSubjects).values({ workId: w!.id, subjectId: g!.id });
+    }
     const [e] = await db
       .insert(editions)
-      .values({ workId: w!.id, pageCount: s.pages ?? null, format: s.format ?? 'unknown', audioSeconds: s.audioDuration ?? null })
+      .values({ workId: w!.id, pageCount: s.pages ?? null, format: s.format ?? 'unknown', audioSeconds: s.audioDuration ?? null, language: s.language ?? 'und' })
       .returning({ id: editions.id });
     const ids = { workId: w!.id, editionId: e!.id };
     workIds.set(s.key, ids);
@@ -115,6 +136,7 @@ describe('reading stats (Audit 10, SL-74)', () => {
           editionId,
           status: s.status,
           visibility: s.vis,
+          startedAt: s.startedAt ?? null,
           finishedAt: s.finishedAt ?? null,
           abandonedAt: s.abandonedAt ?? null,
           rating: s.rating ?? null,
@@ -126,6 +148,15 @@ describe('reading stats (Audit 10, SL-74)', () => {
           at: new Date(Date.now() - daysAgo * DAY),
           page: audio === null ? 10 : null,
           audioSeconds: audio,
+          clientEventId: randomUUID(),
+        });
+      }
+      for (const [daysAgo, page, minutes] of s.pageEvents ?? []) {
+        await db.insert(progressEvents).values({
+          readId: r!.id,
+          at: new Date(Date.now() - daysAgo * DAY),
+          page,
+          minutes,
           clientEventId: randomUUID(),
         });
       }

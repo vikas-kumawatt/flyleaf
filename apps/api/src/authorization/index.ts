@@ -278,8 +278,9 @@ export function canViewSql(
 // ---------------------------------------------------------------------------
 
 /**
- * Unverified accounts can read, log reads and shelve, but cannot create
- * reviews, comments or follows. 403 (not 404): the refusal is about the
+ * Unverified accounts can read, log reads, shelve and follow (follows since
+ * the owner decision on SO-5x, 13 Oct 2026), but cannot create reviews or
+ * comments. 403 (not 404): the refusal is about the
  * caller's own account and reveals nothing about anyone else. The client turns
  * `email_unverified` into a "verify your email" prompt.
  */

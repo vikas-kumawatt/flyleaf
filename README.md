@@ -517,6 +517,7 @@ These change the native app, so a JavaScript reload does not pick them up:
 | `app.json` › `ios.associatedDomains`: `applinks:flyleaf.app` | iOS Universal Links, same links (not built here: Android only) |
 | `expo-image-picker` ~57.0.20 (new) + `app.json` plugin entry (photo and camera permission strings) | Avatar picker: library or camera (audit 10, A-10-016) |
 | `expo-image-manipulator` ~57.0.20 (new) | Avatar resized to 512 px JPEG on the device before upload (PRD §6.7, A-10-016) |
+| `app.json` › `android.intentFilters`: `pathPrefix` `/@`, `/book/`, `/u/` (Phase 5 A) | App Links for the public pages (owner decision on SO-5x): a shared profile, book or shelf link opens the app; the served AASA lists the same paths |
 
 Batched: the owner rebuilds once after Part 14, with every native change listed here.
 

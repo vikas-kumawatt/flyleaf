@@ -3,7 +3,8 @@
 // First-class profile:
 // 1. Identity header: Avatar, Display Name, Bio, Followers/Following, Privacy lock.
 // 2. Favourites: 4 ordered defining books with direct link to picker (/profile/favourites).
-// 3. Stats Strip: Live volume cards (books, pages, avg rating) with link to /stats.
+// 3. Stats Strip: books, pages, avg rating, streak (§8.7, "longest" framing) and
+//    the reading-goal ring (ST-05; PRD §8.6: the ring lives here and nowhere else).
 // 4. Currently Reading: Real-time progress on active books.
 // 5. The Wall preview: Latest finished posters with link to /wall.
 // 6. Diary preview: Recent finished entries with link to /diary.
@@ -38,6 +39,7 @@ import {
   api,
   type Profile,
   type ReadingStats,
+  type GoalResponse,
 } from '@/lib/api';
 import {
   Button,
@@ -51,6 +53,9 @@ import {
   sheet,
 } from '@/ui/components';
 import { radius, space, useTheme, useThemeContext, type ThemeMode } from '@/ui/tokens';
+import { GoalRing } from '@/ui/GoalRing';
+import { GoalSheet } from '@/ui/GoalSheet';
+import { deviceTimeZone, goalRingModel, streakCopy } from '@/lib/statsView';
 
 export default function ProfileScreen() {
   const c = useTheme();
@@ -98,6 +103,8 @@ export default function ProfileScreen() {
     ]);
   };
   const [stats, setStats] = useState<ReadingStats | null>(null);
+  const [goal, setGoal] = useState<GoalResponse | null>(null);
+  const [goalSheetVisible, setGoalSheetVisible] = useState(false);
   const [reads, setReads] = useState<LocalRead[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -117,9 +124,12 @@ export default function ProfileScreen() {
     }
     try {
       // 1. Fetch profile & stats in parallel
-      const [profileRes, statsRes] = await Promise.allSettled([
+      // Streak days and "this year" are the reader's own (PRD §8.7).
+      const tz = deviceTimeZone();
+      const [profileRes, statsRes, goalRes] = await Promise.allSettled([
         api.myProfile(),
-        api.myStats(),
+        api.myStats(undefined, tz),
+        api.myGoal(undefined, tz),
       ]);
 
       if (profileRes.status === 'fulfilled') {
@@ -131,6 +141,9 @@ export default function ProfileScreen() {
 
       if (statsRes.status === 'fulfilled') {
         setStats(statsRes.value);
+      }
+      if (goalRes.status === 'fulfilled') {
+        setGoal(goalRes.value);
       }
 
       // 2. Fetch local reads for Currently Reading and Wall
@@ -161,6 +174,7 @@ export default function ProfileScreen() {
   }, [reads]);
 
   // Finished reads for Wall preview
+  const streak = stats ? streakCopy(stats) : null;
   const finishedReads = useMemo(() => {
     return reads.filter((r) => r.status === 'finished');
   }, [reads]);
@@ -492,6 +506,36 @@ export default function ProfileScreen() {
                   </Card>
                 </View>
               </Pressable>
+
+              {/* Streak (§8.7: a broken one shows as the longest, never as a loss; nothing at all
+                  for a reader who never logs progress) and the goal ring (§8.6). */}
+              <View style={[sheet.row, { gap: space[2] }]}>
+                {streak && (
+                  <Card style={{ flex: 1, padding: space[3], justifyContent: 'center' }}>
+                    <Txt variant="title" tabular style={{ fontSize: 20, fontWeight: '800' }}>
+                      {streak.hero}
+                    </Txt>
+                    <Txt variant="caption" color="muted" style={{ fontSize: 11 }}>
+                      {streak.label}
+                    </Txt>
+                    {streak.detail && (
+                      <Txt variant="caption" color="muted" style={{ fontSize: 11 }}>
+                        {streak.detail}
+                      </Txt>
+                    )}
+                  </Card>
+                )}
+                <Card style={{ padding: space[3], alignItems: 'center', justifyContent: 'center' }}>
+                  <GoalRing
+                    model={goalRingModel(goal)}
+                    emptyLabel="Set goal"
+                    onPress={() => {
+                      void Haptics.selectionAsync();
+                      setGoalSheetVisible(true);
+                    }}
+                  />
+                </Card>
+              </View>
             </View>
 
             {/* 4. CURRENTLY READING SHELF */}
@@ -817,6 +861,14 @@ export default function ProfileScreen() {
           />
         </View>
       </ScrollView>
+
+      <GoalSheet
+        visible={goalSheetVisible}
+        year={goal?.year ?? new Date().getFullYear()}
+        goal={goal}
+        onClose={() => setGoalSheetVisible(false)}
+        onSaved={setGoal}
+      />
 
       {/* EDIT PROFILE MODAL */}
       <Modal

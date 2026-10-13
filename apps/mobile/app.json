@@ -18,7 +18,10 @@
           "autoVerify": true,
           "data": [
             { "scheme": "https", "host": "flyleaf.app", "path": "/verify-email" },
-            { "scheme": "https", "host": "flyleaf.app", "path": "/reset-password" }
+            { "scheme": "https", "host": "flyleaf.app", "path": "/reset-password" },
+            { "scheme": "https", "host": "flyleaf.app", "pathPrefix": "/@" },
+            { "scheme": "https", "host": "flyleaf.app", "pathPrefix": "/book/" },
+            { "scheme": "https", "host": "flyleaf.app", "pathPrefix": "/u/" }
           ],
           "category": ["BROWSABLE", "DEFAULT"]
         }

@@ -321,6 +321,26 @@ describe('over HTTP, every limit on', () => {
     expect(r.json().error.message).toMatch(/New accounts/);
   });
 
+  it('an unverified new account may follow (owner decision on SO-5x) and is held to the same 20; reviews stay gated', async () => {
+    const me = await makeUser(db, `unv_${Date.now()}`, { verified: false });
+    for (let i = 0; i < 20; i++) {
+      const t = await makeUser(db, `unvt${i}_${Date.now()}`);
+      const r = await app.inject({ method: 'POST', url: `/v1/users/${t.id}/follow`, headers: me.auth });
+      expect(r.statusCode, r.payload).toBe(200);
+    }
+    const t = await makeUser(db, `unvt_last_${Date.now()}`);
+    const r = await app.inject({ method: 'POST', url: `/v1/users/${t.id}/follow`, headers: me.auth });
+    expect(r.statusCode).toBe(429);
+    expect(r.json().error.message).toMatch(/New accounts/);
+    const [row] = await db.execute<{ n: number }>(sql`SELECT count(*)::int AS n FROM follows WHERE follower_id = ${me.id}::uuid`);
+    expect(row?.n).toBe(20);
+    // Reviews still need a verified email (D-04-1).
+    const readId = await makeRead(db, me.id, await makeWork(db, `Unverified book ${Date.now()}`));
+    const rv = await app.inject({ method: 'POST', url: `/v1/reads/${readId}/review`, headers: me.auth, payload: { body: 'Not yet' } });
+    expect(rv.statusCode).toBe(403);
+    expect(rv.json().error.code).toBe('email_unverified');
+  });
+
   it('§10.6: 10 new reviews an hour; edits are not counted against it', async () => {
     const me = await makeUser(db, `rev_${Date.now()}`);
     const readIds: string[] = [];

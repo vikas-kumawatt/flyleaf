@@ -7,12 +7,12 @@
 //   2. progress_events is APPEND-ONLY and idempotent on client_event_id, so an
 //      offline client can replay its queue safely (PRD §8.3).
 
-import { sql, eq, desc } from 'drizzle-orm';
+import { sql, eq, desc, and } from 'drizzle-orm';
 import { z } from 'zod';
 import type { FastifyInstance } from 'fastify';
 
 import type { Db } from '../platform/index.js';
-import { reads, works, progressEvents, profiles, editions } from '../db/schema.js';
+import { reads, works, progressEvents, profiles, editions, goals } from '../db/schema.js';
 import { ApiError, requireViewer } from '../http.js';
 import { resolveWorkId } from '../catalog/resolve.js';
 import { syncReviewActivity } from '../reviews/index.js';
@@ -30,6 +30,9 @@ import {
   dnfReadBodySchema,
   readingStatsQuerySchema,
   readingStatsResponseSchema,
+  goalQuerySchema,
+  goalBodySchema,
+  goalResponseSchema,
   deleteReadResponseSchema,
   errorResponseSchema,
 } from '../contract/schemas.js';
@@ -758,11 +761,15 @@ export class ReadingService {
   }
 
   /**
-   * Reading stats (SL-74, PRD §6.40, §17). The viewer is an input to every
-   * query, not a filter on a shared result (§17.5 [LOCKED]): each of the three
-   * queries below reads only the visibility levels this viewer may see, so a
-   * private read cannot reach a count, an extreme, the listening hours or the
-   * streak of anyone but its owner (audit 10: audio and streak ignored it).
+   * Reading stats (SL-74, ST-01…ST-03, ST-06; PRD §6.40, §17). The viewer is
+   * an input to every query, not a filter on a shared result (§17.5
+   * [LOCKED]): each query below reads only the visibility levels this viewer
+   * may see, so a private read cannot reach a count, an extreme, the
+   * listening hours, the pace, the speed, the time of day or the streak of
+   * anyone but its owner (audit 10: audio and streak ignored it).
+   *
+   * Never fabricate (§17.4, ST-03): a figure that needs data a read lacks
+   * leaves that read out, and `coverage` says how many it was based on.
    *
    * `tz` is the IANA zone whose days count (§8.7: the user's local day);
    * absent, days are UTC. `year` is 'all' or YYYY, default this year in `tz`.
@@ -798,22 +805,47 @@ export class ReadingService {
                     WHEN 'ebook' THEN 'ebook' WHEN 'audiobook' THEN 'audiobook' END,
       'unknown')`;
 
-    const [rows, audio, days] = await Promise.all([
+    const [rows, audio, days, inProgress, events] = await Promise.all([
       // Finished and DNF reads in scope. An undated finish comes back too:
       // it counts all-time and is disclosed (§17.4), never placed in a month.
+      // others_avg is the book's community average WITHOUT this reader's own
+      // counted rating (work_stats less their latest_ratings row), so "you vs
+      // the crowd" never compares a rating with itself. It depends on other
+      // people's ratings only, so it carries nothing private of this reader.
       this.db.execute<StatsRow>(sql`
         SELECT r.id, r.work_id, r.status,
+               r.started_at::text AS started_at,
                r.finished_at::text AS finished_at, r.abandoned_at::text AS abandoned_at,
                r.rating::text AS rating,
                ${effectiveFormat} AS format,
                flyleaf_page_count(r.edition_id, r.work_id) AS page_count,
                w.title,
+               w.first_publish_year AS publish_year,
+               COALESCE(NULLIF(e.language, 'und'), NULLIF(w.original_language, 'und')) AS language,
+               (SELECT s.name FROM work_subjects wsj JOIN subjects s ON s.id = wsj.subject_id AND s.kind = 'genre'
+                 WHERE wsj.work_id = w.id ORDER BY wsj.weight DESC, s.name LIMIT 1) AS genre,
                COALESCE(e.ol_cover_id, w.ol_cover_id,
                  (SELECT e2.ol_cover_id FROM editions e2
                    WHERE e2.work_id = w.id AND e2.ol_cover_id IS NOT NULL LIMIT 1)) AS cover_id,
-               COALESCE((SELECT a.name FROM work_authors wa JOIN authors a ON a.id = wa.author_id
-                          WHERE wa.work_id = w.id ORDER BY wa.position, a.name LIMIT 1),
-                        'Unknown Author') AS author_name
+               (SELECT a.name FROM work_authors wa JOIN authors a ON a.id = wa.author_id
+                 WHERE wa.work_id = w.id ORDER BY wa.position, a.name LIMIT 1) AS author_name,
+               CASE WHEN r.status = 'finished' AND r.rating IS NOT NULL THEN (
+                 SELECT CASE WHEN ws.rating_count - mine.n > 0
+                             THEN ((ws.rating_sum - mine.s) / (ws.rating_count - mine.n))::float8 END
+                   FROM work_stats ws,
+                        LATERAL (
+                          SELECT COALESCE(sum(m.rating), 0) AS s, count(*) AS n
+                            FROM (SELECT r2.rating FROM reads r2
+                                   WHERE r2.user_id = r.user_id AND r2.work_id = r.work_id
+                                     AND r2.rating IS NOT NULL AND NOT r2.rating_excluded
+                                     AND NOT EXISTS (SELECT 1 FROM users u WHERE u.id = r.user_id AND u.ratings_excluded_at IS NOT NULL)
+                                   ORDER BY r2.attempt_no DESC LIMIT 1) m
+                        ) mine
+                  WHERE ws.work_id = r.work_id) END AS others_avg,
+               (CASE WHEN ${effectiveFormat} = 'audiobook' THEN
+                  e.audio_seconds IS NOT NULL
+                  OR EXISTS (SELECT 1 FROM progress_events pa WHERE pa.read_id = r.id AND pa.audio_seconds IS NOT NULL)
+                END) AS has_audio
           FROM reads r
           JOIN works w ON w.id = r.work_id
           LEFT JOIN editions e ON e.id = r.edition_id
@@ -828,7 +860,7 @@ export class ReadingService {
       // Listening. audio_seconds is a POSITION, like page (§8.3: the latest
       // row is the current position), so a window gets the furthest point
       // reached in it minus the furthest point reached before it. A finished
-      // audiobook with a known duration has reached its duration on the
+      // audiobook with a known duration has reached its duration on its
       // finish date. Summing the events counted the same hour again and again.
       this.db.execute<{ seconds: string | number }>(sql`
         WITH vr AS (
@@ -866,15 +898,49 @@ export class ReadingService {
           FROM reads r
          WHERE r.user_id = ${userId} AND r.visibility IN (${levelList}) AND r.finished_at IS NOT NULL
       `),
+      // §17.2 "Books in progress": now, whatever the year.
+      this.db.execute<{ n: number }>(sql`
+        SELECT count(*)::int AS n FROM reads r
+         WHERE r.user_id = ${userId} AND r.visibility IN (${levelList}) AND r.status IN ('reading', 'paused')
+      `),
+      // Progress events in the window, per local day and hour: sessions (one
+      // event is one session, §8.4), pages read (the rise in page since the
+      // read's previous page event, so a first event, a percent-only or an
+      // audio event adds no pages: §8.4 "no inference"), and the sample for
+      // reading speed (events that carry minutes AND a page rise).
+      this.db.execute<EventBucket>(sql`
+        WITH ev AS (
+          -- One pass over the reader's events up to the window's end. The
+          -- window is partitioned by "has a page", so for a page event lag()
+          -- is the read's previous PAGE event, skipping percent and audio
+          -- ones; for any other event the rise is NULL.
+          SELECT pe.at, pe.minutes,
+                 pe.page - lag(pe.page) OVER (PARTITION BY pe.read_id, pe.page IS NULL ORDER BY pe.at, pe.id) AS delta
+            FROM reads r JOIN progress_events pe ON pe.read_id = r.id
+           WHERE r.user_id = ${userId} AND r.visibility IN (${levelList})
+             AND (${winEnd} IS NULL OR pe.at < ${winEnd})
+        )
+        SELECT (at AT TIME ZONE ${tz})::date::text AS d,
+               extract(hour FROM at AT TIME ZONE ${tz})::int AS h,
+               count(*)::int AS sessions,
+               count(delta)::int AS paged,
+               COALESCE(sum(GREATEST(delta, 0)), 0)::int AS pages,
+               count(*) FILTER (WHERE minutes > 0 AND delta > 0)::int AS timed,
+               COALESCE(sum(delta) FILTER (WHERE minutes > 0 AND delta > 0), 0)::int AS timed_pages,
+               COALESCE(sum(minutes) FILTER (WHERE minutes > 0 AND delta > 0), 0)::int AS timed_minutes
+          FROM ev
+         WHERE ${winStart} IS NULL OR at >= ${winStart}
+         GROUP BY 1, 2
+      `),
     ]);
 
     const finished = rows.filter((r) => r.status === 'finished' && (year === null || r.finished_at !== null));
     const dnf = rows.filter((r) => r.status === 'dnf');
+    const dated = finished.filter((r) => r.finished_at !== null);
 
     const monthlyPace = Array.from({ length: 12 }, (_, i) => ({ month: i + 1, books: 0, pages: 0 }));
-    for (const r of finished) {
-      if (r.finished_at === null) continue; // undated: no month (§17.4)
-      const item = monthlyPace[Number(r.finished_at.slice(5, 7)) - 1]!;
+    for (const r of dated) {
+      const item = monthlyPace[Number(r.finished_at!.slice(5, 7)) - 1]!;
       item.books += 1;
       item.pages += r.page_count ?? 0;
     }
@@ -883,49 +949,141 @@ export class ReadingService {
     const ratingDistribution = Object.fromEntries(STATS_RATING_BUCKETS.map((b) => [b, 0])) as Record<string, number>;
     for (const r of rated) ratingDistribution[Number(r.rating).toFixed(1)]! += 1;
     const avgRating = rated.length > 0
-      ? Math.round((rated.reduce((sum, r) => sum + Number(r.rating), 0) / rated.length) * 100) / 100
+      ? round(rated.reduce((sum, r) => sum + Number(r.rating), 0) / rated.length, 2)
+      : null;
+    // You vs the crowd (§17.2): your rating minus the book's average without
+    // you, averaged over the rated books someone else has rated too.
+    const compared = rated.filter((r) => r.others_avg !== null);
+    const vsCrowd = compared.length > 0
+      ? round(compared.reduce((sum, r) => sum + (Number(r.rating) - Number(r.others_avg)), 0) / compared.length, 2)
       : null;
 
     const formatBreakdown = { print: 0, ebook: 0, audiobook: 0, unknown: 0 };
     for (const r of finished) formatBreakdown[r.format] += 1;
 
-    // Extremes: a fixed order, so equal page counts do not swap between calls.
+    // Extremes: a fixed order, so equal values do not swap between calls.
     const withPages = finished
       .filter((r) => r.page_count !== null)
       .sort((a, b) => b.page_count! - a.page_count! || a.id.localeCompare(b.id));
-    const extreme = (r: StatsRow | undefined) => r
-      ? { work_id: r.work_id, title: r.title, author_name: r.author_name, page_count: r.page_count, cover_id: r.cover_id }
-      : null;
+    const book = (r: StatsRow): ExtremeBook => ({
+      work_id: r.work_id, title: r.title, author_name: r.author_name, page_count: r.page_count, cover_id: r.cover_id,
+    });
+    const extreme = (r: StatsRow | undefined) => (r ? book(r) : null);
 
+    // Days to finish, start and finish day included (a book started and
+    // finished on the same day took 1 day). Needs both dates (§17.4).
+    const timed = finished
+      .filter((r) => r.started_at !== null && r.finished_at !== null)
+      .map((r) => ({ r, days: daysBetween(r.started_at!, r.finished_at!) + 1 }))
+      .sort((a, b) => a.days - b.days || a.r.id.localeCompare(b.r.id));
+    const byFinishMonth = Array.from({ length: 12 }, (_, i) => ({
+      month: i + 1,
+      median_days: median(timed.filter((t) => Number(t.r.finished_at!.slice(5, 7)) === i + 1).map((t) => t.days)),
+    }));
+
+    const byRating = [...rated].sort((a, b) =>
+      Number(b.rating) - Number(a.rating) || (b.finished_at ?? '').localeCompare(a.finished_at ?? '') || a.id.localeCompare(b.id));
+    const highest = byRating[0];
+    const lowest = [...rated].sort((a, b) =>
+      Number(a.rating) - Number(b.rating) || (b.finished_at ?? '').localeCompare(a.finished_at ?? '') || a.id.localeCompare(b.id))[0];
+
+    const withYear = finished
+      .filter((r) => r.publish_year !== null)
+      .sort((a, b) => a.publish_year! - b.publish_year! || a.id.localeCompare(b.id));
+
+    // Most re-read: finished attempts per work in scope, two or more.
+    const attempts = new Map<string, { r: StatsRow; count: number }>();
+    for (const r of finished) {
+      const a = attempts.get(r.work_id);
+      if (a) a.count += 1;
+      else attempts.set(r.work_id, { r, count: 1 });
+    }
+    const reread = [...attempts.values()]
+      .filter((a) => a.count >= 2)
+      .sort((a, b) => b.count - a.count || a.r.title.localeCompare(b.r.title) || a.r.work_id.localeCompare(b.r.work_id))[0];
+
+    // Most-read author: a book with no author is not "Unknown Author"'s book.
     const authorCounts = new Map<string, number>();
-    for (const r of finished) authorCounts.set(r.author_name, (authorCounts.get(r.author_name) ?? 0) + 1);
+    for (const r of finished) {
+      if (r.author_name !== null) authorCounts.set(r.author_name, (authorCounts.get(r.author_name) ?? 0) + 1);
+    }
     let mostReadAuthor: { name: string; count: number } | null = null;
     for (const [name, count] of [...authorCounts.entries()].sort((a, b) => a[0].localeCompare(b[0]))) {
       if (!mostReadAuthor || count > mostReadAuthor.count) mostReadAuthor = { name, count };
     }
 
+    // Genre donut (§17.2): each book once, under its strongest genre; top 8 plus Other.
+    const genreCounts = tally(finished.map((r) => r.genre));
+    const genreTop = genreCounts.slice(0, 8);
+    const genreOther = genreCounts.slice(8).reduce((n, g) => n + g.count, 0);
+    const decades = tally(finished.map((r) => (r.publish_year === null ? null : String(Math.floor(r.publish_year / 10) * 10))))
+      .map((g) => ({ decade: Number(g.name), count: g.count }))
+      .sort((a, b) => a.decade - b.decade);
+    const languages = tally(finished.map((r) => r.language)).map((g) => ({ language: g.name, count: g.count }));
+
+    // Progress events: sessions, time of day, pace and speed.
+    let sessions = 0;
+    let paged = 0;
+    let timedSessions = 0;
+    let timedPages = 0;
+    let timedMinutes = 0;
+    const timeOfDay = Array.from({ length: 7 }, () => Array.from({ length: 24 }, () => 0));
+    const pagesByDay = new Map<string, number>();
+    for (const e of events) {
+      sessions += e.sessions;
+      paged += e.paged;
+      timedSessions += e.timed;
+      timedPages += e.timed_pages;
+      timedMinutes += e.timed_minutes;
+      timeOfDay[isoWeekday(e.d)]![e.h]! += e.sessions;
+      if (e.paged > 0) pagesByDay.set(e.d, (pagesByDay.get(e.d) ?? 0) + e.pages);
+    }
+
+    const audiobooks = finished.filter((r) => r.format === 'audiobook');
     const booksCount = finished.length;
     const dnfCount = dnf.length;
     const audioSeconds = Number(audio[0]?.seconds ?? 0);
-    const { currentStreak, longestStreak } = computeStreaks(days.map((d) => d.d), today);
+    const streaks = computeStreaks(days.map((d) => d.d), today);
+    const cover = (basedOn: number, of: number) => ({ based_on: basedOn, of });
 
     return {
       year: year === null ? 'all' : String(year),
       books_count: booksCount,
       distinct_works_count: new Set(finished.map((r) => r.work_id)).size,
+      books_in_progress: inProgress[0]?.n ?? 0,
       pages_count: withPages.reduce((acc, r) => acc + r.page_count!, 0),
-      audio_hours: Math.round((audioSeconds / 3600) * 10) / 10,
+      audio_hours: round(audioSeconds / 3600, 1),
       avg_rating: avgRating,
+      vs_crowd: vsCrowd,
       rating_distribution: ratingDistribution,
       format_breakdown: formatBreakdown,
       monthly_pace: monthlyPace,
+      genres: { top: genreTop, other: genreOther },
+      decades,
+      languages,
+      velocity: { median_days: median(timed.map((t) => t.days)), by_month: byFinishMonth },
+      speed: {
+        pages_per_hour: timedMinutes > 0 ? round((timedPages / timedMinutes) * 60, 1) : null,
+        pages: timedPages,
+        minutes: timedMinutes,
+      },
+      pace: weeklyPace(pagesByDay),
+      time_of_day: timeOfDay,
       longest_book: extreme(withPages[0]),
       shortest_book: extreme(withPages[withPages.length - 1]),
+      fastest_read: timed[0] ? { ...book(timed[0].r), days: timed[0].days } : null,
+      slowest_read: timed.length > 0 ? { ...book(timed[timed.length - 1]!.r), days: timed[timed.length - 1]!.days } : null,
+      highest_rated: highest ? { ...book(highest), rating: Number(highest.rating) } : null,
+      lowest_rated: lowest ? { ...book(lowest), rating: Number(lowest.rating) } : null,
+      oldest_publication: withYear[0] ? { ...book(withYear[0]), year: withYear[0].publish_year! } : null,
+      most_reread: reread ? { ...book(reread.r), count: reread.count } : null,
       most_read_author: mostReadAuthor,
       dnf_count: dnfCount,
-      dnf_rate: booksCount + dnfCount > 0 ? Math.round((dnfCount / (booksCount + dnfCount)) * 100) / 100 : 0,
-      current_streak: currentStreak,
-      longest_streak: longestStreak,
+      dnf_rate: booksCount + dnfCount > 0 ? round(dnfCount / (booksCount + dnfCount), 2) : 0,
+      current_streak: streaks.currentStreak,
+      longest_streak: streaks.longestStreak,
+      current_streak_range: streaks.currentRange,
+      longest_streak_range: streaks.longestRange,
       // §17.4: what the figures above leave out, so the client can say so.
       // Undated finishes (every visible one) never reach a month or a year;
       // books without a page count add nothing to pages or the extremes.
@@ -933,7 +1091,88 @@ export class ReadingService {
         undated: rows.filter((r) => r.status === 'finished' && r.finished_at === null).length,
         missing_page_count: finished.filter((r) => r.page_count === null).length,
       },
+      // ST-03: every figure that needs data a book or session may lack, as
+      // "based on N of M". Counts per finished read in scope unless named.
+      coverage: {
+        pages: cover(withPages.length, booksCount),
+        months: cover(dated.length, booksCount),
+        ratings: cover(rated.length, booksCount),
+        vs_crowd: cover(compared.length, rated.length),
+        formats: cover(booksCount - formatBreakdown.unknown, booksCount),
+        authors: cover(finished.filter((r) => r.author_name !== null).length, booksCount),
+        genres: cover(finished.filter((r) => r.genre !== null).length, booksCount),
+        decades: cover(withYear.length, booksCount),
+        languages: cover(finished.filter((r) => r.language !== null).length, booksCount),
+        velocity: cover(timed.length, booksCount),
+        audio: cover(audiobooks.filter((r) => r.has_audio === true).length, audiobooks.length),
+        // Sessions (progress events in the window), not books.
+        pace: cover(paged, sessions),
+        speed: cover(timedSessions, sessions),
+      },
     };
+  }
+
+  /**
+   * ST-05, PRD §8.6 [LOCKED]: the reading goal for a year and the progress
+   * towards it, as THIS viewer may count it (§17.5): the owner's finished
+   * books include private reads, anyone else's only the reads they may see,
+   * like the stats. A goal is account-level, visible exactly where the
+   * stats are (§16.3). Shown only as the profile ring: nothing here says
+   * "behind", and nothing else reads it.
+   */
+  async getGoal(viewer: string | null, userId: string, yearParam?: string, tzParam?: string): Promise<GoalResponse> {
+    const tz = tzParam ?? 'UTC';
+    if (!isTimeZone(tz)) {
+      throw ApiError.unprocessable('invalid_timezone', 'Unknown time zone. Send an IANA name such as Europe/London.', 'tz');
+    }
+    const year = yearParam === undefined ? Number(localDate(tz).slice(0, 4)) : parseGoalYear(yearParam);
+    const rel = await loadRelationship(this.db, viewer, userId);
+    if (!canViewWith(viewer, userId, rel)) throw ApiError.notFound('User not found.');
+    const [goal] = await this.db.select().from(goals).where(and(eq(goals.userId, userId), eq(goals.year, year))).limit(1);
+    if (!goal) return { year, goal: null };
+    const levelList = sql.join(visibleLevels(viewer, userId, rel).map((l) => sql`${l}`), sql`, `);
+    // Dated finishes in the calendar year only, as the stats' year count
+    // (an undated import belongs to no year, §17.4); pages by the D-08-3 rule.
+    const [p] = await this.db.execute<{ books: number; pages: number; with_pages: number }>(sql`
+      SELECT count(*)::int AS books,
+             COALESCE(sum(pc), 0)::int AS pages,
+             count(pc)::int AS with_pages
+        FROM reads r, LATERAL (SELECT flyleaf_page_count(r.edition_id, r.work_id) AS pc) x
+       WHERE r.user_id = ${userId} AND r.visibility IN (${levelList}) AND r.status = 'finished'
+         AND r.finished_at >= ${`${year}-01-01`}::date AND r.finished_at < ${`${year + 1}-01-01`}::date
+    `);
+    const books = p?.books ?? 0;
+    const pages = p?.pages ?? 0;
+    return {
+      year,
+      goal: {
+        target_books: goal.targetBooks,
+        target_pages: goal.targetPages,
+        books_count: books,
+        pages_count: pages,
+        books_reached: books >= goal.targetBooks,
+        pages_reached: goal.targetPages === null ? null : pages >= goal.targetPages,
+        // ST-03: a book without a page count adds no pages, and says so.
+        pages_coverage: { based_on: p?.with_pages ?? 0, of: books },
+      },
+    };
+  }
+
+  /** Set or change the viewer's goal for a year; downward and any time (§8.6). */
+  async setGoal(viewer: string, year: number, targetBooks: number, targetPages: number | null, tz?: string): Promise<GoalResponse> {
+    await this.db.execute(sql`
+      INSERT INTO goals (user_id, year, target_books, target_pages)
+      VALUES (${viewer}, ${year}, ${targetBooks}, ${targetPages})
+      ON CONFLICT (user_id, year) DO UPDATE
+        SET target_books = EXCLUDED.target_books, target_pages = EXCLUDED.target_pages, updated_at = now()
+    `);
+    return this.getGoal(viewer, viewer, String(year), tz);
+  }
+
+  /** Remove the viewer's goal for a year. Idempotent: no goal is the same answer. */
+  async deleteGoal(viewer: string, year: number): Promise<{ year: number; goal: null }> {
+    await this.db.delete(goals).where(and(eq(goals.userId, viewer), eq(goals.year, year)));
+    return { year, goal: null };
   }
 }
 
@@ -959,37 +1198,159 @@ type StatsRow = {
   id: string;
   work_id: string;
   status: 'finished' | 'dnf';
+  started_at: string | null;
   finished_at: string | null;
   abandoned_at: string | null;
   rating: string | null;
   format: 'print' | 'ebook' | 'audiobook' | 'unknown';
   page_count: number | null;
   title: string;
+  publish_year: number | null;
+  language: string | null;
+  genre: string | null;
   cover_id: number | null;
-  author_name: string;
+  author_name: string | null;
+  others_avg: number | null;
+  has_audio: boolean | null;
 };
 
-type ExtremeBook = { work_id: string; title: string; author_name: string; page_count: number | null; cover_id: number | null };
+/** One (local day, local hour) of progress events. */
+type EventBucket = {
+  d: string;
+  h: number;
+  sessions: number;
+  paged: number;
+  pages: number;
+  timed: number;
+  timed_pages: number;
+  timed_minutes: number;
+};
+
+type ExtremeBook = { work_id: string; title: string; author_name: string | null; page_count: number | null; cover_id: number | null };
+type Coverage = { based_on: number; of: number };
+type DateRange = { start: string; end: string };
 
 export type ReadingStats = {
   year: string;
   books_count: number;
   distinct_works_count: number;
+  books_in_progress: number;
   pages_count: number;
   audio_hours: number;
   avg_rating: number | null;
+  vs_crowd: number | null;
   rating_distribution: Record<string, number>;
   format_breakdown: { print: number; ebook: number; audiobook: number; unknown: number };
   monthly_pace: Array<{ month: number; books: number; pages: number }>;
+  genres: { top: Array<{ name: string; count: number }>; other: number };
+  decades: Array<{ decade: number; count: number }>;
+  languages: Array<{ language: string; count: number }>;
+  velocity: { median_days: number | null; by_month: Array<{ month: number; median_days: number | null }> };
+  speed: { pages_per_hour: number | null; pages: number; minutes: number };
+  pace: Array<{ week_start: string; pages: number; pages_per_day: number }>;
+  time_of_day: number[][];
   longest_book: ExtremeBook | null;
   shortest_book: ExtremeBook | null;
+  fastest_read: (ExtremeBook & { days: number }) | null;
+  slowest_read: (ExtremeBook & { days: number }) | null;
+  highest_rated: (ExtremeBook & { rating: number }) | null;
+  lowest_rated: (ExtremeBook & { rating: number }) | null;
+  oldest_publication: (ExtremeBook & { year: number }) | null;
+  most_reread: (ExtremeBook & { count: number }) | null;
   most_read_author: { name: string; count: number } | null;
   dnf_count: number;
   dnf_rate: number;
   current_streak: number;
   longest_streak: number;
+  current_streak_range: DateRange | null;
+  longest_streak_range: DateRange | null;
   excluded: { undated: number; missing_page_count: number };
+  coverage: Record<
+    'pages' | 'months' | 'ratings' | 'vs_crowd' | 'formats' | 'authors' | 'genres' | 'decades' | 'languages' | 'velocity' | 'audio' | 'pace' | 'speed',
+    Coverage
+  >;
 };
+
+function round(n: number, places: number): number {
+  const f = 10 ** places;
+  return Math.round(n * f) / f;
+}
+
+/** Whole days from a to b (YYYY-MM-DD). */
+function daysBetween(a: string, b: string): number {
+  return Math.round((Date.parse(`${b}T00:00:00Z`) - Date.parse(`${a}T00:00:00Z`)) / 86_400_000);
+}
+
+/** The median, null for none; the mean of the middle two for an even count. */
+export function median(values: number[]): number | null {
+  if (values.length === 0) return null;
+  const s = [...values].sort((a, b) => a - b);
+  const mid = Math.floor(s.length / 2);
+  return s.length % 2 === 1 ? s[mid]! : round((s[mid - 1]! + s[mid]!) / 2, 1);
+}
+
+/** Counts of the non-null values, most first, then by name. */
+function tally(values: Array<string | null>): Array<{ name: string; count: number }> {
+  const m = new Map<string, number>();
+  for (const v of values) if (v !== null) m.set(v, (m.get(v) ?? 0) + 1);
+  return [...m.entries()].map(([name, count]) => ({ name, count })).sort((a, b) => b.count - a.count || a.name.localeCompare(b.name));
+}
+
+/** Monday = 0 … Sunday = 6, for a YYYY-MM-DD date. */
+function isoWeekday(d: string): number {
+  return (new Date(`${d}T00:00:00Z`).getUTCDay() + 6) % 7;
+}
+
+/**
+ * §17.2 "reading pace over time, 7-day rolling average", sampled once a week:
+ * each Monday-to-Sunday week from the first week with pages to the last, its
+ * pages and pages per day. Weeks between with nothing logged are 0, which is
+ * what they were; nothing is drawn before the first page or after the last.
+ */
+export function weeklyPace(pagesByDay: Map<string, number>): Array<{ week_start: string; pages: number; pages_per_day: number }> {
+  if (pagesByDay.size === 0) return [];
+  const weekOf = (d: string) => {
+    const t = Date.parse(`${d}T00:00:00Z`) - isoWeekday(d) * 86_400_000;
+    return new Date(t).toISOString().slice(0, 10);
+  };
+  const weeks = new Map<string, number>();
+  for (const [d, pages] of pagesByDay) weeks.set(weekOf(d), (weeks.get(weekOf(d)) ?? 0) + pages);
+  const sorted = [...weeks.keys()].sort();
+  const out: Array<{ week_start: string; pages: number; pages_per_day: number }> = [];
+  for (let t = Date.parse(`${sorted[0]}T00:00:00Z`); t <= Date.parse(`${sorted[sorted.length - 1]}T00:00:00Z`); t += 7 * 86_400_000) {
+    const w = new Date(t).toISOString().slice(0, 10);
+    const pages = weeks.get(w) ?? 0;
+    out.push({ week_start: w, pages, pages_per_day: round(pages / 7, 1) });
+  }
+  return out;
+}
+
+export type GoalResponse = {
+  year: number;
+  goal: {
+    target_books: number;
+    target_pages: number | null;
+    books_count: number;
+    pages_count: number;
+    books_reached: boolean;
+    pages_reached: boolean | null;
+    pages_coverage: { based_on: number; of: number };
+  } | null;
+};
+
+/** A goal's year: YYYY, 1900–9999 (0046's check). */
+function parseGoalYear(raw: string): number {
+  if (!/^\d{4}$/.test(raw) || Number(raw) < 1900) {
+    throw ApiError.unprocessable('invalid_year', 'Year is YYYY, 1900 or later.', 'year');
+  }
+  return Number(raw);
+}
+
+const goalBody = z.object({
+  year: z.number().int().min(1900).max(9999),
+  target_books: z.number().int().min(1, 'A goal is at least 1 book.').max(10_000, 'A goal is at most 10,000 books.'),
+  target_pages: z.number().int().min(1, 'A page goal is at least 1 page.').max(10_000_000, 'A page goal is at most 10,000,000 pages.').nullish(),
+});
 
 /**
  * An IANA zone Intl knows. The character check keeps anything odd away from
@@ -1010,64 +1371,58 @@ export function localDate(tz: string, at = new Date()): string {
   return new Intl.DateTimeFormat('en-CA', { timeZone: tz, year: 'numeric', month: '2-digit', day: '2-digit' }).format(at);
 }
 
+/** PRD §8.7: up to two days without reading do not end a streak. */
+export const STREAK_GRACE_DAYS = 2;
+
 /**
- * Current and longest run of consecutive active dates (YYYY-MM-DD, already
- * in the user's zone). A run is current if it reaches today or yesterday.
- * No grace period yet: PRD §8.7's two days are ST-06.
+ * Current and longest streak (ST-06, PRD §8.7) from the active dates
+ * (YYYY-MM-DD, already in the user's zone).
+ *
+ * A streak is a run of active days in which no gap has more than
+ * STREAK_GRACE_DAYS days without reading. Its length is the run's calendar
+ * span, first active day to last, both included, so it matches the date range
+ * shown beside it ("47 days, 12 Mar – 27 Apr"). It is current while today
+ * is still within the grace of its last active day; once broken it is only
+ * ever shown as the longest, never as a loss.
  */
 export function computeStreaks(
   dateStrings: string[],
   today = new Date().toISOString().slice(0, 10),
-): { currentStreak: number; longestStreak: number } {
-  if (dateStrings.length === 0) {
-    return { currentStreak: 0, longestStreak: 0 };
-  }
+): {
+  currentStreak: number;
+  longestStreak: number;
+  currentRange: { start: string; end: string } | null;
+  longestRange: { start: string; end: string } | null;
+} {
+  const dates = Array.from(new Set(dateStrings)).sort();
+  if (dates.length === 0) return { currentStreak: 0, longestStreak: 0, currentRange: null, longestRange: null };
 
-  const uniqueDates = Array.from(new Set(dateStrings)).sort().reverse();
-  const dateObjs = uniqueDates.map((d) => new Date(`${d}T00:00:00Z`));
-
-  const todayStr = today;
-  const yesterdayStr = new Date(Date.parse(`${today}T00:00:00Z`) - 86400000).toISOString().slice(0, 10);
-
-  let currentStreak = 0;
-  if (uniqueDates.includes(todayStr) || uniqueDates.includes(yesterdayStr)) {
-    let expected = uniqueDates.includes(todayStr)
-      ? new Date(`${todayStr}T00:00:00Z`)
-      : new Date(`${yesterdayStr}T00:00:00Z`);
-
-    for (const d of dateObjs) {
-      const diffDays = Math.round((expected.getTime() - d.getTime()) / 86400000);
-      if (diffDays === 0) {
-        currentStreak++;
-        expected = new Date(expected.getTime() - 86400000);
-      } else if (diffDays > 0) {
-        break;
-      }
+  const day = (d: string) => Math.round(Date.parse(`${d}T00:00:00Z`) / 86_400_000);
+  const runs: Array<{ start: string; end: string }> = [];
+  let start = dates[0]!;
+  let prev = dates[0]!;
+  for (const d of dates.slice(1)) {
+    if (day(d) - day(prev) - 1 > STREAK_GRACE_DAYS) {
+      runs.push({ start, end: prev });
+      start = d;
     }
+    prev = d;
   }
+  runs.push({ start, end: prev });
 
-  let longestStreak = 0;
-  let currentRun = 0;
-  let prevDate: Date | null = null;
+  const length = (r: { start: string; end: string }) => day(r.end) - day(r.start) + 1;
+  // The earliest of equal runs, so the range does not move between calls.
+  let longest = runs[0]!;
+  for (const r of runs) if (length(r) > length(longest)) longest = r;
+  const last = runs[runs.length - 1]!;
+  const current = day(today) - day(last.end) - 1 <= STREAK_GRACE_DAYS ? last : null;
 
-  for (const d of dateObjs) {
-    if (!prevDate) {
-      currentRun = 1;
-    } else {
-      const diff = Math.round((prevDate.getTime() - d.getTime()) / 86400000);
-      if (diff === 1) {
-        currentRun++;
-      } else {
-        currentRun = 1;
-      }
-    }
-    if (currentRun > longestStreak) {
-      longestStreak = currentRun;
-    }
-    prevDate = d;
-  }
-
-  return { currentStreak, longestStreak };
+  return {
+    currentStreak: current ? length(current) : 0,
+    longestStreak: length(longest),
+    currentRange: current,
+    longestRange: longest,
+  };
 }
 
 export function readingRoutes(service: ReadingService) {
@@ -1114,6 +1469,87 @@ export function readingRoutes(service: ReadingService) {
       },
       async (req) => {
         return service.getStats(req.viewer, req.params.id, req.query.year, req.query.tz);
+      },
+    );
+
+    // ST-05 goals (PRD §8.6 [LOCKED]): the ring on the profile, nowhere else.
+    app.get<{ Querystring: { year?: string; tz?: string } }>(
+      '/me/goal',
+      {
+        schema: {
+          tags: ['Reading'],
+          summary: 'Get my reading goal',
+          description: 'The viewer\'s goal for a year (default: this year in tz) and progress, private reads included (PRD §8.6, §17.5). goal is null when none is set. For the profile ring only.',
+          security: [{ BearerAuth: [] }],
+          querystring: goalQuerySchema,
+          response: { 200: goalResponseSchema, 401: errorResponseSchema, 422: errorResponseSchema },
+        },
+      },
+      async (req) => {
+        const viewer = requireViewer(req);
+        return service.getGoal(viewer, viewer, req.query.year, req.query.tz);
+      },
+    );
+
+    app.get<{ Params: { id: string }; Querystring: { year?: string; tz?: string } }>(
+      '/users/:id/goal',
+      {
+        schema: {
+          tags: ['Reading'],
+          summary: 'Get a user\'s reading goal',
+          description: 'A user\'s goal and progress as this viewer may count it: only reads the viewer may see (PRD §17.5). Visible exactly where their stats are (§16.3); otherwise the random-id 404.',
+          params: idParamSchema,
+          querystring: goalQuerySchema,
+          response: { 200: goalResponseSchema, 404: errorResponseSchema, 422: errorResponseSchema },
+        },
+      },
+      async (req) => service.getGoal(req.viewer, req.params.id, req.query.year, req.query.tz),
+    );
+
+    app.put<{ Querystring: { tz?: string } }>(
+      '/me/goal',
+      {
+        schema: {
+          tags: ['Reading'],
+          summary: 'Set my reading goal',
+          description: 'Sets or changes the goal for a year: a book target (1–10,000) and an optional page target (1–10,000,000). Any time, downward included, no friction (PRD §8.6).',
+          security: [{ BearerAuth: [] }],
+          querystring: goalQuerySchema,
+          body: goalBodySchema,
+          response: { 200: goalResponseSchema, 401: errorResponseSchema, 422: errorResponseSchema },
+        },
+      },
+      async (req) => {
+        const viewer = requireViewer(req);
+        const parsed = goalBody.safeParse(req.body);
+        if (!parsed.success) {
+          const issue = parsed.error.issues[0];
+          throw ApiError.unprocessable('invalid_goal', issue?.message ?? 'Check that.', String(issue?.path[0] ?? ''));
+        }
+        const { year, target_books, target_pages } = parsed.data;
+        if (req.query.tz !== undefined && !isTimeZone(req.query.tz)) {
+          throw ApiError.unprocessable('invalid_timezone', 'Unknown time zone. Send an IANA name such as Europe/London.', 'tz');
+        }
+        return service.setGoal(viewer, year, target_books, target_pages ?? null, req.query.tz);
+      },
+    );
+
+    app.delete<{ Querystring: { year?: string } }>(
+      '/me/goal',
+      {
+        schema: {
+          tags: ['Reading'],
+          summary: 'Remove my reading goal',
+          description: 'Removes the goal for ?year=YYYY. Idempotent.',
+          security: [{ BearerAuth: [] }],
+          querystring: goalQuerySchema,
+          response: { 200: goalResponseSchema, 401: errorResponseSchema, 422: errorResponseSchema },
+        },
+      },
+      async (req) => {
+        const viewer = requireViewer(req);
+        if (req.query.year === undefined) throw ApiError.unprocessable('invalid_year', 'Say which year: ?year=YYYY.', 'year');
+        return service.deleteGoal(viewer, parseGoalYear(req.query.year));
       },
     );
 
