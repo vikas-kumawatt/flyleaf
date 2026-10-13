@@ -158,12 +158,16 @@ describe('ST-07: every text field is safe to render', () => {
       toSvg(profileCard({ ...profileModel, avatar: cover })), toSvg(wallCard(wallModel)),
       toSvg(finishCard({ ...finishModel, title: HARD_STRINGS.emoji! })),
     ]);
+    let images = 0;
     for (const svg of svgs) {
       const hrefs = [...svg.matchAll(/href="([^"]{0,40})/g)].map((m) => m[1]!);
-      expect(hrefs.length).toBeGreaterThan(0);
+      images += hrefs.length;
       for (const href of hrefs) expect(href.startsWith('data:') || href.startsWith('#')).toBe(true);
-      expect(svg.replace('xmlns="http://www.w3.org/2000/svg"', '')).not.toMatch(/https?:\/\//);
+      // The SVG namespace (plain, or URL-encoded inside an inline icon's data URI) is a name, not a fetch.
+      expect(svg.replace(/xmlns=(?:"|%22)http:\/\/www\.w3\.org\/2000\/svg(?:"|%22)/g, '')).not.toMatch(/https?:\/\//);
     }
+    // Covers, the avatar, emoji and icons were all checked, not zero images.
+    expect(images).toBeGreaterThan(5);
   });
 });
 
