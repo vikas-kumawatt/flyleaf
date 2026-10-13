@@ -1254,7 +1254,7 @@
 - [ ] **ST-09** Year in Review: story cards, low-volume variant, Dec unlock — 2.5d
 - [ ] ST-10 Milestone moments, in-app only — 0.5d
 
-> **Phase 5 part B built, 13 Oct 2026 (cloud sandbox): ST-07, ST-08, with the Phase 5 A owner decisions recorded** (branch `feat/st-b-share-cards`). Counts and the CI result: see the line below, written after `node scripts/ci.mjs`.
+> **Phase 5 part B built, 13 Oct 2026 (cloud sandbox): ST-07, ST-08, with the Phase 5 A owner decisions recorded** (branch `feat/st-b-share-cards`). API **2,042** tests passing across 97 files, 10 skipped as before (1,984 before: +58 — `share-cards-render` 30, `share-cards` 18, and 10 in `authorization-matrix` (5 card routes) and `rate-limits` (the cards test and the per-limit rows of the two new limits)). Mobile unchanged (no app code). 10 one-at-a-time mutations each turned a test red (listed under ST-07 and ST-08). OpenAPI regenerated (5 paths), drift 0. `FLYLEAF_TEST_WORKERS=2 node scripts/ci.mjs` green in 1,376 s, all 9 steps (sandbox Postgres 18.4); GitHub Actions green on PR #13 in 15.6 min, with the goldens made in the sandbox matching on GitHub's runner.
 >
 > **Apply on the server:** no migration. Deploy needs the new dependencies installed on the target (`npm ci` picks the resvg binary for its CPU) and `apps/api/assets/fonts` shipped with `dist/` (the renderer reads `../../assets/fonts` relative to `dist/cards/`). Run `npm run bench:cards` there and compare with the sandbox table in ST-07.
 >
