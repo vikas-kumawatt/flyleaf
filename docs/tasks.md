@@ -1243,6 +1243,31 @@
 - [ ] **ST-09** Year in Review: story cards, low-volume variant, Dec unlock — 2.5d
 - [ ] ST-10 Milestone moments, in-app only — 0.5d
 
+> **Phase 5 part A built, 13 Oct 2026 (cloud sandbox): ST-01, ST-02, ST-03, ST-05, ST-06, with the SO-5x owner decisions** (branch `feat/st-a-stats`). API **1,984** tests passing across 95 files, 10 skipped as before (1,945 before: +39 — `stats-phase5` 34, authorization matrix +2 for `GET /v1/users/:id/goal` and `by-username`, `link-pages` +2, `rate-limits` +1; the "cannot follow" matrix test is replaced by "can follow"). Mobile **279** (249 before: +30 — `stats-phase5` 25, `app-links` 4, `follow-suggestions` +1). 16 one-at-a-time mutations of the API rules and 4 of the app helpers each turned a test red. OpenAPI regenerated (new: `GET /users/by-username/{username}`, `GET/PUT/DELETE /me/goal`, `GET /users/{id}/goal`; the stats response extended), drift 0; api-client `getUserByUsername`, `getMyGoal`, `getUserGoal`, `setMyGoal`, `deleteMyGoal`, `ReadingStats` extended. No new dependency (the ring is plain Views). `FLYLEAF_TEST_WORKERS=2 node scripts/ci.mjs` green in 1,571 s, all 9 steps.
+>
+> **Apply on the laptop:** migration `0046_goals` on `flyleaf_dev` and `flyleaf` (`npm run migrate`): a new table, nothing rewritten. Applied to PGlite and the sandbox Postgres 18.4 only (twice, idempotent). The sandbox Postgres came from the `@embedded-postgres/linux-x64` 18.4 binaries because the proxy blocks apt.postgresql.org.
+>
+> **Behaviour changes** (client-observable): `POST /v1/users/:id/follow` no longer answers 403 `email_unverified`. The stats response gains the fields above. `current_streak`/`longest_streak` change value: there is now a two-day grace, and the length is the span. Extremes give `author_name: null` instead of "Unknown Author", and `most_read_author` leaves authorless books out. The AASA lists three more paths. In the app: no verify prompt before a follow; the stats screen's streak card reads "Reading streak" / "Longest streak" (the old "Daily Streak 0 (best 12d)" is gone), and coverage lines appear under ratings, formats, author and listening; the profile strip gets the streak and the goal ring, and profile stats now use the device zone.
+>
+> **Decided in the build (reversible, say if you disagree):**
+> - **Streak length is the calendar span**, grace days included. It matches the date range shown beside it. The alternative is to count only days with activity.
+> - **A streak is current while today is at most 3 days after its last active day.**
+> - **Days to finish include the first and last day**, so a same-day finish is 1 day.
+> - **Genre donut:** each book counts once, under its highest-weight genre.
+> - **"You vs the crowd"** compares each rated finish with that book's average excluding your own counted rating, and needs at least one other rating. The separate "delta from the platform mean" is not built.
+> - **Speed** is total pages ÷ total minutes, over sessions that have both minutes and a page rise. Percent and audio sessions are not converted.
+> - **Pace** is sampled weekly.
+> - **Language** is the chosen edition's, else the work's original. `und` counts as no language.
+> - **Goal visibility and progress:** a goal is visible wherever the stats are (§16.3), and its progress is counted per viewer (§17.5).
+> - **Goal bounds:** 1–10,000 books, 1–10,000,000 pages, years 1900–9999. Digit strings in the body are coerced, like the other routes.
+> - **Empty ring:** your own profile shows a "Set goal" ring when no goal is set. Other profiles show no ring until one is set.
+> - **No goal ring on the stats screen.** §8.6 [LOCKED] wins over §6.40's component list.
+> - **Comments stay gated behind email verification.** The owner decision named follows only.
+>
+> **DECISION NEEDED:** (1) **Streak length:** keep the span (built) or count only days with activity? (2) **Goal visibility:** goals currently follow stats visibility. Should goals be owner-only, or have their own toggle? (3) **"Set goal" placeholder** on your own profile: keep it, or show nothing until a goal is set from Settings? (4) **Reaching a goal:** should it write the existing `goal_reached` activity to followers' feeds? §8.6 says "a single celebratory in-app moment and a share card. Nothing more", so the recommendation is no feed card; the moment and the card are ST-10/ST-08. (5) **§17.5 per-tier stats cache:** none is built (the measured cost doesn't need one). Build it now, or when the laptop numbers on `flyleaf_dev` say so?
+>
+> **Phone checks** (no native rebuild needed except item 5): (1) With an unverified account, follow from onboarding suggestions, a profile and a follower list: each should follow with no verify prompt. Writing a review should still prompt. (2) Profile strip: log progress today and see "1 day · Reading streak". Tap the ring, set 24, and see "n/24". Lower the goal, then remove it. A private finish should move your ring but not the ring a follower sees on your profile. (3) Check the ring at 0, under half, over half and full: the clipped half-circle drawing has no screenshot test. (4) Stats screen: an unrated book shows "Based on X of your Y books — Z are unrated." A streak broken for 3+ days shows "Longest streak". (5) **After the next native build only:** https://flyleaf.app/@name, /book/<id> and /u/name/shelves/<slug> should open in the app.
+
 ---
 
 ## Phase 6 — Launch readiness · `LA` · 15d
