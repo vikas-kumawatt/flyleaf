@@ -1,0 +1,27 @@
+# The catalog: tables whose rows come from Open Library (CC0) and the ingest
+# pipeline, not from people using the app. Read by:
+#   deploy/catalog/dump-catalog.sh    which tables keep their DATA in the laptop -> server transfer
+#   deploy/backup/backup.sh           which tables the 6-hourly backup leaves out (and captures as a delta)
+#   apps/api/src/test/deploy-kit.test.ts   every name here is a real table, and none holds user data
+#
+# Everything NOT listed is user data or derived from user data, and is never
+# copied off the laptop. A new table therefore defaults to "user data": the
+# transfer leaves its rows behind and the backup includes them, which is the
+# safe side of both mistakes.
+#
+# One table name per line. A second word `optional` means the transfer
+# includes it only when asked (Export-Catalog.ps1 -IncludeRawPayloads).
+
+works
+editions
+authors
+work_authors
+pending_work_authors
+series
+series_entries
+subjects
+work_subjects
+external_ids
+field_provenance
+search_suggestions
+raw_payloads optional

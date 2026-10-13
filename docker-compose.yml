@@ -85,8 +85,14 @@ services:
 
   # Present from day one so the storage interface is real, not imagined.
   # Phase -1 does not use it. Console at http://localhost:9001 (flyleaf/flyleaf123).
+  #
+  # pgsty/minio, pinned: MinIO stopped publishing images and minio/minio no
+  # longer exists on Docker Hub, so `minio/minio:latest` cannot be pulled on a
+  # fresh machine. This is Pigsty's build of the same open-source MinIO (mc
+  # included, which the healthcheck uses), and the image production runs
+  # (deploy/env.production.example). The storage contract suite passes on it.
   minio:
-    image: minio/minio:latest
+    image: pgsty/minio:RELEASE.2026-08-04T00-00-00Z
     container_name: flyleaf-minio
     command: server /data --console-address ":9001"
     environment:

@@ -1,0 +1,15 @@
+# The monthly restore drill (deploy/backup/restore-drill.sh): fetch the newest
+# backup FROM GOOGLE DRIVE, decrypt it, restore it into a scratch database,
+# compare row counts and checksums, drop the scratch database. Mails the
+# result either way; a failure is also an OnFailure page.
+[Unit]
+Description=Flyleaf restore drill (newest off-site backup into a scratch database)
+After=docker.service network-online.target
+Wants=network-online.target
+OnFailure=flyleaf-notify@%n.service
+
+[Service]
+Type=oneshot
+ExecStart=/opt/flyleaf/deploy/backup/restore-drill.sh --mail
+Nice=10
+TimeoutStartSec=2h

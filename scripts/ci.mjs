@@ -81,6 +81,16 @@ const STEPS = [
     // that no snapshot check would have caught.
     needsDatabase: true,
   },
+  {
+    // Deploy kit. Production runs dist/, not src/ through tsx: this starts
+    // the compiled API and worker with NODE_ENV=production, as the systemd
+    // units do, and checks that each refuses a development adapter. After
+    // the migrations because /readyz needs the schema.
+    name: 'api · production start (compiled)',
+    cwd: 'apps/api',
+    args: ['run', 'start:check'],
+    needsDatabase: true,
+  },
 ];
 
 const run = (step) =>

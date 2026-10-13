@@ -22,6 +22,7 @@ They live in `docs/`, in this repo, so a decision and the code implementing it l
 | [`docs/phases.md`](docs/phases.md) | Phase plan and the exit criteria for each |
 | [`docs/tasks.md`](docs/tasks.md) | Task breakdown with stable IDs, and the running record of what each one actually cost |
 | [`docs/surprises.md`](docs/surprises.md) | What was not true in the plan. Read this one first |
+| [`docs/deploy.md`](docs/deploy.md) | Deploying to one small server (Azure VM): the runbook, backups, restore drill, disaster restore. The kit is in `deploy/` |
 
 > **Phase 0, Phase 1, Phase 2, and Phase 3 are done.** The foundation (auth, catalog, search, dedupe, admin console, typed API contract, CI), the full native mobile experience (offline-first SQLite, typography and design system, barcode scanner, reading lifecycle, reviews, diary, wall, stats, and telemetry budgets), curated shelves & lists (`SH-01` through `SH-10`), and complete library import & export (`IM-01` through `IM-12`) are complete and verified with 100% round-trip fidelity. Currently building **Phase 4 — Social** (`SO-01` through `SO-06`, `SO-10` through `SO-15`, and `SO-20` through `SO-23` completed).
 
@@ -310,6 +311,8 @@ Background jobs run in a second process from the **same codebase** — one artif
 cd apps\api
 npm run worker
 ```
+
+In production both processes run compiled (`npm run build`, then `npm start` and `npm run start:worker`, i.e. `node dist/server.js` and `node dist/worker.js`; migrations with `npm run migrate:prod`). `npm run start:check` starts both that way with `NODE_ENV=production` and is part of `scripts/ci.mjs`. On the server, systemd runs them: [`docs/deploy.md`](docs/deploy.md).
 
 To prove the queue end to end, from anywhere in the repo:
 
