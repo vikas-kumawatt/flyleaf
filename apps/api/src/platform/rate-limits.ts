@@ -176,6 +176,19 @@ export const RATE_LIMITS = {
     source: 'A-07-030: public availability check, anonymous tier of PRD §24.4 (Search numbers: 20/min per IP)',
     message: SLOW_DOWN,
   },
+  // ---- Share cards (ST-07). No §24.4 row: a render costs ~0.1 s of CPU on the
+  // server (findings in tasks.md, sandbox), so a card is held to less than a
+  // search. Cache hits count too: the limit is on asking, not on rendering.
+  'cards:account': {
+    limit: 30, windowSeconds: MINUTE, store: 'fast',
+    source: 'PRD §24.4 has no row for share cards; ST-07. 30 cards/min per account (a share preview fetches 2–3 templates; a stats screen one per card). Decision recorded in tasks.md (ST-07)',
+    message: 'You are making cards too quickly. Try again in a minute.',
+  },
+  'cards:ip': {
+    limit: 10, windowSeconds: MINUTE, store: 'fast',
+    source: 'PRD §24.4 has no row for share cards; ST-07. 10 cards/min per IP for guests. Decision recorded in tasks.md (ST-07)',
+    message: 'You are making cards too quickly. Try again in a minute.',
+  },
   // ---- Telemetry (A-10-029). No §24.4 row: batches of ≤ 100 events.
   'events:account': {
     limit: 120, windowSeconds: HOUR, store: 'fast',
@@ -232,6 +245,7 @@ export const LIMIT_GROUPS = {
   writes: { account: ['writes'] as LimitName[], alsoIp: [] as LimitName[], ip: [] as LimitName[] },
   progress: { account: ['progress'] as LimitName[], alsoIp: [] as LimitName[], ip: [] as LimitName[] },
   events: { account: ['events:account'] as LimitName[], alsoIp: [] as LimitName[], ip: ['events:ip'] as LimitName[] },
+  cards: { account: ['cards:account'] as LimitName[], alsoIp: [] as LimitName[], ip: ['cards:ip'] as LimitName[] },
   'username-check': { account: ['search:account'] as LimitName[], alsoIp: [] as LimitName[], ip: ['username-check:ip'] as LimitName[] },
 } as const;
 

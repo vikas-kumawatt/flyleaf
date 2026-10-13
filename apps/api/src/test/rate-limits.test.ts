@@ -174,6 +174,12 @@ describe('the policy', () => {
       expect(routeLimitGroups(m!, u!)).toEqual(['auth']);
     }
     expect(Object.keys(LIMIT_GROUPS)).toContain('auth');
+    // ST-07: every share-card route is in the cards tier.
+    for (const u of ['/v1/cards/finish/:id', '/v1/cards/review/:id', '/v1/cards/users/:id/stat/:stat', '/v1/cards/users/:id/profile', '/v1/cards/users/:id/wall']) {
+      expect(routeLimitGroups('GET', u)).toEqual(['cards']);
+    }
+    expect([RATE_LIMITS['cards:account'].limit, RATE_LIMITS['cards:account'].windowSeconds]).toEqual([30, 60]);
+    expect([RATE_LIMITS['cards:ip'].limit, RATE_LIMITS['cards:ip'].windowSeconds]).toEqual([10, 60]);
   });
 });
 
@@ -234,6 +240,24 @@ describe('over HTTP, every limit on', () => {
       expect(r.statusCode).toBe(200);
     }
     expect((await app.inject({ method: 'GET', url: '/v1/search?q=x', headers: u.auth, remoteAddress: '198.51.100.250' })).statusCode).toBe(429);
+  });
+
+  it('share cards (ST-07): 10 a minute per anonymous IP, 30 per account, through the shared limiter', async () => {
+    const ip = '203.0.113.77';
+    for (let i = 0; i < 10; i++) {
+      const r = await app.inject({ method: 'GET', url: `/v1/cards/finish/${randomUUID()}`, remoteAddress: ip });
+      expect(r.statusCode).toBe(404);
+    }
+    const refused = await app.inject({ method: 'GET', url: `/v1/cards/users/${randomUUID()}/wall`, remoteAddress: ip });
+    expect(refused.statusCode).toBe(429);
+    expect(refused.json().error.code).toBe('rate_limited');
+    expect(Number(refused.headers['retry-after'])).toBeGreaterThan(0);
+    const u = await makeUser(db, `cards_${Date.now()}`);
+    for (let i = 0; i < 30; i++) {
+      const r = await app.inject({ method: 'GET', url: `/v1/cards/review/${randomUUID()}`, headers: u.auth, remoteAddress: `198.51.100.${i}` });
+      expect(r.statusCode).toBe(404);
+    }
+    expect((await app.inject({ method: 'GET', url: `/v1/cards/users/${u.id}/profile`, headers: u.auth })).statusCode).toBe(429);
   });
 
   it('the Global tier: 200 an hour for one anonymous IP, across routes', async () => {

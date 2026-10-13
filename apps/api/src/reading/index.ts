@@ -773,12 +773,17 @@ export class ReadingService {
    *
    * `tz` is the IANA zone whose days count (§8.7: the user's local day);
    * absent, days are UTC. `year` is 'all' or YYYY, default this year in `tz`.
+   *
+   * `publicOnly` (ST-08 stat cards, §17.5 "the share card, being public,
+   * uses public-visible figures"): who may ask is unchanged, but only reads
+   * whose own visibility is public are counted, whoever asks.
    */
   async getStats(
     viewer: string | null,
     userId: string,
     yearParam?: string,
     tzParam?: string,
+    opts: { publicOnly?: boolean } = {},
   ): Promise<ReadingStats> {
     const tz = tzParam ?? 'UTC';
     if (!isTimeZone(tz)) {
@@ -793,7 +798,9 @@ export class ReadingService {
 
     const rel = await loadRelationship(this.db, viewer, userId);
     if (!canViewWith(viewer, userId, rel)) throw ApiError.notFound('User not found.');
-    const levelList = sql.join(visibleLevels(viewer, userId, rel).map((l) => sql`${l}`), sql`, `);
+    // Never empty: the account is visible, so its public reads are.
+    const levels = visibleLevels(viewer, userId, rel).filter((l) => !opts.publicOnly || l === 'public');
+    const levelList = sql.join(levels.map((l) => sql`${l}`), sql`, `);
 
     // Calendar dates, and the instants where the user's local year begins and ends.
     const ys = year === null ? null : `${year}-01-01`;

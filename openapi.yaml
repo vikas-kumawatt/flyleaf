@@ -17154,6 +17154,534 @@ paths:
                       - message
                 required:
                   - error
+  /cards/finish/{id}:
+    get:
+      summary: Finish card
+      tags:
+        - Share cards
+      description: "A share card for a finished read (PRD §6.45, AC-18): cover from
+        our storage, title, author, rating, heart, handle. Visible to whoever
+        may see the read (GET /reads/{id}); otherwise 404. 422 card_unavailable
+        for a read that is not finished."
+      parameters:
+        - schema:
+            type: string
+            format: uuid
+          in: path
+          name: id
+          required: true
+      responses:
+        "200":
+          description: The card, 1080 × 1920 PNG.
+          content:
+            image/png:
+              schema:
+                type: string
+                format: binary
+        "404":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      code:
+                        type: string
+                        description: Machine-readable error code
+                      message:
+                        type: string
+                        description: Human-readable error description
+                      field:
+                        type: string
+                        description: Invalid field name if applicable
+                    required:
+                      - code
+                      - message
+                required:
+                  - error
+        "422":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      code:
+                        type: string
+                        description: Machine-readable error code
+                      message:
+                        type: string
+                        description: Human-readable error description
+                      field:
+                        type: string
+                        description: Invalid field name if applicable
+                    required:
+                      - code
+                      - message
+                required:
+                  - error
+        "429":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      code:
+                        type: string
+                        description: Machine-readable error code
+                      message:
+                        type: string
+                        description: Human-readable error description
+                      field:
+                        type: string
+                        description: Invalid field name if applicable
+                    required:
+                      - code
+                      - message
+                required:
+                  - error
+  /cards/review/{id}:
+    get:
+      summary: Review quote card
+      tags:
+        - Share cards
+      description: A share card quoting a review, for its author only (PRD §41.4);
+        anyone else, signed in or not, gets 404. A review marked as containing
+        spoilers shows no text.
+      parameters:
+        - schema:
+            type: string
+            format: uuid
+          in: path
+          name: id
+          required: true
+      responses:
+        "200":
+          description: The card, 1080 × 1920 PNG.
+          content:
+            image/png:
+              schema:
+                type: string
+                format: binary
+        "404":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      code:
+                        type: string
+                        description: Machine-readable error code
+                      message:
+                        type: string
+                        description: Human-readable error description
+                      field:
+                        type: string
+                        description: Invalid field name if applicable
+                    required:
+                      - code
+                      - message
+                required:
+                  - error
+        "422":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      code:
+                        type: string
+                        description: Machine-readable error code
+                      message:
+                        type: string
+                        description: Human-readable error description
+                      field:
+                        type: string
+                        description: Invalid field name if applicable
+                    required:
+                      - code
+                      - message
+                required:
+                  - error
+        "429":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      code:
+                        type: string
+                        description: Machine-readable error code
+                      message:
+                        type: string
+                        description: Human-readable error description
+                      field:
+                        type: string
+                        description: Invalid field name if applicable
+                    required:
+                      - code
+                      - message
+                required:
+                  - error
+  /cards/users/{id}/stat/{stat}:
+    get:
+      summary: Stat card
+      tags:
+        - Share cards
+      description: "One statistic as a share card, from public reads only whoever asks
+        (PRD §17.5), with ST-03's coverage sentence when part of the books lack
+        the data. Visible where the stats are; otherwise 404. 422
+        nothing_to_share when the figure has nothing to stand on (§17.4: never a
+        made-up zero)."
+      parameters:
+        - schema:
+            type: string
+          in: query
+          name: year
+          required: false
+          description: 'YYYY or "all". Default: this year in tz.'
+        - schema:
+            type: string
+            maxLength: 64
+          in: query
+          name: tz
+          required: false
+          description: IANA zone. Default UTC.
+        - schema:
+            type: string
+            format: uuid
+          in: path
+          name: id
+          required: true
+        - schema:
+            type: string
+            enum:
+              - books
+              - pages
+              - rating
+              - author
+              - genres
+              - formats
+              - streak
+          in: path
+          name: stat
+          required: true
+      responses:
+        "200":
+          description: The card, 1080 × 1920 PNG.
+          content:
+            image/png:
+              schema:
+                type: string
+                format: binary
+        "404":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      code:
+                        type: string
+                        description: Machine-readable error code
+                      message:
+                        type: string
+                        description: Human-readable error description
+                      field:
+                        type: string
+                        description: Invalid field name if applicable
+                    required:
+                      - code
+                      - message
+                required:
+                  - error
+        "422":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      code:
+                        type: string
+                        description: Machine-readable error code
+                      message:
+                        type: string
+                        description: Human-readable error description
+                      field:
+                        type: string
+                        description: Invalid field name if applicable
+                    required:
+                      - code
+                      - message
+                required:
+                  - error
+        "429":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      code:
+                        type: string
+                        description: Machine-readable error code
+                      message:
+                        type: string
+                        description: Human-readable error description
+                      field:
+                        type: string
+                        description: Invalid field name if applicable
+                    required:
+                      - code
+                      - message
+                required:
+                  - error
+  /cards/users/{id}/profile:
+    get:
+      summary: Profile card
+      tags:
+        - Share cards
+      description: Avatar, name, handle, bio, four favourites and books read (public
+        reads only). Visible where the profile's favourites and stats are (PRD
+        §16.3); otherwise 404.
+      parameters:
+        - schema:
+            type: string
+            maxLength: 64
+          in: query
+          name: tz
+          required: false
+          description: IANA zone for "this year". Default UTC.
+        - schema:
+            type: string
+            format: uuid
+          in: path
+          name: id
+          required: true
+      responses:
+        "200":
+          description: The card, 1080 × 1920 PNG.
+          content:
+            image/png:
+              schema:
+                type: string
+                format: binary
+        "404":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      code:
+                        type: string
+                        description: Machine-readable error code
+                      message:
+                        type: string
+                        description: Human-readable error description
+                      field:
+                        type: string
+                        description: Invalid field name if applicable
+                    required:
+                      - code
+                      - message
+                required:
+                  - error
+        "422":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      code:
+                        type: string
+                        description: Machine-readable error code
+                      message:
+                        type: string
+                        description: Human-readable error description
+                      field:
+                        type: string
+                        description: Invalid field name if applicable
+                    required:
+                      - code
+                      - message
+                required:
+                  - error
+        "429":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      code:
+                        type: string
+                        description: Machine-readable error code
+                      message:
+                        type: string
+                        description: Human-readable error description
+                      field:
+                        type: string
+                        description: Invalid field name if applicable
+                    required:
+                      - code
+                      - message
+                required:
+                  - error
+  /cards/users/{id}/wall:
+    get:
+      summary: Wall collage card
+      tags:
+        - Share cards
+      description: "The Wall as a 4×4 or 3×5 poster collage (PRD §6.37a): each
+        finished public book once, newest first, a typographic poster where
+        there is no cover. Visible where the stats are; otherwise 404. 422
+        nothing_to_share with no public finished books."
+      parameters:
+        - schema:
+            type: string
+            enum:
+              - 4x4
+              - 3x5
+            default: 4x4
+          in: query
+          name: layout
+          required: false
+        - schema:
+            type: string
+            pattern: ^\d{4}$
+          in: query
+          name: year
+          required: false
+          description: Only books finished in this year.
+        - schema:
+            type: string
+            format: uuid
+          in: path
+          name: id
+          required: true
+      responses:
+        "200":
+          description: The card, 1080 × 1920 PNG.
+          content:
+            image/png:
+              schema:
+                type: string
+                format: binary
+        "404":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      code:
+                        type: string
+                        description: Machine-readable error code
+                      message:
+                        type: string
+                        description: Human-readable error description
+                      field:
+                        type: string
+                        description: Invalid field name if applicable
+                    required:
+                      - code
+                      - message
+                required:
+                  - error
+        "422":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      code:
+                        type: string
+                        description: Machine-readable error code
+                      message:
+                        type: string
+                        description: Human-readable error description
+                      field:
+                        type: string
+                        description: Invalid field name if applicable
+                    required:
+                      - code
+                      - message
+                required:
+                  - error
+        "429":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      code:
+                        type: string
+                        description: Machine-readable error code
+                      message:
+                        type: string
+                        description: Human-readable error description
+                      field:
+                        type: string
+                        description: Invalid field name if applicable
+                    required:
+                      - code
+                      - message
+                required:
+                  - error
   /imports:
     post:
       summary: Start a background import from an uploaded export file

@@ -54,6 +54,8 @@ import type {
   Read,
   ReadingStats,
   GoalResponse,
+  ShareCard,
+  ShareCardImage,
   ReadListResponse,
   UserReadPage,
   ContentSettingsRequest,
@@ -522,6 +524,52 @@ export class FlyleafClient {
 
   async deleteMyGoal(year: number): Promise<GoalResponse> {
     return this.request<GoalResponse>(`/me/goal?year=${encodeURIComponent(String(year))}`, { method: 'DELETE' });
+  }
+
+  // ---------------------------------------------------------------- Share cards (ST-07, ST-08)
+
+  /**
+   * The path of a share card under the API base (GET, image/png). For
+   * clients that download it to a file themselves; send the bearer token.
+   */
+  shareCardPath(card: ShareCard): string {
+    const q = (params: Record<string, string | number | undefined>) => {
+      const parts = Object.entries(params)
+        .filter(([, v]) => v !== undefined)
+        .map(([k, v]) => `${k}=${encodeURIComponent(String(v))}`);
+      return parts.length ? `?${parts.join('&')}` : '';
+    };
+    const id = encodeURIComponent;
+    switch (card.template) {
+      case 'finish': return `/cards/finish/${id(card.readId)}`;
+      case 'review': return `/cards/review/${id(card.reviewId)}`;
+      case 'stat': return `/cards/users/${id(card.userId)}/stat/${id(card.stat)}${q({ year: card.year, tz: card.tz })}`;
+      case 'profile': return `/cards/users/${id(card.userId)}/profile${q({ tz: card.tz })}`;
+      case 'wall': return `/cards/users/${id(card.userId)}/wall${q({ layout: card.layout, year: card.year })}`;
+    }
+  }
+
+  /** A share card's PNG (1080 × 1920), rendered server-side. Errors as every other call (404, 422 nothing_to_share, 429). */
+  async getShareCard(card: ShareCard): Promise<ShareCardImage> {
+    const token = this.getToken ? await this.getToken() : null;
+    const res = await this.fetchFn(`${this.baseUrl}${this.shareCardPath(card)}`, {
+      method: 'GET',
+      headers: { Accept: 'image/png', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+    });
+    if (!res.ok) {
+      let body: any = null;
+      try { body = JSON.parse(await res.text()); } catch { body = null; }
+      const err = (body as ApiErrorResponse | null)?.error;
+      const retryAfter = Number(res.headers?.get?.('retry-after'));
+      throw new FlyleafApiError(
+        err?.code ?? 'unknown_error',
+        err?.message ?? `Request failed with status ${res.status}`,
+        err?.field,
+        res.status,
+        Number.isFinite(retryAfter) && retryAfter > 0 ? retryAfter : undefined,
+      );
+    }
+    return { png: await res.arrayBuffer(), etag: res.headers?.get?.('etag') ?? null };
   }
 
   /** `tz`: the IANA zone whose days count for streaks and the default year (PRD §8.7). Default UTC. */

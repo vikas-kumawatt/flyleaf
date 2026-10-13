@@ -290,7 +290,7 @@ Stats screen with per-card sharing · goal ring on the profile · server-rendere
 ### Exit criteria
 - [ ] Stats correct against hand-computed figures for your own account
 - [ ] Incomplete data disclosed, never fabricated ("based on 180 of your 247 books")
-- [ ] Share cards render server-side and look identical everywhere
+- [x] Share cards render server-side and look identical everywhere (ST-07, ST-08: golden-image tests per template, 13 Oct 2026)
 
 ---
 

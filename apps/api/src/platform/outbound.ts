@@ -162,6 +162,47 @@ export class OutboundClient {
       return { ok: false, reason: err instanceof Error && err.name === 'TimeoutError' ? 'timeout' : 'http' };
     }
   }
+
+  /**
+   * A binary GET (ST-07: a cover copied into our storage once), under the
+   * same limiter and breaker. A body over `maxBytes` is `parse`, read no
+   * further than that.
+   */
+  async getBytes(
+    url: string,
+    opts: { timeoutMs?: number; blocking?: boolean; maxBytes: number },
+  ): Promise<OutboundResult<{ bytes: Buffer; contentType: string | null }>> {
+    if (!this.breaker.allow()) return { ok: false, reason: 'open-circuit' };
+    if (opts.blocking) await this.limiter.wait();
+    else if (!this.limiter.tryAcquire()) return { ok: false, reason: 'limited' };
+
+    try {
+      const res = await fetch(url, {
+        headers: { 'User-Agent': this.userAgent },
+        signal: AbortSignal.timeout(opts.timeoutMs ?? 3_000),
+      });
+      if (!res.ok) {
+        if (res.status === 429 || res.status >= 500) this.breaker.fail();
+        await res.body?.cancel().catch(() => undefined);
+        return { ok: false, reason: 'http' };
+      }
+      const chunks: Buffer[] = [];
+      let size = 0;
+      for await (const chunk of res.body ?? []) {
+        size += chunk.byteLength;
+        if (size > opts.maxBytes) {
+          this.breaker.succeed();
+          return { ok: false, reason: 'parse' };
+        }
+        chunks.push(Buffer.from(chunk));
+      }
+      this.breaker.succeed();
+      return { ok: true, data: { bytes: Buffer.concat(chunks), contentType: res.headers.get('content-type') } };
+    } catch (err) {
+      this.breaker.fail();
+      return { ok: false, reason: err instanceof Error && err.name === 'TimeoutError' ? 'timeout' : 'http' };
+    }
+  }
 }
 
 /** The single shared instances. Import these, never construct your own. */
