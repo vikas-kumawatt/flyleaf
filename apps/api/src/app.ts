@@ -33,6 +33,9 @@ import { reportApiError } from './telemetry/errors.js';
 import { NoopErrorReporter, type ErrorReporter } from './providers/errors/index.js';
 import { shelvesPlugin } from './shelves/index.js';
 import { publicPagesPlugin } from './web/public-pages.js';
+import { cardsPlugin } from './cards/index.js';
+import type { FetchBytes } from './cards/images.js';
+import type { CardRenderer } from './cards/render.js';
 import type { PgBoss } from 'pg-boss';
 import { importsPlugin } from './imports/index.js';
 import { uploadsPlugin } from './uploads/index.js';
@@ -352,6 +355,12 @@ export interface BuildAppOptions {
    * `boss` is given, else none (the in-app rows are still written).
    */
   notifyQueue?: NotifyQueue;
+  /**
+   * Share cards (ST-07): how a cover not yet in storage is fetched (default:
+   * the shared outbound client) and the renderer (default: a new one, with
+   * its in-memory cache). Tests pass both.
+   */
+  cards?: { fetchBytes?: FetchBytes; renderer?: CardRenderer; coverBudgetMs?: number };
 }
 
 /** Routes whose group is not the default for their method (Audit 15, §1). */
@@ -387,6 +396,12 @@ const ROUTE_LIMIT_GROUPS: Record<string, readonly LimitGroup[]> = {
   'GET /v1/search': ['search'],
   'POST /v1/reads/:id/progress': ['progress'],
   'POST /v1/events': ['events'],
+  // ST-07 share cards: a render is CPU, not a database read.
+  'GET /v1/cards/finish/:id': ['cards'],
+  'GET /v1/cards/review/:id': ['cards'],
+  'GET /v1/cards/users/:id/stat/:stat': ['cards'],
+  'GET /v1/cards/users/:id/profile': ['cards'],
+  'GET /v1/cards/users/:id/wall': ['cards'],
 };
 
 const UNSAFE_METHODS = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
@@ -534,6 +549,8 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
     await app.register(shelvesPlugin, { prefix: '/v1', db: options.db });
     // Public pages for people without the app (SO-50, SO-51): book, profile, shelf.
     await app.register(publicPagesPlugin({ db: options.db, cache: options.cache }));
+    // Share cards (ST-07, ST-08). Covers come from storage; without one, every card draws posters.
+    await app.register(cardsPlugin({ db: options.db, storage: options.storage ?? null, ...options.cards }), { prefix: '/v1' });
     await app.register(importsPlugin, { prefix: '/v1', db: options.db, boss: options.boss, limits: rateLimits });
     if (options.storage) {
       const storage = options.storage;

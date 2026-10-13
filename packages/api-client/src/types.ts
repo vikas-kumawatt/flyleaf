@@ -186,6 +186,22 @@ export type StatsCoverageKey =
   | 'decades' | 'languages' | 'velocity' | 'audio' | 'pace' | 'speed';
 
 /** ST-05, PRD §8.6: a reading goal and progress as this viewer may count it. For the profile ring only. */
+/** ST-07/ST-08 share cards: which card, and its options. */
+export type StatCardKind = 'books' | 'pages' | 'rating' | 'author' | 'genres' | 'formats' | 'streak';
+export type WallCardLayout = '4x4' | '3x5';
+export type ShareCard =
+  | { template: 'finish'; readId: string }
+  | { template: 'review'; reviewId: string }
+  | { template: 'stat'; userId: string; stat: StatCardKind; year?: number | 'all'; tz?: string }
+  | { template: 'profile'; userId: string; tz?: string }
+  | { template: 'wall'; userId: string; layout?: WallCardLayout; year?: number };
+
+/** A rendered card: PNG bytes and the content hash (ETag) the server cached it under. */
+export interface ShareCardImage {
+  png: ArrayBuffer;
+  etag: string | null;
+}
+
 export interface GoalResponse {
   year: number;
   goal: {

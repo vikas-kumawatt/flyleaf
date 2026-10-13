@@ -228,6 +228,15 @@ const SINGLE: SingleRow[] = [
   { name: 'GET /v1/imports/:id', vis: null, url: (o) => `/v1/imports/${o.importId}`, randomUrl: () => `/v1/imports/${R()}`, expected: ownerOnly, signedInOnly: true },
   { name: 'GET /v1/imports/:id/rows', vis: null, url: (o) => `/v1/imports/${o.importId}/rows`, randomUrl: () => `/v1/imports/${R()}/rows`, expected: ownerOnly, signedInOnly: true },
   { name: 'GET /v1/exports/:id', vis: null, url: (o) => `/v1/exports/${o.exportId}`, randomUrl: () => `/v1/exports/${R()}`, expected: ownerOnly, signedInOnly: true },
+  // ST-07/ST-08 share cards: a card follows the screen it shares. A finish
+  // card is the read's (GET /reads/:id); stat, profile and Wall cards are
+  // account-level like the stats; a review quote is its author's alone
+  // (PRD §41.4), so every other viewer, guests included, gets the 404.
+  { name: 'GET /v1/cards/finish/:id', vis: VIS, url: (o, v) => `/v1/cards/finish/${o.read[v]}`, randomUrl: () => `/v1/cards/finish/${R()}`, expected: oracle },
+  { name: 'GET /v1/cards/review/:id', vis: VIS, url: (o, v) => `/v1/cards/review/${o.review[v]}`, randomUrl: () => `/v1/cards/review/${R()}`, expected: (viewer, account) => ownerOnly(viewer, account) },
+  { name: 'GET /v1/cards/users/:id/stat/:stat', vis: null, url: (o) => `/v1/cards/users/${o.user.id}/stat/books?year=all`, randomUrl: () => `/v1/cards/users/${R()}/stat/books?year=all`, expected: accountOracle },
+  { name: 'GET /v1/cards/users/:id/profile', vis: null, url: (o) => `/v1/cards/users/${o.user.id}/profile`, randomUrl: () => `/v1/cards/users/${R()}/profile`, expected: accountOracle },
+  { name: 'GET /v1/cards/users/:id/wall', vis: null, url: (o) => `/v1/cards/users/${o.user.id}/wall`, randomUrl: () => `/v1/cards/users/${R()}/wall`, expected: accountOracle },
 ];
 
 /**
