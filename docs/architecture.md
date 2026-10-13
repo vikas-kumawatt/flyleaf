@@ -145,6 +145,7 @@ flyleaf/
 │   │       ├── notify/           composition, push delivery
 │   │       ├── media/            cover proxy, share-card rendering
 │   │       ├── admin/            server-rendered admin console
+│   │       ├── web/              public pages: book, @profile, shelf (SO-50/51)
 │   │       ├── db/schema.ts      Drizzle schema — source of truth
 │   │       ├── uploads/          presigned uploads: policy, intent, complete, cleanup
 │   │       ├── providers/        ports + adapters: storage, email, push, errors, catalog source (§4.2)
@@ -591,6 +592,10 @@ CREATE TABLE reports (
 -- content keeps its row: reviews/read_comments/shelves.hidden_at (also
 -- soft-deleted); users.suspended_until, banned_at, ratings_excluded_at,
 -- review_flag_until; reads.rating_excluded (latest_ratings skips it).
+-- 0045 (SO-4x owner decisions): moderation_appeal_links (a banned account's
+-- emailed one-time appeal link: token hash, action, expiry, used_at), and
+-- reviews_body_norm_idx (built CONCURRENTLY by migrate.ts) for cross-account
+-- duplicate review text.
 ```
 
 ### 3.7 Operations
@@ -755,6 +760,8 @@ class ReadingService {
 | Guests | `viewer === null` — the least-privileged viewer (§4.2) |
 
 **The test suite is the actual control.** For every private resource type, assert that a second user receives 404. This suite is non-negotiable and is written in Phase 0.
+
+**Public pages (SO-50, SO-51)** — `web/public-pages.ts`: `/book/:id`, `/@:username` (and `/u/:username` → 301), `/u/:username/shelves/:slug`, `/shelf/:id`. Server-rendered HTML, always **as a guest** (`viewer = null`, whatever token arrives), through the same `canView()` / `canViewSql()` as the API, so a page can be shared-cached (`public, max-age=300`). Anything a guest may not see is one 404 page, byte for byte the random id's, with nothing in any tag; renames 301 (no-store) only after the visibility check. No script at all (CSP `default-src 'none'`), every value escaped. Reviews of explicit books never appear (PRD §7.8). These routes are rows in `authorization-matrix.test.ts`.
 
 ## 4.1 Rate limiting, caching, and the Redis trigger
 

@@ -366,6 +366,22 @@ export default function HomeScreen() {
         </Pressable>
       );
     }
+    // Nobody to show yet: offer readers to follow (SO-52).
+    if (tab === 'friends' && user) {
+      return (
+        <EmptyState
+          title="Your feed is quiet"
+          subtitle="Follow a few readers and their finishes and reviews show up here."
+          action={
+            <Pressable onPress={() => router.push('/onboarding/follow' as any)} accessibilityRole="button" style={styles.link}>
+              <Txt variant="body" color="accent" style={{ fontWeight: '600' }}>
+                Find readers to follow
+              </Txt>
+            </Pressable>
+          }
+        />
+      );
+    }
     return null;
   })();
 

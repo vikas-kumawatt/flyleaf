@@ -316,6 +316,13 @@
       "when": 1789270000000,
       "tag": "0044_moderation",
       "breakpoints": true
+    },
+    {
+      "idx": 45,
+      "version": "7",
+      "when": 1789280000000,
+      "tag": "0045_public_pages_and_moderation_decisions",
+      "breakpoints": true
     }
   ]
 }

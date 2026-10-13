@@ -61,6 +61,12 @@ describe('RATE_LIMITS: one table, a PRD source next to every number', () => {
     expect(n('global:ip')).toEqual([200, 3600]);
   });
 
+  it('reports: the owner decision on SO-4x, 5/hour and 20/day per account, exact', () => {
+    const n = (k: LimitName) => [RATE_LIMITS[k].limit, RATE_LIMITS[k].windowSeconds, RATE_LIMITS[k].store];
+    expect(n('reports:hour')).toEqual([5, 3600, 'exact']);
+    expect(n('reports:day')).toEqual([20, 86400, 'exact']);
+  });
+
   it('mirrors PRD §19.2–19.3 push governance, on the rolling store (SO-31)', () => {
     const n = (k: LimitName) => [RATE_LIMITS[k].limit, RATE_LIMITS[k].windowSeconds, RATE_LIMITS[k].store];
     expect(n('push:day')).toEqual([5, 86400, 'rolling']);

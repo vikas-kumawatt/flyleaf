@@ -11,13 +11,15 @@
 import { RateLimits } from '../platform/rate-limits.js';
 import type { FastifyInstance, FastifyPluginAsync } from 'fastify';
 import { and, desc, eq, isNull, or, sql } from 'drizzle-orm';
-import type { Db } from '../platform/index.js';
+import type { Cache, Db } from '../platform/index.js';
 import { users, profiles, follows, blocks, mutes, works } from '../db/schema.js';
 import { ApiError, requireViewer } from '../http.js';
+import { FollowSuggestions, SUGGESTION_DEFAULT, SUGGESTION_MAX } from './suggestions.js';
 import { resolveWorkId } from '../catalog/resolve.js';
 import { canViewWith, loadRelationship, requireNotSuspended, requireVerified } from '../authorization/index.js';
 import { Notifier } from '../notify/index.js';
 import {
+  errorResponseSchema,
   followResponseSchema,
   pendingFollowRequestsResponseSchema,
   blockUserResponseSchema,
@@ -733,6 +735,8 @@ export interface SocialPluginOptions {
   prefix?: string;
   limits?: RateLimits;
   notifier?: Notifier;
+  /** The follow suggestions' shared pool (SO-52). Without one, nothing is cached. */
+  cache?: Cache;
 }
 
 export const socialPlugin: FastifyPluginAsync<SocialPluginOptions> = async (app, options) => {
@@ -1084,4 +1088,60 @@ export const socialPlugin: FastifyPluginAsync<SocialPluginOptions> = async (app,
     getFollowingHandler,
   );
 
+  // SO-52: onboarding follow suggestions (PRD §6.11).
+  const suggestions = new FollowSuggestions(options.db, options.cache);
+  app.get<{ Querystring: { limit?: number } }>(
+    '/me/follow-suggestions',
+    {
+      schema: {
+        tags: ['Social'],
+        summary: 'Readers to follow, for onboarding (PRD §6.11)',
+        description:
+          'Ranked by genre overlap, then favourite-book overlap, then active reviewers, then most followed. ' +
+          'Never the caller, anyone they follow or requested, anyone in a block with them either way, anyone they muted, ' +
+          'or a private, deleted, banned, unverified or suspended account. Overlap counts public reads and favourites only.',
+        querystring: {
+          type: 'object',
+          properties: { limit: { type: 'integer', minimum: 1, maximum: SUGGESTION_MAX, default: SUGGESTION_DEFAULT } },
+        },
+        response: {
+          200: {
+            type: 'object',
+            properties: {
+              users: {
+                type: 'array',
+                items: {
+                  type: 'object',
+                  properties: {
+                    id: { type: 'string', format: 'uuid' },
+                    username: { type: 'string' },
+                    display_name: { type: ['string', 'null'] },
+                    avatar_url: { type: ['string', 'null'] },
+                    follower_count: { type: 'integer' },
+                    favourites: {
+                      type: 'array',
+                      items: {
+                        type: 'object',
+                        properties: {
+                          id: { type: 'string', format: 'uuid' },
+                          title: { type: 'string' },
+                          cover_id: { type: ['integer', 'null'] },
+                        },
+                        required: ['id', 'title', 'cover_id'],
+                      },
+                    },
+                    reason: { type: 'string', enum: ['favourites', 'genres', 'reviewer', 'popular'] },
+                  },
+                  required: ['id', 'username', 'display_name', 'avatar_url', 'follower_count', 'favourites', 'reason'],
+                },
+              },
+            },
+            required: ['users'],
+          },
+          401: errorResponseSchema,
+        },
+      },
+    },
+    async (req) => ({ users: await suggestions.forViewer(requireViewer(req), req.query.limit) }),
+  );
 };

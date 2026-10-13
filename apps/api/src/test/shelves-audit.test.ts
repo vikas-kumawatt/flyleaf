@@ -530,14 +530,20 @@ describe('SH-10 · share pages', () => {
     const res = await app.inject({ method: 'GET', url: `/u/sharer/shelves/${p!.slug}` });
     expect(res.statusCode).toBe(200);
     expect(res.headers['cache-control']).toBe('public, max-age=300');
-    expect(res.body).toContain(`<link rel="canonical" href="http://localhost:8081/u/sharer/shelves/${p!.slug}" />`);
+    expect(res.body).toContain(`<link rel="canonical" href="http://localhost:8081/u/sharer/shelves/${p!.slug}">`);
 
     const fol = await shelfWith(u, 'Followers share', [], 'followers');
     const fan = await makeUser(db, 'sharefan');
     await follow(db, fan.id, u.id);
-    const asFan = await app.inject({ method: 'GET', url: `/shelf/${fol}`, headers: fan.auth });
+    // The JSON answer depends on who asks: never shared-cached.
+    const asFan = await app.inject({ method: 'GET', url: `/shelf/${fol}`, headers: { ...fan.auth, accept: 'application/json' } });
     expect(asFan.statusCode).toBe(200);
     expect(asFan.headers['cache-control']).toBe('private, no-store');
+    // SO-50: the HTML page is always the guest's view, so it can be cached:
+    // a followers-only shelf is the 404 page even with the follower's token.
+    const html = await app.inject({ method: 'GET', url: `/shelf/${fol}`, headers: fan.auth });
+    expect(html.statusCode).toBe(404);
+    expect(html.headers['cache-control']).toBe('no-store');
   });
 });
 

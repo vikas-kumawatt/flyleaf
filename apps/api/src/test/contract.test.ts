@@ -92,10 +92,12 @@ describe('API Contract — openapi.yaml (FN-80)', () => {
     // schemas then went missing (A-06-019). The emailed-link pages and the two
     // /.well-known files (Audit 07b, D-07-1): JSON, but in formats Android and
     // Apple define, not API. Listed by name so a JSON route hidden by mistake
-    // still fails here.
+    // still fails here. SO-5x adds the public book and profile pages and the
+    // banned account's emailed appeal page.
     expect([...hidden].sort()).toEqual([
       'get /.well-known/apple-app-site-association',
       'get /.well-known/assetlinks.json',
+      'get /@{username}',
       'get /admin/appeals',
       'get /admin/audit-log',
       'get /admin/catalog/maturity',
@@ -104,12 +106,16 @@ describe('API Contract — openapi.yaml (FN-80)', () => {
       'get /admin/merges',
       'get /admin/reports',
       'get /admin/reports/{subjectType}/{subjectId}',
+      'get /appeal',
+      'get /book/{id}',
       'get /reset-password',
       'get /shelf/{id}',
+      'get /u/{username}',
       'get /u/{username}/shelves/{slug}',
       'get /verify-email',
       'post /admin/login',
       'post /admin/logout',
+      'post /appeal',
       'post /reset-password',
       'post /verify-email',
     ]);

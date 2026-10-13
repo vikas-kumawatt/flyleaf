@@ -1514,13 +1514,14 @@ describe('SH-10: Shelf Sharing & Vanity Slug Resolution (PRD §6.34, §15.2, §2
     expect(htmlRes.statusCode).toBe(200);
     expect(htmlRes.headers['content-type']).toContain('text/html');
     const body = htmlRes.body;
-    expect(body).toContain('<title>Sci-Fi Classics Landing — Curated by @alice | Flyleaf</title>');
+    // SO-50 moved the page to web/public-pages.ts: same tags, the shared shell.
+    expect(body).toContain('<title>Sci-Fi Classics Landing — Curated by @alice · Flyleaf</title>');
     expect(body).toContain('property="og:title" content="Sci-Fi Classics Landing — Curated by @alice"');
     expect(body).toContain('property="og:description" content="Epic space journeys and explorations."');
     expect(body).toContain('name="twitter:card" content="summary"');
     expect(body).toContain(`property="al:ios:url" content="flyleaf://shelf/${shelf.id}"`);
     expect(body).toContain(`property="al:android:url" content="flyleaf://shelf/${shelf.id}"`);
-    expect(body).toContain('Open in Flyleaf App');
+    expect(body).toContain('Open in the Flyleaf app');
   });
 
   it('serves server-rendered HTML landing page at direct /shelf/:id', async () => {
@@ -1543,7 +1544,7 @@ describe('SH-10: Shelf Sharing & Vanity Slug Resolution (PRD §6.34, §15.2, §2
 
     expect(htmlRes.statusCode).toBe(200);
     expect(htmlRes.headers['content-type']).toContain('text/html');
-    expect(htmlRes.body).toContain('Direct Link Shelf — Curated by @alice | Flyleaf');
+    expect(htmlRes.body).toContain('Direct Link Shelf — Curated by @alice · Flyleaf');
     expect(htmlRes.body).toContain('Accessed via direct UUID link.');
   });
 

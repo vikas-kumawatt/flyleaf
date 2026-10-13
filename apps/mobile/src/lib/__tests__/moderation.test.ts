@@ -34,6 +34,10 @@ describe('the report sheet (PRD §6.44)', () => {
   test('the confirmation promises no outcome; every refusal has reader copy', () => {
     assert.doesNotMatch(reportConfirmation(), /will be (removed|banned|deleted)/i);
     assert.match(reportConfirmation(), /review/);
+    // The owner's response window (SO-4x decision), word for word.
+    assert.ok(reportConfirmation().includes('We usually review reports within 2 days.'));
+    // The report limits' 429 says which limit (5 an hour, 20 a day), not "a minute".
+    assert.equal(reportErrorMessage('rate_limited', 'You have sent a lot of reports. Try again later.'), 'You have sent a lot of reports. Try again later.');
     for (const code of ['not_found', 'cannot_report_self', 'rate_limited', undefined]) {
       assert.ok(reportErrorMessage(code).length > 0);
     }

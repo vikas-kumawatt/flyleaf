@@ -145,7 +145,8 @@ export default function AuthScreen() {
     setBusy(true);
     try {
       await signUp(email.trim(), username.trim().toLowerCase(), password, dob.trim());
-      router.back();
+      // PRD §4.1: a new reader is offered people to follow (SO-52), skippable.
+      router.replace('/onboarding/follow' as any);
     } catch (err: any) {
       if (err instanceof FlyleafApiError && err.code === 'username_taken') {
         setGeneralError('That username is already taken. Try another.');

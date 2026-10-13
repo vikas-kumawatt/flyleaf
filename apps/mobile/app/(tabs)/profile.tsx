@@ -29,6 +29,7 @@ import * as Haptics from 'expo-haptics';
 import { Image } from 'expo-image';
 import { pickAndUploadAvatar, useAvatarSource, type AvatarSource } from '@/lib/avatar';
 import { useSession } from '@/lib/session';
+import { profileShareUrl } from '@/lib/followSuggestions';
 import { useDatabase } from '@/offline/db';
 import { OfflineRepository } from '@/offline/repository';
 import { useOfflineSync } from '@/offline/sync';
@@ -355,7 +356,8 @@ export default function ProfileScreen() {
                   size="sm"
                   onPress={() => {
                     void Haptics.selectionAsync();
-                    Alert.alert('Share Profile', `flyleaf.app/u/${user.username}`);
+                    // SO-51: flyleaf.app/@username, the server-rendered public profile.
+                    Alert.alert('Share Profile', profileShareUrl(user.username));
                   }}
                   style={{ flex: 1 }}
                 />
