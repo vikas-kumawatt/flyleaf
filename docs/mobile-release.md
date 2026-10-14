@@ -24,7 +24,7 @@ Server: `https://flyleaf-vk.koreacentral.cloudapp.azure.com` (Azure's name for t
 
 ## Decide before the first beta build
 
-- **The package name is `app.flyleaf.skeleton`.** Once testers install it and Firebase registers it, changing it means a new app on every phone (uninstall, reinstall, data gone), a new Firebase Android app and new App Links settings. If it should be, say, `app.flyleaf`, change `android.package` (and `ios.bundleIdentifier`) in `app.json` **before step 1**, and use the new name everywhere below.
+- **The package name is `app.flyleaf`.** Once testers install it and Firebase registers it, changing it means a new app on every phone (uninstall, reinstall, data gone), a new Firebase Android app and new App Links settings. It matches `ios.bundleIdentifier` in `app.json`, `ANDROID_APP_PACKAGE`/`IOS_BUNDLE_ID` on the server, and the fallback in `apps/api/src/web/public-pages.ts`; if it ever has to change, change all of them **before step 1**.
 
 ---
 
@@ -34,10 +34,10 @@ Server: `https://flyleaf-vk.koreacentral.cloudapp.azure.com` (Azure's name for t
 
 1. <https://console.firebase.google.com> → **Create a project** (any name, e.g. `flyleaf`). Google Analytics is not needed; turn it off.
 2. In the project: **Add app** → the **Android** icon.
-3. **Android package name:** `app.flyleaf.skeleton` (exactly `android.package` in `apps/mobile/app.json`). App nickname optional. **Leave the SHA-1 empty** (push does not need it).
+3. **Android package name:** `app.flyleaf` (exactly `android.package` in `apps/mobile/app.json`). App nickname optional. **Leave the SHA-1 empty** (push does not need it).
 4. **Register app** → **Download google-services.json**. Skip the remaining steps (the Gradle lines are added by Expo at build time).
 
-- ✅ The phone has `google-services.json`, and its text contains `"package_name": "app.flyleaf.skeleton"`.
+- ✅ The phone has `google-services.json`, and its text contains `"package_name": "app.flyleaf"`.
 
 ### 2. The FCM V1 service-account key 📱 ~5 min
 
@@ -67,7 +67,7 @@ npx eas-cli env:create --scope project --name GOOGLE_SERVICES_JSON --type file -
 
 This is **not** an environment variable. It is stored with the app's Android credentials, which is where Expo's push service reads it to deliver to FCM.
 
-**From the phone (expo.dev):** project **flyleaf** → **Project settings** → **Credentials** → **Android** → the application identifier **`app.flyleaf.skeleton`** (or **Add application identifier** and enter it) → **Service credentials** → **FCM V1 service account key** → **Add a service account key** → **Upload new key** → choose the file from step 2 → **Save**.
+**From the phone (expo.dev):** project **flyleaf** → **Project settings** → **Credentials** → **Android** → the application identifier **`app.flyleaf`** (or **Add application identifier** and enter it) → **Service credentials** → **FCM V1 service account key** → **Add a service account key** → **Upload new key** → choose the file from step 2 → **Save**.
 
 **Or from the laptop:**
 
@@ -77,7 +77,7 @@ npx eas-cli credentials
 
 → **Android** → **production** → **Google Service Account** → **Manage your Google Service Account Key for Push Notifications (FCM V1)** → **Set up a Google Service Account Key for Push Notifications (FCM V1)** → **Upload a new service account key** → the file's path.
 
-- ✅ The Credentials page for `app.flyleaf.skeleton` shows an FCM V1 service account key.
+- ✅ The Credentials page for `app.flyleaf` shows an FCM V1 service account key.
 
 The server needs no Firebase settings: it sends through Expo's push service (`PUSH_DRIVER='expo'`). `EXPO_ACCESS_TOKEN` in `/etc/flyleaf/flyleaf.env` is needed only if you turn on *Enhanced Security for Push Notifications* for the project.
 
@@ -115,7 +115,7 @@ Open the build's link (or scan the QR) on the phone → download → open the `.
 npx eas-cli credentials -p android
 ```
 
-→ choose the **preview** profile (it shares the keystore with production for the same package) → under **Keystore**, copy the value after **SHA256 Fingerprint** (`AA:BB:…`, 32 pairs). On expo.dev the same page is **Credentials** → **Android** → `app.flyleaf.skeleton` → the keystore → **SHA-256 fingerprint**.
+→ choose the **preview** profile (it shares the keystore with production for the same package) → under **Keystore**, copy the value after **SHA256 Fingerprint** (`AA:BB:…`, 32 pairs). On expo.dev the same page is **Credentials** → **Android** → `app.flyleaf` → the keystore → **SHA-256 fingerprint**.
 
 **7b. Set it on the server.** Both values are public (they are what `assetlinks.json` publishes), so Claude may do this over SSH:
 
@@ -126,7 +126,7 @@ sudo nano /etc/flyleaf/flyleaf.env
 Replace the two commented lines under `# App Links for the emailed links` with:
 
 ```
-ANDROID_APP_PACKAGE='app.flyleaf.skeleton'
+ANDROID_APP_PACKAGE='app.flyleaf'
 ANDROID_CERT_SHA256='AA:BB:…'          # the 7a value; several keys: comma-separated
 ```
 
@@ -139,9 +139,9 @@ sudo /opt/flyleaf/deploy/release.sh
 
 (`configure-env.sh` only fills `<placeholders>` and does not ask for these two. Editing `flyleaf.env` is the way. A malformed value stops the API at start with a message naming the variable, and `release.sh` then rolls back by itself.)
 
-- ✅ `curl -fsS https://<host>/.well-known/assetlinks.json` shows `"package_name": "app.flyleaf.skeleton"` and your fingerprint.
+- ✅ `curl -fsS https://<host>/.well-known/assetlinks.json` shows `"package_name": "app.flyleaf"` and your fingerprint.
 
-**7c. Make Android re-check the links.** Android verifies when the app is installed. If the APK went on before 7b, reinstall it, or on the laptop with the phone on USB: `adb shell pm verify-app-links --re-verify app.flyleaf.skeleton`, then `adb shell pm get-app-links app.flyleaf.skeleton`, which should show `<host>: verified`. `flyleaf.app` will show as not verified until that domain exists and serves the same file.
+**7c. Make Android re-check the links.** Android verifies when the app is installed. If the APK went on before 7b, reinstall it, or on the laptop with the phone on USB: `adb shell pm verify-app-links --re-verify app.flyleaf`, then `adb shell pm get-app-links app.flyleaf`, which should show `<host>: verified`. `flyleaf.app` will show as not verified until that domain exists and serves the same file.
 
 - On **Android 12 and later**, each host is verified separately, so `<host>` works now. On **Android 11 and older**, the app's hosts are verified together, and `flyleaf.app` cannot verify yet, so links there open the browser page, whose **Open in the app** button still works.
 - ✅ From another app (Gmail, Notes), tap `https://<host>/@<your username>`. It opens the app on your profile.
@@ -154,7 +154,7 @@ sudo /opt/flyleaf/deploy/release.sh
 | Build stops: `google-services.json is missing for the preview profile` | step 3: the variable exists, type File, environment **preview** |
 | Build fails bundling: `Unable to resolve module @flyleaf/api-client` | `eas-build-post-install` in `apps/mobile/package.json` must exist |
 | App opens to an error: `No API address in this build` | an `eas update` was published without `FLYLEAF_API_URL` (see OTA updates above) |
-| Push never arrives, the server log shows `InvalidCredentials` | step 4: the FCM V1 key is attached to `app.flyleaf.skeleton` |
+| Push never arrives, the server log shows `InvalidCredentials` | step 4: the FCM V1 key is attached to `app.flyleaf` |
 | Push never arrives, no error | the phone: Settings → Apps → Flyleaf → Notifications on. Push is asked for after your first follow, or from the notification centre's banner. No push in the first 24 h of a new account except import completion (PRD §19). |
 | Links open the browser | `assetlinks.json` (7b), then re-verify (7c) |
 

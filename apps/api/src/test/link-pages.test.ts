@@ -231,10 +231,10 @@ describe('/.well-known (App Links, Universal Links)', () => {
 
   it('serve exactly what the environment configures', async () => {
     const links = parseAppLinks({
-      ANDROID_APP_PACKAGE: 'app.flyleaf.skeleton',
+      ANDROID_APP_PACKAGE: 'app.flyleaf',
       ANDROID_CERT_SHA256: ` ${FINGERPRINT.toLowerCase()} `,
       IOS_TEAM_ID: 'ABCDE12345',
-      IOS_BUNDLE_ID: 'app.flyleaf.skeleton',
+      IOS_BUNDLE_ID: 'app.flyleaf',
     });
     const configured = await appWith(links);
     try {
@@ -244,7 +244,7 @@ describe('/.well-known (App Links, Universal Links)', () => {
       expect(JSON.parse(android.body)).toEqual([
         {
           relation: ['delegate_permission/common.handle_all_urls'],
-          target: { namespace: 'android_app', package_name: 'app.flyleaf.skeleton', sha256_cert_fingerprints: [FINGERPRINT] },
+          target: { namespace: 'android_app', package_name: 'app.flyleaf', sha256_cert_fingerprints: [FINGERPRINT] },
         },
       ]);
 
@@ -255,7 +255,7 @@ describe('/.well-known (App Links, Universal Links)', () => {
         applinks: {
           details: [
             {
-              appIDs: ['ABCDE12345.app.flyleaf.skeleton'],
+              appIDs: ['ABCDE12345.app.flyleaf'],
               components: [
                 { '/': '/verify-email' }, { '/': '/reset-password' },
                 // Owner decision on SO-5x: the public pages open the app too.
@@ -271,11 +271,11 @@ describe('/.well-known (App Links, Universal Links)', () => {
   });
 
   it('half a configuration serves nothing; a malformed value stops the process', () => {
-    expect(parseAppLinks({ ANDROID_APP_PACKAGE: 'app.flyleaf.skeleton' })).toEqual({ android: null, ios: null });
+    expect(parseAppLinks({ ANDROID_APP_PACKAGE: 'app.flyleaf' })).toEqual({ android: null, ios: null });
     expect(parseAppLinks({ IOS_TEAM_ID: 'ABCDE12345' })).toEqual({ android: null, ios: null });
-    expect(() => parseAppLinks({ ANDROID_APP_PACKAGE: 'app.flyleaf.skeleton', ANDROID_CERT_SHA256: 'AB:CD' })).toThrow(/ANDROID_CERT_SHA256/);
+    expect(() => parseAppLinks({ ANDROID_APP_PACKAGE: 'app.flyleaf', ANDROID_CERT_SHA256: 'AB:CD' })).toThrow(/ANDROID_CERT_SHA256/);
     expect(() => parseAppLinks({ ANDROID_APP_PACKAGE: 'not a package', ANDROID_CERT_SHA256: FINGERPRINT })).toThrow(/ANDROID_APP_PACKAGE/);
-    expect(() => parseAppLinks({ IOS_TEAM_ID: 'short', IOS_BUNDLE_ID: 'app.flyleaf.skeleton' })).toThrow(/IOS_TEAM_ID/);
+    expect(() => parseAppLinks({ IOS_TEAM_ID: 'short', IOS_BUNDLE_ID: 'app.flyleaf' })).toThrow(/IOS_TEAM_ID/);
   });
 });
 

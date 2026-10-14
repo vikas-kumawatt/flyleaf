@@ -54,7 +54,7 @@ export const PUBLIC_PAGE_CSP =
 export const PUBLIC_PAGE_CACHE = 'public, max-age=300';
 
 const APP_SCHEME = 'flyleaf://';
-const ANDROID_PACKAGE = 'app.flyleaf.skeleton';
+const ANDROID_PACKAGE = 'app.flyleaf';
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 /** Wider than usernameSchema on purpose (old names, any case); anything else cannot be a username. */
 const USERNAME_RE = /^[A-Za-z0-9_.-]{1,64}$/;
