@@ -208,9 +208,14 @@ step_user() {
   install -d -m 700 "$FLYLEAF_ETC" "$FLYLEAF_STATE"
   # Postgres and MinIO data: bind mounts on the OS disk, outside Docker's own
   # directory, so `docker system prune` can never take them.
-  install -d -m 700 "$FLYLEAF_DATA" "$FLYLEAF_DATA/postgres" "$FLYLEAF_DATA/minio"
-  # The admin who runs sudo owns the import folder, so the catalog dump can
-  # be scp'd straight into it (docs/deploy.md step 6).
+  install -d -m 700 "$FLYLEAF_DATA" "$FLYLEAF_DATA/minio"
+  # Mounted over the image's /var/lib/postgresql: the entrypoint re-runs as
+  # the postgres user, which must be able to enter it to reach PGDATA (700,
+  # its own). $FLYLEAF_DATA's 700 still keeps it from everyone on the host.
+  install -d -m 755 "$FLYLEAF_DATA/postgres"
+  # The admin who runs sudo owns the import folder, but cannot reach it:
+  # $FLYLEAF_DATA is 700 root. The catalog dump is scp'd to the admin's home
+  # and moved in with sudo (docs/deploy.md step 6b).
   install -d -m 755 -o "${SUDO_USER:-root}" "$IMPORT_DIR"
   install -d -m 700 "$BACKUP_DIR" "$BACKUP_DIR/work" "$BACKUP_DIR/local"
 }

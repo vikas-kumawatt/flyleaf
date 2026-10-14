@@ -105,6 +105,13 @@ create_or_fill() {
   is_placeholder "$env" S3_ACCESS_KEY_ID && set_var "$env" S3_ACCESS_KEY_ID "flyleaf-app-$(openssl rand -hex 4)"
   is_placeholder "$env" S3_SECRET_ACCESS_KEY && set_var "$env" S3_SECRET_ACCESS_KEY "$(openssl rand -hex 20)"
 
+  # This runs before provision.sh (docs/deploy.md step 3b), which is what
+  # otherwise installs age, and a fresh Ubuntu image does not have it.
+  if ! command -v age-keygen >/dev/null; then
+    log "installing age (for the backup key)"
+    DEBIAN_FRONTEND=noninteractive apt-get update -q >/dev/null
+    DEBIAN_FRONTEND=noninteractive apt-get install -y -q --no-install-recommends age >/dev/null
+  fi
   if [[ ! -f "$AGE_KEY" ]]; then
     (umask 077 && age-keygen -o "$AGE_KEY" 2>/dev/null)
     log "created the backup key $AGE_KEY -- copy it OFF this machine (docs/deploy.md step 9)"

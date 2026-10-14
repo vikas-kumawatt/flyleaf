@@ -111,5 +111,6 @@ $manifest | Where-Object { $_ -like 'count *' -or $_ -like 'probe *' -or $_ -lik
     ForEach-Object { Write-Host ('  ' + $_) }
 Write-Host ''
 Write-Host 'Next (docs/deploy.md step 6):' -ForegroundColor Cyan
-Write-Host ('  scp -r "' + $dest + '" <admin>@<host>:/srv/flyleaf/import/')
+Write-Host ('  scp -r "' + $dest + '" <admin>@<host>:~/')
+Write-Host ('  ssh <admin>@<host> sudo mv ~/flyleaf-catalog-' + $stamp + ' /srv/flyleaf/import/')
 Write-Host ('  ssh <admin>@<host> sudo /opt/flyleaf/deploy/catalog/restore-catalog.sh /srv/flyleaf/import/flyleaf-catalog-' + $stamp)

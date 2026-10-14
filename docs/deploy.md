@@ -63,7 +63,7 @@ az vm list-skus --location $LOC --resource-type virtualMachines --query "[?name=
 # What each costs per hour in this region (Azure's public price list, pay-as-you-go, USD):
 $f = "armRegionName eq '$LOC' and priceType eq 'Consumption' and serviceName eq 'Virtual Machines' and (armSkuName eq 'Standard_B2s' or armSkuName eq 'Standard_B2als_v2' or armSkuName eq 'Standard_B2ls_v2')"
 (Invoke-RestMethod "https://prices.azure.com/api/retail/prices?`$filter=$f").Items |
-  Where-Object { $_.productName -notmatch 'Windows' -and $_.skuName -notmatch 'Spot|Low Priority' } |
+  Where-Object { $_.productName -notmatch 'Windows|Cloud Services' -and $_.skuName -notmatch 'Spot|Low Priority' } |
   Select-Object armSkuName, retailPrice, unitOfMeasure | Format-Table
 ```
 
@@ -214,10 +214,11 @@ It runs `pg_dump` inside `flyleaf-pg` (so the dump is Postgres 18's own format),
 **6b · Who: Claude (laptop)** — copy it up. Time depends on the dump's size and the home connection's upload speed:
 
 ```powershell
-scp -i $HOME\.ssh\flyleaf_azure -r .\catalog-export\flyleaf-catalog-<stamp> flyleafadmin@<host>:/srv/flyleaf/import/
+scp -i $HOME\.ssh\flyleaf_azure -r .\catalog-export\flyleaf-catalog-<stamp> flyleafadmin@<host>:~/
+ssh -i $HOME\.ssh\flyleaf_azure flyleafadmin@<host> sudo mv ~/flyleaf-catalog-<stamp> /srv/flyleaf/import/
 ```
 
-`/srv/flyleaf/import` belongs to the admin user (provision.sh), so no sudo is needed for the copy.
+The copy goes to the admin's home first: `/srv/flyleaf` is `700 root`, so the admin cannot reach `/srv/flyleaf/import` without sudo. Same disk, so the move is instant.
 
 **6c · Who: Claude (SSH)**
 
@@ -232,6 +233,8 @@ Checks the SHA-256, stops the API and worker, recreates the (empty) database, re
 - ↩ Before anyone has signed up: run it again with a new dump after "Starting the database over" below. After users exist: there is no undo by design; the catalog is then changed only by the app and the admin console.
 
 Note the size and the three times in this file afterwards; they are unknown until this first run. Then step 7.
+
+Measured on the first deploy (2026-10-13, 3,203,575 works, no raw payloads; Standard_B2als_v2 in koreacentral): dump 1.56 GB (1,635,283,909 bytes); export 357 s (laptop, Windows PowerShell 5.1); upload 590 s (~2.8 MB/s home connection); restore 1095 s. Afterwards: disk 18 GB used, Postgres 1.14 GiB of its 2 GiB. First user-data backup 36 KB in 48 s; catalog copy to Drive 92 s.
 
 ---
 

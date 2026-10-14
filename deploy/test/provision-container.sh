@@ -62,7 +62,8 @@ docker run --rm --name flyleaf-provision-box --network host "${proxy_env[@]}" "$
   # -- what a fresh Azure Ubuntu image has and a container lacks ------------
   export DEBIAN_FRONTEND=noninteractive
   apt-get update -q >/dev/null
-  apt-get install -y -q --no-install-recommends ca-certificates curl openssl age openssh-server git sudo >/dev/null
+  # No age: configure-env.sh runs before provision.sh and must install it itself.
+  apt-get install -y -q --no-install-recommends ca-certificates curl openssl openssh-server git sudo >/dev/null
   if [[ -f /proxy-ca.crt ]]; then
     cp /proxy-ca.crt /usr/local/share/ca-certificates/proxy-ca.crt && update-ca-certificates >/dev/null 2>&1
   fi
@@ -81,6 +82,7 @@ EXPO_ACCESS_TOKEN=
 EOF
   chmod 600 /root/answers
   bash /root/deploy/configure-env.sh --answers /root/answers 2>/dev/null
+  check "configure-env.sh installed age and made the backup key" bash -c "command -v age-keygen >/dev/null && [[ -s /etc/flyleaf/backup.agekey ]]"
   sed -i -e "s#^REPO_URL=.*#REPO_URL=\x27file:///repo\x27#" -e "s#^REPO_REF=.*#REPO_REF=\x27$BRANCH\x27#" \
          -e "s#^POSTGRES_PASSWORD=.*#POSTGRES_PASSWORD=\x27$PGPASS\x27#" /etc/flyleaf/flyleaf.env
 
@@ -105,6 +107,7 @@ EOF
   check "journald capped" grep -q "SystemMaxUse=500M" /etc/systemd/journald.conf.d/60-flyleaf.conf
   check "7 unit files installed" bash -c "[[ \$(ls /etc/systemd/system/flyleaf-* | wc -l) == 7 ]]"
   check "data directories" test -d /srv/flyleaf/postgres -a -d /srv/flyleaf/minio -a -d /var/backups/flyleaf/work
+  check "data modes: /srv/flyleaf 700, postgres mount 755 (its container user must enter it)" bash -c "[[ \$(stat -c %a /srv/flyleaf) == 700 && \$(stat -c %a /srv/flyleaf/postgres) == 755 ]]"
   roles_ok() { [[ "$(docker exec "$PG_CONTAINER" psql -U flyleaf -d postgres -Atc "$ROLE_SQL")" == "flyleaf_app:false flyleaf_owner:false" ]]; }
   check "database roles: flyleaf_owner and flyleaf_app, neither a superuser" roles_ok
 

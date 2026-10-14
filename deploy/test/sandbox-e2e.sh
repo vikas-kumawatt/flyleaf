@@ -23,8 +23,9 @@
 #   8. restore-full.sh into a fresh database: counts, checksums, every FK, the gap-filled work
 #   9. backup-catalog.sh: encrypted catalog copy on the remote, verified
 #
-# Needs: docker, node + apps/api's node_modules, age, rclone, zstd; pwsh and
-# caddy are used when present. Leaves nothing running (--keep to inspect).
+# Needs: docker, node + apps/api's node_modules (it builds dist/ itself), age,
+# rclone, zstd; pwsh and caddy are used when present. Leaves nothing running
+# (--keep to inspect).
 
 set -Eeuo pipefail
 trap 'echo "sandbox-e2e.sh: failed at line $LINENO: $BASH_COMMAND" >&2' ERR
@@ -313,7 +314,11 @@ if [[ "$(as_app_sql "SELECT count(*) > 0 FROM users")" == t ]] && as_app_sql "UP
 if as_app_sql "CREATE TABLE pgboss.probe (x int); DROP TABLE pgboss.probe" >/dev/null 2>&1; then
   ok "flyleaf_app can create in pgboss only (pg-boss manages that schema itself)"; else fail "pgboss schema not usable by flyleaf_app"; fi
 
-# The compiled production start, as the app role.
+# The compiled production start, as the app role. Built here so a fresh
+# checkout works and a stale dist/ is never what gets tested. Same order as
+# release.sh: the api-client first, since the API's tests import its dist/.
+(cd "$REPO/apps/api" && npm exec --offline -- tsc -p ../../packages/api-client/tsconfig.json && npm run --silent build) \
+  > "$T/build.log" 2>&1 || { cat "$T/build.log"; fail "apps/api build"; }
 if (cd "$REPO/apps/api" && DATABASE_URL="$DATABASE_URL" PGBOSS_CREATE_SCHEMA=false npm run --silent start:check) > "$T/startcheck.log" 2>&1; then
   ok "start:check as flyleaf_app: /readyz, worker ready, clean SIGTERM, dev adapters refused"; else cat "$T/startcheck.log"; fail "start:check as flyleaf_app"; fi
 
