@@ -4,7 +4,8 @@
 //
 // Two parts:
 //   ASSET_CREDITS     written by hand: fonts, icons and emoji the app or its
-//                     share cards draw, and the data sources (§41.1).
+//                     share cards draw, the server packages that draw the
+//                     cards (satori, resvg-js), and the data sources (§41.1).
 //   PACKAGE_LICENCES  generated from package-lock.json by
 //                     `npx tsx scripts/generate-licences.ts` (licences.data.ts);
 //                     a test fails when the lock file and the list disagree.
@@ -64,6 +65,22 @@ export const ASSET_CREDITS: AssetCredit[] = [
     notice: 'Copyright (c) 2015-present Ionic (http://ionic.io/).',
     licence: 'MIT',
     url: 'https://github.com/ionic-team/ionicons/blob/main/LICENSE',
+  },
+  // Owner decision on Phase 5 C: the server-side packages that draw the share
+  // cards. They do not ship in the app, but the cards they make do.
+  {
+    name: 'satori',
+    usedFor: 'Lays out the share cards, on the Flyleaf server (not inside the app)',
+    notice: 'satori 0.33.5 by Vercel (https://github.com/vercel/satori), used unmodified. Source code is available at that address.',
+    licence: 'Mozilla Public License 2.0',
+    url: 'https://www.mozilla.org/en-US/MPL/2.0/',
+  },
+  {
+    name: 'resvg-js',
+    usedFor: 'Turns the share cards into images, on the Flyleaf server (not inside the app)',
+    notice: '@resvg/resvg-js 2.6.2 (https://github.com/yisibl/resvg-js), used unmodified. Source code is available at that address.',
+    licence: 'Mozilla Public License 2.0',
+    url: 'https://www.mozilla.org/en-US/MPL/2.0/',
   },
   {
     name: 'Open Library',

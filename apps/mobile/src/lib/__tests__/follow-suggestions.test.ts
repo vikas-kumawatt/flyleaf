@@ -19,9 +19,10 @@ describe('public links (SO-50, SO-51)', () => {
     assert.equal(bookShareUrl('6f1c2a9e-3b4d-4c5e-8f60-718293a4b5c6'), 'https://flyleaf.app/book/6f1c2a9e-3b4d-4c5e-8f60-718293a4b5c6');
   });
 
-  test('the profile shares flyleaf.app/@username, not the old /u/ address', () => {
+  test('the profile shares <server>/@username, not the old /u/ address', () => {
     const profile = read('app/(tabs)/profile.tsx');
-    assert.match(profile, /profileShareUrl\(user\.username\)/);
+    // PUBLIC_BASE: the server this build talks to (docs/mobile-release.md).
+    assert.match(profile, /profileShareUrl\(user\.username, PUBLIC_BASE\)/);
     assert.doesNotMatch(profile, /flyleaf\.app\/u\/\$\{user\.username\}/);
   });
 });

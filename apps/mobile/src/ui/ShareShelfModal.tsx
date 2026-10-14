@@ -1,7 +1,8 @@
 // Visual Share Card Preview & Native Share Sheet Modal (SH-10, PRD §6.34, §6.45, §29.1).
 // Governed by:
 // 1. Portrait share card with handle watermark and 4-cover mosaic preview.
-// 2. Canonical web URL: https://flyleaf.app/u/{username}/shelves/{slug}.
+// 2. Canonical web URL: <server>/u/{username}/shelves/{slug} (PUBLIC_BASE: the
+//    server this build talks to, https://flyleaf.app in development).
 // 3. Native OS Share Sheet integration via Share.share.
 // 4. One-tap copy link with instant haptic confirmation.
 
@@ -21,6 +22,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Txt, Button, Cover } from './components';
 import { useTheme, space, radius } from './tokens';
 import { getShelfShareUrl, getShelfShareMessage } from '../lib/shelfValidation';
+import { PUBLIC_BASE } from '../lib/api';
 import { track } from '../lib/events';
 
 export interface ShareShelfModalProps {
@@ -48,7 +50,7 @@ export function ShareShelfModal({ visible, onClose, shelf }: ShareShelfModalProp
   const insets = useSafeAreaInsets();
   const [copied, setCopied] = useState(false);
 
-  const shareUrl = getShelfShareUrl(shelf);
+  const shareUrl = getShelfShareUrl(shelf, PUBLIC_BASE);
   const shareMessage = getShelfShareMessage(shelf);
   const coverIds = (shelf.cover_ids || []).filter((id): id is number => id !== null);
 
@@ -198,7 +200,7 @@ export function ShareShelfModal({ visible, onClose, shelf }: ShareShelfModalProp
             {/* Card Footer URL Watermark */}
             <View style={[styles.cardFooter, { borderTopColor: c.line }]}>
               <Txt numberOfLines={1} variant="caption" style={{ color: c.muted, fontSize: 11 }}>
-                flyleaf.app/u/{shelf.owner.username}/shelves/{shelf.slug}
+                {shareUrl.replace(/^https?:\/\//, '')}
               </Txt>
             </View>
           </View>

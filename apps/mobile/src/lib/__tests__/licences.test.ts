@@ -54,6 +54,16 @@ describe('licences screen', () => {
     assert.ok(ASSET_CREDITS.some((a) => a.name === 'Open Library'));
   });
 
+  it('the server packages that draw the share cards are credited at the versions the API pins (Phase 5 C)', () => {
+    const api = JSON.parse(readFileSync(join(ROOT, '../api/package.json'), 'utf8')).dependencies;
+    for (const [name, pkg] of [['satori', 'satori'], ['resvg-js', '@resvg/resvg-js']] as const) {
+      const c = ASSET_CREDITS.find((a) => a.name === name);
+      assert.ok(c, name);
+      assert.equal(c.licence, 'Mozilla Public License 2.0');
+      assert.ok(c.notice.includes(`${pkg} ${api[pkg]}`), `${name}: ${c.notice} vs ${api[pkg]}`);
+    }
+  });
+
   it('packages are grouped by licence, every package once', () => {
     const groups = licenceGroups();
     assert.equal(groups.reduce((n, g) => n + g.packages.length, 0), PACKAGE_LICENCES.length);

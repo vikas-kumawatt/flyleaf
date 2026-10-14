@@ -4,15 +4,22 @@
     "development": {
       "developmentClient": true,
       "distribution": "internal",
+      "environment": "development",
       "android": { "buildType": "apk" },
       "channel": "development"
     },
     "preview": {
       "distribution": "internal",
+      "environment": "preview",
+      "autoIncrement": true,
+      "env": { "FLYLEAF_API_URL": "https://flyleaf-vk.koreacentral.cloudapp.azure.com" },
       "android": { "buildType": "apk" },
       "channel": "preview"
     },
     "production": {
+      "environment": "production",
+      "autoIncrement": true,
+      "env": { "FLYLEAF_API_URL": "https://flyleaf-vk.koreacentral.cloudapp.azure.com" },
       "android": { "buildType": "app-bundle" },
       "channel": "production"
     }

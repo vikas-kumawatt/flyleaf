@@ -37,6 +37,7 @@ import { useOfflineSync } from '@/offline/sync';
 import type { LocalRead } from '@/offline/schema';
 import {
   api,
+  PUBLIC_BASE,
   type Profile,
   type ReadingStats,
   type GoalResponse,
@@ -370,8 +371,8 @@ export default function ProfileScreen() {
                   size="sm"
                   onPress={() => {
                     void Haptics.selectionAsync();
-                    // SO-51: flyleaf.app/@username, the server-rendered public profile.
-                    Alert.alert('Share Profile', profileShareUrl(user.username));
+                    // SO-51: <server>/@username, the server-rendered public profile.
+                    Alert.alert('Share Profile', profileShareUrl(user.username, PUBLIC_BASE));
                   }}
                   style={{ flex: 1 }}
                 />

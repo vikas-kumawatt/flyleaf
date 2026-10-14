@@ -29,7 +29,7 @@ export default function LicencesScreen() {
         ListHeaderComponent={
           <View style={{ gap: space[3], marginBottom: space[4] }}>
             <Txt variant="caption" color="muted">
-              Flyleaf is built on the work of others. These are the fonts, icons, emoji and data it uses, and the open-source
+              Flyleaf is built on the work of others. These are the fonts, icons, emoji, data and card-drawing software it uses, and the open-source
               packages inside the app, with their licences.
             </Txt>
             {ASSET_CREDITS.map((a) => (
