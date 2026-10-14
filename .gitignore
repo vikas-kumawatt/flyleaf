@@ -44,3 +44,9 @@ apps/api/dedupe-batches/
 
 # catalog transfer (deploy/catalog/Export-Catalog.ps1): gigabytes, and not code
 catalog-export/
+
+# Firebase config for push (apps/mobile/app.json googleServicesFile). EAS gets
+# it as the GOOGLE_SERVICES_JSON file variable (docs/mobile-release.md); never
+# commit it, nor the FCM V1 service-account key.
+google-services.json
+*firebase-adminsdk*.json

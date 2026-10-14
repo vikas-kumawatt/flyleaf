@@ -499,7 +499,7 @@ npx expo start --dev-client
 
 Open the **Flyleaf** app on your phone (not Expo Go) and it connects to Metro. Reloads and hot refresh work exactly as before. You only rebuild the APK when a **native** dependency changes — JavaScript and TypeScript changes stream over as normal.
 
-**No IP editing needed.** The client derives the API host from Expo's own dev-server address, so it follows your laptop when the IP changes. Only set `extra.apiUrl` in `app.json` to point somewhere else.
+**No IP editing needed.** The client derives the API host from Expo's own dev-server address, so it follows your laptop when the IP changes. To point a development session somewhere else, start Metro with `FLYLEAF_API_URL=http://<address>:3000` (read by `app.config.ts`). Preview and production builds take the server's address from `eas.json`; the beta build against the live server is **`docs/mobile-release.md`**.
 
 If the phone loads the bundle but every request fails, allow **port 3000** through Windows Firewall for private networks.
 
@@ -532,7 +532,7 @@ npx expo prebuild --platform android --clean; if ($?) { ..\..\scripts\fix-gradle
 
 On the cloud path, `npx eas-cli@latest build --profile development --platform android` does the same (EAS runs prebuild itself).
 
-**App Links need the domain.** Android verifies `flyleaf.app` against `https://flyleaf.app/.well-known/assetlinks.json`, which the API serves once `ANDROID_APP_PACKAGE` and `ANDROID_CERT_SHA256` are set (see Endpoints › Email links). Until the domain serves it, the links open the fallback page in the browser, whose **Open in the app** button works everywhere. To try the in-app path on a dev build: Settings → Apps → Flyleaf → Open by default → Add link → `flyleaf.app`, then `adb shell am start -a android.intent.action.VIEW -d "https://flyleaf.app/verify-email?token=<token>"`. The domain in `app.json` is fixed at build time; if production moves, change it there and in `APP_BASE_URL` together.
+**App Links need the domain.** The beta also lists the server's Azure name beside `flyleaf.app` (`docs/mobile-release.md` step 7 sets the fingerprint on the server). Android verifies `flyleaf.app` against `https://flyleaf.app/.well-known/assetlinks.json`, which the API serves once `ANDROID_APP_PACKAGE` and `ANDROID_CERT_SHA256` are set (see Endpoints › Email links). Until the domain serves it, the links open the fallback page in the browser, whose **Open in the app** button works everywhere. To try the in-app path on a dev build: Settings → Apps → Flyleaf → Open by default → Add link → `flyleaf.app`, then `adb shell am start -a android.intent.action.VIEW -d "https://flyleaf.app/verify-email?token=<token>"`. The domain in `app.json` is fixed at build time; if production moves, change it there and in `APP_BASE_URL` together.
 
 #### Dependency rule
 

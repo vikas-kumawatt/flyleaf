@@ -280,8 +280,11 @@ describe('/.well-known (App Links, Universal Links)', () => {
 });
 
 // D-07b-2: the app's link host is fixed at build time and the emails' at run
-// time. If one moves without the other, the links stop opening the app.
-it("the app's App Links and associated domains name the production APP_BASE_URL host", () => {
+// time. If one moves without the other, the links stop opening the app. The
+// beta also lists the server's Azure name, which is APP_BASE_URL there until
+// a real domain exists (docs/mobile-release.md); the two platforms list the
+// same hosts.
+it("the app's App Links and associated domains name the production APP_BASE_URL host (and the beta server's)", () => {
   const appJson = JSON.parse(readFileSync(new URL('../../../mobile/app.json', import.meta.url), 'utf8'));
   const host = new URL(PRODUCTION_APP_BASE_URL).host;
   const filterHosts = (appJson.expo.android.intentFilters as { data: { scheme?: string; host?: string }[] }[])
@@ -291,7 +294,11 @@ it("the app's App Links and associated domains name the production APP_BASE_URL 
   const domains = (appJson.expo.ios.associatedDomains as string[]).map((d) => d.replace(/^applinks:/, ''));
   expect(filterHosts.length).toBeGreaterThan(0);
   expect(domains.length).toBeGreaterThan(0);
-  expect(new Set([...filterHosts, ...domains])).toEqual(new Set([host]));
+  expect(new Set(filterHosts)).toEqual(new Set(domains));
+  expect(filterHosts).toContain(host);
+  for (const h of new Set(filterHosts)) {
+    if (h !== host) expect(h).toMatch(/^[a-z0-9-]+\.[a-z0-9]+\.cloudapp\.azure\.com$/);
+  }
 });
 
 // Owner decision on SO-5x (13 Oct 2026): the public pages open the app. The

@@ -263,7 +263,7 @@ Enrol the TOTP secret in an authenticator and store the backup codes in the pass
 
 ## 8. Point the app at the server ⏱ depends on the build path · Who: YOU + Claude
 
-The mobile app reads its API address from `extra.apiUrl` in `apps/mobile/app.json` (`src/lib/api.ts`). A build for this server sets it to `https://<host>`; README §4 has the build paths. The emailed links go to `https://<host>/verify-email` and `/reset-password`, which the API serves as web pages; App Links stay on `flyleaf.app` until a real domain exists (decision below).
+The app's address comes from the EAS build profile: `FLYLEAF_API_URL` in `apps/mobile/eas.json` (preview and production: `https://<host>`; development: the laptop), through `app.config.ts` into `extra.apiUrl`. **`docs/mobile-release.md`** is the whole beta checklist: Firebase and the FCM V1 key for push, the preview APK, and App Links. The emailed links go to `https://<host>/verify-email` and `/reset-password`. The beta's intent filters list `<host>` beside `flyleaf.app`, so once `ANDROID_APP_PACKAGE` and `ANDROID_CERT_SHA256` are set here (mobile-release.md step 7), those links and the public pages open the app. Until then they open the web pages, which work.
 
 - ✅ Sign up from the phone, receive the verification email (Gmail), verify, log a book.
 - ↩ nothing on the server to undo.
@@ -435,7 +435,7 @@ sudo systemctl start flyleaf-api flyleaf-worker
 
 1. DNS: an `A` record for the domain → the VM's public IP (`az vm show … --query publicIps`), or a `CNAME` → `<host>`.
 2. `FLYLEAF_HOST='your.domain'` in `/etc/flyleaf/flyleaf.env`, then `sudo /opt/flyleaf/deploy/provision.sh`. That re-renders Caddy (new certificate), `APP_BASE_URL`, `S3_ENDPOINT`, CORS and `/etc/hosts`, and restarts the services.
-3. App Links: set `ANDROID_APP_PACKAGE`/`ANDROID_CERT_SHA256` (and iOS) in flyleaf.env, and point `apps/mobile/app.json`'s intent filters at the domain (README "Email links and App Links").
+3. App Links: `ANDROID_APP_PACKAGE`/`ANDROID_CERT_SHA256` (and iOS) in flyleaf.env stay as set for the beta (same signing key). Add the domain to `apps/mobile/app.json`'s intent filters and associated domains beside the others, set `FLYLEAF_API_URL` in `apps/mobile/eas.json` to it, and rebuild (`docs/mobile-release.md`, Next builds).
 4. Uploads in flight during the switch fail once (their signed URLs name the old host) and succeed when retried.
 
 ---

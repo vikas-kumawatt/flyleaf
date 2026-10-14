@@ -9,6 +9,8 @@ import Constants from 'expo-constants';
 import * as SecureStore from 'expo-secure-store';
 import * as Crypto from 'expo-crypto';
 import { createAuthFetch } from './authFetch';
+import { resolveApiBase, resolvePublicBase } from './apiBase';
+import { PUBLIC_BASE_URL } from './followSuggestions';
 import { getSessionId } from './events';
 
 import {
@@ -199,21 +201,20 @@ export type {
 };
 export { FlyleafApiError, FlyleafApiError as ApiError };
 
-const API_PORT = 3000;
+const CONFIGURED_API_URL = (Constants.expoConfig?.extra as { apiUrl?: string } | undefined)?.apiUrl;
 
 function resolveBase(): string {
-  const override = (Constants.expoConfig?.extra as { apiUrl?: string } | undefined)?.apiUrl;
-  if (override) return override;
-
-  const hostUri = Constants.expoConfig?.hostUri ?? Constants.expoGoConfig?.debuggerHost;
-  const host = hostUri?.split(':')[0];
-  if (host) return `http://${host}:${API_PORT}`;
-
-  return `http://10.0.2.2:${API_PORT}`; // Android emulator alias for host
+  return resolveApiBase({
+    apiUrl: CONFIGURED_API_URL,
+    hostUri: Constants.expoConfig?.hostUri ?? Constants.expoGoConfig?.debuggerHost,
+    isDev: __DEV__,
+  });
 }
 
 export const BASE_URL: string = resolveBase();
 export const API_BASE = `${BASE_URL}/v1`;
+/** Where shared links point: the server this build talks to, else production. */
+export const PUBLIC_BASE: string = resolvePublicBase(CONFIGURED_API_URL, PUBLIC_BASE_URL);
 
 const ACCESS_TOKEN_KEY = 'flyleaf.access_token';
 const REFRESH_TOKEN_KEY = 'flyleaf.refresh_token';
