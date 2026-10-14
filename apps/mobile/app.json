@@ -7,7 +7,7 @@
     "orientation": "portrait",
     "userInterfaceStyle": "automatic",
     "android": {
-      "package": "app.flyleaf.skeleton",
+      "package": "app.flyleaf",
       "googleServicesFile": "./google-services.json",
       "permissions": [
         "android.permission.CAMERA",
@@ -41,7 +41,7 @@
       ]
     },
     "ios": {
-      "bundleIdentifier": "app.flyleaf.skeleton",
+      "bundleIdentifier": "app.flyleaf",
       "supportsTablet": false,
       "associatedDomains": ["applinks:flyleaf.app", "applinks:flyleaf-vk.koreacentral.cloudapp.azure.com"]
     },
