@@ -1,0 +1,102 @@
+# Publish a JavaScript-only change to installed builds, from a phone
+# (docs/mobile-release.md › Next builds). GitHub → Actions → "EAS update" →
+# Run workflow. No laptop, no new APK.
+#
+# Needs one repository secret, EXPO_TOKEN: an access token from expo.dev
+# (account → Access tokens). Without it the first step stops and says so.
+#
+# Only for changes without native parts: a new native module, an app.json
+# plugin or permission, or intent filters still need a new build (steps 5–6).
+# An update reaches only builds with the same app.json `version`
+# (runtimeVersion: appVersion).
+
+name: EAS update
+
+on:
+  workflow_dispatch:
+    inputs:
+      channel:
+        description: Which builds receive it (the eas.json build profile and channel)
+        type: choice
+        options: [preview, production]
+        default: preview
+      message:
+        description: What changed (shown on expo.dev; default is the commit subject)
+        type: string
+        required: false
+
+# Two publishes to one channel at once would race for "latest".
+concurrency:
+  group: eas-update-${{ inputs.channel }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: apps/mobile
+
+    steps:
+      - name: Check the Expo token
+        working-directory: .
+        env:
+          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+        run: |
+          if [ -z "$EXPO_TOKEN" ]; then
+            echo "::error::Add the EXPO_TOKEN repository secret (expo.dev → Access tokens; GitHub → Settings → Secrets and variables → Actions)."
+            exit 1
+          fi
+
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: apps/mobile/package-lock.json
+
+      - name: Install — mobile
+        run: npm ci --no-audit --no-fund
+
+      # Metro maps @flyleaf/api-client to its git-ignored dist (metro.config.js).
+      - name: Build the API client
+        run: npm run build:api-client
+
+      # Updates do not read eas.json's env, and an update without the address
+      # makes the app refuse to start. Read it from the same profile the build
+      # used, so the address is written in one place.
+      - name: API address for the channel
+        env:
+          CHANNEL: ${{ inputs.channel }}
+        run: |
+          url=$(node -e 'const p = require("./eas.json").build[process.env.CHANNEL]; process.stdout.write(p?.env?.FLYLEAF_API_URL ?? "")')
+          if [ -z "$url" ]; then
+            echo "::error::eas.json has no build.${CHANNEL}.env.FLYLEAF_API_URL"
+            exit 1
+          fi
+          echo "FLYLEAF_API_URL=$url" >> "$GITHUB_ENV"
+          echo "Publishing to the ${CHANNEL} channel against $url"
+
+      # What CI checks, so a broken bundle never reaches phones.
+      - name: Typecheck and offline tests
+        run: |
+          npm run typecheck
+          npm test
+
+      - uses: expo/expo-github-action@v8
+        with:
+          eas-version: latest
+          token: ${{ secrets.EXPO_TOKEN }}
+
+      - name: Publish
+        env:
+          CHANNEL: ${{ inputs.channel }}
+          MESSAGE: ${{ inputs.message }}
+        run: |
+          msg="${MESSAGE:-$(git log -1 --pretty=%s)}"
+          eas update --channel "$CHANNEL" --environment "$CHANNEL" --platform android --message "$msg" --non-interactive

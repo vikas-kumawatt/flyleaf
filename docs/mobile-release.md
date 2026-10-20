@@ -208,6 +208,8 @@ On the beta APK against `https://<host>`, merged from the phone checks in `docs/
 ## Next builds
 
 - **JavaScript-only change:** `FLYLEAF_API_URL=https://<host> npx eas-cli update --channel preview --environment preview` (laptop). The beta picks it up on its next launch or two.
+  - 📱 **From the phone:** GitHub → the repo → **Actions** → **EAS update** → **Run workflow**, choose the channel (`preview` for the beta APK), and tap **Run workflow** (`.github/workflows/eas-update.yml`). It reads the address from `eas.json`, runs the typecheck and the offline tests, then publishes the update.
+  - **Once, before the first run:** on expo.dev → account → **Access tokens**, create a token. Then on GitHub → the repo → **Settings** → **Secrets and variables** → **Actions** → **New repository secret**, add it as `EXPO_TOKEN`. Both pages work in a phone browser.
 - **Native change** (new native module, `app.json` plugin or permission, intent filters): steps 5–6 again. versionCode goes up by itself. Raise `version` (e.g. `0.1.0-beta.2`) when you want testers to see a new number. A new `version` is also a new runtime, so earlier APKs stop receiving updates.
 - **Real domain later:** deploy.md › *Moving to a real domain*. Add the domain's intent filter and associated domain next to the others (the tests require both platforms to list the same hosts), set `FLYLEAF_API_URL` in `eas.json` to it, rebuild, and keep `ANDROID_CERT_SHA256` the same (same key).
 - **iOS:** not built. `0.1.0-beta.1` is not a valid iOS version string (`CFBundleShortVersionString` takes numbers only), so an iOS build needs `ios.version` or a numeric `version` first.
