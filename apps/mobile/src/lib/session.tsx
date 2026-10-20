@@ -13,6 +13,8 @@ import {
 } from './api';
 import { queryClient } from './query';
 import { guestManager } from './guest';
+import { resetTelemetry } from './events';
+import { createSessionFlow } from './sessionFlow';
 
 type Ctx = {
   user: User | null;
@@ -26,26 +28,32 @@ type Ctx = {
 
 const SessionContext = createContext<Ctx | null>(null);
 
-/** Login and register return a user without emailVerified; /v1/me has it (A-05-011). */
-async function currentUser(fallback: User): Promise<User> {
-  try {
-    return await api.me();
-  } catch {
-    return fallback;
-  }
-}
-
 export function SessionProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [ready, setReady] = useState(false);
 
-  const startSession = useCallback(async (next: User) => {
-    // Nothing cached for the previous account may show for this one (A-07-003).
-    queryClient.clear();
-    setUser(next);
-    await saveSessionUser(next).catch(() => {});
-    await guestManager.migrateToServer(api);
-  }, []);
+  // Only the credentials call can fail a sign-in; see sessionFlow.ts.
+  const [flow] = useState(() =>
+    createSessionFlow<User>({
+      login: api.login,
+      register: api.register,
+      logout: api.logout,
+      me: api.me,
+      saveSessionUser,
+      clearCache: () => queryClient.clear(),
+      setUser,
+      migrateGuest: async () => {
+        const { count } = await guestManager.migrateToServer(api);
+        // The library screens fetched before the books arrived.
+        if (count > 0) await queryClient.invalidateQueries();
+      },
+      cancelGuestMigration: () => guestManager.cancelMigration(),
+      resetTelemetry,
+      onStepError: (step, err) => {
+        if (__DEV__) console.warn(`[session] ${step} failed after sign-in`, err);
+      },
+    }),
+  );
 
   useEffect(() => {
     (async () => {
@@ -70,8 +78,13 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
     })();
 
     // The refresh token was refused (reuse, reset on another device, expiry).
+    // That is a sign-out too: nothing of the session may outlive it.
     const unsubscribe = subscribeAuthChange((updatedUser) => {
-      if (!updatedUser) queryClient.clear();
+      if (!updatedUser) {
+        queryClient.clear();
+        guestManager.cancelMigration();
+        resetTelemetry();
+      }
       setUser(updatedUser);
     });
 
@@ -79,20 +92,14 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const signIn = useCallback(async (email: string, password: string) => {
-    const res = await api.login(email, password);
-    await startSession(await currentUser(res.user));
-  }, [startSession]);
+    await flow.signIn(email, password);
+  }, [flow]);
 
   const signUp = useCallback(async (email: string, username: string, password: string, dateOfBirth: string) => {
-    const res = await api.register(email, username, password, dateOfBirth);
-    await startSession(await currentUser(res.user));
-  }, [startSession]);
+    await flow.signUp(email, username, password, dateOfBirth);
+  }, [flow]);
 
-  const signOut = useCallback(async () => {
-    await api.logout();
-    queryClient.clear();
-    setUser(null);
-  }, []);
+  const signOut = useCallback(() => flow.signOut(), [flow]);
 
   const refreshUser = useCallback(async () => {
     const me = await api.me();

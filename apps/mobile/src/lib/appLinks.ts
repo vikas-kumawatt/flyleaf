@@ -53,3 +53,36 @@ function safeDecode(s: string): string | null {
     return null;
   }
 }
+
+/**
+ * An incoming link with every query parameter that decodeURIComponent cannot
+ * decode removed (npm audit, GHSA-vcc3-ghjq-m6fr). expo-router parses the
+ * query of each incoming link with query-string, whose decode-uri-component
+ * (<= 0.4.2) falls back to an exponential-time decoder on malformed
+ * percent-encoding: a link anyone can send would hang the app. The only
+ * patched release (0.5.0) is ESM-only, which query-string 7 cannot require,
+ * and the expo-router that drops it is SDK 58. Well-formed parameters never
+ * reach the fallback and pass through unchanged.
+ */
+export function withoutMalformedQuery(input: string): string {
+  const q = input.indexOf('?');
+  if (q === -1) return input;
+  const h = input.indexOf('#', q);
+  const query = input.slice(q + 1, h === -1 ? undefined : h);
+  const kept = query.split('&').filter((param) => {
+    // As query-string reads it: '+' is a space, key and value split on the first '='.
+    const plain = param.replace(/\+/g, ' ');
+    const eq = plain.indexOf('=');
+    try {
+      decodeURIComponent(eq === -1 ? plain : plain.slice(0, eq));
+      if (eq !== -1) decodeURIComponent(plain.slice(eq + 1));
+      return true;
+    } catch {
+      return false;
+    }
+  });
+  if (kept.length === query.split('&').length) return input;
+  const head = input.slice(0, q);
+  const tail = h === -1 ? '' : input.slice(h);
+  return kept.length > 0 ? `${head}?${kept.join('&')}${tail}` : `${head}${tail}`;
+}

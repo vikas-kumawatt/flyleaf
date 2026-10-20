@@ -30,6 +30,7 @@ import {
   applyAgeGate,
 } from '@/lib/auth-validation';
 import { isDeviceAgeGated, recordDeviceAgeGate } from '@/lib/ageGate';
+import { loginErrorMessage, transientAuthError } from '@/lib/authErrors';
 import { createUsernameChecker, type UsernameStatus } from '@/lib/usernameCheck';
 import { WelcomeCarousel } from '@/ui/WelcomeCarousel';
 import { Button, Card, Screen, Txt, sheet } from '@/ui/components';
@@ -106,9 +107,11 @@ export default function AuthScreen() {
     try {
       await signIn(email.trim(), password);
       router.back();
-    } catch (err: any) {
-      // PRD §6.4: Generic error to prevent account enumeration
-      setGeneralError('Email or password is incorrect. Please try again.');
+    } catch (err) {
+      // PRD §6.4: one message for a wrong email or a wrong password. Only a
+      // 401 invalid_credentials says "incorrect"; a 429, 5xx or no
+      // connection says so (authErrors.ts).
+      setGeneralError(loginErrorMessage(err));
     } finally {
       setBusy(false);
     }
@@ -153,7 +156,7 @@ export default function AuthScreen() {
       } else if (err instanceof FlyleafApiError && err.code === 'email_taken') {
         setGeneralError('An account with that email already exists.');
       } else {
-        setGeneralError(err?.message ?? 'Could not create account. Try again.');
+        setGeneralError(transientAuthError(err) ?? err?.message ?? 'Could not create account. Try again.');
       }
     } finally {
       setBusy(false);
@@ -172,8 +175,11 @@ export default function AuthScreen() {
       await api.forgotPassword(email.trim());
       // PRD §6.5: Identical copy regardless of whether the email exists
       setSuccessNotice('If that email is registered, we sent a password reset link.');
-    } catch {
-      setSuccessNotice('If that email is registered, we sent a password reset link.');
+    } catch (err) {
+      // Nothing was sent: say why. Neither depends on the email existing.
+      const transient = transientAuthError(err);
+      if (transient) setGeneralError(transient);
+      else setSuccessNotice('If that email is registered, we sent a password reset link.');
     } finally {
       setBusy(false);
     }
@@ -200,7 +206,7 @@ export default function AuthScreen() {
       setSuccessNotice('Password reset successfully. You can now sign in.');
       setMode('login');
     } catch (err: any) {
-      setGeneralError(err?.message ?? 'Invalid or expired token.');
+      setGeneralError(transientAuthError(err) ?? err?.message ?? 'Invalid or expired token.');
     } finally {
       setBusy(false);
     }
@@ -626,6 +632,8 @@ export default function AuthScreen() {
                 value={password}
                 onChangeText={setPassword}
                 secureTextEntry
+                autoCapitalize="none"
+                autoCorrect={false}
                 placeholder="Min 10 characters"
                 placeholderTextColor={c.muted}
                 style={[styles.input, { backgroundColor: c.surface, borderColor: c.line, color: c.ink }]}
@@ -640,6 +648,8 @@ export default function AuthScreen() {
                 value={confirmPassword}
                 onChangeText={setConfirmPassword}
                 secureTextEntry
+                autoCapitalize="none"
+                autoCorrect={false}
                 placeholder="Re-enter password"
                 placeholderTextColor={c.muted}
                 style={[styles.input, { backgroundColor: c.surface, borderColor: c.line, color: c.ink }]}
