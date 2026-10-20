@@ -357,19 +357,25 @@ export const api = {
   logout: async () => {
     // An upload started by this user must not be completed by the next one.
     client.cancelPendingUploads();
-    // This device must stop receiving this user's pushes (SO-30). While the
-    // session still holds a token, so the call is authorised.
-    for (const hook of beforeLogout) await hook().catch(() => {});
-    const refreshToken = await loadRefreshToken();
-    if (refreshToken) {
-      try {
-        await client.logout({ refreshToken });
-      } catch {
-        // Best-effort server notification
+    try {
+      // This device must stop receiving this user's pushes (SO-30). While the
+      // session still holds a token, so the call is authorised.
+      for (const hook of beforeLogout) {
+        try {
+          await hook();
+        } catch {
+          // Best-effort, like the server call below.
+        }
       }
+      const refreshToken = await loadRefreshToken();
+      if (refreshToken) await client.logout({ refreshToken });
+    } catch {
+      // Best-effort server notification
+    } finally {
+      // Whatever happened above, this device holds no token afterwards.
+      await clearAllTokens();
+      notifyAuthFailed();
     }
-    await clearAllTokens();
-    notifyAuthFailed();
   },
 
   me: () => client.getMe(),

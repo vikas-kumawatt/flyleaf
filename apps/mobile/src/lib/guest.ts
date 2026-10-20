@@ -188,6 +188,8 @@ export class GuestManager {
   }
 
   private migrating: Promise<{ count: number; message: string | null }> | null = null;
+  /** Bumped by cancelMigration(): a run started before it stops at the next book. */
+  private migrationGeneration = 0;
 
   /**
    * Moves the local shelf into the signed-in user's library (SL-33), on signup
@@ -195,25 +197,44 @@ export class GuestManager {
    * - a book already in the library is left as it is: setting 'want' would
    *   turn a book being read back into want-to-read, or start a re-read of a
    *   finished one;
-   * - a book is removed locally only once it is safely in the library; a
-   *   network or server failure keeps it for the next sign-in;
-   * - a book the server refuses (4xx: no such work) is dropped;
+   * - a book is removed locally only once it is safely in the library, or
+   *   when the server refuses that book for good (404 no such work, 422 not
+   *   a valid work). Any other failure (network, 5xx, 401, 403, 409, 429)
+   *   says nothing about the book and keeps it for the next sign-in;
    * - concurrent calls (boot and sign-in) share one run.
+   * Never rejects (beta bug, Oct 2026): sign-in must not fail because of it.
    */
   migrateToServer(apiClient: {
     reads: () => Promise<{ work_id: string }[]>;
     setStatus: (workId: string, status: string) => Promise<unknown>;
   }): Promise<{ count: number; message: string | null }> {
-    this.migrating ??= this.runMigration(apiClient).finally(() => {
-      this.migrating = null;
-    });
+    if (!this.migrating) {
+      const run = this.runMigration(apiClient, this.migrationGeneration)
+        .catch(() => ({ count: 0, message: null }))
+        .finally(() => {
+          if (this.migrating === run) this.migrating = null;
+        });
+      this.migrating = run;
+    }
     return this.migrating;
   }
 
-  private async runMigration(apiClient: {
-    reads: () => Promise<{ work_id: string }[]>;
-    setStatus: (workId: string, status: string) => Promise<unknown>;
-  }): Promise<{ count: number; message: string | null }> {
+  /**
+   * Sign-out: a run in progress stops before its next book, so nothing is
+   * sent with the next account's token, and the next sign-in starts afresh.
+   */
+  cancelMigration(): void {
+    this.migrationGeneration++;
+    this.migrating = null;
+  }
+
+  private async runMigration(
+    apiClient: {
+      reads: () => Promise<{ work_id: string }[]>;
+      setStatus: (workId: string, status: string) => Promise<unknown>;
+    },
+    generation: number,
+  ): Promise<{ count: number; message: string | null }> {
     const toMigrate = [...this.books];
     if (toMigrate.length === 0) {
       return { count: 0, message: null };
@@ -228,24 +249,23 @@ export class GuestManager {
 
     let count = 0;
     for (const book of toMigrate) {
+      if (generation !== this.migrationGeneration) break; // signed out meanwhile
       if (!library.has(book.id)) {
         try {
           await apiClient.setStatus(book.id, 'want');
         } catch (err) {
           const status = (err as { status?: number } | null)?.status;
-          if (status === undefined || status >= 500 || status === 401 || status === 408 || status === 429) {
-            continue; // keep it for the next sign-in
-          }
-          await this.removeBook(book.id); // the catalogue no longer has it
-          continue;
+          if (status === 404 || status === 422) await this.removeBook(book.id); // the catalogue no longer has it
+          continue; // anything else: keep it for the next sign-in
         }
       }
       await this.removeBook(book.id);
       count++;
     }
 
-    if (count === 0) {
-      return { count: 0, message: null };
+    // Signed out meanwhile: the guest is not told about the last account's books.
+    if (count === 0 || generation !== this.migrationGeneration) {
+      return { count, message: null };
     }
 
     // Generate copy matching PRD §4.2: "We've kept the 4 books you saved."

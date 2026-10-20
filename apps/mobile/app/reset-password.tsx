@@ -8,6 +8,7 @@ import { ScrollView, TextInput, View } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { api, FlyleafApiError } from '@/lib/api';
 import { validatePassword } from '@/lib/auth-validation';
+import { transientAuthError, UNREACHABLE } from '@/lib/authErrors';
 import { Button, Screen, Txt, sheet } from '@/ui/components';
 import { radius, space, useTheme } from '@/ui/tokens';
 
@@ -43,7 +44,7 @@ export default function ResetPasswordScreen() {
         // e.g. "That password is too common to be safe."
         setError(err.message);
       } else {
-        setError('We could not reach Flyleaf. Check your connection and try again.');
+        setError(transientAuthError(err) ?? UNREACHABLE);
       }
     } finally {
       setBusy(false);

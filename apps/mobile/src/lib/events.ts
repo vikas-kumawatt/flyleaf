@@ -36,6 +36,10 @@ try {
 
 const FLUSH_INTERVAL_MS = 15_000;
 const BATCH_SIZE_THRESHOLD = 20;
+/** POST /v1/events takes at most 100 events; a bigger batch is a 400 every time. */
+export const MAX_BATCH = 100;
+const MAX_QUEUE = 200;
+const MAX_BACKOFF_MS = 10 * 60 * 1000;
 const SESSION_IDLE_TIMEOUT_MS = 30 * 60 * 1000; // 30 minutes
 
 let currentSessionId: string | null = null;
@@ -44,6 +48,20 @@ let eventQueue: TelemetryEvent[] = [];
 let isFlushing = false;
 let flushTimer: any = null;
 let isInitialized = false;
+// Backoff (beta bug, Oct 2026). Without it a failing batch was re-sent every
+// 15 s forever: a 429 retried at once, a 400 (over MAX_BATCH) never
+// succeeding. Signed out, every one of those counts against the per-IP
+// anonymous Global tier, the same budget sign-in is checked against.
+let retryAt = 0;
+let failures = 0;
+/** Bumped by resetTelemetry(): a send in flight then belongs to a session that has ended. */
+let generation = 0;
+let now: () => number = Date.now;
+
+/** For testing: the clock the backoff reads. */
+export function setTelemetryClock(clock: (() => number) | null): void {
+  now = clock ?? Date.now;
+}
 
 function generateUUID(): string {
   if (typeof crypto !== 'undefined' && crypto?.randomUUID) {
@@ -95,6 +113,8 @@ export function track(name: string, properties: Record<string, any> = {}): void 
   };
 
   eventQueue.push(event);
+  // While backing off the buffer still fills; it stays bounded.
+  if (eventQueue.length > MAX_QUEUE) eventQueue = eventQueue.slice(-MAX_QUEUE);
 
   if (eventQueue.length >= BATCH_SIZE_THRESHOLD) {
     void flushEvents();
@@ -102,28 +122,57 @@ export function track(name: string, properties: Record<string, any> = {}): void 
 }
 
 /**
- * Flushes the current event buffer to the API backend.
- * Retains events in the queue if network delivery fails.
+ * Sends the oldest MAX_BATCH buffered events to the API backend.
+ * - success: the next batch goes on the next tick;
+ * - 429: nothing is sent until the server's Retry-After has passed;
+ * - no response, 408 or 5xx: kept, and retried with exponential backoff;
+ * - any other 4xx: the server will never take this batch, so it is dropped.
  */
 export async function flushEvents(): Promise<number> {
-  if (isFlushing || eventQueue.length === 0) {
+  if (isFlushing || eventQueue.length === 0 || now() < retryAt) {
     return 0;
   }
 
   isFlushing = true;
-  const batch = [...eventQueue];
-  eventQueue = [];
+  const sentIn = generation;
+  const batch = eventQueue.slice(0, MAX_BATCH);
+  eventQueue = eventQueue.slice(MAX_BATCH);
 
   try {
     const res = await sendBatch(batch);
-    isFlushing = false;
+    failures = 0;
+    retryAt = 0;
     return res.accepted;
-  } catch {
-    // Offline resilience: prepend un-sent events back to queue (cap at 200 to prevent unbounded growth)
-    eventQueue = [...batch, ...eventQueue].slice(0, 200);
-    isFlushing = false;
+  } catch (err) {
+    if (sentIn !== generation) return 0; // signed out meanwhile: not this session's to retry
+    const { status, retryAfterSeconds } = (err ?? {}) as { status?: number; retryAfterSeconds?: number };
+    if (status === 429) {
+      retryAt = now() + (retryAfterSeconds && retryAfterSeconds > 0 ? retryAfterSeconds : 60) * 1000;
+    } else if (typeof status === 'number' && status >= 400 && status < 500 && status !== 408) {
+      return 0; // refused for good: dropped
+    } else {
+      failures++;
+      retryAt = now() + Math.min(FLUSH_INTERVAL_MS * 2 ** failures, MAX_BACKOFF_MS);
+    }
+    // Offline resilience: put the batch back in front (capped to prevent unbounded growth)
+    eventQueue = [...batch, ...eventQueue].slice(0, MAX_QUEUE);
     return 0;
+  } finally {
+    isFlushing = false;
   }
+}
+
+/**
+ * Sign-out: the session's unsent events and its backoff go with it, and the
+ * next session gets a new id. Events are not attributed to the next account,
+ * and a retry loop cannot outlive the session it belonged to.
+ */
+export function resetTelemetry(): void {
+  generation++;
+  eventQueue = [];
+  retryAt = 0;
+  failures = 0;
+  resetSessionId();
 }
 
 /**
@@ -173,4 +222,6 @@ export function getPendingEventQueue(): TelemetryEvent[] {
  */
 export function clearEventQueue(): void {
   eventQueue = [];
+  retryAt = 0;
+  failures = 0;
 }

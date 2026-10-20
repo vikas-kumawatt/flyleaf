@@ -189,6 +189,18 @@ The code was mostly right where it had been looked at, and wrong where two piece
 
 ---
 
+## Beta addendum: a 429 that read as a wrong password
+
+After a password reset, sign-in said "Email or password is incorrect" every time (`docs/audit/findings/beta-01-login-after-reset.md`). The password was fine:
+- the sign-in screen showed that message for any failure;
+- the failure was a 429 from the anonymous Global tier (200/hour per IP), which a signed-out phone's own telemetry used up by re-sending a refused batch every 15 s.
+
+No test could see it: every test app ran with the Global tier off (D-15-1a), and no test drove the phone's code against the server.
+
+**Rule:** an error message names only the error it was written for. Anything else says what actually happened.
+
+---
+
 ## Actions taken
 
 - [x] Search field moved out of `ListHeaderComponent`

@@ -198,6 +198,18 @@ describe('Guest Mode Local Want-to-Read & Migration (SL-32, SL-33)', () => {
       assert.equal(manager.getCount(), 0);
     });
 
+    test('a refusal that says nothing about the book (401, 403, 409, 429) keeps it (beta bug, Oct 2026)', async () => {
+      const manager = await shelfOf('s401', 's403', 's409', 's429');
+      const result = await manager.migrateToServer({
+        reads: async () => [],
+        setStatus: async (workId) => {
+          throw httpError(Number(workId.slice(1)));
+        },
+      });
+      assert.equal(result.count, 0);
+      assert.deepEqual(manager.getBooks().map((b) => b.id).sort(), ['s401', 's403', 's409', 's429']);
+    });
+
     test('when the library cannot be read, nothing is sent and nothing is removed', async () => {
       const manager = await shelfOf('a', 'b');
       let sent = 0;

@@ -2,7 +2,7 @@
 import { describe, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync, existsSync } from 'node:fs';
-import { appPathFor, linkHostsFrom } from '../appLinks';
+import { appPathFor, linkHostsFrom, withoutMalformedQuery } from '../appLinks';
 
 const root = new URL('../../../', import.meta.url);
 const read = (p: string) => readFileSync(new URL(p, root), 'utf8');
@@ -30,7 +30,9 @@ describe('App Links (owner decision on SO-5x)', () => {
   });
 
   test('the rewrite is wired in, and the username screen resolves through the API', () => {
-    assert.match(read('app/+native-intent.tsx'), /appPathFor\(path, HOSTS\)/);
+    // The query is cleaned first (withoutMalformedQuery, below).
+    assert.match(read('app/+native-intent.tsx'), /const safe = withoutMalformedQuery\(path\);/);
+    assert.match(read('app/+native-intent.tsx'), /appPathFor\(safe, HOSTS\)/);
     assert.match(read('app/+native-intent.tsx'), /linkHostsFrom\(Constants\.expoConfig\?\.extra\)/);
     assert.ok(existsSync(new URL('app/u/[username]/index.tsx', root)));
     assert.match(read('app/u/[username]/index.tsx'), /api\s*\.userByUsername\(username\)/);
@@ -54,5 +56,38 @@ describe('App Links (owner decision on SO-5x)', () => {
     const json = JSON.parse(read('app.json'));
     const prefixes = json.expo.android.intentFilters.flatMap((f: any) => f.data).map((d: any) => d.pathPrefix).filter(Boolean);
     assert.deepEqual([...new Set(prefixes)].sort(), ['/@', '/book/', '/u/']);
+  });
+});
+
+// npm audit, GHSA-vcc3-ghjq-m6fr: expo-router's query parser (query-string →
+// decode-uri-component <= 0.4.2) is exponential on malformed percent-encoding.
+describe('incoming links: malformed query parameters are dropped', () => {
+  const token = 'Qm9va3MgYXJlIGEgdW5pcXVlbHkgcG9ydGFibGUgbWFnaWM';
+
+  test('well-formed links pass through unchanged', () => {
+    for (const link of [
+      `https://flyleaf.app/reset-password?token=${token}`,
+      `flyleaf://reset-password?token=${encodeURIComponent(token)}`,
+      '/work/abc?from=search&q=the%20left%20hand+of+darkness#top',
+      '/u/reader',
+      '/search?q=',
+    ]) {
+      assert.equal(withoutMalformedQuery(link), link);
+    }
+  });
+
+  test('a parameter that cannot be decoded is removed, the rest kept', () => {
+    assert.equal(withoutMalformedQuery(`/reset-password?token=${token}&x=%E0%A4%A`), `/reset-password?token=${token}`);
+    assert.equal(withoutMalformedQuery('/work/abc?%zz=1&ok=2#frag'), '/work/abc?ok=2#frag');
+    assert.equal(withoutMalformedQuery('/work/abc?bad=%'), '/work/abc');
+  });
+
+  test('a hostile link is cleaned in well under a millisecond per kilobyte', () => {
+    // 3 KB of this kept query-string.parse busy for 17 s (6 KB: 96 s) in Node.
+    const hostile = `/work/abc?q=${'%E0%A4'.repeat(5000)}`;
+    const started = performance.now();
+    const cleaned = withoutMalformedQuery(hostile);
+    assert.equal(cleaned, '/work/abc');
+    assert.ok(performance.now() - started < 200);
   });
 });
