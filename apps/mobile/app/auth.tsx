@@ -11,6 +11,7 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import {
+  Alert,
   View,
   ScrollView,
   Pressable,
@@ -31,6 +32,7 @@ import {
 } from '@/lib/auth-validation';
 import { isDeviceAgeGated, recordDeviceAgeGate } from '@/lib/ageGate';
 import { loginErrorMessage, transientAuthError } from '@/lib/authErrors';
+import { RESTORED_MESSAGE, RESTORED_TITLE } from '@/lib/accountDeletion';
 import { createUsernameChecker, type UsernameStatus } from '@/lib/usernameCheck';
 import { WelcomeCarousel } from '@/ui/WelcomeCarousel';
 import { Button, Card, Screen, Txt, sheet } from '@/ui/components';
@@ -105,8 +107,9 @@ export default function AuthScreen() {
 
     setBusy(true);
     try {
-      await signIn(email.trim(), password);
+      const { restored } = await signIn(email.trim(), password);
       router.back();
+      if (restored) Alert.alert(RESTORED_TITLE, RESTORED_MESSAGE);
     } catch (err) {
       // PRD §6.4: one message for a wrong email or a wrong password. Only a
       // 401 invalid_credentials says "incorrect"; a 429, 5xx or no

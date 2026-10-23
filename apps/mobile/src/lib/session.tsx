@@ -19,7 +19,8 @@ import { createSessionFlow } from './sessionFlow';
 type Ctx = {
   user: User | null;
   ready: boolean;
-  signIn: (email: string, password: string) => Promise<void>;
+  /** `restored`: the account was in its deletion grace and is back (LA-01). */
+  signIn: (email: string, password: string) => Promise<{ restored: boolean }>;
   signUp: (email: string, username: string, password: string, dateOfBirth: string) => Promise<void>;
   signOut: () => Promise<void>;
   /** Re-read /v1/me, e.g. after the email is verified. */
@@ -92,7 +93,8 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const signIn = useCallback(async (email: string, password: string) => {
-    await flow.signIn(email, password);
+    const { restored } = await flow.signIn(email, password);
+    return { restored };
   }, [flow]);
 
   const signUp = useCallback(async (email: string, username: string, password: string, dateOfBirth: string) => {

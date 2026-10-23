@@ -301,6 +301,20 @@ export interface AuthResponse {
   refreshToken: string;
 }
 
+/** POST /auth/login. */
+export interface LoginResponse extends AuthResponse {
+  /** This sign-in restored an account deleted within the last 30 days (LA-01). */
+  restored: boolean;
+}
+
+/** DELETE /me (LA-01, PRD §25.4). */
+export interface DeleteAccountResponse {
+  status: 'scheduled';
+  deletedAt: string;
+  /** Signing in before this restores the account; after it the account is permanently deleted. */
+  purgeAfter: string;
+}
+
 export interface RefreshResponse {
   accessToken: string;
   refreshToken: string;

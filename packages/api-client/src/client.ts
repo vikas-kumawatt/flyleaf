@@ -61,6 +61,8 @@ import type {
   ReadListResponse,
   UserReadPage,
   ContentSettingsRequest,
+  DeleteAccountResponse,
+  LoginResponse,
   AvatarResponse,
   ReadStatus,
   RefreshRequest,
@@ -254,8 +256,8 @@ export class FlyleafClient {
     });
   }
 
-  async login(data: LoginRequest): Promise<AuthResponse> {
-    return this.request<AuthResponse>('/auth/login', {
+  async login(data: LoginRequest): Promise<LoginResponse> {
+    return this.request<LoginResponse>('/auth/login', {
       method: 'POST',
       body: JSON.stringify(data),
     });
@@ -331,6 +333,14 @@ export class FlyleafClient {
   async getMe(): Promise<User> {
     return this.request<User>('/me', {
       method: 'GET',
+    });
+  }
+
+  /** LA-01: 422 wrong_password; signing in within 30 days (purgeAfter) restores the account. */
+  async deleteAccount(password: string): Promise<DeleteAccountResponse> {
+    return this.request<DeleteAccountResponse>('/me', {
+      method: 'DELETE',
+      body: JSON.stringify({ password }),
     });
   }
 

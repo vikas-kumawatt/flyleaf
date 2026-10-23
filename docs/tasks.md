@@ -1358,8 +1358,9 @@
 
 ## Phase 6 — Launch readiness · `LA` · 15d
 
-- [ ] **LA-01** ⚠️ **Account deletion**: password re-entry, 30-day grace, export offer, hard delete job — 1.5d
+- [x] **LA-01** ⚠️ **Account deletion**: password re-entry, 30-day grace, export offer, hard delete job — 1.5d
   - **Audit 15a (2026-10-10):** the hard-delete step exists: the daily retention sweep deletes an account 30 days after deletion, its stored objects first (A-15-008). Password re-entry, the export offer and the UI remain.
+  - **Built, 23 Oct 2026.** `DELETE /v1/me` with the password (422 `wrong_password`; `auth-account` rate-limit tier): sets `deleted_at`, revokes every refresh token, emails the date the grace ends, answers `purgeAfter`. Signing in within 30 days restores the account (`POST /auth/login` answers `restored: true`); past 30 days, or banned, signing in is the ordinary 401. Forgot password reaches an account in its grace, so an owner without the password can still restore it. An export requested first still completes and its emailed link still works. Mobile: Profile → Account → Delete account (`app/profile/delete-account.tsx`): what is lost and what stays, the 30-day promise, "Export my library", then password and a final confirmation; the sign-in screen says when an account came back. Tests: API `account-deletion.test.ts` (8), A-04-007 updated for the grace; mobile `account-deletion.test.ts` (6), `session-flow` +1. **Known:** the access token in hand stays valid up to 15 minutes, as after a ban (stateless lookups). **Not yet:** the end-to-end check on a phone (Phase 6 exit criterion).
 - [ ] LA-02 Settings: privacy, notifications, content, libraries, appearance, blocked, about — 2d
 - [ ] LA-03 Onboarding polish; import-first ordering; skip everywhere — 1.5d
 - [ ] LA-04 Every empty, loading and error state audited — 1.5d

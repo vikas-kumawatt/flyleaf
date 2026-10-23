@@ -852,6 +852,34 @@ export default function ProfileScreen() {
                 </View>
               </Card>
             </View>
+
+            {/* 9. ACCOUNT (LA-01, PRD §25.4): deletion must be completable in the app. */}
+            <View style={{ gap: space[2] }}>
+              <Txt variant="caption" color="muted" style={{ fontWeight: '700', letterSpacing: 0.5 }}>
+                ACCOUNT
+              </Txt>
+              <Card
+                onPress={() => {
+                  void Haptics.selectionAsync();
+                  router.push('/profile/delete-account' as any);
+                }}
+                style={{ padding: space[3] }}
+              >
+                <View style={sheet.rowBetween}>
+                  <View style={{ gap: 2, flex: 1, marginRight: space[2] }}>
+                    <Txt variant="title" color="critical" style={{ fontSize: 15, fontWeight: '700' }}>
+                      Delete account
+                    </Txt>
+                    <Txt variant="caption" color="muted">
+                      Permanently delete your account after 30 days.
+                    </Txt>
+                  </View>
+                  <Txt variant="title" color="critical">
+                    →
+                  </Txt>
+                </View>
+              </Card>
+            </View>
           </>
         ) : (
           <EmptyState

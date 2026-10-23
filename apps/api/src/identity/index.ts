@@ -21,6 +21,7 @@ import { resolveWorkId } from '../catalog/resolve.js';
 import { isCommonPassword } from './common-passwords.js';
 import { canViewWith, loadRelationship, requireNotSuspended } from '../authorization/index.js';
 import { containsBlockedTerm, screenText } from '../moderation/filters.js';
+import { SOFT_DELETE_DAYS } from '../jobs/retention.js';
 
 export type ProfileFavourite = {
   id: string;
@@ -182,6 +183,10 @@ const loginBody = z.object({
   password: z.string(),
 });
 
+const deleteAccountBody = z.object({
+  password: z.string().min(1, 'Enter your password.'),
+});
+
 const refreshBody = z.object({
   refreshToken: z.string().min(1, 'Refresh token is required.'),
 });
@@ -271,6 +276,14 @@ export type User = {
   showExplicit?: boolean;
   explicitSettingAvailable?: boolean;
 };
+
+/**
+ * An account its owner deleted less than SOFT_DELETE_DAYS ago and no
+ * moderator banned (LA-01, PRD §25.4 step 5): signing in restores it. A ban
+ * is also a soft delete (SO-42) and is never restored this way.
+ */
+const inDeletionGraceSql = sql`(${users.deletedAt} IS NOT NULL AND ${users.bannedAt} IS NULL
+  AND ${users.deletedAt} > now() - make_interval(days => ${SOFT_DELETE_DAYS}))`;
 
 /**
  * Who may hold "Show explicit titles in search" (PRD §7.8): a confirmed date
@@ -423,10 +436,11 @@ export class IdentityService {
         passwordHash: users.passwordHash,
         username: profiles.username,
         role: users.role,
+        deletedAt: users.deletedAt,
       })
       .from(users)
       .innerJoin(profiles, eq(users.id, profiles.userId))
-      .where(and(eq(users.email, normaliseEmail(email)), isNull(users.deletedAt)))
+      .where(and(eq(users.email, normaliseEmail(email)), or(isNull(users.deletedAt), inDeletionGraceSql)))
       .limit(1);
 
     const generic = new ApiError(401, 'invalid_credentials', 'Email or password is incorrect.');
@@ -439,6 +453,20 @@ export class IdentityService {
     // this endpoint says nothing about which emails belong to staff.
     const passwordOk = await verifyPassword(row.passwordHash, password);
     if (!passwordOk || row.role !== 'user') throw generic;
+
+    // LA-01: signing in during the grace period restores the account (PRD
+    // §25.4 step 5). The condition is re-checked here, so a ban or the
+    // retention sweep that landed since the read above is not undone.
+    let restored = false;
+    if (row.deletedAt !== null) {
+      const back = await this.db
+        .update(users)
+        .set({ deletedAt: null })
+        .where(and(eq(users.id, row.id), inDeletionGraceSql))
+        .returning({ id: users.id });
+      if (back.length === 0) throw generic;
+      restored = true;
+    }
 
     const familyId = randomUUID();
     const rawRefreshToken = randomBytes(32).toString('base64url');
@@ -458,7 +486,59 @@ export class IdentityService {
       user: { id: row.id, email: row.email, username: row.username } as User,
       accessToken,
       refreshToken: rawRefreshToken,
+      restored,
     };
+  }
+
+  /**
+   * Deletes the viewer's account (LA-01, PRD §25.4, AC-17): password
+   * re-entry, then `deleted_at` is set and every session ends. The account
+   * disappears everywhere a deleted one does at once (every read path already
+   * leaves out `deleted_at`); signing in within SOFT_DELETE_DAYS restores it;
+   * after that the retention sweep hard-deletes it (jobs/retention.ts). The
+   * access token in hand stays valid until it expires (15 minutes), as after
+   * a ban: lookups are stateless by design.
+   *
+   * An export requested before this still completes and its emailed link
+   * still works (exports/index.ts checks the token, not the account), which
+   * is how "an export is offered before deletion completes" (step 7) holds.
+   */
+  async deleteAccount(userId: string, password: string): Promise<{ status: 'scheduled'; deletedAt: string; purgeAfter: string }> {
+    const [row] = await this.db
+      .select({ email: users.email, passwordHash: users.passwordHash })
+      .from(users)
+      .where(and(eq(users.id, userId), isNull(users.deletedAt)))
+      .limit(1);
+    if (!row) throw ApiError.unauthorized();
+    if (!(await verifyPassword(row.passwordHash, password))) {
+      throw ApiError.unprocessable('wrong_password', 'That password is not right.', 'password');
+    }
+
+    const deletedAt = await this.db.transaction(async (tx) => {
+      const [u] = await tx
+        .update(users)
+        .set({ deletedAt: sql`now()` })
+        .where(and(eq(users.id, userId), isNull(users.deletedAt)))
+        .returning({ deletedAt: users.deletedAt });
+      if (!u?.deletedAt) throw ApiError.unauthorized();
+      await tx
+        .update(refreshTokens)
+        .set({ revokedAt: new Date() })
+        .where(and(eq(refreshTokens.userId, userId), isNull(refreshTokens.revokedAt)));
+      return u.deletedAt;
+    });
+    const purgeAfter = new Date(deletedAt.getTime() + SOFT_DELETE_DAYS * 24 * 60 * 60 * 1000);
+
+    // The grace period stated where the owner will find it again (step 5).
+    // Not awaited, as the reset email: a mail failure is reported, not returned.
+    const until = purgeAfter.toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric', timeZone: 'UTC' });
+    void this.mailer.send({
+      to: row.email,
+      subject: 'Your Flyleaf account will be deleted',
+      text: `Your Flyleaf account has been deleted and is no longer visible to anyone.\n\nYou have until ${until} to change your mind: signing in to the app before then restores everything as it was.\n\nAfter that, your reads, reviews, shelves, diary and profile are permanently deleted. Ratings remain only as an anonymous part of each book's average.\n\nIf you did not do this, sign in now and change your password.`,
+    }).catch((err: unknown) => this.onMailError(err instanceof Error ? err : new Error(String(err))));
+
+    return { status: 'scheduled', deletedAt: deletedAt.toISOString(), purgeAfter: purgeAfter.toISOString() };
   }
 
   /**
@@ -1052,7 +1132,9 @@ export class IdentityService {
     const [user] = await this.db
       .select({ id: users.id, email: users.email })
       .from(users)
-      .where(and(eq(users.email, normalized), isNull(users.deletedAt)))
+      // An account in its deletion grace period too: a reset, then signing in,
+      // is how an owner who forgot the password restores it (LA-01).
+      .where(and(eq(users.email, normalized), or(isNull(users.deletedAt), inDeletionGraceSql)))
       .limit(1);
 
     if (user) {
@@ -1199,6 +1281,8 @@ import {
   registerResponseSchema,
   loginBodySchema,
   loginResponseSchema,
+  deleteAccountBodySchema,
+  deleteAccountResponseSchema,
   refreshBodySchema,
   refreshResponseSchema,
   logoutResponseSchema,
@@ -1531,6 +1615,37 @@ export function identityRoutes(service: IdentityService) {
         const user = await service.get(viewer);
         if (!user) throw ApiError.notFound('No such account.');
         return user;
+      },
+    );
+
+    app.delete(
+      '/me',
+      {
+        schema: {
+          tags: ['Auth'],
+          summary: 'Delete my account',
+          description:
+            'LA-01, PRD §25.4: requires the password (422 wrong_password). The account disappears everywhere at once and every ' +
+            'session ends; signing in before purgeAfter (30 days) restores it, and after that it is permanently deleted. ' +
+            'An export requested before this still arrives by email.',
+          security: [{ BearerAuth: [] }],
+          body: deleteAccountBodySchema,
+          response: {
+            200: deleteAccountResponseSchema,
+            401: errorResponseSchema,
+            422: errorResponseSchema,
+            429: errorResponseSchema,
+          },
+        },
+      },
+      async (req) => {
+        const viewer = requireViewer(req);
+        const parsed = deleteAccountBody.safeParse(req.body);
+        if (!parsed.success) {
+          const issue = parsed.error.issues[0];
+          throw ApiError.unprocessable('invalid_field', issue?.message ?? 'Enter your password.', 'password');
+        }
+        return service.deleteAccount(viewer, parsed.data.password);
       },
     );
 
