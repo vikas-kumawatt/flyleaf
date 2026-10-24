@@ -90,6 +90,13 @@ function Nav() {
         <Stack.Screen name="sync-issues" options={{ presentation: 'card', headerShown: false }} />
         <Stack.Screen name="verify-email" options={{ title: 'Verify email' }} />
         <Stack.Screen name="reset-password" options={{ title: 'New password' }} />
+        {/* LA-02 Settings: each screen draws its own header (ScreenHeader). */}
+        <Stack.Screen name="settings/index" options={{ presentation: 'card', headerShown: false }} />
+        <Stack.Screen name="settings/account" options={{ presentation: 'card', headerShown: false }} />
+        <Stack.Screen name="settings/privacy" options={{ presentation: 'card', headerShown: false }} />
+        <Stack.Screen name="settings/notifications" options={{ presentation: 'card', headerShown: false }} />
+        <Stack.Screen name="settings/appearance" options={{ presentation: 'card', headerShown: false }} />
+        <Stack.Screen name="settings/about" options={{ presentation: 'card', headerShown: false }} />
       </Stack>
     </View>
   );

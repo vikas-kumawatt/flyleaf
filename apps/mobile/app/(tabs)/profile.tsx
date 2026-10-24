@@ -8,23 +8,23 @@
 // 4. Currently Reading: Real-time progress on active books.
 // 5. The Wall preview: Latest finished posters with link to /wall.
 // 6. Diary preview: Recent finished entries with link to /diary.
-// 7. Edit Profile modal (bio <= 160 chars, display name, privacy toggle).
-// 8. Theme switcher (system / light / dark).
+// 7. Edit Profile modal (bio <= 160 chars, display name).
+// 8. Settings (LA-02): one entry to app/settings, which holds privacy, the
+//    theme, blocked/muted/content, imports, legal, sign out and deletion.
 
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useCallback, useMemo } from 'react';
 import {
   View,
   ScrollView,
   Pressable,
   TextInput,
-  Switch,
   Modal,
   ActivityIndicator,
   StyleSheet,
   RefreshControl,
   Alert,
 } from 'react-native';
-import { useRouter } from 'expo-router';
+import { useFocusEffect, useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as Haptics from 'expo-haptics';
 import { Image } from 'expo-image';
@@ -33,7 +33,6 @@ import { useSession } from '@/lib/session';
 import { profileShareUrl } from '@/lib/followSuggestions';
 import { useDatabase } from '@/offline/db';
 import { OfflineRepository } from '@/offline/repository';
-import { useOfflineSync } from '@/offline/sync';
 import type { LocalRead } from '@/offline/schema';
 import {
   api,
@@ -49,11 +48,10 @@ import {
   EmptyState,
   ProgressBar,
   Screen,
-  SegmentedControl,
   Txt,
   sheet,
 } from '@/ui/components';
-import { radius, space, useTheme, useThemeContext, type ThemeMode } from '@/ui/tokens';
+import { radius, space, useTheme } from '@/ui/tokens';
 import { GoalRing } from '@/ui/GoalRing';
 import { GoalSheet } from '@/ui/GoalSheet';
 import { deviceTimeZone, goalRingModel, streakCopy } from '@/lib/statsView';
@@ -62,9 +60,7 @@ export default function ProfileScreen() {
   const c = useTheme();
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const { user, signOut } = useSession();
-  const { unsyncedCount, deadLetterCount } = useOfflineSync();
-  const { mode, setMode } = useThemeContext();
+  const { user } = useSession();
   const db = useDatabase();
 
   const [profile, setProfile] = useState<Profile | null>(null);
@@ -114,7 +110,6 @@ export default function ProfileScreen() {
   const [editModalVisible, setEditModalVisible] = useState(false);
   const [editDisplayName, setEditDisplayName] = useState('');
   const [editBio, setEditBio] = useState('');
-  const [editIsPrivate, setEditIsPrivate] = useState(false);
   const [savingProfile, setSavingProfile] = useState(false);
 
   // Load all profile data
@@ -137,7 +132,6 @@ export default function ProfileScreen() {
         setProfile(profileRes.value);
         setEditDisplayName(profileRes.value.displayName || '');
         setEditBio(profileRes.value.bio || '');
-        setEditIsPrivate(profileRes.value.isPrivate);
       }
 
       if (statsRes.status === 'fulfilled') {
@@ -158,9 +152,12 @@ export default function ProfileScreen() {
     }
   }, [user, db]);
 
-  useEffect(() => {
-    loadData();
-  }, [loadData]);
+  // On every return to the tab: privacy and the username can change in Settings.
+  useFocusEffect(
+    useCallback(() => {
+      void loadData();
+    }, [loadData]),
+  );
 
   const onRefresh = async () => {
     setRefreshing(true);
@@ -193,7 +190,6 @@ export default function ProfileScreen() {
       const updated = await api.updateProfile({
         displayName: editDisplayName.trim() || null,
         bio: editBio.trim() || null,
-        isPrivate: editIsPrivate,
       });
       setProfile(updated);
       setEditModalVisible(false);
@@ -222,31 +218,17 @@ export default function ProfileScreen() {
           <Txt variant="title" style={{ fontWeight: '800', fontSize: 22 }}>
             Profile
           </Txt>
-          {user && (
-            <Button
-              label="Sign out"
-              variant="tertiary"
-              size="sm"
-              onPress={() => {
-                void Haptics.selectionAsync();
-                const waiting = unsyncedCount + deadLetterCount;
-                if (waiting === 0) {
-                  void signOut();
-                  return;
-                }
-                // Queued writes are kept for this account and sent when it signs
-                // in again on this phone; they never replay for anyone else (A-07-002).
-                Alert.alert(
-                  'Some updates have not synced',
-                  `${waiting} ${waiting === 1 ? 'update is' : 'updates are'} still on this phone. They will be sent next time you sign in here.`,
-                  [
-                    { text: 'Cancel', style: 'cancel' },
-                    { text: 'Sign out', style: 'destructive', onPress: () => void signOut() },
-                  ],
-                );
-              }}
-            />
-          )}
+          <Button
+            label="Settings"
+            variant="tertiary"
+            size="sm"
+            accessibilityLabel="Open settings"
+            onPress={() => {
+              void Haptics.selectionAsync();
+              router.push('/settings' as any);
+            }}
+            style={{ minHeight: 44 }}
+          />
         </View>
       </View>
 
@@ -662,188 +644,22 @@ export default function ProfileScreen() {
               </Card>
             </View>
 
-            {/* 7. PRIVACY & SOCIAL (SO-02, SO-03) */}
-            <View style={{ gap: space[2] }}>
-              <Txt variant="caption" color="muted" style={{ fontWeight: '700', letterSpacing: 0.5 }}>
-                PRIVACY & SOCIAL
-              </Txt>
-
-              <View style={{ gap: space[2] }}>
-                {/* Follow Requests */}
-                <Card
-                  onPress={() => {
-                    void Haptics.selectionAsync();
-                    router.push('/profile/requests' as any);
-                  }}
-                  style={{ padding: space[3] }}
-                >
-                  <View style={sheet.rowBetween}>
-                    <View style={{ gap: 2 }}>
-                      <Txt variant="title" style={{ fontSize: 15, fontWeight: '700' }}>
-                        Follow Requests
-                      </Txt>
-                      <Txt variant="caption" color="muted">
-                        Inspect and manage incoming follow requests.
-                      </Txt>
-                    </View>
-                    <Txt variant="title" color="accent">
-                      →
-                    </Txt>
-                  </View>
-                </Card>
-
-                {/* Blocked Accounts */}
-                <Card
-                  onPress={() => {
-                    void Haptics.selectionAsync();
-                    router.push('/profile/blocked' as any);
-                  }}
-                  style={{ padding: space[3] }}
-                >
-                  <View style={sheet.rowBetween}>
-                    <View style={{ gap: 2 }}>
-                      <Txt variant="title" style={{ fontSize: 15, fontWeight: '700' }}>
-                        Blocked Accounts
-                      </Txt>
-                      <Txt variant="caption" color="muted">
-                        View and manage your blocked users list.
-                      </Txt>
-                    </View>
-                    <Txt variant="title" color="accent">
-                      →
-                    </Txt>
-                  </View>
-                </Card>
-
-                {/* Content (PRD §7.8): the control exists only for confirmed adults. */}
-                {user?.explicitSettingAvailable && (
-                  <Card
-                    onPress={() => {
-                      void Haptics.selectionAsync();
-                      router.push('/profile/content' as any);
-                    }}
-                    style={{ padding: space[3] }}
-                  >
-                    <View style={sheet.rowBetween}>
-                      <View style={{ gap: 2 }}>
-                        <Txt variant="title" style={{ fontSize: 15, fontWeight: '700' }}>
-                          Content
-                        </Txt>
-                        <Txt variant="caption" color="muted">
-                          Explicit titles in search.
-                        </Txt>
-                      </View>
-                      <Txt variant="title" color="accent">
-                        →
-                      </Txt>
-                    </View>
-                  </Card>
-                )}
-
-                {/* Your reports and moderation notices (SO-40, SO-42; PRD §27.6) */}
-                <Card
-                  onPress={() => {
-                    void Haptics.selectionAsync();
-                    router.push('/profile/reports' as any);
-                  }}
-                  style={{ padding: space[3] }}
-                >
-                  <View style={sheet.rowBetween}>
-                    <View style={{ gap: 2 }}>
-                      <Txt variant="title" style={{ fontSize: 15, fontWeight: '700' }}>
-                        Your reports
-                      </Txt>
-                      <Txt variant="caption" color="muted">
-                        What you reported, and decisions about your content.
-                      </Txt>
-                    </View>
-                    <Txt variant="title" color="accent">
-                      →
-                    </Txt>
-                  </View>
-                </Card>
-
-                {/* Licences and data sources (owner decision on Phase 5 B; PRD §6.43) */}
-                <Card
-                  onPress={() => {
-                    void Haptics.selectionAsync();
-                    router.push('/licences' as any);
-                  }}
-                  style={{ padding: space[3] }}
-                >
-                  <View style={sheet.rowBetween}>
-                    <View style={{ gap: 2 }}>
-                      <Txt variant="title" style={{ fontSize: 15, fontWeight: '700' }}>
-                        Licences
-                      </Txt>
-                      <Txt variant="caption" color="muted">
-                        Fonts, emoji, data sources and open-source packages.
-                      </Txt>
-                    </View>
-                    <Txt variant="title" color="accent">
-                      →
-                    </Txt>
-                  </View>
-                </Card>
-
-                {/* Muted Content */}
-                <Card
-                  onPress={() => {
-                    void Haptics.selectionAsync();
-                    router.push('/profile/muted' as any);
-                  }}
-                  style={{ padding: space[3] }}
-                >
-                  <View style={sheet.rowBetween}>
-                    <View style={{ gap: 2 }}>
-                      <Txt variant="title" style={{ fontSize: 15, fontWeight: '700' }}>
-                        Muted Content
-                      </Txt>
-                      <Txt variant="caption" color="muted">
-                        Inspect and manage muted users and muted books.
-                      </Txt>
-                    </View>
-                    <Txt variant="title" color="accent">
-                      →
-                    </Txt>
-                  </View>
-                </Card>
-              </View>
-            </View>
-
-            {/* 8. DATA & IMPORTS (IM-09) */}
-            <View style={{ gap: space[2] }}>
-              <View style={sheet.rowBetween}>
-                <Txt variant="caption" color="muted" style={{ fontWeight: '700', letterSpacing: 0.5 }}>
-                  DATA & IMPORTS
-                </Txt>
-                <Pressable
-                  onPress={() => {
-                    void Haptics.selectionAsync();
-                    router.push('/import' as any);
-                  }}
-                  hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-                >
-                  <Txt variant="caption" color="accent" style={{ fontWeight: '600' }}>
-                    Import Library →
-                  </Txt>
-                </Pressable>
-              </View>
-
+            {/* 7. FOLLOW REQUESTS (SO-02, SO-03) */}
+            {profile?.isPrivate && (
               <Card
                 onPress={() => {
                   void Haptics.selectionAsync();
-                  router.push('/import' as any);
+                  router.push('/profile/requests' as any);
                 }}
                 style={{ padding: space[3] }}
               >
                 <View style={sheet.rowBetween}>
-                  <View style={{ gap: 2, flex: 1, marginRight: space[2] }}>
+                  <View style={{ gap: 2 }}>
                     <Txt variant="title" style={{ fontSize: 15, fontWeight: '700' }}>
-                      Import from Goodreads & StoryGraph
+                      Follow Requests
                     </Txt>
                     <Txt variant="caption" color="muted">
-                      Bring your full reading history, ratings, and shelves into Flyleaf.
+                      Inspect and manage incoming follow requests.
                     </Txt>
                   </View>
                   <Txt variant="title" color="accent">
@@ -851,35 +667,30 @@ export default function ProfileScreen() {
                   </Txt>
                 </View>
               </Card>
-            </View>
+            )}
 
-            {/* 9. ACCOUNT (LA-01, PRD §25.4): deletion must be completable in the app. */}
-            <View style={{ gap: space[2] }}>
-              <Txt variant="caption" color="muted" style={{ fontWeight: '700', letterSpacing: 0.5 }}>
-                ACCOUNT
-              </Txt>
-              <Card
-                onPress={() => {
-                  void Haptics.selectionAsync();
-                  router.push('/profile/delete-account' as any);
-                }}
-                style={{ padding: space[3] }}
-              >
-                <View style={sheet.rowBetween}>
-                  <View style={{ gap: 2, flex: 1, marginRight: space[2] }}>
-                    <Txt variant="title" color="critical" style={{ fontSize: 15, fontWeight: '700' }}>
-                      Delete account
-                    </Txt>
-                    <Txt variant="caption" color="muted">
-                      Permanently delete your account after 30 days.
-                    </Txt>
-                  </View>
-                  <Txt variant="title" color="critical">
-                    →
+            {/* 8. SETTINGS (LA-02): everything that used to be listed here. */}
+            <Card
+              onPress={() => {
+                void Haptics.selectionAsync();
+                router.push('/settings' as any);
+              }}
+              style={{ padding: space[3] }}
+            >
+              <View style={sheet.rowBetween}>
+                <View style={{ gap: 2, flex: 1, marginRight: space[2] }}>
+                  <Txt variant="title" style={{ fontSize: 15, fontWeight: '700' }}>
+                    Settings
+                  </Txt>
+                  <Txt variant="caption" color="muted">
+                    Account, privacy, notifications, blocked and muted, imports, appearance.
                   </Txt>
                 </View>
-              </Card>
-            </View>
+                <Txt variant="title" color="accent">
+                  →
+                </Txt>
+              </View>
+            </Card>
           </>
         ) : (
           <EmptyState
@@ -895,23 +706,6 @@ export default function ProfileScreen() {
           />
         )}
 
-        {/* 7. THEME PREFERENCE (SL-05) */}
-        <View style={{ gap: space[2], paddingTop: space[2] }}>
-          <Txt variant="caption" color="muted" style={{ fontWeight: '700', letterSpacing: 0.5 }}>
-            APPEARANCE & THEME
-          </Txt>
-          <SegmentedControl
-            options={[
-              { value: 'system', label: 'System' },
-              { value: 'light', label: 'Warm Light' },
-              { value: 'dark', label: 'Night Dark' },
-            ]}
-            value={mode}
-            onChange={(val) => {
-              void setMode(val as ThemeMode);
-            }}
-          />
-        </View>
       </ScrollView>
 
       <GoalSheet
@@ -1017,27 +811,9 @@ export default function ProfileScreen() {
               />
             </View>
 
-            {/* Privacy Toggle */}
-            <View
-              style={[
-                styles.privacyRow,
-                { backgroundColor: c.surface, borderColor: c.line },
-              ]}
-            >
-              <View style={{ flex: 1, gap: 2 }}>
-                <Txt variant="body" style={{ fontWeight: '600' }}>
-                  Private Profile
-                </Txt>
-                <Txt variant="caption" color="muted">
-                  Only approved followers can view your reading diary and stats.
-                </Txt>
-              </View>
-              <Switch
-                value={editIsPrivate}
-                onValueChange={setEditIsPrivate}
-                trackColor={{ false: c.line, true: c.accent }}
-              />
-            </View>
+            <Txt variant="caption" color="muted">
+              Private account and the other privacy settings are in Settings → Privacy.
+            </Txt>
           </ScrollView>
         </Screen>
       </Modal>
@@ -1097,14 +873,5 @@ const styles = StyleSheet.create({
     paddingTop: space[2],
     fontSize: 15,
     textAlignVertical: 'top',
-  },
-  privacyRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    padding: space[3],
-    borderRadius: radius.sm,
-    borderWidth: 1,
-    marginTop: space[2],
   },
 });

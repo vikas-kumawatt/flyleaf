@@ -385,6 +385,11 @@ export const api = {
   setContentSettings: (data: { showExplicit: boolean; dateOfBirth?: string }) => client.setContentSettings(data),
   myProfile: () => client.getMyProfile(),
   updateProfile: (data: UpdateProfileRequest) => client.updateProfile(data),
+  // LA-02 Settings → Account.
+  changeUsername: (username: string) => client.changeUsername(username),
+  sessions: () => client.getSessions(),
+  revokeSession: (id: string) => client.revokeSession(id),
+  logoutAll: () => client.logoutAll(),
   userProfile: (userId: string) => client.getUserProfile(userId),
   userByUsername: (username: string) => client.getUserByUsername(username),
   myStats: (year?: string, tz?: string) => client.getMyStats(year, tz),
