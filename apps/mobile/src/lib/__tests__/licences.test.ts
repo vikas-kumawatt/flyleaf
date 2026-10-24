@@ -70,8 +70,10 @@ describe('licences screen', () => {
     assert.equal(groups[0]!.licence, 'MIT');
   });
 
-  it('the screen exists and the profile links to it', () => {
+  // LA-02: reached from Settings → About & legal (it was a Profile tab card).
+  it('the screen exists and Settings → About links to it', () => {
     assert.match(readFileSync(join(ROOT, 'app/licences.tsx'), 'utf8'), /ASSET_CREDITS/);
-    assert.match(readFileSync(join(ROOT, 'app/(tabs)/profile.tsx'), 'utf8'), /router\.push\('\/licences'/);
+    assert.match(readFileSync(join(ROOT, 'src/lib/settings.ts'), 'utf8'), /href: '\/licences'/);
+    assert.match(readFileSync(join(ROOT, 'app/settings/about.tsx'), 'utf8'), /LEGAL_LINKS/);
   });
 });

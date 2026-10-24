@@ -98,6 +98,7 @@ export function Button({
   disabled,
   loading,
   style,
+  accessibilityLabel,
 }: {
   label: string;
   onPress: () => void;
@@ -106,6 +107,8 @@ export function Button({
   disabled?: boolean;
   loading?: boolean;
   style?: StyleProp<ViewStyle>;
+  /** When the visible label alone is ambiguous (e.g. one "Sign out" per device). */
+  accessibilityLabel?: string;
 }) {
   const c = useTheme();
 
@@ -174,7 +177,8 @@ export function Button({
       }}
       disabled={disabled || loading}
       accessibilityRole="button"
-      accessibilityLabel={label}
+      accessibilityLabel={accessibilityLabel ?? label}
+      accessibilityState={{ disabled: Boolean(disabled || loading), busy: Boolean(loading) }}
       style={[variantStyles[variant], style]}
     >
       {loading ? (
