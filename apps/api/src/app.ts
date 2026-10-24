@@ -391,6 +391,8 @@ const ROUTE_LIMIT_GROUPS: Record<string, readonly LimitGroup[]> = {
   'GET /v1/auth/sessions': ['auth-account'],
   'DELETE /v1/auth/sessions/:id': ['auth-account'],
   'POST /v1/me/date-of-birth': ['auth-account'],
+  // LA-01: a password check, so the auth tier rather than writes.
+  'DELETE /v1/me': ['auth-account'],
   'PATCH /v1/me/username': ['auth-account'],
   'POST /v1/admin/auth/2fa/setup': ['auth-account'],
   'POST /v1/admin/auth/2fa/verify': ['auth-account'],

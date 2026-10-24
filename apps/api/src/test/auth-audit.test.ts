@@ -269,11 +269,12 @@ describe('IdentityService edge cases (Part 04)', () => {
     expect(results.filter((r) => r.status === 'fulfilled')).toHaveLength(1);
   });
 
-  it('a deleted user can neither log in nor refresh (A-04-007)', async () => {
+  it('a deleted user cannot refresh, nor log in once the 30-day grace is over (A-04-007; LA-01 restores within it)', async () => {
     const reg = await service.register('gone@example.com', 'gone_user', 'goodpassword123', '1990-01-01');
     await client.query(`UPDATE users SET deleted_at = now() WHERE id = $1`, [reg.user.id]);
-    await expect(service.login('gone@example.com', 'goodpassword123')).rejects.toMatchObject({ status: 401, code: 'invalid_credentials' });
     await expect(service.refresh(reg.refreshToken)).rejects.toMatchObject({ status: 401, code: 'invalid_refresh_token' });
+    await client.query(`UPDATE users SET deleted_at = now() - interval '31 days' WHERE id = $1`, [reg.user.id]);
+    await expect(service.login('gone@example.com', 'goodpassword123')).rejects.toMatchObject({ status: 401, code: 'invalid_credentials' });
   });
 
   it('login for an unknown email costs about as much as a wrong password (A-04-006)', async () => {

@@ -275,10 +275,15 @@ paths:
                   refreshToken:
                     type: string
                     description: 60-day opaque rotating refresh token
+                  restored:
+                    type: boolean
+                    description: True when this sign-in restored an account its owner had deleted
+                      within the last 30 days (LA-01)
                 required:
                   - user
                   - accessToken
                   - refreshToken
+                  - restored
         "401":
           description: Default Response
           content:
@@ -1085,6 +1090,126 @@ paths:
                 required:
                   - error
         "404":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      code:
+                        type: string
+                        description: Machine-readable error code
+                      message:
+                        type: string
+                        description: Human-readable error description
+                      field:
+                        type: string
+                        description: Invalid field name if applicable
+                    required:
+                      - code
+                      - message
+                required:
+                  - error
+    delete:
+      summary: Delete my account
+      tags:
+        - Auth
+      description: "LA-01, PRD §25.4: requires the password (422 wrong_password). The
+        account disappears everywhere at once and every session ends; signing in
+        before purgeAfter (30 days) restores it, and after that it is
+        permanently deleted. An export requested before this still arrives by
+        email."
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                password:
+                  type: string
+                  minLength: 1
+                  maxLength: 1024
+              required:
+                - password
+      security:
+        - BearerAuth: []
+      responses:
+        "200":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    enum:
+                      - scheduled
+                  deletedAt:
+                    type: string
+                    format: date-time
+                  purgeAfter:
+                    type: string
+                    format: date-time
+                    description: Signing in before this restores the account; after it the account
+                      is permanently deleted
+                required:
+                  - status
+                  - deletedAt
+                  - purgeAfter
+        "401":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      code:
+                        type: string
+                        description: Machine-readable error code
+                      message:
+                        type: string
+                        description: Human-readable error description
+                      field:
+                        type: string
+                        description: Invalid field name if applicable
+                    required:
+                      - code
+                      - message
+                required:
+                  - error
+        "422":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      code:
+                        type: string
+                        description: Machine-readable error code
+                      message:
+                        type: string
+                        description: Human-readable error description
+                      field:
+                        type: string
+                        description: Invalid field name if applicable
+                    required:
+                      - code
+                      - message
+                required:
+                  - error
+        "429":
           description: Default Response
           content:
             application/json:

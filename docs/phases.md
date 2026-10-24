@@ -313,7 +313,7 @@ Stats screen with per-card sharing · goal ring on the profile · server-rendere
 - [ ] Relevance panel at ≥95% top-3
 - [ ] Store listing, screenshots, privacy labels submitted
 
-**Audit (Part 15).** The account hard-delete step exists: the daily retention sweep removes an account 30 days after deletion, its stored objects first. The in-app flow (LA-01) is still to build. Before launch, the privacy policy must state the event retention: 13 months raw, 30 days for zero-result searches.
+**Audit (Part 15).** The account hard-delete step exists: the daily retention sweep removes an account 30 days after deletion, its stored objects first. The in-app flow (LA-01) is built (23 Oct 2026); the exit criterion waits on the check on a phone. Before launch, the privacy policy must state the event retention: 13 months raw, 30 days for zero-result searches.
 
 ---
 

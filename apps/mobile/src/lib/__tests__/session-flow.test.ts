@@ -74,6 +74,12 @@ describe('sign-in: only the credentials can fail it', () => {
     assert.deepEqual(state.user, { id: 'u1' });
   });
 
+  test('a sign-in that restored a deleted account says so; an ordinary one does not (LA-01)', async () => {
+    assert.equal((await harness().flow.signIn('a@b.co', 'pw')).restored, false);
+    const { flow } = harness({ login: async () => ({ user: { id: 'u1' }, restored: true }) });
+    assert.equal((await flow.signIn('a@b.co', 'pw')).restored, true);
+  });
+
   test('the guest migration does not hold the sign-in', async () => {
     let release!: () => void;
     const { flow, state } = harness({ migrateGuest: () => new Promise<void>((r) => (release = r)) });

@@ -18,8 +18,8 @@
 //   sign-in is checked against.
 
 export interface SessionFlowDeps<U> {
-  /** Throws on refusal. Stores the tokens. */
-  login: (email: string, password: string) => Promise<{ user: U }>;
+  /** Throws on refusal. Stores the tokens. `restored`: the sign-in undid an account deletion (LA-01). */
+  login: (email: string, password: string) => Promise<{ user: U; restored?: boolean }>;
   register: (email: string, username: string, password: string, dateOfBirth: string) => Promise<{ user: U }>;
   /** Best-effort server call, then the tokens are cleared whatever happened. */
   logout: () => Promise<void>;
@@ -38,6 +38,8 @@ export interface SessionFlowDeps<U> {
 
 export interface StartedSession<U> {
   user: U;
+  /** This sign-in restored an account deleted within its 30-day grace (LA-01); the screen says so. */
+  restored: boolean;
   /** Settles when the guest shelf migration has finished; never rejects. */
   guestMigration: Promise<void>;
 }
@@ -60,19 +62,19 @@ export function createSessionFlow<U>(deps: SessionFlowDeps<U>) {
     }
   }
 
-  async function startSession(fallback: U): Promise<StartedSession<U>> {
+  async function startSession(fallback: U, restored = false): Promise<StartedSession<U>> {
     const user = (await step('me', deps.me)) ?? fallback;
     await step('clearCache', deps.clearCache);
     await step('setUser', () => deps.setUser(user));
     await step('saveSessionUser', () => deps.saveSessionUser(user));
     const guestMigration = step('migrateGuest', deps.migrateGuest).then(() => undefined);
-    return { user, guestMigration };
+    return { user, restored, guestMigration };
   }
 
   return {
     async signIn(email: string, password: string): Promise<StartedSession<U>> {
       const res = await deps.login(email, password);
-      return startSession(res.user);
+      return startSession(res.user, res.restored === true);
     },
 
     async signUp(email: string, username: string, password: string, dateOfBirth: string): Promise<StartedSession<U>> {

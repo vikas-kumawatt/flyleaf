@@ -351,7 +351,7 @@ export const api = {
   login: async (email: string, password: string) => {
     const r = await client.login({ email, password });
     await saveTokens(r.accessToken, r.refreshToken);
-    return { user: r.user, token: r.accessToken, refreshToken: r.refreshToken };
+    return { user: r.user, token: r.accessToken, refreshToken: r.refreshToken, restored: r.restored === true };
   },
 
   logout: async () => {
@@ -379,6 +379,8 @@ export const api = {
   },
 
   me: () => client.getMe(),
+  // LA-01: the server ends every session; the screen then signs out here.
+  deleteAccount: (password: string) => client.deleteAccount(password),
   confirmDateOfBirth: (dateOfBirth: string) => client.confirmDateOfBirth(dateOfBirth),
   setContentSettings: (data: { showExplicit: boolean; dateOfBirth?: string }) => client.setContentSettings(data),
   myProfile: () => client.getMyProfile(),

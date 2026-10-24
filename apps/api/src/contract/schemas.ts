@@ -184,7 +184,38 @@ export const loginBodySchema = {
   required: ['email', 'password'],
 } as const;
 
-export const loginResponseSchema = registerResponseSchema;
+export const loginResponseSchema = {
+  type: 'object',
+  properties: {
+    ...registerResponseSchema.properties,
+    restored: {
+      type: 'boolean',
+      description: 'True when this sign-in restored an account its owner had deleted within the last 30 days (LA-01)',
+    },
+  },
+  required: ['user', 'accessToken', 'refreshToken', 'restored'],
+} as const;
+
+/** DELETE /me (LA-01, PRD §25.4): the password, re-entered. */
+export const deleteAccountBodySchema = {
+  type: 'object',
+  properties: { password: { type: 'string', minLength: 1, maxLength: 1024 } },
+  required: ['password'],
+} as const;
+
+export const deleteAccountResponseSchema = {
+  type: 'object',
+  properties: {
+    status: { type: 'string', enum: ['scheduled'] },
+    deletedAt: { type: 'string', format: 'date-time' },
+    purgeAfter: {
+      type: 'string',
+      format: 'date-time',
+      description: 'Signing in before this restores the account; after it the account is permanently deleted',
+    },
+  },
+  required: ['status', 'deletedAt', 'purgeAfter'],
+} as const;
 
 export const refreshBodySchema = {
   type: 'object',
