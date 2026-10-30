@@ -26,13 +26,15 @@ get() { # family-dir file
 inst() { fonttools varLib.instancer -q "$@"; }
 sub() { pyftsubset "$1" --layout-features='*' --no-hinting --unicodes="$2" --output-file="$3"; }
 
-get literata 'Literata[opsz,wght].ttf'
-inst 'Literata[opsz,wght].ttf' opsz=24 wght=400 -o "$OUT/Literata-Regular.ttf"
-inst 'Literata[opsz,wght].ttf' opsz=24 wght=600 -o "$OUT/Literata-SemiBold.ttf"
+# Newsreader for titles and quotes, Instrument Sans for everything else
+# (design.md §3). Card titles are 48-72 px, so the optical size is cut at 36.
+get newsreader 'Newsreader[opsz,wght].ttf'
+inst 'Newsreader[opsz,wght].ttf' opsz=36 wght=400 -o "$OUT/Newsreader-Regular.ttf"
+inst 'Newsreader[opsz,wght].ttf' opsz=36 wght=500 -o "$OUT/Newsreader-Medium.ttf"
 
-get archivo 'Archivo[wdth,wght].ttf'
-inst 'Archivo[wdth,wght].ttf' wdth=100 wght=400 -o "$OUT/Archivo-Regular.ttf"
-inst 'Archivo[wdth,wght].ttf' wdth=100 wght=600 -o "$OUT/Archivo-SemiBold.ttf"
+get instrumentsans 'InstrumentSans[wdth,wght].ttf'
+inst 'InstrumentSans[wdth,wght].ttf' wdth=100 wght=400 -o "$OUT/InstrumentSans-Regular.ttf"
+inst 'InstrumentSans[wdth,wght].ttf' wdth=100 wght=500 -o "$OUT/InstrumentSans-Medium.ttf"
 
 for fam in Arabic Hebrew; do
   dir=notosans$(echo "$fam" | tr '[:upper:]' '[:lower:]')
