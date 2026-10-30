@@ -13,7 +13,6 @@ import {
   Pressable,
   StyleSheet,
   TouchableWithoutFeedback,
-  Platform,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import * as Haptics from 'expo-haptics';
@@ -71,7 +70,7 @@ export function ActionGateProvider({ children }: { children: React.ReactNode }) 
         onRequestClose={dismiss}
       >
         <TouchableWithoutFeedback onPress={dismiss}>
-          <View style={styles.overlay}>
+          <View style={[styles.overlay, { backgroundColor: c.overlay }]}>
             <TouchableWithoutFeedback onPress={(e) => e.stopPropagation()}>
               <View
                 style={[
@@ -79,13 +78,14 @@ export function ActionGateProvider({ children }: { children: React.ReactNode }) 
                   {
                     backgroundColor: c.surface,
                     borderColor: c.line,
+                    shadowColor: c.ink,
                   },
                 ]}
                 accessibilityRole="alert"
                 accessibilityLiveRegion="assertive"
               >
                 {/* Visual drag handle */}
-                <View style={[styles.dragHandle, { backgroundColor: c.line }]} />
+                <View style={[styles.dragHandle, { backgroundColor: c.lineStrong }]} />
 
                 <View style={{ gap: space[2], marginTop: space[2] }}>
                   <Txt variant="displayM" style={{ textAlign: 'center' }}>
@@ -94,7 +94,7 @@ export function ActionGateProvider({ children }: { children: React.ReactNode }) 
                   <Txt
                     variant="body"
                     color="muted"
-                    style={{ textAlign: 'center', lineHeight: 22 }}
+                    style={{ textAlign: 'center' }}
                   >
                     {gateOptions?.subtitle ??
                       'Keep track of your reading, log daily pages, and carry your library across devices.'}
@@ -139,32 +139,24 @@ export function useActionGate() {
 const styles = StyleSheet.create({
   overlay: {
     flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.55)',
     justifyContent: 'flex-end',
   },
   sheetContent: {
-    borderTopLeftRadius: radius.lg,
-    borderTopRightRadius: radius.lg,
+    borderTopLeftRadius: radius.xl,
+    borderTopRightRadius: radius.xl,
     borderTopWidth: 1,
     paddingHorizontal: space[4],
     paddingTop: space[3],
     paddingBottom: space[8],
-    ...Platform.select({
-      ios: {
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: -4 },
-        shadowOpacity: 0.15,
-        shadowRadius: 12,
-      },
-      android: {
-        elevation: 16,
-      },
-    }),
+    // Floating sheet: one soft neutral shadow, ink-coloured from the theme.
+    shadowOffset: { width: 0, height: -8 },
+    shadowOpacity: 0.08,
+    shadowRadius: 24,
   },
   dragHandle: {
     width: 36,
     height: 4,
-    borderRadius: 2,
+    borderRadius: radius.pill,
     alignSelf: 'center',
     marginBottom: space[3],
   },

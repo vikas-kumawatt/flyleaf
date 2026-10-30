@@ -66,7 +66,7 @@ export function SyncIndicator() {
             size={16}
             color={c.accent}
           />
-          <Txt variant="caption" color="accent" style={{ fontWeight: '600' }}>
+          <Txt variant="caption" color="accent" style={{ fontWeight: '500' }}>
             {isSyncing ? 'Syncing…' : 'Sync now'}
           </Txt>
         </Pressable>
@@ -98,7 +98,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: space[1],
-    paddingVertical: 4,
+    paddingVertical: space[1],
     paddingHorizontal: space[2],
   },
 });

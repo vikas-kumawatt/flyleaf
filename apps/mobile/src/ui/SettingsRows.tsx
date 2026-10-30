@@ -3,15 +3,16 @@
 import React from 'react';
 import { Pressable, Switch, View } from 'react-native';
 import * as Haptics from 'expo-haptics';
+import { Ionicons } from '@expo/vector-icons';
 import { Txt, sheet } from './components';
 import { radius, space, useTheme } from './tokens';
 import { HOURS, hourLabel, minuteOptions } from '@/lib/settings';
 
 export function SectionTitle({ children }: { children: string }) {
   return (
-    <View accessibilityRole="header" accessibilityLabel={children} style={{ marginTop: space[2] }}>
-      <Txt variant="caption" color="muted" style={{ fontWeight: '700', letterSpacing: 0.5 }}>
-        {children.toUpperCase()}
+    <View accessibilityRole="header" accessibilityLabel={children} style={{ marginTop: space[4], paddingHorizontal: space[1] }}>
+      <Txt variant="micro" color="muted">
+        {children}
       </Txt>
     </View>
   );
@@ -22,7 +23,7 @@ export function Group({ children }: { children: React.ReactNode }) {
   const c = useTheme();
   const items = React.Children.toArray(children).filter(Boolean);
   return (
-    <View style={{ backgroundColor: c.surface, borderColor: c.line, borderWidth: 1, borderRadius: radius.md, overflow: 'hidden' }}>
+    <View style={{ backgroundColor: c.surface, borderColor: c.line, borderWidth: 1, borderRadius: radius.lg, overflow: 'hidden' }}>
       {items.map((child, i) => (
         <View key={i} style={i > 0 ? { borderTopWidth: 1, borderTopColor: c.line } : undefined}>
           {child}
@@ -48,6 +49,7 @@ export function NavRow({
   /** Replaces the arrow, e.g. "Published before launch". */
   trailing?: string;
 }) {
+  const c = useTheme();
   const inert = disabled || !onPress;
   return (
     <Pressable
@@ -63,7 +65,7 @@ export function NavRow({
       style={[sheet.rowBetween, { minHeight: 56, paddingHorizontal: space[4], paddingVertical: space[3], gap: space[3] }]}
     >
       <View style={{ flex: 1, gap: 2 }}>
-        <Txt variant="body" color={destructive ? 'critical' : 'ink'} style={{ fontWeight: '600' }}>
+        <Txt variant="body" color={destructive ? 'critical' : 'ink'}>
           {label}
         </Txt>
         {detail ? (
@@ -77,9 +79,7 @@ export function NavRow({
           {trailing}
         </Txt>
       ) : !inert ? (
-        <Txt variant="title" color={destructive ? 'critical' : 'accent'}>
-          →
-        </Txt>
+        <Ionicons name="chevron-forward" size={18} color={destructive ? c.critical : c.muted} />
       ) : null}
     </Pressable>
   );
@@ -104,7 +104,7 @@ export function SwitchRow({
   return (
     <View style={[sheet.rowBetween, { minHeight: 56, paddingHorizontal: space[4], paddingVertical: space[3], gap: space[3] }]}>
       <View style={{ flex: 1, gap: 2 }} importantForAccessibility="no-hide-descendants" accessibilityElementsHidden>
-        <Txt variant="body" style={{ fontWeight: '600' }} color={disabled ? 'muted' : 'ink'}>
+        <Txt variant="body" color={disabled ? 'muted' : 'ink'}>
           {label}
         </Txt>
         {detail ? (
@@ -120,7 +120,7 @@ export function SwitchRow({
           onValueChange(v);
         }}
         disabled={disabled}
-        trackColor={{ false: c.line, true: c.accent }}
+        trackColor={{ false: c.lineStrong, true: c.accent }}
         accessibilityLabel={accessibilityLabel ?? label}
         accessibilityHint={detail}
         style={{ minHeight: 44 }}
@@ -148,12 +148,12 @@ function Chip({ label, a11y, selected, onPress }: { label: string; a11y: string;
         borderRadius: radius.sm,
         borderWidth: 1,
         borderColor: selected ? c.accent : c.line,
-        backgroundColor: selected ? c.accentSoft : c.ground,
+        backgroundColor: selected ? c.accentSoft : c.surface2,
         alignItems: 'center',
         justifyContent: 'center',
       }}
     >
-      <Txt variant="caption" color={selected ? 'accent' : 'ink'} style={{ fontWeight: selected ? '700' : '400' }}>
+      <Txt variant="caption" color={selected ? 'accent' : 'ink'} style={{ fontWeight: selected ? '500' : '400' }}>
         {label}
       </Txt>
     </Pressable>
@@ -181,7 +181,7 @@ export function TimePicker({
   return (
     <View style={{ gap: space[2], paddingHorizontal: space[4], paddingBottom: space[3] }}>
       <Txt variant="micro" color="muted">
-        {`${label} · HOUR`.toUpperCase()}
+        {`${label} · hour`}
       </Txt>
       <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: space[1] }} accessibilityRole="radiogroup" accessibilityLabel={`${label}, hour`}>
         {HOURS.map((h) => (
@@ -189,7 +189,7 @@ export function TimePicker({
         ))}
       </View>
       <Txt variant="micro" color="muted">
-        {`${label} · MINUTE`.toUpperCase()}
+        {`${label} · minute`}
       </Txt>
       <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: space[1] }} accessibilityRole="radiogroup" accessibilityLabel={`${label}, minute`}>
         {minuteOptions(current).map((m) => {

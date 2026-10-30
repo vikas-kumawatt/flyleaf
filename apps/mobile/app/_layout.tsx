@@ -4,12 +4,12 @@ import { View } from 'react-native';
 import { Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
-import { useFonts, Literata_400Regular, Literata_600SemiBold } from '@expo-google-fonts/literata';
+import { useFonts, Newsreader_400Regular, Newsreader_500Medium } from '@expo-google-fonts/newsreader';
 import {
-  Archivo_400Regular,
-  Archivo_500Medium,
-  Archivo_600SemiBold,
-} from '@expo-google-fonts/archivo';
+  InstrumentSans_400Regular,
+  InstrumentSans_500Medium,
+  InstrumentSans_600SemiBold,
+} from '@expo-google-fonts/instrument-sans';
 import { SessionProvider } from '@/lib/session';
 import { AppQueryProvider } from '@/lib/query';
 import { SyncProvider } from '@/offline/sync';
@@ -19,7 +19,7 @@ import { VerifyEmailBanner, VerifyEmailProvider } from '@/ui/VerifyEmail';
 import { ConfirmDobPrompt } from '@/ui/ConfirmDob';
 import { PushBridge } from '@/ui/PushBridge';
 import { MilestoneBridge } from '@/ui/MilestoneBridge';
-import { ThemeProvider, useTheme, useThemeContext } from '@/ui/tokens';
+import { ThemeProvider, fontFamilies, useTheme, useThemeContext } from '@/ui/tokens';
 import { ErrorBoundary } from '@/ui/ErrorBoundary';
 import { initTelemetry } from '@/lib/events';
 import { initMobileSentry } from '@/lib/sentry';
@@ -34,7 +34,8 @@ function Nav() {
         screenOptions={{
           headerStyle: { backgroundColor: c.ground },
           headerTintColor: c.ink,
-          headerTitleStyle: { fontSize: 17, fontWeight: '600' },
+          headerTitleStyle: { fontSize: 17, fontFamily: fontFamilies.uiMedium },
+          headerShadowVisible: false,
           contentStyle: { backgroundColor: c.ground },
         }}
       >
@@ -47,7 +48,7 @@ function Nav() {
         <Stack.Screen name="work/[id]" options={{ title: '' }} />
         <Stack.Screen
           name="work/[id]/editions"
-          options={{ title: 'Choose Edition', presentation: 'modal', headerShown: false }}
+          options={{ title: 'Choose edition', presentation: 'modal', headerShown: false }}
         />
         <Stack.Screen name="author/[id]" options={{ headerShown: false }} />
         <Stack.Screen name="series/[id]" options={{ headerShown: false }} />
@@ -109,11 +110,11 @@ function ThemedStatusBar() {
 
 export default function RootLayout() {
   const [fontsLoaded] = useFonts({
-    Literata_400Regular,
-    Literata_600SemiBold,
-    Archivo_400Regular,
-    Archivo_500Medium,
-    Archivo_600SemiBold,
+    Newsreader_400Regular,
+    Newsreader_500Medium,
+    InstrumentSans_400Regular,
+    InstrumentSans_500Medium,
+    InstrumentSans_600SemiBold,
   });
 
   useEffect(() => {

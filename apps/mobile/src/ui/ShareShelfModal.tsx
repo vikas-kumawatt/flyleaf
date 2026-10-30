@@ -20,7 +20,7 @@ import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Txt, Button, Cover } from './components';
-import { useTheme, space, radius } from './tokens';
+import { useTheme, space, radius, fontFamilies } from './tokens';
 import { getShelfShareUrl, getShelfShareMessage } from '../lib/shelfValidation';
 import { PUBLIC_BASE } from '../lib/api';
 import { track } from '../lib/events';
@@ -88,7 +88,7 @@ export function ShareShelfModal({ visible, onClose, shelf }: ShareShelfModalProp
       animationType="fade"
       onRequestClose={onClose}
     >
-      <View style={styles.backdrop}>
+      <View style={[styles.backdrop, { backgroundColor: c.overlay }]}>
         <Pressable
           style={styles.scrim}
           onPress={onClose}
@@ -99,7 +99,7 @@ export function ShareShelfModal({ visible, onClose, shelf }: ShareShelfModalProp
           style={[
             styles.container,
             {
-              backgroundColor: c.ground,
+              backgroundColor: c.surface,
               borderColor: c.line,
               paddingBottom: Math.max(insets.bottom, space[4]),
             },
@@ -108,16 +108,16 @@ export function ShareShelfModal({ visible, onClose, shelf }: ShareShelfModalProp
           {/* Header */}
           <View style={styles.header}>
             <Txt variant="title" style={{ color: c.ink }}>
-              Share Shelf
+              Share shelf
             </Txt>
             <Pressable
               hitSlop={12}
               onPress={onClose}
               accessibilityRole="button"
               accessibilityLabel="Close share sheet"
-              style={[styles.closeBtn, { backgroundColor: c.surface }]}
+              style={[styles.closeBtn, { backgroundColor: c.surface2 }]}
             >
-              <Ionicons name="close" size={20} color={c.ink} />
+              <Ionicons name="close" size={18} color={c.ink2} />
             </Pressable>
           </View>
 
@@ -126,15 +126,15 @@ export function ShareShelfModal({ visible, onClose, shelf }: ShareShelfModalProp
             style={[
               styles.shareCard,
               {
-                backgroundColor: c.surface,
+                backgroundColor: c.ground,
                 borderColor: c.line,
               },
             ]}
           >
             <View style={styles.cardWatermarkRow}>
-              <Ionicons name="book" size={14} color={c.accent} />
-              <Txt variant="micro" style={[styles.brandTag, { color: c.accent }]}>
-                FLYLEAF CURATION
+              <Ionicons name="book-outline" size={16} color={c.muted} />
+              <Txt variant="micro" color="muted">
+                A shelf on Flyleaf
               </Txt>
             </View>
 
@@ -176,30 +176,21 @@ export function ShareShelfModal({ visible, onClose, shelf }: ShareShelfModalProp
 
             <Txt variant="caption" style={[styles.curatorText, { color: c.muted }]}>
               Curated by{' '}
-              <Txt variant="caption" style={{ color: c.ink, fontWeight: '600' }}>
+              <Txt variant="caption" style={{ color: c.ink, fontWeight: '500' }}>
                 @{shelf.owner.username}
               </Txt>
             </Txt>
 
             <View style={styles.metaBadgeRow}>
-              {shelf.is_ranked && (
-                <View style={[styles.badge, { backgroundColor: c.accent + '20' }]}>
-                  <Ionicons name="reorder-four" size={12} color={c.accent} />
-                  <Txt variant="caption" style={{ color: c.accent, fontWeight: '600', marginLeft: 4 }}>
-                    Ranked
-                  </Txt>
-                </View>
-              )}
-              <View style={[styles.badge, { backgroundColor: c.line }]}>
-                <Txt variant="caption" style={{ color: c.muted, fontWeight: '500' }}>
-                  {shelf.item_count ?? 0} {shelf.item_count === 1 ? 'book' : 'books'}
-                </Txt>
-              </View>
+              <Txt variant="caption" color="muted" tabular>
+                {shelf.is_ranked ? 'Ranked · ' : ''}
+                {shelf.item_count ?? 0} {shelf.item_count === 1 ? 'book' : 'books'}
+              </Txt>
             </View>
 
             {/* Card Footer URL Watermark */}
             <View style={[styles.cardFooter, { borderTopColor: c.line }]}>
-              <Txt numberOfLines={1} variant="caption" style={{ color: c.muted, fontSize: 11 }}>
+              <Txt numberOfLines={1} variant="micro" color="muted">
                 {shareUrl.replace(/^https?:\/\//, '')}
               </Txt>
             </View>
@@ -207,9 +198,9 @@ export function ShareShelfModal({ visible, onClose, shelf }: ShareShelfModalProp
 
           {/* Copied Feedback Toast */}
           {copied && (
-            <View style={[styles.copiedToast, { backgroundColor: c.accent }]}>
-              <Ionicons name="checkmark-circle" size={16} color="#12100e" />
-              <Txt style={styles.copiedText}>Link copied to clipboard!</Txt>
+            <View style={[styles.copiedToast, { backgroundColor: c.ink }]}>
+              <Ionicons name="checkmark" size={16} color={c.ground} />
+              <Txt variant="caption" style={[styles.copiedText, { color: c.ground }]}>Link copied</Txt>
             </View>
           )}
 
@@ -217,13 +208,13 @@ export function ShareShelfModal({ visible, onClose, shelf }: ShareShelfModalProp
           <View style={styles.actionRow}>
             <Button
               variant="primary"
-              label="Share Link"
+              label="Share link"
               onPress={handleNativeShare}
               style={{ flex: 1, marginRight: space[2] }}
             />
             <Button
               variant="secondary"
-              label={copied ? 'Copied' : 'Copy Link'}
+              label={copied ? 'Copied' : 'Copy link'}
               onPress={handleCopyLink}
               style={{ flex: 1, marginLeft: space[2] }}
             />
@@ -237,15 +228,14 @@ export function ShareShelfModal({ visible, onClose, shelf }: ShareShelfModalProp
 const styles = StyleSheet.create({
   backdrop: {
     flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.65)',
     justifyContent: 'flex-end',
   },
   scrim: {
     flex: 1,
   },
   container: {
-    borderTopLeftRadius: 24,
-    borderTopRightRadius: 24,
+    borderTopLeftRadius: radius.xl,
+    borderTopRightRadius: radius.xl,
     borderWidth: 1,
     padding: space[4],
     maxWidth: 540,
@@ -261,7 +251,7 @@ const styles = StyleSheet.create({
   closeBtn: {
     width: 32,
     height: 32,
-    borderRadius: 16,
+    borderRadius: radius.pill,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -271,28 +261,18 @@ const styles = StyleSheet.create({
     padding: space[4],
     alignItems: 'center',
     marginBottom: space[4],
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.15,
-    shadowRadius: 12,
-    elevation: 4,
   },
   cardWatermarkRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 6,
+    gap: space[2],
     marginBottom: space[3],
-  },
-  brandTag: {
-    fontSize: 10,
-    letterSpacing: 1.5,
-    fontWeight: '700',
   },
   coverPreviewContainer: {
     marginBottom: space[3],
     alignItems: 'center',
     justifyContent: 'center',
-    minHeight: 90,
+    minHeight: 104,
   },
   mosaicGrid: {
     flexDirection: 'row',
@@ -301,7 +281,6 @@ const styles = StyleSheet.create({
     height: 104,
     borderRadius: radius.sm,
     overflow: 'hidden',
-    backgroundColor: 'rgba(0, 0, 0, 0.2)',
   },
   mosaicCell: {
     width: 52,
@@ -312,13 +291,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
   },
-  stackCover: {
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.2,
-    shadowRadius: 4,
-    elevation: 3,
-  },
+  stackCover: {},
   emptyPreview: {
     width: 72,
     height: 96,
@@ -327,8 +300,10 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   shelfTitle: {
-    fontFamily: 'Literata_600SemiBold',
+    fontFamily: fontFamilies.displayMedium,
+    fontWeight: '500',
     fontSize: 20,
+    lineHeight: 26,
     textAlign: 'center',
     marginBottom: space[1],
   },
@@ -342,13 +317,6 @@ const styles = StyleSheet.create({
     gap: space[2],
     marginBottom: space[3],
   },
-  badge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: radius.pill,
-  },
   cardFooter: {
     width: '100%',
     paddingTop: space[2],
@@ -359,17 +327,15 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 6,
-    paddingVertical: 8,
-    paddingHorizontal: 16,
-    borderRadius: radius.pill,
+    gap: space[2],
+    paddingVertical: space[2],
+    paddingHorizontal: space[4],
+    borderRadius: radius.md,
     alignSelf: 'center',
     marginBottom: space[3],
   },
   copiedText: {
-    fontSize: 13,
-    fontWeight: '600',
-    color: '#12100e',
+    fontWeight: '500',
   },
   actionRow: {
     flexDirection: 'row',

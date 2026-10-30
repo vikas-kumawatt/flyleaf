@@ -102,26 +102,26 @@ export function ImportProgressBanner({
   };
 
   return (
-    <Card style={[styles.container, { borderColor: isCompleted ? c.accent : c.line }]}>
+    <Card style={[styles.container, { borderColor: c.line }]}>
       {/* Header Row */}
       <View style={sheet.rowBetween}>
         <View style={[sheet.row, { gap: space[2], flex: 1 }]}>
           {isProcessing || isQueued ? (
             <ActivityIndicator size="small" color={c.accent} />
           ) : isCompleted ? (
-            <Ionicons name="checkmark-circle" size={18} color={c.accent} />
+            <Ionicons name="checkmark-circle-outline" size={18} color={c.positive} />
           ) : (
-            <Ionicons name="alert-circle" size={18} color={c.ink} />
+            <Ionicons name="alert-circle-outline" size={18} color={c.critical} />
           )}
 
-          <Txt variant="caption" style={{ fontWeight: '700', letterSpacing: 0.5 }}>
+          <Txt variant="caption" style={{ fontWeight: '500' }}>
             {isQueued
-              ? `QUEUED · ${formatSource(job.source).toUpperCase()}`
+              ? `Queued · ${formatSource(job.source)}`
               : isProcessing
-              ? `IMPORTING · ${formatSource(job.source).toUpperCase()}`
+              ? `Importing · ${formatSource(job.source)}`
               : isCompleted
-              ? `IMPORT COMPLETE · ${formatSource(job.source).toUpperCase()}`
-              : `IMPORT FAILED`}
+              ? `Import complete · ${formatSource(job.source)}`
+              : `Import failed`}
           </Txt>
         </View>
 
@@ -181,7 +181,7 @@ export function ImportProgressBanner({
         <View style={{ marginTop: space[3], paddingTop: space[2], borderTopWidth: 1, borderTopColor: c.line }}>
           <View style={sheet.rowBetween}>
             <View style={{ flex: 1, marginRight: space[2] }}>
-              <Txt variant="body" style={{ fontSize: 13, fontWeight: '600' }}>
+              <Txt variant="body" style={{ fontSize: 13, fontWeight: '500' }}>
                 {job.unmatched} {job.unmatched === 1 ? 'book needs' : 'books need'} review
               </Txt>
               <Txt variant="caption" color="muted" style={{ fontSize: 11 }}>

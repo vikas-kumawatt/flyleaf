@@ -80,18 +80,11 @@ export function WelcomeCarousel({
         scrollEventThrottle={16}
         renderItem={({ item }) => (
           <View style={[styles.slide, { width: SCREEN_WIDTH }]}>
-            <View
-              style={[
-                styles.iconCircle,
-                { backgroundColor: c.accentSoft, borderColor: c.line },
-              ]}
-            >
-              <Ionicons name={item.icon} size={36} color={c.accent} />
-            </View>
-            <Txt variant="displayM" style={styles.title}>
+            <Ionicons name={item.icon} size={24} color={c.ink2} style={styles.icon} />
+            <Txt variant="displayL" style={styles.title}>
               {item.title}
             </Txt>
-            <Txt variant="bodyL" color="muted" style={styles.subtitle}>
+            <Txt variant="bodyL" color="ink2" style={styles.subtitle}>
               {item.subtitle}
             </Txt>
           </View>
@@ -106,8 +99,7 @@ export function WelcomeCarousel({
             style={[
               styles.dot,
               {
-                backgroundColor: i === activeIndex ? c.accent : c.lineStrong,
-                width: i === activeIndex ? 20 : 8,
+                backgroundColor: i === activeIndex ? c.ink : c.lineStrong,
               },
             ]}
           />
@@ -134,43 +126,39 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     paddingBottom: space[8],
   },
+  // Long headlines read left-aligned, set in the serif, on calm space.
   slide: {
     flex: 1,
-    alignItems: 'center',
+    alignItems: 'flex-start',
     justifyContent: 'center',
     paddingHorizontal: space[6],
-    paddingTop: space[8],
-    gap: space[4],
+    paddingTop: space[12],
+    gap: space[3],
   },
-  iconCircle: {
-    width: 80,
-    height: 80,
-    borderRadius: 40,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderWidth: 1,
+  icon: {
     marginBottom: space[2],
   },
   title: {
-    textAlign: 'center',
+    maxWidth: 340,
   },
   subtitle: {
-    textAlign: 'center',
-    maxWidth: 320,
+    maxWidth: 340,
   },
   dotsRow: {
     flexDirection: 'row',
-    justifyContent: 'center',
+    justifyContent: 'flex-start',
     alignItems: 'center',
     gap: space[2],
+    paddingHorizontal: space[6],
     marginVertical: space[6],
   },
   dot: {
-    height: 8,
+    width: 6,
+    height: 6,
     borderRadius: radius.pill,
   },
   actionsContainer: {
     paddingHorizontal: space[4],
-    gap: space[3],
+    gap: space[2],
   },
 });

@@ -7,7 +7,7 @@ import React, { Component, type ErrorInfo, type ReactNode } from 'react';
 import { StyleSheet, View, Platform } from 'react-native';
 import { captureMobileException } from '../lib/sentry';
 import { Txt, Button } from './components';
-import { space, radius } from './tokens';
+import { space, radius, useTheme } from './tokens';
 
 interface Props {
   children: ReactNode;
@@ -45,47 +45,47 @@ export class ErrorBoundary extends Component<Props, State> {
         return this.props.fallback;
       }
 
-      return (
-        <View style={styles.container}>
-          <View style={styles.card}>
-            <Txt variant="title" style={styles.icon}>
-              ✦
-            </Txt>
-            <Txt variant="title" style={styles.title}>
-              Something went wrong
-            </Txt>
-            <Txt variant="body" color="muted" style={styles.subtitle}>
-              An unexpected interface error occurred. Your reading logs and offline mirror remain safe.
-            </Txt>
-
-            {__DEV__ && this.state.error?.message && (
-              <View style={styles.devBox}>
-                <Txt variant="caption" style={styles.devText} numberOfLines={4}>
-                  {this.state.error.message}
-                </Txt>
-              </View>
-            )}
-
-            <View style={styles.actions}>
-              <Button
-                label="Try again"
-                variant="primary"
-                onPress={this.handleReset}
-              />
-            </View>
-          </View>
-        </View>
-      );
+      return <Fallback message={__DEV__ ? this.state.error?.message : undefined} onReset={this.handleReset} />;
     }
 
     return this.props.children;
   }
 }
 
+// A function component so it can read the theme. Outside the ThemeProvider
+// useTheme falls back to the light palette, so every colour still comes from
+// tokens and text keeps its contrast.
+function Fallback({ message, onReset }: { message?: string; onReset: () => void }) {
+  const c = useTheme();
+  return (
+    <View style={[styles.container, { backgroundColor: c.ground }]}>
+      <View style={[styles.card, { backgroundColor: c.surface, borderColor: c.line }]}>
+        <Txt variant="displayM" style={styles.center}>
+          Something went wrong
+        </Txt>
+        <Txt variant="body" color="ink2" style={styles.center}>
+          This screen hit an error. Your reading log and offline changes are safe.
+        </Txt>
+
+        {message ? (
+          <View style={[styles.devBox, { backgroundColor: c.surface2, borderColor: c.line }]}>
+            <Txt variant="caption" color="critical" style={styles.devText} numberOfLines={4}>
+              {message}
+            </Txt>
+          </View>
+        ) : null}
+
+        <View style={styles.actions}>
+          <Button label="Try again" variant="primary" onPress={onReset} />
+        </View>
+      </View>
+    </View>
+  );
+}
+
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#0c0a09',
     alignItems: 'center',
     justifyContent: 'center',
     padding: space[4],
@@ -93,48 +93,24 @@ const styles = StyleSheet.create({
   card: {
     width: '100%',
     maxWidth: 400,
-    backgroundColor: '#1c1917',
     borderRadius: radius.lg,
     padding: space[6],
-    alignItems: 'center',
+    gap: space[3],
     borderWidth: 1,
-    borderColor: '#292524',
   },
-  icon: {
-    fontSize: 32,
-    color: '#f59e0b',
-    marginBottom: space[2],
-  },
-  title: {
-    fontSize: 20,
-    fontWeight: '700',
-    color: '#fafaf9',
+  center: {
     textAlign: 'center',
-    marginBottom: space[2],
-  },
-  subtitle: {
-    fontSize: 14,
-    color: '#a8a29e',
-    textAlign: 'center',
-    lineHeight: 20,
-    marginBottom: space[4],
   },
   devBox: {
-    width: '100%',
-    backgroundColor: '#0c0a09',
-    borderRadius: radius.sm,
+    borderRadius: radius.md,
     padding: space[3],
-    marginBottom: space[4],
     borderWidth: 1,
-    borderColor: '#ef4444',
   },
   devText: {
-    color: '#fca5a5',
     fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
     fontSize: 12,
   },
   actions: {
-    width: '100%',
     marginTop: space[2],
   },
 });

@@ -148,7 +148,7 @@ export function VerifyEmailBanner() {
         accessibilityLabel="Resend verification email"
         style={{ minHeight: 44, justifyContent: 'center' }}
       >
-        <Txt variant="caption" color="accent" style={{ fontWeight: '600' }}>
+        <Txt variant="caption" color="accent" style={{ fontWeight: '500' }}>
           {cooldown > 0 ? `Resend (${cooldown}s)` : 'Resend'}
         </Txt>
       </Pressable>

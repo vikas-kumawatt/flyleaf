@@ -19,6 +19,7 @@ import {
   ViewStyle,
 } from 'react-native';
 import { Image } from 'expo-image';
+import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import Animated, {
   useAnimatedStyle,
@@ -36,12 +37,18 @@ import {
   ColorName,
   cover,
   coverUrl,
+  familyFor,
+  palette,
   motion,
   radius,
   space,
   type as t,
   useTheme,
 } from './tokens';
+
+// Raw <Text> does not go through Txt, so it names its family directly.
+const uiWeight = (w: '400' | '500' | '600'): TextStyle => ({ fontFamily: familyFor(false, w), fontWeight: 'normal' });
+const ease = Easing.bezier(...motion.easing);
 
 // ---------------------------------------------------------------- Screen
 export function Screen({
@@ -72,6 +79,13 @@ export function Txt({
   tabular?: boolean;
 }) {
   const c = useTheme();
+  // A weight override picks the matching family (custom fonts ignore
+  // fontWeight on Android) and anything above 600 is clamped.
+  const flat = StyleSheet.flatten([t[variant] as TextStyle, style]);
+  const family = String(flat.fontFamily ?? '');
+  const serif = family.startsWith('Newsreader');
+  // A family from outside the type scale (a monospace, say) is kept as given.
+  const ours = serif || family.startsWith('InstrumentSans');
   return (
     <Text
       numberOfLines={numberOfLines}
@@ -80,6 +94,7 @@ export function Txt({
         { color: c[color] },
         tabular ? { fontVariant: ['tabular-nums'] } : null,
         style,
+        ours ? { fontFamily: familyFor(serif, flat.fontWeight), fontWeight: 'normal' } : null,
       ]}
     >
       {children}
@@ -130,15 +145,15 @@ export function Button({
     },
     secondary: {
       ...baseStyle,
-      backgroundColor: 'transparent',
+      backgroundColor: c.surface2,
       borderWidth: 1,
-      borderColor: c.accent,
+      borderColor: c.line,
     },
     outline: {
       ...baseStyle,
-      backgroundColor: 'transparent',
+      backgroundColor: c.surface2,
       borderWidth: 1,
-      borderColor: c.accent,
+      borderColor: c.line,
     },
     tertiary: {
       ...baseStyle,
@@ -154,14 +169,14 @@ export function Button({
       ...baseStyle,
       backgroundColor: 'transparent',
       borderWidth: 1,
-      borderColor: c.critical,
+      borderColor: c.line,
     },
   };
 
   const textColors: Record<ButtonVariant, string> = {
-    primary: c.ground,
-    secondary: c.accent,
-    outline: c.accent,
+    primary: c.onAccent,
+    secondary: c.ink,
+    outline: c.ink,
     tertiary: c.accent,
     text: c.accent,
     destructive: c.critical,
@@ -184,7 +199,7 @@ export function Button({
       {loading ? (
         <ActivityIndicator color={fg} size="small" />
       ) : (
-        <Text style={[t.body as TextStyle, { fontWeight: '600', color: fg }]}>{label}</Text>
+        <Text style={[t.body as TextStyle, uiWeight('500'), { color: fg }]}>{label}</Text>
       )}
     </Pressable>
   );
@@ -207,7 +222,7 @@ export function Card({
     backgroundColor: c.surface,
     borderColor: c.line,
     borderWidth: 1,
-    borderRadius: radius.md,
+    borderRadius: radius.lg,
     padding: space[4],
     gap: space[3],
   };
@@ -286,7 +301,7 @@ export function Cover({
         <View
           style={{
             flex: 1,
-            padding: size === 'xs' ? 2 : space[2],
+            padding: size === 'xs' ? space[1] / 2 : space[2],
             justifyContent: 'center',
             alignItems: 'center',
             backgroundColor: c.surface2,
@@ -297,10 +312,11 @@ export function Cover({
             style={[
               t.micro as TextStyle,
               {
+                fontFamily: familyFor(true, '400'),
                 color: c.ink2,
                 textAlign: 'center',
-                fontSize: size === 'xs' ? 8 : 10,
-                lineHeight: size === 'xs' ? 10 : 13,
+                fontSize: size === 'xs' ? 8 : 11,
+                lineHeight: size === 'xs' ? 10 : 14,
               },
             ]}
           >
@@ -523,8 +539,8 @@ export function Heart({
     if (!onToggle) return;
     void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     scale.value = withSequence(
-      withTiming(1.3, { duration: motion.like / 2 }),
-      withTiming(1, { duration: motion.like / 2 }),
+      withTiming(1.1, { duration: motion.like / 2, easing: ease }),
+      withTiming(1, { duration: motion.like / 2, easing: ease }),
     );
     onToggle();
   };
@@ -538,10 +554,84 @@ export function Heart({
       style={{ width: 44, height: 44, alignItems: 'center', justifyContent: 'center' }}
     >
       <Animated.View style={animatedStyle}>
-        <Text style={{ fontSize: size, color: hearted ? c.heart : c.lineStrong }}>
-          {hearted ? '♥' : '♡'}
-        </Text>
+        <Ionicons
+          name={hearted ? 'heart' : 'heart-outline'}
+          size={size}
+          color={hearted ? c.heart : c.muted}
+        />
       </Animated.View>
+    </Pressable>
+  );
+}
+
+// ---------------------------------------------------------------- RatingMark & HeartMark
+// Read-only rating beside a title: a small gold star and the numeral. The
+// star row's gold appears here and nowhere else (design.md §2).
+export function RatingMark({ value, size = 12, onCover = false }: { value: number; size?: number; onCover?: boolean }) {
+  const c = useTheme();
+  return (
+    <View
+      style={{ flexDirection: 'row', alignItems: 'center', gap: space[1] }}
+      accessible
+      accessibilityLabel={`${value} out of 5 stars`}
+    >
+      <Ionicons name="star" size={size} color={c.star} />
+      {/* On the cover scrim the numeral is always light: the scrim is dark in both themes. */}
+      <Txt variant="caption" tabular style={onCover ? { color: palette.ink.dark, fontSize: 12, lineHeight: 16 } : undefined} color="ink2">
+        {Number(value).toFixed(1)}
+      </Txt>
+    </View>
+  );
+}
+
+export function HeartMark({ size = 12 }: { size?: number }) {
+  const c = useTheme();
+  return <Ionicons name="heart" size={size} color={c.heart} accessibilityLabel="Hearted" />;
+}
+
+// ---------------------------------------------------------------- Chip
+// Filter and choice chips. A control, not a pill: radius.md, 36 tall with a
+// 44pt hit area. Selected is a surface step with a stronger hairline.
+export function Chip({
+  label,
+  selected,
+  onPress,
+  icon,
+  accessibilityLabel,
+}: {
+  label: string;
+  selected: boolean;
+  onPress: () => void;
+  icon?: React.ComponentProps<typeof Ionicons>['name'];
+  accessibilityLabel?: string;
+}) {
+  const c = useTheme();
+  return (
+    <Pressable
+      onPress={() => {
+        void Haptics.selectionAsync();
+        onPress();
+      }}
+      hitSlop={{ top: 4, bottom: 4 }}
+      accessibilityRole="button"
+      accessibilityLabel={accessibilityLabel ?? label}
+      accessibilityState={{ selected }}
+      style={{
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: space[1],
+        minHeight: 36,
+        paddingHorizontal: space[3],
+        borderRadius: radius.md,
+        borderWidth: 1,
+        borderColor: selected ? c.lineStrong : c.line,
+        backgroundColor: selected ? c.surface2 : 'transparent',
+      }}
+    >
+      {icon ? <Ionicons name={icon} size={16} color={selected ? c.ink : c.muted} /> : null}
+      <Text style={[t.caption as TextStyle, uiWeight(selected ? '500' : '400'), { color: selected ? c.ink : c.ink2 }]}>
+        {label}
+      </Text>
     </Pressable>
   );
 }
@@ -555,7 +645,7 @@ export function ProgressBar({ percent }: { percent: number }) {
   useEffect(() => {
     animatedWidth.value = withTiming(clamped, {
       duration: motion.progress,
-      easing: Easing.out(Easing.ease),
+      easing: ease,
     });
   }, [clamped]);
 
@@ -607,8 +697,8 @@ export function Skeleton({
   useEffect(() => {
     opacity.value = withRepeat(
       withSequence(
-        withTiming(0.8, { duration: 800, easing: Easing.inOut(Easing.ease) }),
-        withTiming(0.4, { duration: 800, easing: Easing.inOut(Easing.ease) }),
+        withTiming(0.7, { duration: 900, easing: Easing.inOut(Easing.ease) }),
+        withTiming(0.4, { duration: 900, easing: Easing.inOut(Easing.ease) }),
       ),
       -1,
       true,
@@ -715,7 +805,7 @@ export function SegmentedControl<T extends string>({
               minHeight: 40,
               alignItems: 'center',
               justifyContent: 'center',
-              borderRadius: radius.sm,
+              borderRadius: radius.md - 2,
               backgroundColor: isSelected ? c.surface : 'transparent',
               borderWidth: isSelected ? 1 : 0,
               borderColor: isSelected ? c.line : 'transparent',
@@ -724,9 +814,9 @@ export function SegmentedControl<T extends string>({
             <Text
               style={[
                 t.body as TextStyle,
+                uiWeight(isSelected ? '500' : '400'),
                 {
                   fontSize: 14,
-                  fontWeight: isSelected ? '600' : '400',
                   color: isSelected ? c.ink : c.muted,
                 },
               ]}
@@ -763,8 +853,8 @@ export function Field({
   const c = useTheme();
   return (
     <View style={{ gap: space[1] }}>
-      <Txt variant="micro" color="muted">
-        {label.toUpperCase()}
+      <Txt variant="micro" color="ink2">
+        {label}
       </Txt>
       <TextInput
         value={value}
@@ -782,8 +872,9 @@ export function Field({
           borderRadius: radius.md,
           borderWidth: 1,
           borderColor: error ? c.critical : c.line,
-          backgroundColor: c.surface,
+          backgroundColor: c.surface2,
           color: c.ink,
+          fontFamily: familyFor(false, '400'),
           fontSize: 15,
         }}
       />
@@ -815,7 +906,7 @@ export function BottomSheet({
     if (visible) {
       translateY.value = withSpring(0, { damping: motion.sheet.damping });
     } else {
-      translateY.value = withTiming(600, { duration: 250 });
+      translateY.value = withTiming(600, { duration: 250, easing: ease });
     }
   }, [visible]);
 
@@ -854,8 +945,8 @@ export function BottomSheet({
             style={[
               {
                 backgroundColor: c.surface,
-                borderTopLeftRadius: radius.lg,
-                borderTopRightRadius: radius.lg,
+                borderTopLeftRadius: radius.xl,
+                borderTopRightRadius: radius.xl,
                 borderWidth: 1,
                 borderColor: c.line,
                 paddingBottom: space[8],

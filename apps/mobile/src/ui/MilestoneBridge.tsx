@@ -94,7 +94,7 @@ export function MilestoneBridge() {
           borderRadius: radius.md, backgroundColor: c.surface, borderWidth: 1, borderColor: c.accent,
         }}
       >
-        <Txt variant="body" style={{ fontWeight: '700' }}>
+        <Txt variant="body" style={{ fontWeight: '500' }}>
           {current.title}
         </Txt>
         <Txt variant="caption" color="ink2">
