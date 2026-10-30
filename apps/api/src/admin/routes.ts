@@ -18,7 +18,7 @@ import {
   logAdminAction,
   revokeAdminSessions,
 } from './auth.js';
-import { clearAdminSession, escapeHtml, sendAdminHtml, setAdminSession } from './html.js';
+import { ADMIN_CSS, adminPage, clearAdminSession, escapeHtml, sendAdminHtml, setAdminSession } from './html.js';
 import {
   adminLoginBodySchema,
   adminLoginResponseSchema,
@@ -249,124 +249,20 @@ export function adminAuthRoutes(db: Db, limits: RateLimits = RateLimits.off()) {
       const admin = req.admin;
       const logs = await getAdminAuditLog(db, { limit: 100 });
 
-      return sendAdminHtml(reply, () => `<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Flyleaf Admin — Audit Log (FN-93)</title>
-  <style>
-    :root {
-      --bg: #090a0f;
-      --card-bg: rgba(22, 27, 34, 0.7);
-      --border: rgba(255, 255, 255, 0.1);
-      --text: #f0f6fc;
-      --text-muted: #8b949e;
-      --accent: #d4a373;
-      --danger: #f85149;
-    }
-    * { box-sizing: border-box; margin: 0; padding: 0; }
-    body {
-      background: radial-gradient(circle at 50% 0%, #1a1e29 0%, var(--bg) 80%);
-      color: var(--text);
-      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-      padding: 32px 24px;
-      min-height: 100vh;
-    }
-    .container { max-width: 1200px; margin: 0 auto; }
-    header {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      margin-bottom: 28px;
-      padding-bottom: 20px;
-      border-bottom: 1px solid var(--border);
-    }
-    .nav { display: flex; gap: 16px; align-items: center; }
-    .nav a {
-      color: var(--text-muted);
-      text-decoration: none;
-      font-size: 14px;
-      font-weight: 500;
-      transition: color 0.2s;
-    }
-    .nav a:hover, .nav a.active { color: var(--accent); }
-    .user-pill {
-      background: rgba(255, 255, 255, 0.05);
-      border: 1px solid var(--border);
-      padding: 6px 14px;
-      border-radius: 20px;
-      font-size: 13px;
-      display: flex;
-      align-items: center;
-      gap: 8px;
-    }
-    .role-badge {
-      background: var(--accent);
-      color: #090a0f;
-      font-size: 10px;
-      font-weight: 700;
-      padding: 2px 6px;
-      border-radius: 4px;
-      text-transform: uppercase;
-    }
-    .btn-logout {
-      background: transparent;
-      border: 1px solid var(--border);
-      color: var(--text-muted);
-      padding: 6px 12px;
-      border-radius: 8px;
-      cursor: pointer;
-      font-size: 13px;
-    }
-    .btn-logout:hover { color: var(--danger); border-color: var(--danger); }
-    .card {
-      background: var(--card-bg);
-      border: 1px solid var(--border);
-      border-radius: 12px;
-      padding: 24px;
-      overflow-x: auto;
-    }
-    table { width: 100%; border-collapse: collapse; font-size: 13px; }
-    th { text-align: left; padding: 12px 14px; color: var(--text-muted); border-bottom: 1px solid var(--border); }
-    td { padding: 12px 14px; border-bottom: 1px solid rgba(255, 255, 255, 0.05); vertical-align: top; }
-    code { font-family: monospace; background: rgba(0, 0, 0, 0.3); padding: 2px 6px; border-radius: 4px; }
-    .action-tag {
-      display: inline-block;
-      padding: 3px 8px;
-      border-radius: 6px;
-      font-size: 11px;
-      font-weight: 600;
-      background: rgba(212, 163, 115, 0.15);
-      color: var(--accent);
-    }
-  </style>
-</head>
-<body>
-  <div class="container">
-    <header>
+      return sendAdminHtml(reply, () =>
+        adminPage({
+          title: 'Audit trail',
+          path: '/admin/audit-log',
+          admin,
+          body: `
+    <div class="page-head">
       <div>
-        <h1 style="font-size: 24px; margin-bottom: 4px;">Flyleaf Admin Audit Trail</h1>
-        <p style="color: var(--text-muted); font-size: 13px;">FN-93: Non-negotiable audit log across all administrative actions.</p>
+        <h1>Audit trail</h1>
+        <p class="sub">Every administrative action, newest first</p>
       </div>
-      <div class="nav">
-        <a href="/admin/reports">Reports</a>
-        <a href="/admin/appeals">Appeals</a>
-        <a href="/admin/merges">Merge Review</a>
-        <a href="/admin/catalog/maturity">Maturity</a>
-        <a href="/admin/ingest">Ingestion</a>
-        <a href="/admin/audit-log" class="active">Audit Trail</a>
-        <div class="user-pill">
-          <span>${escapeHtml(admin.email)}</span>
-          <span class="role-badge">${escapeHtml(admin.role)}</span>
-        </div>
-        <form method="POST" action="/admin/logout">
-          <button type="submit" class="btn-logout">Sign Out</button>
-        </form>
-      </div>
-    </header>
+    </div>
 
-    <div class="card">
+    <div class="card flush table-wrap">
       <table>
         <thead>
           <tr>
@@ -381,21 +277,21 @@ export function adminAuthRoutes(db: Db, limits: RateLimits = RateLimits.off()) {
         <tbody>
           ${
             logs.length === 0
-              ? `<tr><td colspan="6" style="text-align: center; color: var(--text-muted); padding: 32px;">No audit events recorded yet.</td></tr>`
+              ? `<tr><td colspan="6" class="empty">No audit events yet</td></tr>`
               : logs
                   .map(
                     (l) => `
             <tr>
-              <td style="white-space: nowrap; color: var(--text-muted);">${escapeHtml(new Date(l.createdAt).toLocaleString())}</td>
+              <td class="nowrap mono meta">${escapeHtml(new Date(l.createdAt).toLocaleString())}</td>
               <td>
-                <div style="font-weight: 500;">${escapeHtml(l.actorEmail ?? '—')}</div>
-                <div style="font-size: 11px; color: var(--text-muted);">${escapeHtml(l.actorRole ?? 'no account')}</div>
-                <div style="font-size: 11px; color: var(--text-muted);">${escapeHtml(l.ip ?? '')}</div>
+                <div>${escapeHtml(l.actorEmail ?? '—')}</div>
+                <div class="meta">${escapeHtml(l.actorRole ?? 'no account')}</div>
+                <div class="mono meta">${escapeHtml(l.ip ?? '')}</div>
               </td>
-              <td><span class="action-tag">${escapeHtml(l.action)}</span></td>
-              <td>${l.subjectType ? `${escapeHtml(l.subjectType)} <br><code style="font-size: 10px;">${escapeHtml(l.subjectId ?? '')}</code>` : '—'}</td>
+              <td><code>${escapeHtml(l.action)}</code></td>
+              <td>${l.subjectType ? `${escapeHtml(l.subjectType)}<br><code>${escapeHtml(l.subjectId ?? '')}</code>` : '—'}</td>
               <td>${escapeHtml(l.reason ?? '—')}</td>
-              <td><pre style="font-size: 11px; max-width: 320px; overflow: hidden; text-overflow: ellipsis; white-space: pre-wrap;">${escapeHtml(JSON.stringify(l.payload))}</pre></td>
+              <td><pre class="snip" style="max-width: 320px;">${escapeHtml(JSON.stringify(l.payload))}</pre></td>
             </tr>
           `,
                   )
@@ -403,10 +299,9 @@ export function adminAuthRoutes(db: Db, limits: RateLimits = RateLimits.off()) {
           }
         </tbody>
       </table>
-    </div>
-  </div>
-</body>
-</html>`);
+    </div>`,
+        }),
+      );
     });
   };
 }
@@ -418,172 +313,41 @@ function renderLoginPage(error?: string): string {
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Flyleaf Admin — Login</title>
-  <style>
-    :root {
-      --bg: #090a0f;
-      --card-bg: rgba(22, 27, 34, 0.75);
-      --border: rgba(255, 255, 255, 0.1);
-      --text: #f0f6fc;
-      --text-muted: #8b949e;
-      --accent: #d4a373;
-      --accent-hover: #faedcd;
-      --error: #f85149;
-    }
-    * { box-sizing: border-box; margin: 0; padding: 0; }
-    body {
-      background: radial-gradient(circle at 50% 0%, #1a1e29 0%, var(--bg) 80%);
-      color: var(--text);
-      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-      min-height: 100vh;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      padding: 24px;
-    }
-    .login-card {
-      background: var(--card-bg);
-      backdrop-filter: blur(16px);
-      -webkit-backdrop-filter: blur(16px);
-      border: 1px solid var(--border);
-      border-radius: 16px;
-      padding: 36px;
-      width: 100%;
-      max-width: 420px;
-      box-shadow: 0 20px 40px rgba(0, 0, 0, 0.5);
-    }
-    .brand {
-      display: flex;
-      align-items: center;
-      gap: 12px;
-      margin-bottom: 24px;
-    }
-    .brand-title {
-      font-size: 20px;
-      font-weight: 700;
-      letter-spacing: -0.5px;
-    }
-    .badge-2fa {
-      background: rgba(212, 163, 115, 0.15);
-      color: var(--accent);
-      padding: 3px 8px;
-      border-radius: 6px;
-      font-size: 11px;
-      font-weight: 600;
-      text-transform: uppercase;
-      letter-spacing: 0.5px;
-    }
-    h1 {
-      font-size: 24px;
-      margin-bottom: 8px;
-      font-weight: 600;
-    }
-    p.subtitle {
-      color: var(--text-muted);
-      font-size: 13px;
-      margin-bottom: 28px;
-      line-height: 1.4;
-    }
-    .form-group {
-      margin-bottom: 18px;
-    }
-    label {
-      display: block;
-      font-size: 13px;
-      font-weight: 500;
-      margin-bottom: 6px;
-      color: var(--text);
-    }
-    input {
-      width: 100%;
-      background: rgba(13, 17, 23, 0.8);
-      border: 1px solid var(--border);
-      border-radius: 8px;
-      padding: 12px 14px;
-      color: var(--text);
-      font-size: 14px;
-      outline: none;
-      transition: border-color 0.2s;
-    }
-    input:focus {
-      border-color: var(--accent);
-    }
-    .totp-input {
-      font-family: monospace;
-      letter-spacing: 4px;
-      font-size: 18px;
-      text-align: center;
-    }
-    .btn-login {
-      width: 100%;
-      background: var(--accent);
-      color: #090a0f;
-      border: none;
-      border-radius: 8px;
-      padding: 12px;
-      font-size: 15px;
-      font-weight: 600;
-      cursor: pointer;
-      margin-top: 10px;
-      transition: background 0.2s, transform 0.1s;
-    }
-    .btn-login:hover {
-      background: var(--accent-hover);
-    }
-    .btn-login:active {
-      transform: scale(0.99);
-    }
-    .error-msg {
-      background: rgba(248, 81, 73, 0.15);
-      border: 1px solid var(--error);
-      color: var(--error);
-      padding: 10px 14px;
-      border-radius: 8px;
-      font-size: 13px;
-      margin-bottom: 18px;
-    }
-    .footer {
-      margin-top: 24px;
-      text-align: center;
-      font-size: 12px;
-      color: var(--text-muted);
-    }
+  <title>Sign in — Flyleaf admin</title>
+  <style>${ADMIN_CSS}
+    body { display: flex; align-items: center; justify-content: center; padding: 24px 16px; }
+    .panel { width: 100%; max-width: 400px; display: flex; flex-direction: column; gap: 24px; padding: 32px; background: var(--card); border: 1px solid var(--line); border-radius: 16px; }
+    .totp-input { font-family: "JetBrains Mono", ui-monospace, monospace; font-variant-numeric: tabular-nums; letter-spacing: .2em; }
   </style>
 </head>
 <body>
-  <div class="login-card">
-    <div class="brand">
-      <span class="brand-title">Flyleaf Console</span>
-      <span class="badge-2fa">2FA Protected</span>
+  <main class="panel">
+    <div class="stack" style="gap: 8px;">
+      <div class="brand" style="padding: 0;">Flyleaf <span>admin</span></div>
+      <h1>Sign in</h1>
+      <p class="sub">Your administrator email, password and the 6-digit code from your authenticator app</p>
     </div>
-    <h1>Sign In</h1>
-    <p class="subtitle">Enter your administrator credentials and 6-digit authenticator code (PRD §27.5).</p>
 
-    ${error ? `<div class="error-msg" role="alert">${escapeHtml(error)}</div>` : ''}
+    ${error ? `<div class="notice critical" role="alert">${escapeHtml(error)}</div>` : ''}
 
-    <form method="POST" action="/admin/login">
-      <div class="form-group">
-        <label for="email">Admin Email</label>
+    <form method="POST" action="/admin/login" class="stack">
+      <label for="email">Email
         <input type="email" id="email" name="email" required placeholder="admin@flyleaf.app" autofocus autocomplete="username" />
-      </div>
+      </label>
 
-      <div class="form-group">
-        <label for="password">Password</label>
-        <input type="password" id="password" name="password" required placeholder="••••••••••••" autocomplete="current-password" />
-      </div>
+      <label for="password">Password
+        <input type="password" id="password" name="password" required autocomplete="current-password" />
+      </label>
 
-      <div class="form-group">
-        <label for="totp_code">Authenticator Code / Backup Code</label>
+      <label for="totp_code">Authenticator or backup code
         <input type="text" id="totp_code" name="totp_code" class="totp-input" required placeholder="123456" maxlength="10" autocomplete="one-time-code" />
-      </div>
+      </label>
 
-      <button type="submit" class="btn-login">Verify & Sign In</button>
+      <button type="submit" class="primary block">Sign in</button>
     </form>
 
-    <div class="footer">
-      Isolated authentication layer · Actions audit-logged
-    </div>
-  </div>
+    <p class="meta">Two-factor sign in. Every action here is kept in the audit trail</p>
+  </main>
 </body>
 </html>`;
 }

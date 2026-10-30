@@ -9,7 +9,7 @@ import { z } from 'zod';
 import type { Db } from '../platform/index.js';
 import { requireAdmin, requireModerator } from '../http.js';
 import { auditContext } from './auth.js';
-import { escapeHtml, sendAdminHtml } from './html.js';
+import { adminPage, escapeHtml, sendAdminHtml } from './html.js';
 import {
   listCatalogWorks,
   getCatalogWorkDetail,
@@ -39,50 +39,6 @@ const maturityOverrideBody = z.object({
   maturity: z.enum(['general', 'mature', 'explicit', 'unclassified']),
   reason: z.string().min(3),
 });
-
-export function adminNavbar(currentPath: string, admin: { email: string; role: string }): string {
-  const links = [
-    { path: '/admin/reports', label: 'Reports' },
-    { path: '/admin/appeals', label: 'Appeals' },
-    { path: '/admin/merges', label: 'Merge Review' },
-    { path: '/admin/catalog/maturity', label: 'Maturity Review' },
-    { path: '/admin/ingest', label: 'Ingestion Status' },
-    { path: '/admin/audit-log', label: 'Audit Trail' },
-  ];
-
-  const roleColor = admin.role === 'admin' ? '#38bdf8' : '#fbbf24';
-
-  return `
-    <header style="display: flex; justify-content: space-between; align-items: center; padding: 1.25rem 2rem; background: rgba(15, 23, 42, 0.85); backdrop-filter: blur(12px); border-bottom: 1px solid rgba(255, 255, 255, 0.1); margin-bottom: 2rem;">
-      <div style="display: flex; align-items: center; gap: 2rem;">
-        <div style="display: flex; align-items: center; gap: 0.75rem;">
-          <div style="width: 32px; height: 32px; border-radius: 8px; background: linear-gradient(135deg, #6366f1, #a855f7); display: flex; align-items: center; justify-content: center; font-weight: bold; font-size: 1rem; color: white;">F</div>
-          <span style="font-weight: 700; font-size: 1.15rem; letter-spacing: -0.02em;">Flyleaf Console</span>
-        </div>
-        <nav style="display: flex; gap: 0.5rem;">
-          ${links
-            .map(
-              (l) => `
-            <a href="${escapeHtml(l.path)}" style="padding: 0.5rem 1rem; border-radius: 8px; text-decoration: none; font-size: 0.9rem; font-weight: 500; transition: all 0.2s; ${
-              currentPath === l.path
-                ? 'background: rgba(99, 102, 241, 0.25); color: #818cf8; border: 1px solid rgba(99, 102, 241, 0.4);'
-                : 'color: #94a3b8; border: 1px solid transparent;'
-            }">${escapeHtml(l.label)}</a>
-          `,
-            )
-            .join('')}
-        </nav>
-      </div>
-      <div style="display: flex; align-items: center; gap: 1rem;">
-        <span style="font-size: 0.85rem; color: #94a3b8;">${escapeHtml(admin.email)}</span>
-        <span style="font-size: 0.75rem; padding: 0.2rem 0.6rem; border-radius: 9999px; background: rgba(255, 255, 255, 0.08); color: ${roleColor}; font-weight: 600; text-transform: uppercase; border: 1px solid ${roleColor}40;">${escapeHtml(admin.role)}</span>
-        <form method="POST" action="/admin/logout" style="margin: 0;">
-          <button type="submit" style="padding: 0.4rem 0.8rem; border-radius: 6px; border: 1px solid rgba(255, 255, 255, 0.15); background: transparent; color: #cbd5e1; font-size: 0.8rem; cursor: pointer;">Log out</button>
-        </form>
-      </div>
-    </header>
-  `;
-}
 
 function checkAdminSessionCookie(req: any, reply: FastifyReply): { id: string; email: string; role: string } | null {
   if (!req.admin) {
@@ -229,108 +185,80 @@ export function adminCatalogRoutes(db: Db) {
       const canOverride = admin.role === 'admin';
 
       const maturityBadge = (m: string) => {
-        if (m === 'general') return '<span style="background: rgba(34, 197, 94, 0.15); color: #4ade80; border: 1px solid rgba(34, 197, 94, 0.3); padding: 0.2rem 0.6rem; border-radius: 9999px; font-size: 0.75rem; font-weight: 600;">General</span>';
-        if (m === 'mature') return '<span style="background: rgba(234, 179, 8, 0.15); color: #facc15; border: 1px solid rgba(234, 179, 8, 0.3); padding: 0.2rem 0.6rem; border-radius: 9999px; font-size: 0.75rem; font-weight: 600;">Mature</span>';
-        if (m === 'explicit') return '<span style="background: rgba(239, 68, 68, 0.15); color: #f87171; border: 1px solid rgba(239, 68, 68, 0.3); padding: 0.2rem 0.6rem; border-radius: 9999px; font-size: 0.75rem; font-weight: 600;">Explicit</span>';
-        return '<span style="background: rgba(148, 163, 184, 0.15); color: #cbd5e1; border: 1px solid rgba(148, 163, 184, 0.3); padding: 0.2rem 0.6rem; border-radius: 9999px; font-size: 0.75rem; font-weight: 600;">Unclassified</span>';
+        if (m === 'general') return '<span class="status positive">General</span>';
+        if (m === 'mature') return '<span class="status warning">Mature</span>';
+        if (m === 'explicit') return '<span class="status critical">Explicit</span>';
+        return '<span class="status">Unclassified</span>';
       };
 
-      return sendAdminHtml(reply, (nonce) => `<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8">
-  <title>Maturity Review — Flyleaf Admin</title>
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <style>
-    * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
-    body { background-color: #0b0f19; color: #f1f5f9; min-height: 100vh; padding-bottom: 4rem; }
-    .container { max-width: 1200px; margin: 0 auto; padding: 0 1.5rem; }
-    .card { background: rgba(30, 41, 59, 0.7); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 12px; padding: 1.5rem; margin-bottom: 1.5rem; backdrop-filter: blur(8px); }
-    .filter-btn { padding: 0.5rem 1rem; border-radius: 8px; font-size: 0.85rem; font-weight: 500; text-decoration: none; color: #94a3b8; border: 1px solid rgba(255, 255, 255, 0.08); background: rgba(15, 23, 42, 0.6); transition: all 0.2s; }
-    .filter-btn.active { background: rgba(99, 102, 241, 0.2); color: #818cf8; border-color: rgba(99, 102, 241, 0.4); }
-    table { width: 100%; border-collapse: collapse; text-align: left; }
-    th { padding: 0.85rem 1rem; font-size: 0.8rem; font-weight: 600; text-transform: uppercase; color: #64748b; border-bottom: 1px solid rgba(255, 255, 255, 0.08); }
-    td { padding: 1rem; border-bottom: 1px solid rgba(255, 255, 255, 0.05); font-size: 0.9rem; vertical-align: middle; }
-    tr:hover td { background: rgba(255, 255, 255, 0.02); }
-    .action-btn { padding: 0.4rem 0.8rem; border-radius: 6px; font-size: 0.8rem; font-weight: 600; cursor: pointer; border: 1px solid rgba(99, 102, 241, 0.4); background: rgba(99, 102, 241, 0.15); color: #a5b4fc; transition: all 0.2s; }
-    .action-btn:hover:not(:disabled) { background: #6366f1; color: white; }
-    .action-btn:disabled { opacity: 0.4; cursor: not-allowed; }
-  </style>
-</head>
-<body>
-  ${adminNavbar('/admin/catalog/maturity', admin)}
-  <div class="container">
-    <div style="display: flex; justify-content: space-between; align-items: flex-end; margin-bottom: 1.5rem;">
+      const chip = (value: string, label: string) =>
+        `<a href="/admin/catalog/maturity${value ? `?maturity=${value}` : ''}" class="chip ${activeMaturity === value ? 'active' : ''}">${label}</a>`;
+
+      return sendAdminHtml(reply, (nonce) =>
+        adminPage({
+          title: 'Maturity review',
+          path: '/admin/catalog/maturity',
+          admin,
+          body: `
+    <div class="page-head">
       <div>
-        <h1 style="font-size: 1.75rem; font-weight: 700; margin-bottom: 0.35rem;">Catalog Maturity Review</h1>
-        <p style="color: #94a3b8; font-size: 0.9rem;">Review and override classification ratings per PRD §7.8 & §27.5. Overrides are locked against re-ingestion.</p>
+        <h1>Maturity review</h1>
+        <p class="sub">Check and override how each work is classified. An override is locked against re-ingestion</p>
       </div>
-      ${
-        !canOverride
-          ? '<div style="padding: 0.4rem 0.8rem; border-radius: 8px; background: rgba(251, 191, 36, 0.1); border: 1px solid rgba(251, 191, 36, 0.3); color: #fbbf24; font-size: 0.85rem;">🔒 Read-Only (Moderator Role)</div>'
-          : ''
-      }
+      ${!canOverride ? '<span class="status warning">Read only for moderators</span>' : ''}
     </div>
 
-    <!-- Filters & Search -->
-    <div class="card" style="display: flex; justify-content: space-between; align-items: center; gap: 1rem; flex-wrap: wrap;">
-      <div style="display: flex; gap: 0.5rem; flex-wrap: wrap;">
-        <a href="/admin/catalog/maturity" class="filter-btn ${activeMaturity === '' ? 'active' : ''}">All Works</a>
-        <a href="/admin/catalog/maturity?maturity=unclassified" class="filter-btn ${activeMaturity === 'unclassified' ? 'active' : ''}">⚠️ Unclassified (Queue)</a>
-        <a href="/admin/catalog/maturity?maturity=explicit" class="filter-btn ${activeMaturity === 'explicit' ? 'active' : ''}">Explicit</a>
-        <a href="/admin/catalog/maturity?maturity=mature" class="filter-btn ${activeMaturity === 'mature' ? 'active' : ''}">Mature</a>
-        <a href="/admin/catalog/maturity?maturity=general" class="filter-btn ${activeMaturity === 'general' ? 'active' : ''}">General</a>
+    <div class="between">
+      <div class="chips">
+        ${chip('', 'All works')}
+        ${chip('unclassified', 'Unclassified')}
+        ${chip('explicit', 'Explicit')}
+        ${chip('mature', 'Mature')}
+        ${chip('general', 'General')}
       </div>
-      <form method="GET" action="/admin/catalog/maturity" style="display: flex; gap: 0.5rem;">
+      <form method="GET" action="/admin/catalog/maturity" class="row">
         ${activeMaturity ? `<input type="hidden" name="maturity" value="${escapeHtml(activeMaturity)}">` : ''}
-        <input type="text" name="q" placeholder="Search title or author…" value="${escapeHtml(searchQuery)}" style="padding: 0.5rem 0.85rem; border-radius: 8px; border: 1px solid rgba(255, 255, 255, 0.15); background: rgba(15, 23, 42, 0.8); color: white; font-size: 0.85rem; width: 240px;">
-        <button type="submit" class="action-btn">Search</button>
+        <input type="text" name="q" placeholder="Title or author" aria-label="Search title or author" value="${escapeHtml(searchQuery)}" style="width: 240px;">
+        <button type="submit">Search</button>
       </form>
     </div>
 
-    <!-- Works List -->
-    <div class="card" style="padding: 0; overflow: hidden;">
-      <div style="padding: 1rem 1.5rem; border-bottom: 1px solid rgba(255, 255, 255, 0.08); display: flex; justify-content: space-between; align-items: center;">
-        <span style="font-weight: 600; font-size: 0.95rem;">Showing ${escapeHtml(works.length)} of ${escapeHtml(total)} works</span>
+    <div class="card flush">
+      <div class="card-head">
+        <span class="meta">${escapeHtml(works.length)} of ${escapeHtml(total)} works</span>
       </div>
-      <div style="overflow-x: auto;">
+      <div class="table-wrap">
         <table>
           <thead>
             <tr>
               <th>Work</th>
               <th>Author</th>
-              <th>Year</th>
-              <th>Logs</th>
+              <th class="num">Year</th>
+              <th class="num">Logs</th>
               <th>Rating</th>
-              <th>Status</th>
-              <th>Action</th>
+              <th>Source</th>
+              <th></th>
             </tr>
           </thead>
           <tbody>
             ${
               works.length === 0
-                ? `<tr><td colspan="7" style="text-align: center; color: #64748b; padding: 3rem;">No works found matching current criteria.</td></tr>`
+                ? `<tr><td colspan="7" class="empty">No works match these filters</td></tr>`
                 : works
                     .map(
                       (w) => `
               <tr>
                 <td>
-                  <div style="font-weight: 600; color: #f8fafc;">${escapeHtml(w.title)}</div>
-                  ${w.subtitle ? `<div style="font-size: 0.8rem; color: #94a3b8;">${escapeHtml(w.subtitle)}</div>` : ''}
+                  <div>${escapeHtml(w.title)}</div>
+                  ${w.subtitle ? `<div class="meta">${escapeHtml(w.subtitle)}</div>` : ''}
                 </td>
-                <td style="color: #cbd5e1;">${escapeHtml(w.author_name)}</td>
-                <td style="color: #94a3b8;">${escapeHtml(w.first_publish_year ?? '—')}</td>
-                <td style="color: #94a3b8;">${escapeHtml(w.log_count)}</td>
+                <td style="color: var(--ink2);">${escapeHtml(w.author_name)}</td>
+                <td class="num meta">${escapeHtml(w.first_publish_year ?? '—')}</td>
+                <td class="num meta">${escapeHtml(w.log_count)}</td>
                 <td>${maturityBadge(w.maturity)}</td>
-                <td>
-                  ${
-                    w.is_locked
-                      ? '<span style="font-size: 0.75rem; color: #38bdf8; background: rgba(56, 189, 248, 0.1); border: 1px solid rgba(56, 189, 248, 0.25); padding: 0.15rem 0.5rem; border-radius: 4px;">🔒 Overridden</span>'
-                      : '<span style="font-size: 0.75rem; color: #64748b;">Ingest Default</span>'
-                  }
-                </td>
-                <td>
-                  <button class="action-btn" ${!canOverride ? 'disabled' : ''} data-override="${escapeHtml(w.id)}" data-title="${escapeHtml(w.title)}" data-maturity="${escapeHtml(w.maturity)}">Override</button>
+                <td>${w.is_locked ? '<span class="status accent">Overridden</span>' : '<span class="meta">Ingest default</span>'}</td>
+                <td class="num">
+                  <button class="sm" ${!canOverride ? 'disabled' : ''} data-override="${escapeHtml(w.id)}" data-title="${escapeHtml(w.title)}" data-maturity="${escapeHtml(w.maturity)}">Override</button>
                 </td>
               </tr>
             `,
@@ -341,31 +269,29 @@ export function adminCatalogRoutes(db: Db) {
         </table>
       </div>
     </div>
-  </div>
 
-  <!-- Override Modal -->
-  <div id="overrideModal" style="display: none; position: fixed; inset: 0; background: rgba(0, 0, 0, 0.75); backdrop-filter: blur(4px); align-items: center; justify-content: center; z-index: 100;">
-    <div style="background: #1e293b; border: 1px solid rgba(255, 255, 255, 0.15); border-radius: 12px; width: 100%; max-width: 480px; padding: 2rem; box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.5);">
-      <h3 style="font-size: 1.25rem; font-weight: 700; margin-bottom: 0.5rem;">Override Maturity</h3>
-      <p id="modalWorkTitle" style="font-size: 0.9rem; color: #94a3b8; margin-bottom: 1.5rem;"></p>
-      <form id="overrideForm">
+  <div id="overrideModal" class="modal" style="display: none;" role="dialog" aria-modal="true" aria-labelledby="overrideTitle">
+    <div class="modal-panel">
+      <div>
+        <h2 id="overrideTitle">Override maturity</h2>
+        <p id="modalWorkTitle" class="meta"></p>
+      </div>
+      <form id="overrideForm" class="stack">
         <input type="hidden" id="modalWorkId" name="work_id">
-        <div style="margin-bottom: 1.25rem;">
-          <label style="display: block; font-size: 0.85rem; font-weight: 600; color: #cbd5e1; margin-bottom: 0.5rem;">New Rating</label>
-          <select id="modalRating" style="width: 100%; padding: 0.6rem; border-radius: 8px; border: 1px solid rgba(255, 255, 255, 0.15); background: #0f172a; color: white; font-size: 0.9rem;">
-            <option value="general">General (Ordinary literature)</option>
-            <option value="mature">Mature (Adult themes handled seriously)</option>
-            <option value="explicit">Explicit (Primary purpose is sexual content)</option>
-            <option value="unclassified">Unclassified (Borderline / needs review)</option>
+        <label>New rating
+          <select id="modalRating">
+            <option value="general">General · ordinary literature</option>
+            <option value="mature">Mature · adult themes handled seriously</option>
+            <option value="explicit">Explicit · primary purpose is sexual content</option>
+            <option value="unclassified">Unclassified · borderline, needs review</option>
           </select>
-        </div>
-        <div style="margin-bottom: 1.5rem;">
-          <label style="display: block; font-size: 0.85rem; font-weight: 600; color: #cbd5e1; margin-bottom: 0.5rem;">Audit Reason (Mandatory per PRD §27.5)</label>
-          <textarea id="modalReason" required minlength="3" placeholder="Explain why this maturity rating is being assigned…" style="width: 100%; height: 80px; padding: 0.6rem; border-radius: 8px; border: 1px solid rgba(255, 255, 255, 0.15); background: #0f172a; color: white; font-size: 0.85rem; resize: none;"></textarea>
-        </div>
-        <div style="display: flex; justify-content: flex-end; gap: 0.75rem;">
-          <button type="button" id="modalCancelBtn" style="padding: 0.5rem 1rem; border-radius: 8px; border: 1px solid rgba(255, 255, 255, 0.15); background: transparent; color: #cbd5e1; font-size: 0.85rem; cursor: pointer;">Cancel</button>
-          <button type="submit" id="modalSubmitBtn" class="action-btn" style="padding: 0.5rem 1.25rem;">Save & Lock</button>
+        </label>
+        <label>Reason, kept in the audit trail
+          <textarea id="modalReason" rows="3" required minlength="3" placeholder="Why this rating"></textarea>
+        </label>
+        <div class="row" style="justify-content: flex-end;">
+          <button type="button" id="modalCancelBtn" class="ghost">Cancel</button>
+          <button type="submit" id="modalSubmitBtn" class="primary">Save and lock</button>
         </div>
       </form>
     </div>
@@ -401,16 +327,16 @@ export function adminCatalogRoutes(db: Db) {
         });
         if (!res.ok) {
           const err = await res.json();
-          alert('Error overriding maturity: ' + (err.error?.message || res.statusText));
+          alert('Could not save the override: ' + (err.error?.message || res.statusText));
           btn.disabled = false;
-          btn.textContent = 'Save & Lock';
+          btn.textContent = 'Save and lock';
           return;
         }
         window.location.reload();
       } catch (err) {
-        alert('Network error: ' + err.message);
+        alert('Could not reach the server: ' + err.message);
         btn.disabled = false;
-        btn.textContent = 'Save & Lock';
+        btn.textContent = 'Save and lock';
       }
     }
 
@@ -422,9 +348,9 @@ export function adminCatalogRoutes(db: Db) {
     });
     document.getElementById('modalCancelBtn').addEventListener('click', closeOverrideModal);
     document.getElementById('overrideForm').addEventListener('submit', submitOverride);
-  </script>
-</body>
-</html>`);
+  </script>`,
+        }),
+      );
     });
 
     app.get('/admin/ingest', { schema: { hide: true } }, async (req, reply) => {
@@ -434,154 +360,144 @@ export function adminCatalogRoutes(db: Db) {
       const status = await getIngestDashboardStatus(db);
 
       const breakerBadge = (s: string) => {
-        if (s === 'closed') {
-          return '<span style="display: inline-flex; align-items: center; gap: 0.5rem; background: rgba(34, 197, 94, 0.15); color: #4ade80; border: 1px solid rgba(34, 197, 94, 0.3); padding: 0.3rem 0.8rem; border-radius: 9999px; font-weight: 600; font-size: 0.85rem;"><span style="width: 8px; height: 8px; border-radius: 50%; background: #4ade80;"></span> Closed (Healthy)</span>';
-        }
-        if (s === 'half-open') {
-          return '<span style="display: inline-flex; align-items: center; gap: 0.5rem; background: rgba(234, 179, 8, 0.15); color: #facc15; border: 1px solid rgba(234, 179, 8, 0.3); padding: 0.3rem 0.8rem; border-radius: 9999px; font-weight: 600; font-size: 0.85rem;"><span style="width: 8px; height: 8px; border-radius: 50%; background: #facc15;"></span> Half-Open (Probing)</span>';
-        }
-        return '<span style="display: inline-flex; align-items: center; gap: 0.5rem; background: rgba(239, 68, 68, 0.15); color: #f87171; border: 1px solid rgba(239, 68, 68, 0.3); padding: 0.3rem 0.8rem; border-radius: 9999px; font-weight: 600; font-size: 0.85rem;"><span style="width: 8px; height: 8px; border-radius: 50%; background: #f87171;"></span> Open (Failing Fast)</span>';
+        if (s === 'closed') return '<span class="status positive">Closed · healthy</span>';
+        if (s === 'half-open') return '<span class="status warning">Half-open · probing</span>';
+        return '<span class="status critical">Open · failing fast</span>';
       };
 
       const runStatusBadge = (s: string) => {
-        if (s === 'done') return '<span style="color: #4ade80; font-weight: 600; font-size: 0.8rem;">✓ DONE</span>';
-        if (s === 'running') return '<span style="color: #38bdf8; font-weight: 600; font-size: 0.8rem;">⚡ RUNNING</span>';
-        if (s === 'interrupted') return '<span style="color: #facc15; font-weight: 600; font-size: 0.8rem;">⏸ INTERRUPTED</span>';
-        return '<span style="color: #f87171; font-weight: 600; font-size: 0.8rem;">✕ FAILED</span>';
+        if (s === 'done') return '<span class="status positive">Done</span>';
+        if (s === 'running') return '<span class="status accent">Running</span>';
+        if (s === 'interrupted') return '<span class="status warning">Interrupted</span>';
+        return '<span class="status critical">Failed</span>';
       };
 
       // Planner estimates on a large catalog (A-06-013): say so on the page.
       const approx = status.counts_are_estimates ? '≈ ' : '';
       const formatNum = (n: number) => escapeHtml(Number(n).toLocaleString());
 
-      return sendAdminHtml(reply, () => `<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8">
-  <title>Ingestion Status & Telemetry — Flyleaf Admin</title>
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <style>
-    * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
-    body { background-color: #0b0f19; color: #f1f5f9; min-height: 100vh; padding-bottom: 4rem; }
-    .container { max-width: 1200px; margin: 0 auto; padding: 0 1.5rem; }
-    .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 1.25rem; margin-bottom: 1.5rem; }
-    .card { background: rgba(30, 41, 59, 0.7); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 12px; padding: 1.5rem; backdrop-filter: blur(8px); }
-    .metric-title { font-size: 0.8rem; font-weight: 600; text-transform: uppercase; color: #94a3b8; margin-bottom: 0.5rem; letter-spacing: 0.05em; }
-    .metric-value { font-size: 1.75rem; font-weight: 700; color: #f8fafc; }
-    .metric-sub { font-size: 0.8rem; color: #64748b; margin-top: 0.35rem; }
-    table { width: 100%; border-collapse: collapse; text-align: left; }
-    th { padding: 0.85rem 1rem; font-size: 0.8rem; font-weight: 600; text-transform: uppercase; color: #64748b; border-bottom: 1px solid rgba(255, 255, 255, 0.08); }
-    td { padding: 1rem; border-bottom: 1px solid rgba(255, 255, 255, 0.05); font-size: 0.85rem; vertical-align: middle; }
-    tr:hover td { background: rgba(255, 255, 255, 0.02); }
-  </style>
-</head>
-<body>
-  ${adminNavbar('/admin/ingest', admin)}
-  <div class="container">
-    <div style="margin-bottom: 1.5rem;">
-      <h1 style="font-size: 1.75rem; font-weight: 700; margin-bottom: 0.35rem;">Ingestion Status & Telemetry</h1>
-      <p style="color: #94a3b8; font-size: 0.9rem;">Dump runs, catalog totals, maturity distribution, and circuit breaker telemetry (PRD §27.5).</p>
-    </div>
+      const mb = status.maturity_breakdown;
+      const cb = status.telemetry.circuit_breaker;
+      const lim = status.telemetry.outbound_limiter;
 
-    <!-- Top KPI Grid -->
-    <div class="grid">
-      <div class="card">
-        <div class="metric-title">Outbound Circuit Breaker</div>
-        <div style="margin-top: 0.5rem;">${breakerBadge(status.telemetry.circuit_breaker.state)}</div>
-        <div class="metric-sub">${status.telemetry.circuit_breaker.threshold} fail threshold · ${status.telemetry.circuit_breaker.cooldown_seconds}s cooldown</div>
-      </div>
-      <div class="card">
-        <div class="metric-title">Catalog Works</div>
-        <div class="metric-value">${approx}${formatNum(status.catalog.works_count)}</div>
-        <div class="metric-sub">${formatNum(status.catalog.works_with_cover_count)} with covers · ${formatNum(status.catalog.editions_count)} editions</div>
-      </div>
-      <div class="card">
-        <div class="metric-title">Authors & Authorship</div>
-        <div class="metric-value">${approx}${formatNum(status.catalog.authors_count)}</div>
-        <div class="metric-sub">${formatNum(status.catalog.authorship_links_count)} links · ${formatNum(status.telemetry.pending_work_authors_count)} pending resolution</div>
-      </div>
-      <div class="card">
-        <div class="metric-title">Raw Payloads & Dedupe</div>
-        <div class="metric-value">${approx}${formatNum(status.catalog.raw_payloads_count)}</div>
-        <div class="metric-sub">${status.telemetry.dedupe_queue_pending_count} pending duplicate review items</div>
+      return sendAdminHtml(reply, () =>
+        adminPage({
+          title: 'Ingestion',
+          path: '/admin/ingest',
+          admin,
+          css: `
+    .split { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 1fr); gap: 12px; }
+    .bars { display: flex; flex-direction: column; gap: 12px; }
+    .bar-row { display: grid; grid-template-columns: 120px 1fr 96px; align-items: center; gap: 12px; font-size: 13px; }
+    .bar { height: 6px; border-radius: 3px; background: var(--raised); overflow: hidden; }
+    .bar > span { display: block; height: 100%; background: var(--ink2); }
+    .bar-row.lead .bar > span { background: var(--accent); }
+    @media (max-width: 1000px) { .split { grid-template-columns: 1fr; } }`,
+          body: `
+    <div class="page-head">
+      <div>
+        <h1>Ingestion</h1>
+        <p class="sub">Dump runs, catalog totals, maturity mix and the outbound circuit breaker</p>
       </div>
     </div>
 
-    <!-- Maturity Distribution & Rate Limiter -->
-    <div style="display: grid; grid-template-columns: 2fr 1fr; gap: 1.25rem; margin-bottom: 1.5rem;">
-      <div class="card">
-        <h3 style="font-size: 1.05rem; font-weight: 600; margin-bottom: 1rem;">Maturity Classification Breakdown</h3>
-        <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 1rem; margin-bottom: 1.25rem;">
-          <div style="background: rgba(15, 23, 42, 0.6); padding: 1rem; border-radius: 8px; border: 1px solid rgba(255, 255, 255, 0.05);">
-            <div style="font-size: 0.75rem; color: #4ade80; font-weight: 600;">General</div>
-            <div style="font-size: 1.4rem; font-weight: 700; margin-top: 0.25rem;">${approx}${formatNum(status.maturity_breakdown.general)}</div>
-          </div>
-          <div style="background: rgba(15, 23, 42, 0.6); padding: 1rem; border-radius: 8px; border: 1px solid rgba(255, 255, 255, 0.05);">
-            <div style="font-size: 0.75rem; color: #facc15; font-weight: 600;">Mature</div>
-            <div style="font-size: 1.4rem; font-weight: 700; margin-top: 0.25rem;">${approx}${formatNum(status.maturity_breakdown.mature)}</div>
-          </div>
-          <div style="background: rgba(15, 23, 42, 0.6); padding: 1rem; border-radius: 8px; border: 1px solid rgba(255, 255, 255, 0.05);">
-            <div style="font-size: 0.75rem; color: #f87171; font-weight: 600;">Explicit</div>
-            <div style="font-size: 1.4rem; font-weight: 700; margin-top: 0.25rem;">${approx}${formatNum(status.maturity_breakdown.explicit)}</div>
-          </div>
-          <div style="background: rgba(15, 23, 42, 0.6); padding: 1rem; border-radius: 8px; border: 1px solid rgba(255, 255, 255, 0.05);">
-            <div style="font-size: 0.75rem; color: #94a3b8; font-weight: 600;">Unclassified</div>
-            <div style="font-size: 1.4rem; font-weight: 700; margin-top: 0.25rem;">${approx}${formatNum(status.maturity_breakdown.unclassified)}</div>
-          </div>
-        </div>
-        <div style="font-size: 0.85rem; color: #94a3b8;">
-          🔒 <strong>${formatNum(status.maturity_breakdown.overridden_locked)}</strong> titles carry locked human overrides in <code>field_provenance</code>.
-        </div>
+    <div class="kpis">
+      <div class="card kpi">
+        <div class="label">Circuit breaker</div>
+        <div style="margin-top: 12px;">${breakerBadge(cb.state)}</div>
+        <div class="note">${escapeHtml(cb.threshold)} failures to open · ${escapeHtml(cb.cooldown_seconds)}s cooldown</div>
       </div>
-
-      <div class="card">
-        <h3 style="font-size: 1.05rem; font-weight: 600; margin-bottom: 1rem;">Outbound Headroom</h3>
-        <div style="margin-bottom: 1rem;">
-          <div style="font-size: 0.8rem; color: #94a3b8;">Sustained Rate Limit</div>
-          <div style="font-size: 1.25rem; font-weight: 700; color: #f8fafc; margin-top: 0.2rem;">${status.telemetry.outbound_limiter.rate_per_second} req/sec</div>
-        </div>
-        <div style="margin-bottom: 1rem;">
-          <div style="font-size: 0.8rem; color: #94a3b8;">Burst Capacity</div>
-          <div style="font-size: 1.25rem; font-weight: 700; color: #f8fafc; margin-top: 0.2rem;">${status.telemetry.outbound_limiter.burst} tokens</div>
-        </div>
-        <div style="font-size: 0.75rem; color: #64748b;">Shared across gap-fill and admin enrichment (architecture §5.2).</div>
+      <div class="card kpi">
+        <div class="label">Works</div>
+        <div class="value">${approx}${formatNum(status.catalog.works_count)}</div>
+        <div class="note">${formatNum(status.catalog.works_with_cover_count)} with covers · ${formatNum(status.catalog.editions_count)} editions</div>
+      </div>
+      <div class="card kpi">
+        <div class="label">Authors</div>
+        <div class="value">${approx}${formatNum(status.catalog.authors_count)}</div>
+        <div class="note">${formatNum(status.catalog.authorship_links_count)} links · ${formatNum(status.telemetry.pending_work_authors_count)} waiting to resolve</div>
+      </div>
+      <div class="card kpi">
+        <div class="label">Raw payloads</div>
+        <div class="value">${approx}${formatNum(status.catalog.raw_payloads_count)}</div>
+        <div class="note">${formatNum(status.telemetry.dedupe_queue_pending_count)} duplicate pairs waiting for review</div>
       </div>
     </div>
 
-    <!-- Ingest Runs History -->
-    <div class="card" style="padding: 0; overflow: hidden;">
-      <div style="padding: 1.25rem 1.5rem; border-bottom: 1px solid rgba(255, 255, 255, 0.08); display: flex; justify-content: space-between; align-items: center;">
-        <h3 style="font-size: 1.05rem; font-weight: 600;">Recent Dump Ingest Runs</h3>
-        <span style="font-size: 0.85rem; color: #94a3b8;">Total Runs: ${status.runs_summary.total_runs} (${status.runs_summary.completed} done, ${status.runs_summary.failed} failed)</span>
+    <div class="split">
+      <div class="card">
+        <h2>Maturity mix</h2>
+        <div class="bars">
+          ${(() => {
+            const rows: [string, number][] = [
+              ['General', mb.general],
+              ['Mature', mb.mature],
+              ['Explicit', mb.explicit],
+              ['Unclassified', mb.unclassified],
+            ];
+            const max = Math.max(1, ...rows.map(([, n]) => Number(n)));
+            return rows
+              .map(
+                ([label, n]) => `
+          <div class="bar-row${label === 'Unclassified' ? ' lead' : ''}">
+            <span style="color: var(--ink2);">${label}</span>
+            <span class="bar"><span style="width: ${((Number(n) / max) * 100).toFixed(1)}%;"></span></span>
+            <span class="num" style="text-align: right; font-variant-numeric: tabular-nums;">${approx}${formatNum(n)}</span>
+          </div>`,
+              )
+              .join('');
+          })()}
+        </div>
+        <p class="meta" style="margin-top: 16px;">${formatNum(mb.overridden_locked)} works carry a locked override in <code>field_provenance</code></p>
       </div>
-      <div style="overflow-x: auto;">
+
+      <div class="card stack">
+        <h2>Outbound headroom</h2>
+        <div>
+          <div class="meta">Sustained rate</div>
+          <div style="font-size: 20px; font-weight: 500; font-variant-numeric: tabular-nums;">${escapeHtml(lim.rate_per_second)} req/s</div>
+        </div>
+        <div>
+          <div class="meta">Burst</div>
+          <div style="font-size: 20px; font-weight: 500; font-variant-numeric: tabular-nums;">${escapeHtml(lim.burst)} tokens</div>
+        </div>
+        <p class="meta">Shared by gap-fill and admin enrichment</p>
+      </div>
+    </div>
+
+    <div class="card flush">
+      <div class="card-head">
+        <h2>Recent dump runs</h2>
+        <span class="meta">${escapeHtml(status.runs_summary.total_runs)} runs · ${escapeHtml(status.runs_summary.completed)} done · ${escapeHtml(status.runs_summary.failed)} failed</span>
+      </div>
+      <div class="table-wrap">
         <table>
           <thead>
             <tr>
               <th>Status</th>
-              <th>Dump Type</th>
-              <th>Lines Read</th>
-              <th>Rows Written</th>
-              <th>Rows Skipped</th>
-              <th>Duration</th>
-              <th>Started At</th>
+              <th>Dump</th>
+              <th class="num">Lines read</th>
+              <th class="num">Rows written</th>
+              <th class="num">Rows skipped</th>
+              <th class="num">Duration</th>
+              <th>Started</th>
             </tr>
           </thead>
           <tbody>
             ${
               status.recent_runs.length === 0
-                ? `<tr><td colspan="7" style="text-align: center; color: #64748b; padding: 2.5rem;">No ingest runs recorded yet.</td></tr>`
+                ? `<tr><td colspan="7" class="empty">No dump runs yet</td></tr>`
                 : status.recent_runs
                     .map(
                       (r) => `
               <tr>
                 <td>${runStatusBadge(r.status)}</td>
-                <td style="font-weight: 600; text-transform: capitalize; color: #f8fafc;">${escapeHtml(r.dump_type)}</td>
-                <td style="color: #cbd5e1;">${formatNum(r.lines_read)}</td>
-                <td style="color: #4ade80;">${formatNum(r.rows_written)}</td>
-                <td style="color: #94a3b8;">${formatNum(r.rows_skipped)}</td>
-                <td style="color: #cbd5e1;">${r.duration_seconds !== null ? `${escapeHtml(r.duration_seconds)}s` : '—'}</td>
-                <td style="color: #94a3b8;">${escapeHtml(new Date(r.started_at).toLocaleString())}</td>
+                <td>${escapeHtml(r.dump_type)}</td>
+                <td class="num">${formatNum(r.lines_read)}</td>
+                <td class="num">${formatNum(r.rows_written)}</td>
+                <td class="num meta">${formatNum(r.rows_skipped)}</td>
+                <td class="num">${r.duration_seconds !== null ? `${escapeHtml(r.duration_seconds)}s` : '—'}</td>
+                <td class="nowrap mono meta">${escapeHtml(new Date(r.started_at).toLocaleString())}</td>
               </tr>
             `,
                     )
@@ -590,10 +506,9 @@ export function adminCatalogRoutes(db: Db) {
           </tbody>
         </table>
       </div>
-    </div>
-  </div>
-</body>
-</html>`);
+    </div>`,
+        }),
+      );
     });
   };
 }

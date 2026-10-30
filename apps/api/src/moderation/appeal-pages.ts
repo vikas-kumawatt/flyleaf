@@ -33,7 +33,7 @@ ${error ? `<p class="error" role="alert">${escapeHtml(error)}</p>` : ''}
 <textarea id="body" name="body" rows="8" maxlength="${APPEAL_MAX_LENGTH}" required></textarea>
 <button type="submit">Send appeal</button>
 </form>
-<style>textarea { box-sizing: border-box; width: 100%; padding: .7rem; margin: 0 0 1rem; font: inherit; color: var(--ink); background: transparent; border: 1px solid var(--line); border-radius: 8px; }</style>
+<style>textarea { box-sizing: border-box; width: 100%; padding: 12px; margin: 0 0 16px; font: inherit; color: var(--ink); background: var(--raised); border: 1px solid var(--line); border-radius: 10px; resize: vertical; } textarea:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }</style>
 <script nonce="${escapeHtml(nonce)}">
   var form = document.getElementById('appeal');
   form.addEventListener('submit', function () { form.querySelector('button').disabled = true; });

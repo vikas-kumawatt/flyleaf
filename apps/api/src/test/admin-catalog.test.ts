@@ -318,7 +318,7 @@ describe('Admin Catalog Maturity & Ingestion Telemetry (FN-92)', () => {
     });
     expect(authMaturity.statusCode).toBe(200);
     expect(authMaturity.headers['content-type']).toContain('text/html');
-    expect(authMaturity.body).toContain('Catalog Maturity Review');
+    expect(authMaturity.body).toContain('Maturity review');
     expect(authMaturity.body).toContain('Override');
 
     const authIngest = await app.inject({
@@ -330,7 +330,7 @@ describe('Admin Catalog Maturity & Ingestion Telemetry (FN-92)', () => {
     });
     expect(authIngest.statusCode).toBe(200);
     expect(authIngest.headers['content-type']).toContain('text/html');
-    expect(authIngest.body).toContain('Ingestion Status');
-    expect(authIngest.body).toContain('Circuit Breaker');
+    expect(authIngest.body).toContain('<h1>Ingestion</h1>');
+    expect(authIngest.body).toContain('Circuit breaker');
   });
 });

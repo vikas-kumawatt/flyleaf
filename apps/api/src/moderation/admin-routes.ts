@@ -13,8 +13,7 @@ import { requireModerator } from '../http.js';
 import type { Db } from '../platform/index.js';
 import { errorResponseSchema } from '../contract/schemas.js';
 import { auditContext } from '../admin/auth.js';
-import { adminNavbar } from '../admin/catalog-routes.js';
-import { escapeHtml, sendAdminHtml } from '../admin/html.js';
+import { adminPage, escapeHtml, sendAdminHtml } from '../admin/html.js';
 import type { Notifier } from '../notify/index.js';
 import { MIN_ACTION_REASON, ModerationService, type ModerationDeps, RULES, RULE_LABELS, SUBJECT_TYPES, type Rule, type SubjectType } from './index.js';
 
@@ -268,22 +267,24 @@ export function adminModerationRoutes(db: Db, notifier?: Notifier, deps: Moderat
       const type = (SUBJECT_TYPES as readonly string[]).includes(req.query.type ?? '') ? (req.query.type as SubjectType) : undefined;
       const q = await service.queue({ subjectType: type, limit: 100 });
       return sendAdminHtml(reply, () => page('Reports', '/admin/reports', admin, `
-        <h1>Reports queue</h1>
-        <p class="meta">${q.open_cases} open · ${q.pending_appeals} appeals waiting · heaviest first (reporter reputation), then oldest</p>
-        <p class="filters">${['all', ...SUBJECT_TYPES].map((t) => `<a class="filter ${(t === 'all' && !type) || t === type ? 'active' : ''}" href="/admin/reports${t === 'all' ? '' : `?type=${escapeHtml(t)}`}">${escapeHtml(t)}</a>`).join(' ')}</p>
-        <table>
-          <thead><tr><th>Subject</th><th>Owner</th><th>Reports</th><th>Weight</th><th>Reasons</th><th>First reported</th><th>Content</th></tr></thead>
-          <tbody>${q.cases.length === 0 ? '<tr><td colspan="7" class="meta">Nothing to review.</td></tr>' : q.cases.map((c) => `
+        <div class="page-head"><div>
+          <h1>Reports</h1>
+          <p class="sub">${q.open_cases} open · ${q.pending_appeals} appeals waiting · heaviest first by reporter reputation, then oldest</p>
+        </div></div>
+        <div class="chips">${['all', ...SUBJECT_TYPES].map((t) => `<a class="chip ${(t === 'all' && !type) || t === type ? 'active' : ''}" href="/admin/reports${t === 'all' ? '' : `?type=${escapeHtml(t)}`}">${escapeHtml(t === 'all' ? 'All' : t.charAt(0).toUpperCase() + t.slice(1))}</a>`).join('')}</div>
+        <div class="card flush table-wrap"><table>
+          <thead><tr><th>Subject</th><th>Owner</th><th class="num">Reports</th><th class="num">Weight</th><th>Reasons</th><th>First reported</th><th>Content</th></tr></thead>
+          <tbody>${q.cases.length === 0 ? '<tr><td colspan="7" class="empty">Nothing to review</td></tr>' : q.cases.map((c) => `
             <tr>
               <td><a href="/admin/reports/${escapeHtml(c.subject_type)}/${escapeHtml(c.subject_id)}">${escapeHtml(c.subject_type)}</a></td>
               <td>${escapeHtml(c.owner?.username ?? '—')}</td>
-              <td>${c.report_count}${c.auto_rules.length ? ` <span class="tag">auto: ${escapeHtml(c.auto_rules.join(', '))}</span>` : ''}</td>
-              <td>${escapeHtml(c.weight.toFixed(2))}</td>
+              <td class="num">${c.report_count}${c.auto_rules.length ? `<div class="tag">auto: ${escapeHtml(c.auto_rules.join(', '))}</div>` : ''}</td>
+              <td class="num">${escapeHtml(c.weight.toFixed(2))}</td>
               <td>${escapeHtml(c.reasons.join(', '))}</td>
-              <td>${escapeHtml(c.first_reported_at)}</td>
+              <td class="nowrap mono meta">${escapeHtml(c.first_reported_at)}</td>
               <td class="snip">${escapeHtml(snippet(c.snapshot))}</td>
             </tr>`).join('')}</tbody>
-        </table>`));
+        </table></div>`));
     });
 
     app.get<{ Params: { subjectType: string; subjectId: string } }>(
@@ -303,13 +304,16 @@ export function adminModerationRoutes(db: Db, notifier?: Notifier, deps: Moderat
           return sendAdminHtml(reply, () => page('Not found', '/admin/reports', admin, '<h1>Not found</h1>'), 404);
         }
         return sendAdminHtml(reply, (nonce) => page(`Report: ${subjectType}`, '/admin/reports', admin, `
-          <p><a href="/admin/reports">← Queue</a></p>
-          <h1>${escapeHtml(subjectType)} <code>${escapeHtml(subjectId)}</code></h1>
-          <div class="card"><h2>Content now</h2>${c.subject ? kv(c.subject) : '<p class="meta">Gone.</p>'}</div>
-          <div class="card"><h2>Owner</h2>${c.owner ? kv(c.owner) : '<p class="meta">None (a book) or deleted.</p>'}</div>
-          <div class="card"><h2>Act (${c.open_reports} open)</h2>
-            ${c.open_reports === 0 ? '<p class="meta">No open reports.</p>' : `
-            <form id="act" data-type="${escapeHtml(subjectType)}" data-id="${escapeHtml(subjectId)}">
+          <div class="page-head"><div>
+            <p class="meta"><a href="/admin/reports">Reports</a> / ${escapeHtml(subjectType)}</p>
+            <h1 style="margin-top: 4px;">${escapeHtml(subjectType.charAt(0).toUpperCase() + subjectType.slice(1))}</h1>
+            <p class="sub mono">${escapeHtml(subjectId)}</p>
+          </div></div>
+          <div class="card"><h2>Content now</h2>${c.subject ? kv(c.subject) : '<p class="meta">Gone</p>'}</div>
+          <div class="card"><h2>Owner</h2>${c.owner ? kv(c.owner) : '<p class="meta">None, it is a book, or the account was deleted</p>'}</div>
+          <div class="card stack"><h2>Act · ${c.open_reports} open</h2>
+            ${c.open_reports === 0 ? '<p class="meta">No open reports</p>' : `
+            <form id="act" class="stack" style="max-width: 560px;" data-type="${escapeHtml(subjectType)}" data-id="${escapeHtml(subjectId)}">
               <label>Decision
                 <select name="decision">
                   <option value="dismiss">Dismiss: no violation</option>
@@ -317,21 +321,21 @@ export function adminModerationRoutes(db: Db, notifier?: Notifier, deps: Moderat
                 </select></label>
               ${c.ladder.length ? `<label>Rule
                 <select name="rule"><option value="">—</option>${c.ladder.map((l) => `<option value="${escapeHtml(l.rule)}">${escapeHtml(l.label)} (strike ${l.strikes + 1}${l.needs_admin ? ', admin only' : ''})</option>`).join('')}</select></label>` : ''}
-              <label>Reason (${MIN_ACTION_REASON}+ characters, kept in the audit log)<textarea name="reason" rows="3" required minlength="${MIN_ACTION_REASON}"></textarea></label>
-              <button type="submit">Apply</button> <span id="act-result" class="meta"></span>
+              <label>Reason, at least ${MIN_ACTION_REASON} characters, kept in the audit trail<textarea name="reason" rows="3" required minlength="${MIN_ACTION_REASON}"></textarea></label>
+              <div class="row"><button type="submit" class="primary">Apply</button> <span id="act-result" class="meta"></span></div>
             </form>`}
-            <table><thead><tr><th>Rule</th><th>Strikes</th><th>Next step</th><th>What it does</th></tr></thead><tbody>
-            ${c.ladder.map((l) => `<tr><td>${escapeHtml(l.label)}</td><td>${l.strikes}</td><td>${l.step}${l.needs_admin ? ' <span class="tag">admin</span>' : ''}</td><td>${escapeHtml(l.consequences.join(' '))}</td></tr>`).join('')}
-            </tbody></table>
+            <div class="table-wrap"><table><thead><tr><th>Rule</th><th class="num">Strikes</th><th class="num">Next step</th><th>What it does</th></tr></thead><tbody>
+            ${c.ladder.map((l) => `<tr><td>${escapeHtml(l.label)}</td><td class="num">${l.strikes}</td><td class="num">${l.step}${l.needs_admin ? ' <span class="tag">admin</span>' : ''}</td><td>${escapeHtml(l.consequences.join(' '))}</td></tr>`).join('')}
+            </tbody></table></div>
           </div>
-          <div class="card"><h2>Reports</h2><table><thead><tr><th>When</th><th>By</th><th>Reputation</th><th>Reason</th><th>Detail</th><th>Snapshot</th><th>State</th></tr></thead><tbody>
-            ${c.reports.map((r) => `<tr><td>${escapeHtml(r.created_at)}</td><td>${escapeHtml(r.reporter?.username ?? (r.source === 'automated' ? `layer 1: ${r.auto_rule}` : '—'))}</td>
+          <div class="card flush"><div class="card-head"><h2>Reports</h2></div><div class="table-wrap"><table><thead><tr><th>When</th><th>By</th><th>Reputation</th><th>Reason</th><th>Detail</th><th>Snapshot</th><th>State</th></tr></thead><tbody>
+            ${c.reports.map((r) => `<tr><td class="nowrap mono meta">${escapeHtml(r.created_at)}</td><td>${escapeHtml(r.reporter?.username ?? (r.source === 'automated' ? `layer 1: ${r.auto_rule}` : '—'))}</td>
               <td>${r.reporter_reputation === null ? '—' : escapeHtml(r.reporter_reputation.toFixed(2))}</td><td>${escapeHtml(r.reason)}</td>
               <td>${escapeHtml(r.detail ?? '')}</td><td class="snip">${escapeHtml(snippet(r.snapshot))}</td><td>${escapeHtml(r.state)}</td></tr>`).join('')}
-          </tbody></table></div>
-          <div class="card"><h2>Owner's history</h2><table><thead><tr><th>When</th><th>Decision</th><th>Rule</th><th>Step</th><th>Reason</th><th>Appeal</th><th>Reversed</th></tr></thead><tbody>
-            ${c.history.map((h) => `<tr><td>${escapeHtml(h.created_at)}</td><td>${escapeHtml(h.decision)}</td><td>${escapeHtml(h.rule ?? '—')}</td><td>${escapeHtml(h.step ?? '')}</td><td>${escapeHtml(h.reason)}</td><td>${escapeHtml(h.appeal_state ?? '')}</td><td>${escapeHtml(h.reversed_at ?? '')}</td></tr>`).join('')}
-          </tbody></table></div>
+          </tbody></table></div></div>
+          <div class="card flush"><div class="card-head"><h2>Owner's history</h2></div><div class="table-wrap"><table><thead><tr><th>When</th><th>Decision</th><th>Rule</th><th>Step</th><th>Reason</th><th>Appeal</th><th>Reversed</th></tr></thead><tbody>
+            ${c.history.map((h) => `<tr><td class="nowrap mono meta">${escapeHtml(h.created_at)}</td><td>${escapeHtml(h.decision)}</td><td>${escapeHtml(h.rule ?? '—')}</td><td>${escapeHtml(h.step ?? '')}</td><td>${escapeHtml(h.reason)}</td><td>${escapeHtml(h.appeal_state ?? '')}</td><td>${escapeHtml(h.reversed_at ?? '')}</td></tr>`).join('')}
+          </tbody></table></div></div>
           <script nonce="${nonce}">
             const form = document.getElementById('act');
             if (form) form.addEventListener('submit', async (e) => {
@@ -345,7 +349,7 @@ export function adminModerationRoutes(db: Db, notifier?: Notifier, deps: Moderat
               const out = document.getElementById('act-result');
               if (res.ok) { location.reload(); return; }
               const err = await res.json().catch(() => ({}));
-              out.textContent = (err.error && err.error.message) || 'Failed.';
+              out.textContent = (err.error && err.error.message) || 'Could not apply the decision';
             });
           </script>`));
       },
@@ -356,27 +360,29 @@ export function adminModerationRoutes(db: Db, notifier?: Notifier, deps: Moderat
       const admin = req.admin;
       const { appeals } = await service.appeals({ limit: 100 });
       return sendAdminHtml(reply, (nonce) => page('Appeals', '/admin/appeals', admin, `
-        <h1>Appeals</h1>
-        <p class="meta">Reviewed by a person (PRD §27.6). Overturn undoes everything the decision did.</p>
-        <table><thead><tr><th>Appealed</th><th>Owner</th><th>Subject</th><th>Rule / step</th><th>Decision reason</th><th>Appeal</th><th></th></tr></thead><tbody>
-        ${appeals.length === 0 ? '<tr><td colspan="7" class="meta">No appeals waiting.</td></tr>' : appeals.map((a) => `
+        <div class="page-head"><div>
+          <h1>Appeals</h1>
+          <p class="sub">Each appeal is reviewed by a person. Overturning undoes everything the decision did</p>
+        </div></div>
+        <div class="card flush table-wrap"><table><thead><tr><th>Appealed</th><th>Owner</th><th>Subject</th><th>Rule / step</th><th>Decision reason</th><th>Appeal</th><th></th></tr></thead><tbody>
+        ${appeals.length === 0 ? '<tr><td colspan="7" class="empty">No appeals waiting</td></tr>' : appeals.map((a) => `
           <tr>
-            <td>${escapeHtml(a.appeal?.appealed_at ?? '')}</td>
+            <td class="nowrap mono meta">${escapeHtml(a.appeal?.appealed_at ?? '')}</td>
             <td>${escapeHtml(a.owner?.username ?? '—')}</td>
             <td><a href="/admin/reports/${escapeHtml(a.subject_type)}/${escapeHtml(a.subject_id)}">${escapeHtml(a.subject_type)}</a></td>
             <td>${escapeHtml(a.rule ? RULE_LABELS[a.rule] : '')} · ${escapeHtml(a.step ?? '')}</td>
             <td>${escapeHtml(a.reason)}</td>
             <td class="snip">${escapeHtml(a.appeal?.body ?? '')}</td>
-            <td>${a.needs_admin && admin.role !== 'admin' ? '<span class="meta">Admin required to overturn</span> ' : ''}
-              <button data-appeal="${escapeHtml(a.id)}" data-decision="uphold">Uphold</button>
-              ${a.needs_admin && admin.role !== 'admin' ? '' : `<button data-appeal="${escapeHtml(a.id)}" data-decision="overturn">Overturn</button>`}</td>
+            <td><div class="row" style="justify-content: flex-end;">${a.needs_admin && admin.role !== 'admin' ? '<span class="meta">Overturning needs an administrator</span>' : ''}
+              <button class="sm" data-appeal="${escapeHtml(a.id)}" data-decision="uphold">Uphold</button>
+              ${a.needs_admin && admin.role !== 'admin' ? '' : `<button class="sm danger" data-appeal="${escapeHtml(a.id)}" data-decision="overturn">Overturn</button>`}</div></td>
           </tr>`).join('')}
-        </tbody></table>
+        </tbody></table></div>
         <script nonce="${nonce}">
           document.addEventListener('click', async (e) => {
             const b = e.target.closest('[data-appeal]');
             if (!b) return;
-            const reason = prompt('Reason (${MIN_ACTION_REASON}+ characters, kept in the audit log):', '');
+            const reason = prompt('Reason, at least ${MIN_ACTION_REASON} characters, kept in the audit trail', '');
             if (reason === null) return;
             const res = await fetch('/v1/admin/appeals/' + b.dataset.appeal + '/resolve', {
               method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -384,7 +390,7 @@ export function adminModerationRoutes(db: Db, notifier?: Notifier, deps: Moderat
             });
             if (res.ok) { location.reload(); return; }
             const err = await res.json().catch(() => ({}));
-            alert((err.error && err.error.message) || 'Failed.');
+            alert((err.error && err.error.message) || 'Could not resolve the appeal');
           });
         </script>`));
     });
@@ -406,35 +412,5 @@ function kv(obj: Record<string, unknown>): string {
 }
 
 function page(title: string, path: string, admin: { email: string; role: string }, body: string): string {
-  return `<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>${escapeHtml(title)} — Flyleaf Admin</title>
-  <style>
-    * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
-    body { background: #0b0f19; color: #f1f5f9; min-height: 100vh; padding-bottom: 4rem; }
-    .container { max-width: 1200px; margin: 0 auto; padding: 0 1.5rem; }
-    h1 { font-size: 1.5rem; margin-bottom: .5rem; } h2 { font-size: 1.05rem; margin-bottom: .75rem; }
-    a { color: #a5b4fc; } .meta { color: #94a3b8; font-size: .85rem; margin-bottom: 1rem; }
-    .card { background: rgba(30, 41, 59, .7); border: 1px solid rgba(255,255,255,.08); border-radius: 12px; padding: 1.25rem; margin: 1rem 0; }
-    table { width: 100%; border-collapse: collapse; margin-top: .75rem; font-size: .85rem; }
-    th { text-align: left; color: #64748b; padding: .6rem; border-bottom: 1px solid rgba(255,255,255,.08); }
-    td { padding: .6rem; border-bottom: 1px solid rgba(255,255,255,.05); vertical-align: top; }
-    .snip { max-width: 420px; white-space: pre-wrap; word-break: break-word; }
-    .tag { font-size: .7rem; padding: 2px 6px; border-radius: 4px; background: rgba(251,191,36,.15); color: #fbbf24; }
-    .filter { padding: .3rem .7rem; border-radius: 6px; text-decoration: none; color: #94a3b8; border: 1px solid rgba(255,255,255,.08); }
-    .filter.active { color: #818cf8; border-color: rgba(99,102,241,.4); }
-    .filters { margin: .5rem 0 1rem; }
-    dl { display: grid; grid-template-columns: 180px 1fr; gap: .3rem .75rem; font-size: .85rem; } dt { color: #94a3b8; } dd { white-space: pre-wrap; word-break: break-word; }
-    label { display: block; margin: .5rem 0; font-size: .85rem; } select, textarea { display: block; width: 100%; margin-top: .25rem; background: #0f172a; color: #f1f5f9; border: 1px solid rgba(255,255,255,.15); border-radius: 6px; padding: .4rem; }
-    button { padding: .4rem .8rem; border-radius: 6px; border: 1px solid rgba(99,102,241,.4); background: rgba(99,102,241,.15); color: #a5b4fc; cursor: pointer; }
-  </style>
-</head>
-<body>
-  ${adminNavbar(path, admin)}
-  <div class="container">${body}</div>
-</body>
-</html>`;
+  return adminPage({ title, path, admin, body });
 }
