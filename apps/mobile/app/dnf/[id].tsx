@@ -25,7 +25,7 @@ import { OfflineRepository } from '@/offline/repository';
 import { useSession } from '@/lib/session';
 import type { LocalRead } from '@/offline/schema';
 import { Button, Card, Cover, Screen, Stars, Txt, sheet } from '@/ui/components';
-import { radius, space, useTheme } from '@/ui/tokens';
+import { radius, space, type, useTheme } from '@/ui/tokens';
 
 const DNF_REASONS = [
   'Pacing',
@@ -139,7 +139,7 @@ export default function DnfScreen() {
           accessibilityLabel="Save"
           style={{ minHeight: 44, justifyContent: 'center' }}
         >
-          <Txt variant="body" color="accent" style={{ fontWeight: '700' }}>
+          <Txt variant="body" color="accent" style={{ fontWeight: '500' }}>
             Save
           </Txt>
         </Pressable>
@@ -166,8 +166,8 @@ export default function DnfScreen() {
               size="m"
             />
             <View style={{ alignItems: 'center', gap: space[1] }}>
-              <Txt variant="title" style={{ textAlign: 'center' }}>
-                Stopped reading {read?.title ?? 'this book'}
+              <Txt variant="displayM" style={{ textAlign: 'center' }}>
+                {read?.title ?? 'This book'}
               </Txt>
               <Txt variant="body" color="muted" style={{ textAlign: 'center', maxWidth: 280 }}>
                 Not every book is for every reader, and that's okay.
@@ -178,7 +178,7 @@ export default function DnfScreen() {
           {/* Page Reached Input */}
           <View style={{ gap: space[2] }}>
             <Txt variant="micro" color="muted">
-              PAGE REACHED
+              Page reached
             </Txt>
             <TextInput
               value={pageInput}
@@ -195,7 +195,7 @@ export default function DnfScreen() {
                 borderColor: c.line,
                 backgroundColor: c.surface2,
                 color: c.ink,
-                fontSize: 16,
+                ...type.body,
               }}
             />
           </View>
@@ -203,7 +203,7 @@ export default function DnfScreen() {
           {/* Reason Chips */}
           <View style={{ gap: space[2] }}>
             <Txt variant="micro" color="muted">
-              REASON (OPTIONAL)
+              Reason, if you want one
             </Txt>
             <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: space[2] }}>
               {DNF_REASONS.map((reason) => {
@@ -219,18 +219,19 @@ export default function DnfScreen() {
                     accessibilityState={{ checked: selected }}
                     accessibilityLabel={reason}
                     style={{
+                      minHeight: 36,
+                      justifyContent: 'center',
                       paddingHorizontal: space[3],
-                      paddingVertical: space[2],
-                      borderRadius: radius.pill,
-                      backgroundColor: selected ? c.accentSoft : c.surface2,
+                      borderRadius: radius.sm,
+                      backgroundColor: selected ? c.surface : c.surface2,
                       borderWidth: 1,
-                      borderColor: selected ? c.accent : c.line,
+                      borderColor: selected ? c.lineStrong : c.line,
                     }}
                   >
                     <Txt
                       variant="caption"
-                      color={selected ? 'accent' : 'ink'}
-                      style={{ fontWeight: selected ? '600' : '400' }}
+                      color={selected ? 'ink' : 'ink2'}
+                      style={{ fontWeight: selected ? '500' : '400' }}
                     >
                       {reason}
                     </Txt>
@@ -243,18 +244,18 @@ export default function DnfScreen() {
           {/* Optional Note */}
           <View style={{ gap: space[2] }}>
             <Txt variant="micro" color="muted">
-              PRIVATE NOTE (OPTIONAL)
+              Private note
             </Txt>
             <TextInput
               value={note}
               onChangeText={setNote}
-              placeholder="Why you put it down, or what didn't work..."
+              placeholder="Why you put it down, or what didn't work"
               placeholderTextColor={c.muted}
               multiline
               numberOfLines={3}
               accessibilityLabel="Private DNF note"
               style={{
-                minHeight: 70,
+                minHeight: 72,
                 paddingHorizontal: space[3],
                 paddingVertical: space[2],
                 borderRadius: radius.md,
@@ -262,7 +263,7 @@ export default function DnfScreen() {
                 borderColor: c.line,
                 backgroundColor: c.surface2,
                 color: c.ink,
-                fontSize: 14,
+                ...type.body,
                 textAlignVertical: 'top',
               }}
             />
@@ -270,8 +271,8 @@ export default function DnfScreen() {
 
           {/* Optional Rating */}
           <Card style={{ alignItems: 'center', gap: space[2], paddingVertical: space[3] }}>
-            <Txt variant="caption" color="muted">
-              RATE THIS READ? (OPTIONAL)
+            <Txt variant="micro" color="muted">
+              Rate what you read, if you like
             </Txt>
             <Stars value={rating} onChange={(val) => setRating(val)} size={32} />
           </Card>
@@ -279,7 +280,7 @@ export default function DnfScreen() {
           {/* Visibility */}
           <View style={{ gap: space[2] }}>
             <Txt variant="micro" color="muted">
-              VISIBILITY
+              Visibility
             </Txt>
             <View style={[sheet.row, { gap: space[2] }]}>
               {(['public', 'followers', 'private'] as const).map((v) => (
@@ -294,11 +295,11 @@ export default function DnfScreen() {
                   accessibilityLabel={`Visibility: ${v}`}
                   style={{
                     flex: 1,
-                    minHeight: 38,
+                    minHeight: 40,
                     borderRadius: radius.sm,
                     backgroundColor: visibility === v ? c.surface : c.surface2,
                     borderWidth: 1,
-                    borderColor: visibility === v ? c.accent : c.line,
+                    borderColor: visibility === v ? c.lineStrong : c.line,
                     alignItems: 'center',
                     justifyContent: 'center',
                   }}
@@ -306,7 +307,7 @@ export default function DnfScreen() {
                   <Txt
                     variant="caption"
                     color={visibility === v ? 'ink' : 'muted'}
-                    style={{ fontWeight: visibility === v ? '600' : '400' }}
+                    style={{ fontWeight: visibility === v ? '500' : '400' }}
                   >
                     {v.charAt(0).toUpperCase() + v.slice(1)}
                   </Txt>
@@ -318,7 +319,7 @@ export default function DnfScreen() {
           {/* Primary Action Button */}
           <View style={{ marginTop: space[3] }}>
             <Button
-              label={submitting ? 'Saving...' : 'Save & close'}
+              label={submitting ? 'Saving…' : 'Save and close'}
               variant="primary"
               onPress={handleSaveDnf}
               disabled={submitting}

@@ -24,8 +24,9 @@ import { api, FlyleafApiError, type ReadComment } from '@/lib/api';
 import { useSession } from '@/lib/session';
 import { ReportSheet, type ReportTarget } from '@/ui/ReportSheet';
 import { useActionGate } from '@/ui/ActionGate';
-import { EmptyState, Screen, Txt, sheet } from '@/ui/components';
-import { radius, space, useTheme } from '@/ui/tokens';
+import { EmptyState, Screen, Txt, sheet, SkeletonList } from '@/ui/components';
+import { radius, space, type, useTheme } from '@/ui/tokens';
+import { Ionicons } from '@expo/vector-icons';
 import {
   COMMENT_COUNTER_THRESHOLD,
   COMMENT_MAX_LENGTH,
@@ -171,12 +172,10 @@ export default function CommentThreadScreen() {
             hitSlop={12}
             style={{ minWidth: 44, minHeight: 44, justifyContent: 'center' }}
           >
-            <Txt variant="body" color="accent" style={{ fontWeight: '600' }}>
-              ← Back
-            </Txt>
+            <Ionicons name="chevron-back" size={24} color={c.ink} />
           </Pressable>
           <View accessibilityRole="header">
-            <Txt variant="title" style={{ fontWeight: '700', fontSize: 17 }}>
+            <Txt variant="title">
               {count > 0 ? `Comments · ${count}` : 'Comments'}
             </Txt>
           </View>
@@ -190,9 +189,9 @@ export default function CommentThreadScreen() {
         keyboardVerticalOffset={insets.top}
       >
         {loading ? (
-          <ActivityIndicator size="large" color={c.accent} style={{ marginTop: space[6] }} />
+          <SkeletonList lead="avatar" rows={4} />
         ) : missing ? (
-          <EmptyState title="Not available" subtitle="This post isn’t available." />
+          <EmptyState title="Not available" subtitle="This read is no longer available." />
         ) : (
           <FlatList
             data={comments}
@@ -219,7 +218,7 @@ export default function CommentThreadScreen() {
               />
             }
             ListFooterComponent={
-              loadingMore ? <ActivityIndicator color={c.accent} style={{ marginVertical: space[3] }} /> : null
+              loadingMore ? <ActivityIndicator color={c.muted} style={{ marginVertical: space[3] }} /> : null
             }
             renderItem={({ item }) => (
               <View style={{ gap: space[1] }}>
@@ -230,7 +229,7 @@ export default function CommentThreadScreen() {
                     accessibilityLabel={`@${item.author.username}`}
                     style={[sheet.row, { gap: space[2], minHeight: 44 }]}
                   >
-                    <Txt variant="caption" style={{ fontWeight: '700' }}>
+                    <Txt variant="caption" style={{ fontWeight: '500' }}>
                       {item.author.display_name ?? item.author.username}
                     </Txt>
                     <Txt variant="micro" color="muted">
@@ -311,7 +310,7 @@ export default function CommentThreadScreen() {
                   borderColor: c.line,
                   backgroundColor: c.surface,
                   color: c.ink,
-                  fontSize: 15,
+                  ...type.body,
                 }}
               />
               <Pressable
@@ -331,9 +330,9 @@ export default function CommentThreadScreen() {
                 }}
               >
                 {posting ? (
-                  <ActivityIndicator color={c.ground} />
+                  <ActivityIndicator color={c.onAccent} />
                 ) : (
-                  <Txt variant="caption" color="ground" style={{ fontWeight: '700' }}>
+                  <Txt variant="caption" color="onAccent" style={{ fontWeight: '500' }}>
                     Post
                   </Txt>
                 )}

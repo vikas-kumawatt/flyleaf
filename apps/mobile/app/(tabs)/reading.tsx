@@ -46,6 +46,7 @@ import {
   BottomSheet,
 } from '@/ui/components';
 import { radius, space, useTheme } from '@/ui/tokens';
+import { Ionicons } from '@expo/vector-icons';
 
 export default function ReadingScreen() {
   const c = useTheme();
@@ -296,7 +297,7 @@ export default function ReadingScreen() {
             borderBottomColor: c.line,
           }}
         >
-          <Txt variant="displayM">Reading</Txt>
+          <Txt variant="displayL">Reading</Txt>
         </View>
 
         <ScrollView
@@ -310,8 +311,8 @@ export default function ReadingScreen() {
           <View style={{ gap: space[2], marginTop: space[2] }}>
             <Txt variant="title">Your quiet reading sanctuary</Txt>
             <Txt variant="body" color="muted" style={{ lineHeight: 22 }}>
-              Track daily pages without social noise. Predict finish dates, log private reading
-              notes, and keep your personal diary forever.
+              Log pages as you go, see when you will finish, and keep private notes and a diary
+              of every book.
             </Txt>
           </View>
 
@@ -319,20 +320,11 @@ export default function ReadingScreen() {
           <View style={{ gap: space[2] }}>
             <View style={[sheet.row, { justifyContent: 'space-between' }]}>
               <Txt variant="micro" color="muted">
-                SAMPLE READING LOG
+                Sample reading log
               </Txt>
-              <View
-                style={{
-                  backgroundColor: c.accentSoft,
-                  paddingHorizontal: space[2],
-                  paddingVertical: 2,
-                  borderRadius: 4,
-                }}
-              >
-                <Txt variant="micro" color="accent" style={{ fontWeight: '600' }}>
-                  PREVIEW
-                </Txt>
-              </View>
+              <Txt variant="micro" color="muted">
+                Preview
+              </Txt>
             </View>
 
             <Card style={{ opacity: 0.95 }}>
@@ -359,7 +351,7 @@ export default function ReadingScreen() {
                     </View>
                     <ProgressBar percent={68} />
                     <Txt variant="micro" color="muted">
-                      Estimated finish: 2 days
+                      Estimated finish: in 2 days
                     </Txt>
                   </View>
                 </View>
@@ -428,14 +420,14 @@ export default function ReadingScreen() {
         }}
       >
         <View style={[sheet.row, { justifyContent: 'space-between' }]}>
-          <Txt variant="displayM">Reading</Txt>
+          <Txt variant="displayL">Reading</Txt>
           <Pressable
             onPress={() => router.push('/discover')}
             accessibilityRole="button"
             accessibilityLabel="Find and add books"
             style={{ padding: space[2] }}
           >
-            <Txt variant="body" color="accent" style={{ fontWeight: '600' }}>
+            <Txt variant="body" color="accent" style={{ fontWeight: '500' }}>
               + Add
             </Txt>
           </Pressable>
@@ -469,8 +461,8 @@ export default function ReadingScreen() {
             {currentlyReading.length === 0 ? (
               <View style={{ gap: space[6], paddingTop: space[4] }}>
                 <EmptyState
-                  title="Nothing on the go."
-                  subtitle="What are you reading right now? Search any title or pick from your saved list."
+                  title="Nothing on the go"
+                  subtitle="What are you reading? Search any title or pick one from Want to read."
                   action={
                     <Button
                       label="Find what you're reading"
@@ -553,7 +545,7 @@ export default function ReadingScreen() {
                                 accessibilityLabel="Reading actions"
                                 style={{ padding: 4 }}
                               >
-                                <Txt variant="body" color="muted" style={{ fontWeight: '700' }}>
+                                <Txt variant="body" color="muted" style={{ fontWeight: '500' }}>
                                   •••
                                 </Txt>
                               </Pressable>
@@ -567,14 +559,10 @@ export default function ReadingScreen() {
                               <View
                                 style={{
                                   alignSelf: 'flex-start',
-                                  backgroundColor: c.accentSoft,
-                                  paddingHorizontal: space[2],
-                                  paddingVertical: 2,
-                                  borderRadius: radius.pill,
                                   marginTop: 2,
                                 }}
                               >
-                                <Txt variant="micro" color="accent" style={{ fontWeight: '600' }}>
+                                <Txt variant="micro" color="muted" tabular>
                                   Re-read #{read.attempt_no}
                                 </Txt>
                               </View>
@@ -584,7 +572,7 @@ export default function ReadingScreen() {
                           {/* Progress summary label */}
                           <View style={{ gap: 2 }}>
                             <View style={[sheet.row, { justifyContent: 'space-between' }]}>
-                              <Txt variant="caption" color="ink" tabular style={{ fontWeight: '600' }}>
+                              <Txt variant="caption" color="ink" tabular style={{ fontWeight: '500' }}>
                                 {total ? `Page ${page} of ${total}` : `Page ${page}`}
                               </Txt>
                               <Txt variant="caption" color="muted" tabular>
@@ -617,16 +605,18 @@ export default function ReadingScreen() {
                           onPress={() => router.push(`/finish/${read.id}` as any)}
                           style={{
                             backgroundColor: c.accentSoft,
-                            padding: space[3],
+                            paddingHorizontal: space[4],
+                            paddingVertical: space[3],
                             borderRadius: radius.md,
-                            borderWidth: 1,
-                            borderColor: c.accent,
+                            flexDirection: 'row',
                             alignItems: 'center',
+                            justifyContent: 'space-between',
                           }}
                         >
-                          <Txt variant="caption" color="accent" style={{ fontWeight: '700' }}>
-                            🎉 You've reached the end! Tap here to rate & finish →
+                          <Txt variant="caption" color="accent" style={{ fontWeight: '500' }}>
+                            You've reached the end · Rate and finish
                           </Txt>
+                          <Ionicons name="chevron-forward" size={16} color={c.accent} />
                         </Pressable>
                       )}
 
@@ -684,7 +674,7 @@ export default function ReadingScreen() {
             {/* Filter & Sort Strip */}
             <View style={[sheet.row, { justifyContent: 'space-between', flexWrap: 'wrap' }]}>
               {/* Format Filter Chips */}
-              <View style={[sheet.row, { gap: space[1] }]}>
+              <View style={[sheet.row, { gap: 2, padding: 2, borderRadius: radius.md, backgroundColor: c.surface2 }]}>
                 {(['all', 'print', 'ebook', 'audiobook'] as const).map((fmt) => {
                   const selected = formatFilter === fmt;
                   const label = fmt === 'audiobook' ? 'Audio' : fmt.charAt(0).toUpperCase() + fmt.slice(1);
@@ -696,19 +686,15 @@ export default function ReadingScreen() {
                         setFormatFilter(fmt);
                       }}
                       style={{
-                        paddingHorizontal: space[2],
-                        paddingVertical: 4,
-                        borderRadius: radius.pill,
-                        backgroundColor: selected ? c.accentSoft : c.surface2,
+                        paddingHorizontal: space[3],
+                        paddingVertical: space[1],
+                        borderRadius: radius.sm,
+                        backgroundColor: selected ? c.surface : 'transparent',
                         borderWidth: 1,
-                        borderColor: selected ? c.accent : c.line,
+                        borderColor: selected ? c.lineStrong : 'transparent',
                       }}
                     >
-                      <Txt
-                        variant="micro"
-                        color={selected ? 'accent' : 'muted'}
-                        style={{ fontWeight: selected ? '700' : '400' }}
-                      >
+                      <Txt variant="micro" color={selected ? 'ink' : 'muted'}>
                         {label}
                       </Txt>
                     </Pressable>
@@ -722,10 +708,11 @@ export default function ReadingScreen() {
                   onPress={() => setViewMode(viewMode === 'list' ? 'grid' : 'list')}
                   accessibilityRole="button"
                   accessibilityLabel="Toggle grid or list view"
-                  style={{ padding: 4 }}
+                  style={[sheet.row, { gap: space[1], padding: space[1] }]}
                 >
+                  <Ionicons name={viewMode === 'list' ? 'grid-outline' : 'list-outline'} size={16} color={c.ink2} />
                   <Txt variant="caption" color="ink2">
-                    {viewMode === 'list' ? '⊞ Grid' : '☰ List'}
+                    {viewMode === 'list' ? 'Grid' : 'List'}
                   </Txt>
                 </Pressable>
 
@@ -774,7 +761,7 @@ export default function ReadingScreen() {
             {wantToRead.length === 0 ? (
               <EmptyState
                 title="Your queue is clear"
-                subtitle="Explore Discover or scan book barcodes to fill your want-to-read pile."
+                subtitle="Find books in Discover or scan a barcode to add them here."
                 action={
                   <Button
                     label="Discover books"
@@ -851,7 +838,7 @@ export default function ReadingScreen() {
                       }}
                     >
                       <Cover coverId={item.cover_id} title={item.title ?? ''} size="m" />
-                      <Txt variant="caption" numberOfLines={1} style={{ fontWeight: '600' }}>
+                      <Txt variant="caption" numberOfLines={1} style={{ fontWeight: '500' }}>
                         {item.title}
                       </Txt>
                       <Txt variant="micro" color="muted" numberOfLines={1}>

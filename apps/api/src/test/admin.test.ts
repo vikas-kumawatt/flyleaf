@@ -387,8 +387,8 @@ describe('Server-Rendered HTML Admin Console (PRD §27.5)', () => {
 
     expect(res.statusCode).toBe(200);
     expect(res.headers['content-type']).toContain('text/html');
-    expect(res.body).toContain('Flyleaf Console');
-    expect(res.body).toContain('2FA Protected');
+    expect(res.body).toContain('Flyleaf <span>admin</span>');
+    expect(res.body).toContain('Authenticator or backup code');
     expect(res.body).toContain('totp_code');
   });
 
@@ -432,8 +432,8 @@ describe('Server-Rendered HTML Admin Console (PRD §27.5)', () => {
     expect(mergesRes.statusCode).toBe(200);
     expect(mergesRes.headers['content-type']).toContain('text/html');
     expect(mergesRes.body).toContain('cookie_admin@flyleaf.app');
-    expect(mergesRes.body).toContain('ADMIN');
-    expect(mergesRes.body).toContain('Audit Trail');
+    expect(mergesRes.body).toContain('<div class="role">admin</div>');
+    expect(mergesRes.body).toContain('Audit trail');
 
     const auditRes = await app.inject({
       method: 'GET',
@@ -445,7 +445,7 @@ describe('Server-Rendered HTML Admin Console (PRD §27.5)', () => {
 
     expect(auditRes.statusCode).toBe(200);
     expect(auditRes.headers['content-type']).toContain('text/html');
-    expect(auditRes.body).toContain('Flyleaf Admin Audit Trail');
+    expect(auditRes.body).toContain('<h1>Audit trail</h1>');
     expect(auditRes.body).toContain('admin.login');
   });
 

@@ -56,14 +56,14 @@ export default function VerifyEmailScreen() {
       <View style={[sheet.pad, { gap: space[4] }]}>
         {state === 'verifying' && (
           <View style={{ alignItems: 'center', gap: space[3], marginTop: space[8] }}>
-            <ActivityIndicator color={c.accent} />
+            <ActivityIndicator color={c.muted} />
             <Txt variant="body" color="muted">Verifying your email…</Txt>
           </View>
         )}
 
         {state === 'verified' && (
           <>
-            <Txt variant="displayM">Email verified</Txt>
+            <Txt variant="displayL">Email verified</Txt>
             <Txt variant="body" color="muted">
               You can now post reviews, comment and follow readers.
             </Txt>
@@ -73,7 +73,7 @@ export default function VerifyEmailScreen() {
 
         {(state === 'expired' || state === 'missing') && (
           <>
-            <Txt variant="displayM">{state === 'expired' ? 'This link has expired' : 'This link is incomplete'}</Txt>
+            <Txt variant="displayL">{state === 'expired' ? 'This link has expired' : 'This link is incomplete'}</Txt>
             <Txt variant="body" color="muted">
               {state === 'expired'
                 ? 'Verification links work once and expire after 24 hours. Send yourself a new one.'
@@ -90,11 +90,11 @@ export default function VerifyEmailScreen() {
 
         {state === 'error' && (
           <>
-            <Txt variant="displayM">We couldn't verify your email</Txt>
+            <Txt variant="displayL">We couldn't verify your email</Txt>
             <Txt variant="body" color="muted">
               Check your connection, then open the link again.
             </Txt>
-            <Button label="Go to Home" variant="secondary" onPress={() => router.replace('/')} />
+            <Button label="Go to home" variant="secondary" onPress={() => router.replace('/')} />
           </>
         )}
       </View>

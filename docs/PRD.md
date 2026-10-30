@@ -910,7 +910,7 @@ Fifty-three screens. Core screens (marked ★) are specified in full; secondary 
 |---|---|
 | **Purpose** | Capture the moment of completion with maximum expression and minimum friction |
 | **Entry** | Finish button on a reading card; progress reaching 100% |
-| **Components** | Cover, "You finished!", **half-star row already visible and interactive**, **heart** (§9.4), finish-date picker (defaults today), **format chips (Print · Ebook · Audio)** pre-selected from the edition, review field (collapsed, one tap to expand), spoiler toggle, visibility selector, Post |
+| **Components** | Cover, "Finished", **half-star row already visible and interactive**, **heart** (§9.4), finish-date picker (defaults today), **format chips (Print · Ebook · Audio)** pre-selected from the edition, review field (collapsed, one tap to expand), spoiler toggle, visibility selector, Post |
 | **Primary CTA** | Done |
 | **Secondary** | Skip rating (explicit and visible) · Add review · Mark as a re-read · Share |
 | **Budget** | The whole flow must be completable in **under 20 seconds** |
@@ -4584,43 +4584,43 @@ The product should feel like **a well-made hardback, not a SaaS dashboard**. Lit
 
 ## 36.2 Colour philosophy
 
-**[ASSUMPTION]** A near-monochrome, cover-forward palette. Book covers are wildly varied and saturated; an interface with its own strong colour fights every one of them.
+**[ASSUMPTION]** A graphite, cover-forward palette. Book covers are wildly varied and saturated; an interface with its own strong colour fights every one of them. Values are owned by `design.md` §2 (v2, the unslop redesign); this table mirrors them.
 
 | Token | Light | Dark | Use |
 |---|---|---|---|
-| `ground` | `#F7F7F5` | `#0F1113` | App background |
-| `surface` | `#FFFFFF` | `#17191C` | Cards, sheets |
-| `surface-2` | `#EFEFEC` | `#1F2226` | Nested surfaces |
-| `ink` | `#14161A` | `#ECEEF0` | Primary text |
-| `ink-2` | `#43484F` | `#B4BAC2` | Secondary text |
-| `muted` | `#6E747C` | `#868D96` | Tertiary, metadata |
-| `line` | `#E2E2DE` | `#262A2F` | Dividers, borders |
-| `accent` | `#2F5D50` | `#7FB3A1` | Interactive, links, active tab |
-| `star` | `#C8951F` | `#E0AF45` | Rating stars only |
-| `positive` | `#2E6B4E` | `#6DB68B` | Success |
-| `critical` | `#93441D` | `#D4906A` | Destructive, errors |
+| `ground` | `#FAFAFA` | `#141415` | App background |
+| `surface` | `#FFFFFF` | `#19191B` | Cards, sheets |
+| `surface-2` | `#F4F4F5` | `#232325` | Raised: inputs, active rows |
+| `ink` | `#171717` | `#EDEDED` | Primary text |
+| `ink-2` | `#525252` | `#A1A1A6` | Secondary text |
+| `muted` | `#737373` | `#85858B` | Tertiary, metadata |
+| `line` | ink at 8% | ink at 8% | Hairlines |
+| `accent` | `#3355C4` | `#8DA6EE` | Primary action, links, selection |
+| `star` | `#B07F14` | `#E0AF45` | Rating stars only |
+| `positive` | `#16A34A` | `#4CC38A` | Success |
+| `critical` | `#DC2626` | `#E5484D` | Destructive, errors |
 
-**Dark mode is a first-class design, not an inversion.** This audience reads at night; a significant share will never see the light theme. Dark surfaces are warm-neutral rather than pure black, so covers do not appear to float.
+**Dark mode is a first-class design, not an inversion.** This audience reads at night; a significant share will never see the light theme. Depth in dark comes from surface steps and hairlines, never shadows.
 
-**Accent restraint:** one accent, used only for interactive elements. Stars are the only other coloured element. Everything else is neutral, so covers provide all the colour in the product.
+**Accent restraint:** one ink-blue accent, used for the primary action, links and selection. Stars and the heart are the only other coloured elements. Everything else is neutral, so covers provide all the colour in the product.
 
 ## 36.3 Typography
 
 | Role | Direction | Rationale |
 |---|---|---|
-| **Display** — book titles, headings, review body | A contemporary serif with real personality (Literata, Newsreader, Source Serif class) | Signals literary without costume; serif for review bodies makes long text feel like reading, which is thematically exact |
-| **UI** — labels, buttons, navigation, metadata | A neutral grotesque (Inter-alternative such as Archivo, Public Sans, IBM Plex Sans) | Legible at small sizes, gets out of the way |
+| **Display** — book titles, headings, review body | **Newsreader** (design.md §3), a text serif drawn for reading on screens | Signals literary without costume; serif for review bodies makes long text feel like reading, which is thematically exact |
+| **UI** — labels, buttons, navigation, metadata | **Instrument Sans** (design.md §3), warm and legible at small sizes | Legible at small sizes, gets out of the way |
 | **Numerals** — statistics | Tabular figures from the UI face | Numbers must align in columns |
 
 | Scale | Size / line height | Use |
 |---|---|---|
-| Display L | 34 / 38 | Screen titles |
-| Display M | 26 / 32 | Section headings, book titles on detail |
-| Title | 20 / 26 | Card titles |
+| Display L | 32 / 38 | Screen titles |
+| Display M | 24 / 30 | Section headings, book titles on detail |
+| Title | 17 / 24 | Card titles |
 | Body L | 17 / 26 | Review body (serif) |
 | Body | 15 / 22 | Standard UI text |
-| Caption | 13 / 18 | Metadata |
-| Micro | 11 / 14 | Labels, uppercase with letterspacing |
+| Caption | 13 / 20 | Metadata |
+| Micro | 12 / 16 | Labels and meta, sentence case, no letterspacing |
 
 **Review text is set in the serif at 17/26** — deliberately book-like, because reviews are the reading experience inside a reading app.
 

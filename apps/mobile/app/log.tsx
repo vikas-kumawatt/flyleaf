@@ -10,7 +10,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { api, type Work } from '@/lib/api';
 import { budgetTracker } from '@/lib/budgetTracker';
 import { Button, Cover, Screen, Txt, sheet } from '@/ui/components';
-import { space, useTheme } from '@/ui/tokens';
+import { fontFamilies, radius, space, type, useTheme } from '@/ui/tokens';
 
 export default function LogScreen() {
   const c = useTheme();
@@ -66,7 +66,7 @@ export default function LogScreen() {
             onPress={() => router.back()}
             accessibilityRole="button"
             accessibilityLabel="Close"
-            style={{ width: 40, height: 40, alignItems: 'center', justifyContent: 'center' }}
+            style={{ width: 44, height: 44, alignItems: 'center', justifyContent: 'center' }}
           >
             <Ionicons name="close" size={24} color={c.ink} />
           </Pressable>
@@ -78,7 +78,7 @@ export default function LogScreen() {
             flexDirection: 'row',
             alignItems: 'center',
             backgroundColor: c.surface,
-            borderRadius: 12,
+            borderRadius: radius.md,
             borderWidth: 1,
             borderColor: c.line,
             paddingHorizontal: space[3],
@@ -87,19 +87,19 @@ export default function LogScreen() {
         >
           <Ionicons
             name="search-outline"
-            size={20}
+            size={18}
             color={c.muted}
             style={{ marginRight: space[2] }}
           />
           <TextInput
             value={q}
             onChangeText={handleSearch}
-            placeholder="Search title, author, or ISBN"
+            placeholder="Title, author or ISBN"
             placeholderTextColor={c.muted}
             autoFocus
             autoCorrect={false}
             autoCapitalize="none"
-            style={{ flex: 1, color: c.ink, fontSize: 15, minHeight: 44 }}
+            style={{ flex: 1, color: c.ink, ...type.body, minHeight: 44 }}
           />
         </View>
       </View>
@@ -114,10 +114,10 @@ export default function LogScreen() {
           <View style={{ alignItems: 'center', paddingVertical: space[8], gap: space[3] }}>
             <Txt variant="body" color="muted">
               {q.trim().length < 2
-                ? 'Type a book title to log progress or finish.'
+                ? 'Type a title to log progress or a finish'
                 : loading
-                ? 'Searching catalog...'
-                : 'No matching books found.'}
+                ? 'Searching the catalog…'
+                : 'No books match that search'}
             </Txt>
           </View>
         }
@@ -134,15 +134,15 @@ export default function LogScreen() {
               author={item.author_name}
               size="s"
             />
-            <View style={{ flex: 1, gap: 2 }}>
-              <Txt variant="title" numberOfLines={2}>
+            <View style={{ flex: 1, gap: space[1] }}>
+              <Txt variant="title" style={{ fontFamily: fontFamilies.displayMedium }} numberOfLines={2}>
                 {item.title}
               </Txt>
               <Txt variant="caption" color="muted">
                 {item.author_name}
               </Txt>
               {item.first_publish_year ? (
-                <Txt variant="caption" color="muted">
+                <Txt variant="caption" color="muted" tabular>
                   {item.first_publish_year}
                 </Txt>
               ) : null}

@@ -17,17 +17,21 @@ import {
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import * as Haptics from 'expo-haptics';
+import { Ionicons } from '@expo/vector-icons';
 import { LocalRead } from '@/offline/schema';
 import {
   Button,
   Card,
+  Chip,
   Cover,
   EmptyState,
+  HeartMark,
+  RatingMark,
   SegmentedControl,
   Txt,
   sheet,
 } from './components';
-import { radius, space, useTheme } from './tokens';
+import { fontFamilies, radius, space, useTheme } from './tokens';
 import { diaryPages, groupDiary } from '@/lib/diaryGroups';
 
 export type DiaryViewMode = 'list' | 'grid' | 'calendar';
@@ -206,25 +210,13 @@ export function DiaryView({
               />
             </View>
 
-            <Pressable
-              onPress={() => {
-                void Haptics.selectionAsync();
-                setHeartedOnly(!heartedOnly);
-              }}
-              accessibilityRole="button"
+            <Chip
+              label={heartedOnly ? 'Hearted' : 'All'}
+              icon={heartedOnly ? 'heart' : 'heart-outline'}
+              selected={heartedOnly}
+              onPress={() => setHeartedOnly(!heartedOnly)}
               accessibilityLabel="Show hearted books only"
-              style={[
-                styles.iconFilterPill,
-                {
-                  backgroundColor: heartedOnly ? c.accent : c.surface,
-                  borderColor: heartedOnly ? c.accent : c.line,
-                },
-              ]}
-            >
-              <Txt variant="caption" style={{ color: heartedOnly ? '#fff' : c.ink, fontWeight: '600' }}>
-                ♥ {heartedOnly ? 'Hearted' : 'All'}
-              </Txt>
-            </Pressable>
+            />
           </View>
 
           {/* Filter Bar: Year Jump & Format & Rating */}
@@ -234,103 +226,35 @@ export function DiaryView({
             contentContainerStyle={{ gap: space[2], paddingVertical: 2 }}
           >
             {/* Year Selector */}
-            <Pressable
-              onPress={() => {
-                void Haptics.selectionAsync();
-                setSelectedYear('all');
-              }}
-              style={[
-                styles.filterPill,
-                {
-                  backgroundColor: selectedYear === 'all' ? c.ink : c.surface,
-                  borderColor: selectedYear === 'all' ? c.ink : c.line,
-                },
-              ]}
-            >
-              <Txt variant="caption" style={{ color: selectedYear === 'all' ? c.ground : c.ink, fontWeight: '600' }}>
-                All Time
-              </Txt>
-            </Pressable>
+            <Chip label="All time" selected={selectedYear === 'all'} onPress={() => setSelectedYear('all')} />
 
             {availableYears.map((yr) => (
-              <Pressable
-                key={yr}
-                onPress={() => {
-                  void Haptics.selectionAsync();
-                  setSelectedYear(yr);
-                }}
-                style={[
-                  styles.filterPill,
-                  {
-                    backgroundColor: selectedYear === yr ? c.ink : c.surface,
-                    borderColor: selectedYear === yr ? c.ink : c.line,
-                  },
-                ]}
-              >
-                <Txt variant="caption" style={{ color: selectedYear === yr ? c.ground : c.ink, fontWeight: '600' }}>
-                  {yr}
-                </Txt>
-              </Pressable>
+              <Chip key={yr} label={String(yr)} selected={selectedYear === yr} onPress={() => setSelectedYear(yr)} />
             ))}
 
             <View style={{ width: 1, backgroundColor: c.line, marginHorizontal: space[1] }} />
 
             {/* Format Pills */}
             {(['all', 'print', 'ebook', 'audiobook'] as const).map((fmt) => (
-              <Pressable
+              <Chip
                 key={fmt}
-                onPress={() => {
-                  void Haptics.selectionAsync();
-                  setFormatFilter(fmt);
-                }}
-                style={[
-                  styles.filterPill,
-                  {
-                    backgroundColor: formatFilter === fmt ? c.surface : 'transparent',
-                    borderColor: formatFilter === fmt ? c.accent : c.line,
-                  },
-                ]}
-              >
-                <Txt
-                  variant="caption"
-                  style={{
-                    color: formatFilter === fmt ? c.accent : c.muted,
-                    fontWeight: formatFilter === fmt ? '700' : '500',
-                  }}
-                >
-                  {fmt === 'all' ? 'All Formats' : fmt.charAt(0).toUpperCase() + fmt.slice(1)}
-                </Txt>
-              </Pressable>
+                label={fmt === 'all' ? 'All formats' : fmt.charAt(0).toUpperCase() + fmt.slice(1)}
+                selected={formatFilter === fmt}
+                onPress={() => setFormatFilter(fmt)}
+              />
             ))}
 
             <View style={{ width: 1, backgroundColor: c.line, marginHorizontal: space[1] }} />
 
             {/* Rating Pills */}
             {(['all', '5', '4', '3'] as const).map((rKey) => (
-              <Pressable
+              <Chip
                 key={rKey}
-                onPress={() => {
-                  void Haptics.selectionAsync();
-                  setRatingFilter(rKey);
-                }}
-                style={[
-                  styles.filterPill,
-                  {
-                    backgroundColor: ratingFilter === rKey ? c.surface : 'transparent',
-                    borderColor: ratingFilter === rKey ? c.accent : c.line,
-                  },
-                ]}
-              >
-                <Txt
-                  variant="caption"
-                  style={{
-                    color: ratingFilter === rKey ? c.accent : c.muted,
-                    fontWeight: ratingFilter === rKey ? '700' : '500',
-                  }}
-                >
-                  {rKey === 'all' ? 'All Ratings' : `${rKey}★+`}
-                </Txt>
-              </Pressable>
+                label={rKey === 'all' ? 'All ratings' : `${rKey}+ stars`}
+                icon={rKey === 'all' ? undefined : 'star-outline'}
+                selected={ratingFilter === rKey}
+                onPress={() => setRatingFilter(rKey)}
+              />
             ))}
           </ScrollView>
 
@@ -350,12 +274,12 @@ export function DiaryView({
               ]}
             >
               <Txt variant="caption" color="muted">
-                {selectedYear === 'all' ? 'All-time volume' : `${selectedYear} volume`}
+                {selectedYear === 'all' ? 'All time' : `${selectedYear}`}
               </Txt>
-              <Txt variant="caption" color="ink" style={{ fontWeight: '600' }}>
+              <Txt variant="caption" color="ink" tabular style={{ fontWeight: '500' }}>
                 {summaryStats.totalBooks} {summaryStats.totalBooks === 1 ? 'book' : 'books'}
-                {summaryStats.totalPages > 0 ? ` • ${summaryStats.totalPages.toLocaleString()} pages` : ''}
-                {summaryStats.avgRating ? ` • ★ ${summaryStats.avgRating} avg` : ''}
+                {summaryStats.totalPages > 0 ? ` · ${summaryStats.totalPages.toLocaleString()} pages` : ''}
+                {summaryStats.avgRating ? ` · ${summaryStats.avgRating} average` : ''}
               </Txt>
             </View>
           )}
@@ -368,7 +292,7 @@ export function DiaryView({
           title="No books match your filters"
           subtitle={
             finishedReads.length === 0
-              ? 'Finished books will automatically appear here with your rating, finish date, and notes.'
+              ? 'Your diary starts with the first book you finish.'
               : 'Try clearing some of your filters to see more of your reading history.'
           }
           action={
@@ -397,10 +321,10 @@ export function DiaryView({
           {groupedReads.map((group) => (
             <View key={group.monthKey} style={{ gap: space[2] }}>
               <View style={[sheet.rowBetween, { paddingHorizontal: space[1] }]}>
-                <Txt variant="title" style={{ fontSize: 16, fontWeight: '700' }}>
+                <Txt variant="displayM" style={{ fontSize: 20, lineHeight: 26 }}>
                   {group.monthLabel}
                 </Txt>
-                <Txt variant="caption" color="muted">
+                <Txt variant="caption" color="muted" tabular>
                   {group.reads.length} {group.reads.length === 1 ? 'book' : 'books'}
                 </Txt>
               </View>
@@ -423,16 +347,12 @@ export function DiaryView({
                     >
                       <View style={sheet.rowTop}>
                         <Cover coverId={r.cover_id} title={r.title ?? ''} size="m" />
-                        <View style={{ flex: 1, gap: 3, marginLeft: space[3] }}>
-                          <View style={sheet.rowBetween}>
-                            <Txt variant="title" numberOfLines={1} style={{ flex: 1 }}>
+                        <View style={{ flex: 1, gap: space[1] }}>
+                          <View style={[sheet.rowBetween, { gap: space[2] }]}>
+                            <Txt variant="title" numberOfLines={1} style={{ flex: 1, fontFamily: fontFamilies.displayMedium }}>
                               {r.title}
                             </Txt>
-                            {Boolean(r.hearted) && (
-                              <Txt variant="caption" style={{ color: '#e11d48', marginLeft: 4 }}>
-                                ♥
-                              </Txt>
-                            )}
+                            {Boolean(r.hearted) && <HeartMark size={14} />}
                           </View>
 
                           <Txt variant="caption" color="muted" numberOfLines={1}>
@@ -440,26 +360,11 @@ export function DiaryView({
                           </Txt>
 
                           <View style={[sheet.row, { gap: space[2], marginTop: space[1] }]}>
-                            {r.rating !== null && r.rating !== undefined && (
-                              <Txt variant="caption" color="accent" style={{ fontWeight: '700' }}>
-                                ★ {Number(r.rating).toFixed(1)}
-                              </Txt>
-                            )}
-                            <Txt variant="caption" color="muted">
+                            {r.rating !== null && r.rating !== undefined && <RatingMark value={Number(r.rating)} />}
+                            <Txt variant="caption" color="muted" tabular>
                               {finishFormatted}
+                              {r.format_override ? ` · ${r.format_override}` : ''}
                             </Txt>
-                            {r.format_override && (
-                              <View
-                                style={[
-                                  styles.badge,
-                                  { backgroundColor: c.ground, borderColor: c.line },
-                                ]}
-                              >
-                                <Txt variant="caption" color="muted" style={{ fontSize: 10 }}>
-                                  {r.format_override}
-                                </Txt>
-                              </View>
-                            )}
                           </View>
                         </View>
                       </View>
@@ -480,10 +385,10 @@ export function DiaryView({
           {groupedReads.map((group) => (
             <View key={group.monthKey} style={{ gap: space[2] }}>
               <View style={[sheet.rowBetween, { paddingHorizontal: space[1] }]}>
-                <Txt variant="title" style={{ fontSize: 16, fontWeight: '700' }}>
+                <Txt variant="displayM" style={{ fontSize: 20, lineHeight: 26 }}>
                   {group.monthLabel}
                 </Txt>
-                <Txt variant="caption" color="muted">
+                <Txt variant="caption" color="muted" tabular>
                   {group.reads.length} {group.reads.length === 1 ? 'book' : 'books'}
                 </Txt>
               </View>
@@ -501,24 +406,18 @@ export function DiaryView({
                       <Cover coverId={r.cover_id} title={r.title ?? ''} size="fluid" />
                       {/* Rating & Heart overlay */}
                       {(r.rating !== null || Boolean(r.hearted)) && (
-                        <View style={styles.posterOverlay}>
+                        <View style={[styles.posterOverlay, { backgroundColor: c.scrim }]}>
                           {r.rating !== null && r.rating !== undefined && (
-                            <Txt variant="caption" style={styles.overlayRating}>
-                              ★ {Number(r.rating).toFixed(1)}
-                            </Txt>
+                            <RatingMark value={Number(r.rating)} size={11} onCover />
                           )}
-                          {Boolean(r.hearted) && (
-                            <Txt variant="caption" style={styles.overlayHeart}>
-                              ♥
-                            </Txt>
-                          )}
+                          {Boolean(r.hearted) && <HeartMark size={12} />}
                         </View>
                       )}
                     </View>
                     <Txt
                       variant="caption"
                       numberOfLines={1}
-                      style={{ marginTop: 4, fontWeight: '600' }}
+                      style={{ marginTop: space[1], fontFamily: fontFamilies.displayMedium }}
                     >
                       {r.title}
                     </Txt>
@@ -538,28 +437,32 @@ export function DiaryView({
           {/* Calendar Header Month Navigation */}
           <Card style={{ padding: space[3] }}>
             <View style={[sheet.rowBetween, { marginBottom: space[3] }]}>
-              <Button
-                label="‹"
-                variant="outline"
-                size="sm"
+              <Pressable
                 onPress={() => changeCalendarMonth(-1)}
-              />
-              <Txt variant="title" style={{ fontWeight: '700' }}>
+                accessibilityRole="button"
+                accessibilityLabel="Previous month"
+                style={styles.calNav}
+              >
+                <Ionicons name="chevron-back" size={18} color={c.ink2} />
+              </Pressable>
+              <Txt variant="title" tabular>
                 {calendarDate.toLocaleDateString(undefined, { month: 'long', year: 'numeric' })}
               </Txt>
-              <Button
-                label="›"
-                variant="outline"
-                size="sm"
+              <Pressable
                 onPress={() => changeCalendarMonth(1)}
-              />
+                accessibilityRole="button"
+                accessibilityLabel="Next month"
+                style={styles.calNav}
+              >
+                <Ionicons name="chevron-forward" size={18} color={c.ink2} />
+              </Pressable>
             </View>
 
             {/* Days of the week header */}
             <View style={styles.calRow}>
               {['M', 'T', 'W', 'T', 'F', 'S', 'S'].map((dayName, idx) => (
                 <View key={idx} style={styles.calHeaderCell}>
-                  <Txt variant="caption" color="muted" style={{ fontWeight: '600', fontSize: 11 }}>
+                  <Txt variant="micro" color="muted">
                     {dayName}
                   </Txt>
                 </View>
@@ -586,23 +489,18 @@ export function DiaryView({
                     style={[
                       styles.calCell,
                       isSelected && {
-                        backgroundColor: c.accent,
-                        borderRadius: radius.sm,
-                      },
-                      hasFinished && !isSelected && {
-                        backgroundColor: c.surface,
-                        borderColor: c.accent,
+                        backgroundColor: c.surface2,
+                        borderColor: c.lineStrong,
                         borderWidth: 1,
-                        borderRadius: radius.sm,
+                        borderRadius: radius.md,
                       },
                     ]}
                   >
                     <Txt
                       variant="caption"
                       style={{
-                        fontSize: 12,
-                        fontWeight: hasFinished || isSelected ? '700' : '400',
-                        color: isSelected ? '#fff' : hasFinished ? c.accent : c.ink,
+                        fontWeight: hasFinished || isSelected ? '500' : '400',
+                        color: hasFinished || isSelected ? c.ink : c.muted,
                       }}
                     >
                       {item.day}
@@ -612,7 +510,7 @@ export function DiaryView({
                         style={[
                           styles.calDot,
                           {
-                            backgroundColor: isSelected ? '#fff' : c.accent,
+                            backgroundColor: c.accent,
                           },
                         ]}
                       />
@@ -626,8 +524,8 @@ export function DiaryView({
           {/* Selected Calendar Day Book Details */}
           {selectedCalendarDay && (
             <View style={{ gap: space[2] }}>
-              <Txt variant="title" style={{ fontSize: 15, fontWeight: '700' }}>
-                Completed on{' '}
+              <Txt variant="title">
+                Finished{' '}
                 {new Date(selectedCalendarDay).toLocaleDateString(undefined, {
                   month: 'short',
                   day: 'numeric',
@@ -637,7 +535,7 @@ export function DiaryView({
 
               {selectedDayReads.length === 0 ? (
                 <Txt variant="caption" color="muted">
-                  No books finished on this day.
+                  No books finished this day
                 </Txt>
               ) : (
                 selectedDayReads.map((r) => (
@@ -646,26 +544,18 @@ export function DiaryView({
                     onPress={() => handleSelectBook(r.work_id)}
                     style={{ padding: space[3] }}
                   >
-                    <View style={sheet.rowTop}>
+                    <View style={[sheet.rowTop, { gap: space[3] }]}>
                       <Cover coverId={r.cover_id} title={r.title ?? ''} size="m" />
-                      <View style={{ flex: 1, gap: 2, marginLeft: space[3] }}>
-                        <Txt variant="title" numberOfLines={1}>
+                      <View style={{ flex: 1, gap: space[1] }}>
+                        <Txt variant="title" numberOfLines={1} style={{ fontFamily: fontFamilies.displayMedium }}>
                           {r.title}
                         </Txt>
                         <Txt variant="caption" color="muted">
                           {r.author_name}
                         </Txt>
                         <View style={[sheet.row, { gap: space[2], marginTop: space[1] }]}>
-                          {r.rating !== null && r.rating !== undefined && (
-                            <Txt variant="caption" color="accent" style={{ fontWeight: '700' }}>
-                              ★ {Number(r.rating).toFixed(1)}
-                            </Txt>
-                          )}
-                          {Boolean(r.hearted) && (
-                            <Txt variant="caption" style={{ color: '#e11d48' }}>
-                              ♥ Hearted
-                            </Txt>
-                          )}
+                          {r.rating !== null && r.rating !== undefined && <RatingMark value={Number(r.rating)} />}
+                          {Boolean(r.hearted) && <HeartMark />}
                         </View>
                       </View>
                     </View>
@@ -681,30 +571,6 @@ export function DiaryView({
 }
 
 const styles = StyleSheet.create({
-  filterPill: {
-    paddingHorizontal: space[3],
-    paddingVertical: space[1],
-    borderRadius: radius.pill,
-    borderWidth: 1,
-    minHeight: 32,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  iconFilterPill: {
-    paddingHorizontal: space[3],
-    paddingVertical: space[1],
-    borderRadius: radius.pill,
-    borderWidth: 1,
-    minHeight: 32,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  badge: {
-    paddingHorizontal: 6,
-    paddingVertical: 1,
-    borderRadius: radius.sm,
-    borderWidth: 1,
-  },
   posterGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
@@ -725,21 +591,17 @@ const styles = StyleSheet.create({
     bottom: 0,
     left: 0,
     right: 0,
-    backgroundColor: 'rgba(0, 0, 0, 0.7)',
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: 6,
-    paddingVertical: 3,
+    paddingHorizontal: space[2],
+    paddingVertical: space[1],
   },
-  overlayRating: {
-    color: '#fbbf24',
-    fontSize: 10,
-    fontWeight: '700',
-  },
-  overlayHeart: {
-    color: '#f43f5e',
-    fontSize: 10,
+  calNav: {
+    width: 44,
+    height: 44,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   calRow: {
     flexDirection: 'row',
@@ -749,7 +611,7 @@ const styles = StyleSheet.create({
   calHeaderCell: {
     width: '14.2%',
     alignItems: 'center',
-    paddingVertical: 4,
+    paddingVertical: space[1],
   },
   calGrid: {
     flexDirection: 'row',
@@ -761,13 +623,13 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     position: 'relative',
-    marginVertical: 1,
+    marginVertical: space[1] / 2,
   },
   calDot: {
     width: 4,
     height: 4,
-    borderRadius: 2,
+    borderRadius: radius.pill,
     position: 'absolute',
-    bottom: 4,
+    bottom: space[1],
   },
 });

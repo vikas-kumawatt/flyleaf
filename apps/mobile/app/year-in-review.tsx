@@ -9,7 +9,7 @@
 // (flyleaf://year-in-review/YYYY → /year-in-review?year=YYYY).
 
 import React, { useEffect, useState } from 'react';
-import { ActivityIndicator, FlatList, View, useWindowDimensions } from 'react-native';
+import { FlatList, View, useWindowDimensions } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as Haptics from 'expo-haptics';
@@ -20,7 +20,7 @@ import { useSession } from '@/lib/session';
 import { deviceTimeZone } from '@/lib/statsView';
 import { encodeShareOptions, yearShareOptions } from '@/lib/shareCard';
 import { yirEmptyCopy } from '@/lib/yearInReview';
-import { Button, Cover, EmptyState, Screen, Txt, sheet } from '@/ui/components';
+import { Button, Cover, EmptyState, Screen, Txt, sheet, Skeleton } from '@/ui/components';
 import { ScreenHeader } from '@/ui/ScreenHeader';
 import { radius, space, useTheme } from '@/ui/tokens';
 
@@ -68,13 +68,21 @@ function StoryCard({ card, height, onShare }: { card: YearInReviewCard; height: 
           ))}
         </View>
       )}
-      {card.bars.map((b) => (
+      {card.bars.map((b, i) => (
         <View key={b.label} style={[sheet.row, { gap: space[2] }]}>
           <Txt variant="caption" style={{ width: 96 }} numberOfLines={1}>
             {b.label}
           </Txt>
-          <View style={{ flex: 1, height: 10, borderRadius: radius.pill, backgroundColor: c.surface2 }}>
-            <View style={{ width: `${(b.value / max) * 100}%`, height: '100%', borderRadius: radius.pill, backgroundColor: c.accent }} />
+          {/* One accent per chart: the leading bar; the rest sit in a neutral step. */}
+          <View style={{ flex: 1, height: 8, borderRadius: radius.pill, backgroundColor: c.surface2 }}>
+            <View
+              style={{
+                width: `${(b.value / max) * 100}%`,
+                height: '100%',
+                borderRadius: radius.pill,
+                backgroundColor: i === 0 ? c.accent : c.muted,
+              }}
+            />
           </View>
           <Txt variant="caption" color="muted" tabular>
             {b.text}
@@ -117,12 +125,29 @@ export default function YearInReviewScreen() {
   const empty = yir ? yirEmptyCopy(yir) : null;
   return (
     <Screen>
-      <ScreenHeader title={yir ? `${yir.year} in books` : 'Year in Review'} />
+      <ScreenHeader title={yir ? `${yir.year} in books` : 'Year in review'} />
       {!yir ? (
         failed ? (
-          <EmptyState title="We couldn't load your Year in Review." subtitle="Try again in a moment." />
+          <EmptyState title="We couldn't load your year in review" subtitle="Try again in a moment" />
         ) : (
-          <ActivityIndicator style={{ marginTop: space[8] }} />
+          // The first story card as its shape (design.md §5).
+          <View
+            style={{ padding: space[6], gap: space[4] }}
+            accessible
+            accessibilityLabel="Loading your year in review"
+            accessibilityState={{ busy: true }}
+          >
+            <Skeleton width={140} height={12} />
+            <Skeleton width={160} height={56} />
+            <Skeleton width="80%" height={16} />
+            <View style={{ flexDirection: 'row', gap: space[2], marginTop: space[4] }}>
+              {[0, 1, 2, 3].map((k) => (
+                <View key={k} style={{ flex: 1, aspectRatio: 2 / 3 }}>
+                  <Skeleton width="100%" height={0} borderRadius={radius.xs} style={{ flex: 1 }} />
+                </View>
+              ))}
+            </View>
+          </View>
         )
       ) : empty ? (
         <EmptyState title={empty.title} subtitle={empty.subtitle} />

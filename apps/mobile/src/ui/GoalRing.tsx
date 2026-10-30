@@ -65,7 +65,7 @@ export function GoalRing({
           {arc(45 + (p - 1) * 360, 'left')}
         </View>
       )}
-      <Txt variant="caption" tabular style={{ fontSize: 11, fontWeight: '700' }}>
+      <Txt variant="micro" tabular>
         {model ? model.label : emptyLabel ?? ''}
       </Txt>
     </View>

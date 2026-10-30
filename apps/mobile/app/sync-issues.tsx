@@ -89,12 +89,12 @@ export default function SyncIssuesScreen() {
           <EmptyState title="Everything is synced" subtitle="Updates you make offline are sent when you are back online." />
         ) : (
           issues.map((issue) => (
-            <Card key={issue.id}>
+            <Card key={issue.id} style={{ padding: space[4] }}>
               <View style={{ gap: space[2] }}>
                 <Txt variant="micro" color="muted">
-                  {issue.label.toUpperCase()}
+                  {issue.label}
                 </Txt>
-                {issue.title ? <Txt variant="title">{issue.title}</Txt> : null}
+                {issue.title ? <Txt variant="bodyL" style={{ fontWeight: '500' }}>{issue.title}</Txt> : null}
                 <Txt variant="body" color="ink2">
                   {issue.reason}
                 </Txt>

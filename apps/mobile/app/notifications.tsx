@@ -24,8 +24,9 @@ import {
   type NotificationRow,
 } from '@/lib/notifications';
 import { enablePush, pushPermissionGranted } from '@/lib/push';
-import { EmptyState, Screen, Txt, sheet } from '@/ui/components';
+import { EmptyState, Screen, Txt, sheet, SkeletonList } from '@/ui/components';
 import { radius, space, useTheme } from '@/ui/tokens';
+import { Ionicons } from '@expo/vector-icons';
 
 const PAGE = 30;
 
@@ -134,7 +135,7 @@ export default function NotificationsScreen() {
     if (row.kind === 'header') {
       return (
         <Txt variant="micro" color="muted" style={styles.sectionHeader}>
-          {row.title.toUpperCase()}
+          {row.title}
         </Txt>
       );
     }
@@ -147,16 +148,20 @@ export default function NotificationsScreen() {
         accessibilityLabel={`${n.read ? '' : 'Unread. '}${n.text}`}
         style={({ pressed }) => [
           styles.row,
-          { backgroundColor: pressed ? c.surface2 : n.read ? c.ground : c.accentSoft, borderBottomColor: c.line },
+          { backgroundColor: pressed ? c.surface2 : n.read ? c.ground : c.surface, borderBottomColor: c.line },
         ]}
       >
         <View style={[styles.avatar, { backgroundColor: c.surface2, borderColor: c.line }]}>
           {n.actor?.avatar_url ? (
             <Image source={{ uri: n.actor.avatar_url }} style={styles.avatarImage} contentFit="cover" />
           ) : (
-            <Txt variant="body" style={{ fontWeight: '700', color: c.accent }}>
-              {n.actor ? initial : '↓'}
-            </Txt>
+            n.actor ? (
+              <Txt variant="body" style={{ fontWeight: '500', color: c.ink2 }}>
+                {initial}
+              </Txt>
+            ) : (
+              <Ionicons name="arrow-down" size={18} color={c.muted} />
+            )
           )}
         </View>
         <View style={{ flex: 1, gap: 2 }}>
@@ -191,13 +196,9 @@ export default function NotificationsScreen() {
             hitSlop={12}
             style={{ minWidth: 44, minHeight: 44, justifyContent: 'center' }}
           >
-            <Txt variant="body" color="accent" style={{ fontWeight: '600' }}>
-              ← Back
-            </Txt>
+            <Ionicons name="chevron-back" size={24} color={c.ink} />
           </Pressable>
-          <Txt variant="title" style={{ fontSize: 17 }}>
-            Notifications
-          </Txt>
+          <Txt variant="title">Notifications</Txt>
           <Pressable
             onPress={markAllRead}
             disabled={unread === 0}
@@ -207,7 +208,7 @@ export default function NotificationsScreen() {
             hitSlop={12}
             style={{ minWidth: 44, minHeight: 44, justifyContent: 'center', alignItems: 'flex-end' }}
           >
-            <Txt variant="caption" color={unread === 0 ? 'muted' : 'accent'} style={{ fontWeight: '600' }}>
+            <Txt variant="caption" color={unread === 0 ? 'muted' : 'accent'} style={{ fontWeight: '500' }}>
               Mark all read
             </Txt>
           </Pressable>
@@ -227,11 +228,11 @@ export default function NotificationsScreen() {
       ) : null}
 
       {loading ? (
-        <ActivityIndicator color={c.accent} style={{ marginTop: space[8] }} />
+        <SkeletonList lead="avatar" rows={8} />
       ) : error && items.length === 0 ? (
         <EmptyState
           title="Couldn't load notifications"
-          subtitle="Check your connection and pull to try again."
+          subtitle="Check your connection and pull to try again"
         />
       ) : (
         <FlashList
@@ -254,9 +255,9 @@ export default function NotificationsScreen() {
             />
           }
           ListEmptyComponent={
-            <EmptyState title="Nothing yet" subtitle="When people react to your reviews, you'll see it here." />
+            <EmptyState title="Nothing yet" subtitle="When people react to your reviews, you'll see it here" />
           }
-          ListFooterComponent={loadingMore ? <ActivityIndicator color={c.accent} style={{ margin: space[4] }} /> : null}
+          ListFooterComponent={loadingMore ? <ActivityIndicator color={c.muted} style={{ margin: space[4] }} /> : null}
         />
       )}
     </Screen>
@@ -268,7 +269,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: space[4],
     paddingTop: space[4],
     paddingBottom: space[2],
-    letterSpacing: 0.6,
   },
   row: {
     flexDirection: 'row',

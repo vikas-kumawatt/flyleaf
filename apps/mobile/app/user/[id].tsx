@@ -7,7 +7,6 @@ import {
   View,
   ScrollView,
   Pressable,
-  ActivityIndicator,
   StyleSheet,
   RefreshControl,
   Alert,
@@ -29,9 +28,9 @@ import {
   EmptyState,
   Screen,
   Txt,
-  sheet,
-} from '@/ui/components';
-import { radius, space, useTheme } from '@/ui/tokens';
+  sheet, SkeletonHeader, SkeletonCoverGrid} from '@/ui/components';
+import { fontFamilies, radius, space, useTheme } from '@/ui/tokens';
+import { Ionicons } from '@expo/vector-icons';
 
 export default function UserProfileScreen() {
   const c = useTheme();
@@ -212,12 +211,10 @@ export default function UserProfileScreen() {
             hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
             style={{ minWidth: 44, minHeight: 44, justifyContent: 'center' }}
           >
-            <Txt variant="body" color="accent" style={{ fontWeight: '600' }}>
-              ← Back
-            </Txt>
+            <Ionicons name="chevron-back" size={24} color={c.ink} />
           </Pressable>
 
-          <Txt variant="title" style={{ fontWeight: '700', fontSize: 17 }} numberOfLines={1}>
+          <Txt variant="title" numberOfLines={1}>
             {profile?.displayName || (profile ? `@${profile.username}` : 'Reader')}
           </Txt>
 
@@ -229,7 +226,7 @@ export default function UserProfileScreen() {
               hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
               style={{ minWidth: 44, minHeight: 44, justifyContent: 'center', alignItems: 'flex-end' }}
             >
-              <Txt variant="caption" color="muted" style={{ fontWeight: '600' }}>
+              <Txt variant="caption" color="muted" style={{ fontWeight: '500' }}>
                 Block
               </Txt>
             </Pressable>
@@ -250,11 +247,14 @@ export default function UserProfileScreen() {
         }
       >
         {loading && !profile ? (
-          <ActivityIndicator size="large" color={c.accent} style={{ marginTop: space[6] }} />
+          <View style={{ gap: space[4] }}>
+            <SkeletonHeader style={{ padding: 0 }} />
+            <SkeletonCoverGrid count={4} columns={4} style={{ padding: 0 }} />
+          </View>
         ) : !profile ? (
           <EmptyState
             title="Reader not found"
-            subtitle="This profile could not be loaded or may no longer exist."
+            subtitle="This profile could not be loaded or no longer exists"
             action={
               <Button
                 label="Go back"
@@ -273,12 +273,12 @@ export default function UserProfileScreen() {
                   style={[
                     styles.avatar,
                     {
-                      backgroundColor: c.accentSoft,
+                      backgroundColor: c.surface2,
                       borderColor: c.line,
                     },
                   ]}
                 >
-                  <Txt variant="title" style={{ fontSize: 26, fontWeight: '800', color: c.accent }}>
+                  <Txt variant="title" style={{ fontSize: 26, fontWeight: '500', color: c.ink2 }}>
                     {(profile.displayName || profile.username).charAt(0).toUpperCase()}
                   </Txt>
                 </View>
@@ -286,13 +286,11 @@ export default function UserProfileScreen() {
                 {/* Info */}
                 <View style={{ flex: 1, gap: 2 }}>
                   <View style={sheet.row}>
-                    <Txt variant="title" style={{ fontSize: 18, fontWeight: '700' }} numberOfLines={1}>
+                    <Txt variant="displayM" numberOfLines={1}>
                       {profile.displayName || profile.username}
                     </Txt>
                     {profile.isPrivate && (
-                      <Txt variant="caption" color="muted" style={{ marginLeft: 6 }}>
-                        🔒
-                      </Txt>
+                      <Ionicons name="lock-closed-outline" size={14} color={c.muted} style={{ marginLeft: space[1] }} accessibilityLabel="Private account" />
                     )}
                   </View>
 
@@ -301,25 +299,16 @@ export default function UserProfileScreen() {
                       @{profile.username}
                     </Txt>
                     {profile.followedBy && (
-                      <View
-                        style={{
-                          backgroundColor: c.accentSoft,
-                          paddingHorizontal: 6,
-                          paddingVertical: 2,
-                          borderRadius: radius.sm,
-                        }}
-                      >
-                        <Txt variant="caption" color="accent" style={{ fontSize: 10, fontWeight: '700' }}>
-                          Follows you
-                        </Txt>
-                      </View>
+                      <Txt variant="micro" color="muted">
+                        · Follows you
+                      </Txt>
                     )}
                   </View>
 
                   <View style={[sheet.row, { gap: space[3], marginTop: space[1] }]}>
                     <Pressable onPress={() => router.push(`/user/${profile.id}/followers` as any)}>
                       <Txt variant="caption">
-                        <Txt variant="caption" style={{ fontWeight: '700' }}>
+                        <Txt variant="caption" style={{ fontWeight: '500' }}>
                           {profile.followerCount}
                         </Txt>{' '}
                         followers
@@ -327,7 +316,7 @@ export default function UserProfileScreen() {
                     </Pressable>
                     <Pressable onPress={() => router.push(`/user/${profile.id}/following` as any)}>
                       <Txt variant="caption">
-                        <Txt variant="caption" style={{ fontWeight: '700' }}>
+                        <Txt variant="caption" style={{ fontWeight: '500' }}>
                           {profile.followingCount}
                         </Txt>{' '}
                         following
@@ -391,12 +380,8 @@ export default function UserProfileScreen() {
             {/* Privacy Check */}
             {isRestricted ? (
               <Card style={{ padding: space[6], alignItems: 'center', gap: space[2] }}>
-                <Txt variant="title" style={{ fontSize: 28 }}>
-                  🔒
-                </Txt>
-                <Txt variant="title" style={{ fontSize: 16, fontWeight: '700' }}>
-                  This Account is Private
-                </Txt>
+                <Ionicons name="lock-closed-outline" size={24} color={c.muted} />
+                <Txt variant="title">This account is private</Txt>
                 <Txt variant="caption" color="muted" style={{ textAlign: 'center' }}>
                   {profile.followStatus === 'pending'
                     ? `Follow request sent to @${profile.username}. Once accepted, their reading activity will appear here.`
@@ -408,9 +393,7 @@ export default function UserProfileScreen() {
                 {/* 4 Defining Favourites */}
                 {profile.favourites && profile.favourites.length > 0 && (
                   <View style={{ gap: space[2] }}>
-                    <Txt variant="caption" color="muted" style={{ fontWeight: '700', letterSpacing: 0.5 }}>
-                      DEFINING FAVOURITES
-                    </Txt>
+                    <Txt variant="micro" color="muted">Defining favourites</Txt>
                     <View style={styles.favouritesRow}>
                       {profile.favourites.map((fav) => (
                         <Pressable
@@ -422,7 +405,7 @@ export default function UserProfileScreen() {
                           style={styles.favItem}
                         >
                           <Cover coverId={fav.cover_id} title={fav.title} size="fluid" />
-                          <Txt variant="caption" numberOfLines={1} style={{ fontSize: 11, marginTop: 4 }}>
+                          <Txt variant="caption" numberOfLines={1} style={{ fontFamily: fontFamilies.displayRegular, marginTop: space[1] }}>
                             {fav.title}
                           </Txt>
                         </Pressable>
@@ -435,17 +418,15 @@ export default function UserProfileScreen() {
                 {stats && (
                   <View style={{ gap: space[2] }}>
                     <View style={sheet.rowBetween}>
-                      <Txt variant="caption" color="muted" style={{ fontWeight: '700', letterSpacing: 0.5 }}>
-                        READING STATS
-                      </Txt>
+                      <Txt variant="micro" color="muted">Reading stats</Txt>
                       <Pressable
                         onPress={() => {
                           void Haptics.selectionAsync();
                           router.push(`/stats?userId=${id}` as any);
                         }}
                       >
-                        <Txt variant="caption" color="accent" style={{ fontWeight: '600' }}>
-                          Full Stats →
+                        <Txt variant="caption" color="ink2" style={{ fontWeight: '500' }}>
+                          All stats
                         </Txt>
                       </Pressable>
                     </View>
@@ -458,32 +439,31 @@ export default function UserProfileScreen() {
                     >
                       <View style={[sheet.row, { gap: space[2] }]}>
                         <Card style={{ flex: 1, alignItems: 'center', padding: space[3] }}>
-                          <Txt variant="title" tabular style={{ fontSize: 20, fontWeight: '800' }}>
+                          <Txt variant="title" tabular style={{ fontSize: 24, lineHeight: 28 }}>
                             {stats.books_count}
                           </Txt>
-                          <Txt variant="caption" color="muted" style={{ fontSize: 11 }}>
+                          <Txt variant="micro" color="muted">
                             books read
                           </Txt>
                         </Card>
 
                         <Card style={{ flex: 1, alignItems: 'center', padding: space[3] }}>
-                          <Txt variant="title" tabular style={{ fontSize: 20, fontWeight: '800' }}>
+                          <Txt variant="title" tabular style={{ fontSize: 24, lineHeight: 28 }}>
                             {stats.pages_count.toLocaleString()}
                           </Txt>
-                          <Txt variant="caption" color="muted" style={{ fontSize: 11 }}>
+                          <Txt variant="micro" color="muted">
                             pages tracked
                           </Txt>
                         </Card>
 
                         <Card style={{ flex: 1, alignItems: 'center', padding: space[3] }}>
-                          <Txt
-                            variant="title"
-                            tabular
-                            style={{ fontSize: 20, fontWeight: '800', color: stats.avg_rating ? c.accent : c.ink }}
-                          >
-                            {stats.avg_rating ? `★ ${stats.avg_rating.toFixed(1)}` : '—'}
-                          </Txt>
-                          <Txt variant="caption" color="muted" style={{ fontSize: 11 }}>
+                          <View style={[sheet.row, { gap: space[1] }]}>
+                            {stats.avg_rating ? <Ionicons name="star" size={16} color={c.star} /> : null}
+                            <Txt variant="title" tabular style={{ fontSize: 24, lineHeight: 28 }}>
+                              {stats.avg_rating ? stats.avg_rating.toFixed(1) : '—'}
+                            </Txt>
+                          </View>
+                          <Txt variant="micro" color="muted">
                             avg rating
                           </Txt>
                         </Card>
@@ -494,10 +474,10 @@ export default function UserProfileScreen() {
                       <View style={[sheet.row, { gap: space[2] }]}>
                         {streakCopy(stats) && (
                           <Card style={{ flex: 1, padding: space[3], justifyContent: 'center' }}>
-                            <Txt variant="title" tabular style={{ fontSize: 20, fontWeight: '800' }}>
+                            <Txt variant="title" tabular style={{ fontSize: 24, lineHeight: 28 }}>
                               {streakCopy(stats)!.hero}
                             </Txt>
-                            <Txt variant="caption" color="muted" style={{ fontSize: 11 }}>
+                            <Txt variant="micro" color="muted">
                               {streakCopy(stats)!.label}
                             </Txt>
                           </Card>
@@ -522,16 +502,12 @@ export default function UserProfileScreen() {
                 >
                   <View style={sheet.rowBetween}>
                     <View style={{ gap: 2 }}>
-                      <Txt variant="title" style={{ fontSize: 15, fontWeight: '700' }}>
-                        The Wall
-                      </Txt>
+                      <Txt variant="title">The Wall</Txt>
                       <Txt variant="caption" color="muted">
-                        Explore all book covers completed by @{profile.username}
+                        Every cover @{profile.username} has finished
                       </Txt>
                     </View>
-                    <Txt variant="title" color="accent">
-                      →
-                    </Txt>
+                    <Ionicons name="chevron-forward" size={18} color={c.muted} />
                   </View>
                 </Card>
               </>
@@ -548,10 +524,10 @@ const styles = StyleSheet.create({
   avatar: {
     width: 68,
     height: 68,
-    borderRadius: 34,
+    borderRadius: 34, // circle
     alignItems: 'center',
     justifyContent: 'center',
-    borderWidth: 1.5,
+    borderWidth: 1,
   },
   favouritesRow: {
     flexDirection: 'row',

@@ -8,11 +8,11 @@
 // Each read and review keeps its own visibility, chosen when it is posted.
 
 import React, { useCallback, useEffect, useState } from 'react';
-import { ActivityIndicator, Alert, ScrollView, View } from 'react-native';
+import { Alert, ScrollView, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { api } from '@/lib/api';
 import { PRIVATE_ACCOUNT_DETAIL, privacyConfirm } from '@/lib/settings';
-import { Button, EmptyState, Screen, Txt } from '@/ui/components';
+import { Button, EmptyState, Screen, Txt, SkeletonSettings } from '@/ui/components';
 import { ScreenHeader } from '@/ui/ScreenHeader';
 import { Group, SwitchRow } from '@/ui/SettingsRows';
 import { space, useTheme } from '@/ui/tokens';
@@ -71,7 +71,9 @@ export default function PrivacySettingsScreen() {
               action={<Button label="Try again" variant="primary" onPress={() => void load()} />}
             />
           ) : (
-            <ActivityIndicator color={c.accent} accessibilityLabel="Loading privacy setting" />
+            <View accessible accessibilityLabel="Loading privacy setting">
+              <SkeletonSettings rows={1} />
+            </View>
           )
         ) : (
           <>

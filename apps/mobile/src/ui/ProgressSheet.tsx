@@ -20,7 +20,7 @@ import {
 } from 'react-native';
 import * as Haptics from 'expo-haptics';
 import { BottomSheet, Button, Txt, sheet } from './components';
-import { radius, space, useTheme, type as t } from './tokens';
+import { radius, space, useTheme, type as t, fontFamilies } from './tokens';
 
 interface ProgressSheetProps {
   visible: boolean;
@@ -146,8 +146,10 @@ export function ProgressSheet({
               autoFocus
               accessibilityLabel="Current page number"
               style={{
+                fontFamily: fontFamilies.uiMedium,
                 fontSize: 28,
-                fontWeight: '700',
+                fontWeight: 'normal',
+                fontVariant: ['tabular-nums'],
                 paddingHorizontal: space[3],
                 paddingVertical: space[2],
                 borderRadius: radius.md,
@@ -170,7 +172,7 @@ export function ProgressSheet({
                       onFinishShortcut();
                     }}
                   >
-                    <Txt variant="caption" color="accent" style={{ fontWeight: '600' }}>
+                    <Txt variant="caption" color="accent" style={{ fontWeight: '500' }}>
                       Finish book now →
                     </Txt>
                   </Pressable>
@@ -196,7 +198,7 @@ export function ProgressSheet({
                     alignItems: 'center',
                   }}
                 >
-                  <Txt variant="caption" color="ink" style={{ fontWeight: '600' }}>
+                  <Txt variant="caption" color="ink" style={{ fontWeight: '500' }}>
                     +{delta}
                   </Txt>
                 </Pressable>
@@ -237,7 +239,7 @@ export function ProgressSheet({
                     <Txt
                       variant="caption"
                       color={isSelected ? 'accent' : 'ink'}
-                      style={{ fontWeight: isSelected ? '700' : '400' }}
+                      style={{ fontWeight: isSelected ? '500' : '400' }}
                     >
                       {m}m
                     </Txt>
@@ -256,12 +258,13 @@ export function ProgressSheet({
               style={{
                 height: 42,
                 paddingHorizontal: space[3],
+                fontFamily: fontFamilies.uiRegular,
                 borderRadius: radius.md,
                 borderWidth: 1,
                 borderColor: c.line,
                 backgroundColor: c.surface2,
                 color: c.ink,
-                fontSize: 14,
+                fontSize: 15,
               }}
             />
           </View>
@@ -286,7 +289,7 @@ export function ProgressSheet({
               onChangeText={(txt) => {
                 if (txt.length <= 280) setNoteInput(txt);
               }}
-              placeholder="Thoughts, reflections, or where you stopped..."
+              placeholder="Where you stopped, what you thought"
               placeholderTextColor={c.muted}
               multiline
               numberOfLines={3}
@@ -295,12 +298,13 @@ export function ProgressSheet({
                 minHeight: 70,
                 paddingHorizontal: space[3],
                 paddingVertical: space[2],
+                fontFamily: fontFamilies.uiRegular,
                 borderRadius: radius.md,
                 borderWidth: 1,
                 borderColor: c.line,
                 backgroundColor: c.surface2,
                 color: c.ink,
-                fontSize: 14,
+                fontSize: 15,
                 textAlignVertical: 'top',
               }}
             />
@@ -330,7 +334,7 @@ export function ProgressSheet({
                 <TextInput
                   value={quoteInput}
                   onChangeText={setQuoteInput}
-                  placeholder="Paste or transcribe quote..."
+                  placeholder="Quote"
                   placeholderTextColor={c.muted}
                   multiline
                   numberOfLines={2}
@@ -339,12 +343,13 @@ export function ProgressSheet({
                     minHeight: 60,
                     paddingHorizontal: space[3],
                     paddingVertical: space[2],
+                    fontFamily: fontFamilies.uiRegular,
                     borderRadius: radius.md,
                     borderWidth: 1,
                     borderColor: c.accent,
                     backgroundColor: c.surface2,
                     color: c.ink,
-                    fontSize: 14,
+                    fontSize: 15,
                     fontStyle: 'italic',
                     textAlignVertical: 'top',
                   }}

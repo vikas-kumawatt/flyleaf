@@ -4,7 +4,8 @@
 import React from 'react';
 import { View } from 'react-native';
 import type { RemoteState } from '@/lib/useRemote';
-import { Button, EmptyState, Screen, Txt, sheet } from '@/ui/components';
+import { Button, EmptyState, Screen, Skeleton, SkeletonHeader, SkeletonList, sheet } from '@/ui/components';
+import { space } from '@/ui/tokens';
 
 export function RemoteStatus({
   remote,
@@ -17,10 +18,28 @@ export function RemoteStatus({
   onRetry: () => void;
 }) {
   if (remote.state === 'loading') {
+    // Shape-matched to the screen that will replace it (design.md §5).
     return (
       <Screen>
-        <View style={sheet.pad}>
-          <Txt color="muted">Loading {noun}…</Txt>
+        <View accessible accessibilityLabel={`Loading ${noun}`} accessibilityState={{ busy: true }}>
+          {noun === 'series' ? (
+            <>
+              <View style={[sheet.pad, { gap: space[2] }]}>
+                <Skeleton width="60%" height={30} />
+                <Skeleton width="30%" height={12} />
+              </View>
+              <SkeletonList lead="cover" rows={5} />
+            </>
+          ) : (
+            <>
+              <SkeletonHeader lead={noun === 'book' ? 'cover' : 'avatar'} />
+              <View style={[sheet.pad, { gap: space[2] }]}>
+                {['100%', '94%', '88%', '60%'].map((w, i) => (
+                  <Skeleton key={i} width={w as `${number}%`} height={14} />
+                ))}
+              </View>
+            </>
+          )}
         </View>
       </Screen>
     );

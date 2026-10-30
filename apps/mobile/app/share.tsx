@@ -93,11 +93,11 @@ export default function SharePreviewScreen() {
                 accessibilityRole="tab"
                 accessibilityState={{ selected: i === index }}
                 style={{
-                  paddingHorizontal: space[3], minHeight: 36, justifyContent: 'center', borderRadius: radius.pill, borderWidth: 1,
-                  backgroundColor: i === index ? c.ink : c.surface, borderColor: i === index ? c.ink : c.line,
+                  paddingHorizontal: space[3], minHeight: 36, justifyContent: 'center', borderRadius: radius.sm, borderWidth: 1,
+                  backgroundColor: i === index ? c.surface : c.surface2, borderColor: i === index ? c.lineStrong : c.line,
                 }}
               >
-                <Txt variant="caption" style={{ color: i === index ? c.ground : c.ink, fontWeight: '600' }}>
+                <Txt variant="caption" color={i === index ? 'ink' : 'ink2'} style={{ fontWeight: i === index ? '500' : '400' }}>
                   {o.label}
                 </Txt>
               </Pressable>
@@ -108,12 +108,12 @@ export default function SharePreviewScreen() {
         {/* Story size, 9:16, as it will be posted. */}
         <View
           style={{
-            width: '86%', aspectRatio: 1080 / 1920, borderRadius: radius.md, overflow: 'hidden',
+            width: '86%', aspectRatio: 1080 / 1920, borderRadius: radius.lg, overflow: 'hidden',
             backgroundColor: c.surface2, borderWidth: 1, borderColor: c.line, alignItems: 'center', justifyContent: 'center',
           }}
         >
           {loading ? (
-            <ActivityIndicator color={c.accent} />
+            <ActivityIndicator color={c.muted} />
           ) : uri ? (
             <Image source={{ uri }} style={{ width: '100%', height: '100%' }} resizeMode="contain" accessibilityLabel="The card you are about to share" />
           ) : (

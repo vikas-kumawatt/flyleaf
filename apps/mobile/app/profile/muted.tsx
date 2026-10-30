@@ -1,4 +1,4 @@
-// Muted Content Settings Screen (PRD §6.42, PRD §4078, SO-04).
+// Muted Settings Screen (PRD §6.42, PRD §4078, SO-04).
 //
 // Allows account owners to inspect muted users and muted books with 1-tap unmute actions.
 
@@ -7,7 +7,6 @@ import {
   View,
   ScrollView,
   Pressable,
-  ActivityIndicator,
   RefreshControl,
   StyleSheet,
   Alert,
@@ -24,9 +23,9 @@ import {
   Screen,
   SegmentedControl,
   Txt,
-  sheet,
-} from '@/ui/components';
+  sheet, SkeletonList} from '@/ui/components';
 import { radius, space, useTheme } from '@/ui/tokens';
+import { Ionicons } from '@expo/vector-icons';
 
 export default function MutedItemsScreen() {
   const c = useTheme();
@@ -117,13 +116,11 @@ export default function MutedItemsScreen() {
             hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
             style={{ minWidth: 44, minHeight: 44, justifyContent: 'center' }}
           >
-            <Txt variant="body" color="accent" style={{ fontWeight: '600' }}>
-              ← Back
-            </Txt>
+            <Ionicons name="chevron-back" size={24} color={c.ink} />
           </Pressable>
 
-          <Txt variant="title" style={{ fontWeight: '700', fontSize: 17 }}>
-            Muted Content
+          <Txt variant="title">
+            Muted
           </Txt>
 
           <View style={{ minWidth: 44 }} />
@@ -153,12 +150,12 @@ export default function MutedItemsScreen() {
         }
       >
         {loading && mutedUsers.length === 0 && mutedWorks.length === 0 ? (
-          <ActivityIndicator size="large" color={c.accent} style={{ marginTop: space[6] }} />
+          <SkeletonList lead={activeTab === 'users' ? 'avatar' : 'cover'} style={{ paddingHorizontal: 0, paddingTop: 0 }} />
         ) : activeTab === 'users' ? (
           mutedUsers.length === 0 ? (
             <EmptyState
-              title="No Muted Users"
-              subtitle="Users you mute will be hidden from your feed without unfollowing them."
+              title="No muted people"
+              subtitle="Users you mute will be hidden from your feed without unfollowing them"
             />
           ) : (
             mutedUsers.map((item) => {
@@ -171,12 +168,12 @@ export default function MutedItemsScreen() {
                       <View
                         style={[
                           styles.avatar,
-                          { backgroundColor: c.accentSoft, borderColor: c.line },
+                          { backgroundColor: c.surface2, borderColor: c.line },
                         ]}
                       >
                         <Txt
                           variant="title"
-                          style={{ fontSize: 18, fontWeight: '800', color: c.accent }}
+                          style={{ fontSize: 18, fontWeight: '500', color: c.ink2 }}
                         >
                           {(item.display_name || item.username).charAt(0).toUpperCase()}
                         </Txt>
@@ -184,7 +181,7 @@ export default function MutedItemsScreen() {
 
                       {/* Info */}
                       <View style={{ flex: 1, gap: 2 }}>
-                        <Txt variant="title" style={{ fontSize: 16, fontWeight: '700' }}>
+                        <Txt variant="body" style={{ fontWeight: '500' }}>
                           {item.display_name || item.username}
                         </Txt>
                         <Txt variant="caption" color="muted">
@@ -194,7 +191,8 @@ export default function MutedItemsScreen() {
                     </View>
 
                     <Button
-                      label={isBusy ? '...' : 'Unmute'}
+                      label="Unmute"
+                      loading={isBusy}
                       variant="outline"
                       size="sm"
                       disabled={isBusy}
@@ -207,8 +205,8 @@ export default function MutedItemsScreen() {
           )
         ) : mutedWorks.length === 0 ? (
           <EmptyState
-            title="No Muted Books"
-            subtitle="Muted books stop appearing in your activity feeds and recommendations."
+            title="No muted books"
+            subtitle="Muted books stop appearing in your activity feeds and recommendations"
           />
         ) : (
           mutedWorks.map((item) => {
@@ -219,7 +217,7 @@ export default function MutedItemsScreen() {
                   <View style={[sheet.row, { gap: space[3], flex: 1 }]}>
                     <Cover coverId={item.cover_id} size="s" />
                     <View style={{ flex: 1, gap: 2 }}>
-                      <Txt variant="title" style={{ fontSize: 15, fontWeight: '700' }} numberOfLines={1}>
+                      <Txt variant="body" style={{ fontWeight: '500' }} numberOfLines={1}>
                         {item.title}
                       </Txt>
                       <Txt variant="caption" color="muted" numberOfLines={1}>
@@ -229,7 +227,8 @@ export default function MutedItemsScreen() {
                   </View>
 
                   <Button
-                    label={isBusy ? '...' : 'Unmute'}
+                    label="Unmute"
+                    loading={isBusy}
                     variant="outline"
                     size="sm"
                     disabled={isBusy}

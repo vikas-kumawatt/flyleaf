@@ -36,16 +36,7 @@ import {
   type ShelfSortOption,
 } from '@/lib/shelfValidation';
 import { track } from '@/lib/events';
-import {
-  Button,
-  Card,
-  Cover,
-  EmptyState,
-  Screen,
-  SegmentedControl,
-  Txt,
-  sheet,
-} from '@/ui/components';
+import { Button, Card, Cover, EmptyState, Screen, SegmentedControl, Txt, sheet, Skeleton } from '@/ui/components';
 import { space, radius, useTheme } from '@/ui/tokens';
 
 /** Saved shelves per page (the API allows up to 100). */
@@ -232,7 +223,7 @@ export default function ShelvesScreen() {
       void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       router.push(`/shelf/${res.shelf.id}` as any);
     } catch (err: any) {
-      Alert.alert('Could Not Create Shelf', err?.message || 'Please try again.');
+      Alert.alert('Shelf not created', err?.message || 'Try again in a moment.');
     } finally {
       setCreatingStarterId(null);
     }
@@ -263,7 +254,7 @@ export default function ShelvesScreen() {
         }}
       >
         <View style={[sheet.row, { justifyContent: 'space-between' }]}>
-          <Txt variant="displayM">Shelves</Txt>
+          <Txt variant="displayL">Shelves</Txt>
           <Button
             label="New shelf"
             variant="secondary"
@@ -324,20 +315,16 @@ export default function ShelvesScreen() {
                     <Txt variant="title">Want to read (on this device)</Txt>
                     <View
                       style={{
-                        backgroundColor: c.accentSoft,
-                        paddingHorizontal: space[2],
                         paddingVertical: 2,
-                        borderRadius: 4,
                       }}
                     >
-                      <Txt variant="micro" color="accent" style={{ fontWeight: '600' }}>
+                      <Txt variant="micro" color="muted" tabular>
                         {guestCount} / {maxCap} saved
                       </Txt>
                     </View>
                   </View>
                   <Txt variant="caption" color="muted" style={{ marginTop: space[1] }}>
-                    Books you save while browsing. Sign up anytime to sync them across devices and
-                    create custom shelves.
+                    Books you save while browsing. Sign up to sync them and make your own shelves.
                   </Txt>
                 </Card>
 
@@ -399,7 +386,7 @@ export default function ShelvesScreen() {
                 ) : (
                   <EmptyState
                     title="Your local shelf is empty"
-                    subtitle="Browse books in Discover or Search and tap 'Want to read' to save up to 20 books on this device."
+                    subtitle="Tap Want to read on any book in Discover to keep up to 20 on this device."
                     action={
                       <Button
                         label="Discover books"
@@ -412,21 +399,28 @@ export default function ShelvesScreen() {
               </View>
             ) : loading && !refreshing && shelves.length === 0 ? (
               // Loading State
-              <View style={styles.centerContainer}>
-                <ActivityIndicator size="large" color={c.accent} />
-                <Txt style={{ color: c.muted, marginTop: space[3] }}>Loading your shelves...</Txt>
+              <View style={styles.gridContainer} accessible accessibilityLabel="Loading your shelves" accessibilityState={{ busy: true }}>
+                {[0, 1, 2, 3].map((k) => (
+                  <View key={k} style={[styles.gridCard, { width: cardWidth, backgroundColor: c.surface, borderColor: c.line }]}>
+                    <Skeleton width="100%" height={112} borderRadius={0} />
+                    <View style={[styles.gridDetails, { gap: space[2] }]}>
+                      <Skeleton width="70%" height={14} />
+                      <Skeleton width="40%" height={12} />
+                    </View>
+                  </View>
+                ))}
               </View>
             ) : shelves.length === 0 ? (
-              // Empty State with 3 Starter Suggestions (PRD §6.33)
+              // Empty State with 3 Start with one of these (PRD §6.33)
               <View style={{ gap: space[4] }}>
                 <View style={[styles.welcomeBanner, { backgroundColor: c.surface, borderColor: c.line }]}>
-                  <Ionicons name="library-outline" size={32} color={c.accent} />
+                  <Ionicons name="library-outline" size={24} color={c.ink2} />
                   <View style={{ flex: 1, marginLeft: space[3] }}>
                     <Txt style={[styles.welcomeTitle, { color: c.ink }]}>
                       Your personal shelves
                     </Txt>
                     <Txt style={{ color: c.muted, fontSize: 13, marginTop: 2 }}>
-                      Curate custom lists, declare your all-time favorites, or organize reading challenges.
+                      Make lists, rank your favourites or plan a reading challenge
                     </Txt>
                   </View>
                 </View>
@@ -434,9 +428,9 @@ export default function ShelvesScreen() {
                 {/* Section title */}
                 <View style={[sheet.row, { justifyContent: 'space-between', alignItems: 'baseline' }]}>
                   <Txt style={[styles.sectionTitle, { color: c.ink }]}>
-                    Starter Suggestions
+                    Start with one of these
                   </Txt>
-                  <Txt style={{ color: c.muted, fontSize: 12 }}>Create in 1 tap</Txt>
+                  <Txt style={{ color: c.muted, fontSize: 12 }}>One tap each</Txt>
                 </View>
 
                 {/* Three Starter Shelf Cards */}
@@ -463,10 +457,10 @@ export default function ShelvesScreen() {
                           <View
                             style={[
                               styles.starterIconBubble,
-                              { backgroundColor: c.accentSoft },
+                              { backgroundColor: c.surface2 },
                             ]}
                           >
-                            <Ionicons name={starter.icon as any} size={20} color={c.accent} />
+                            <Ionicons name={starter.icon as any} size={18} color={c.ink2} />
                           </View>
                           <View style={{ flex: 1, marginLeft: space[3] }}>
                             <View style={[sheet.row, { justifyContent: 'space-between' }]}>
@@ -477,17 +471,15 @@ export default function ShelvesScreen() {
                                 style={[
                                   styles.starterBadge,
                                   {
-                                    backgroundColor: starter.is_ranked
-                                      ? c.accentSoft
-                                      : c.surface2,
+                                    backgroundColor: c.surface2,
                                   },
                                 ]}
                               >
                                 <Txt
                                   style={{
-                                    fontSize: 11,
-                                    fontWeight: '600',
-                                    color: starter.is_ranked ? c.accent : c.muted,
+                                    fontSize: 12,
+                                    fontWeight: '500',
+                                    color: c.ink2,
                                   }}
                                 >
                                   {starter.badge}
@@ -506,10 +498,10 @@ export default function ShelvesScreen() {
                           </Txt>
                           <View style={{ flexDirection: 'row', alignItems: 'center' }}>
                             {isCreating ? (
-                              <ActivityIndicator size="small" color={c.accent} />
+                              <ActivityIndicator size="small" color={c.muted} />
                             ) : (
-                              <Txt style={{ color: c.accent, fontWeight: '700', fontSize: 13 }}>
-                                Tap to create →
+                              <Txt style={{ color: c.accent, fontWeight: '500', fontSize: 13 }}>
+                                Create
                               </Txt>
                             )}
                           </View>
@@ -522,7 +514,7 @@ export default function ShelvesScreen() {
                 {/* Custom creation alternative */}
                 <View style={{ alignItems: 'center', marginTop: space[2] }}>
                   <Button
-                    label="Create custom shelf from scratch"
+                    label="Start a blank shelf"
                     variant="outline"
                     onPress={handleNewList}
                     style={{ width: '100%' }}
@@ -534,7 +526,7 @@ export default function ShelvesScreen() {
               <View style={{ gap: space[3] }}>
                 {/* Controls Bar: Count, Sort, View Mode */}
                 <View style={styles.controlsBar}>
-                  <Txt style={{ color: c.muted, fontSize: 13, fontWeight: '600' }}>
+                  <Txt style={{ color: c.muted, fontSize: 13, fontWeight: '500' }}>
                     {shelves.length} {shelves.length === 1 ? 'shelf' : 'shelves'}
                   </Txt>
 
@@ -548,13 +540,13 @@ export default function ShelvesScreen() {
                         }}
                         style={[
                           styles.sortPill,
-                          sortBy === 'updated' && { backgroundColor: c.surface },
+                          sortBy === 'updated' && { backgroundColor: c.surface, borderColor: c.line },
                         ]}
                       >
                         <Txt
                           style={{
-                            fontSize: 11,
-                            fontWeight: sortBy === 'updated' ? '700' : '500',
+                            fontSize: 12,
+                            fontWeight: '500',
                             color: sortBy === 'updated' ? c.ink : c.muted,
                           }}
                         >
@@ -568,13 +560,13 @@ export default function ShelvesScreen() {
                         }}
                         style={[
                           styles.sortPill,
-                          sortBy === 'alpha' && { backgroundColor: c.surface },
+                          sortBy === 'alpha' && { backgroundColor: c.surface, borderColor: c.line },
                         ]}
                       >
                         <Txt
                           style={{
-                            fontSize: 11,
-                            fontWeight: sortBy === 'alpha' ? '700' : '500',
+                            fontSize: 12,
+                            fontWeight: '500',
                             color: sortBy === 'alpha' ? c.ink : c.muted,
                           }}
                         >
@@ -588,13 +580,13 @@ export default function ShelvesScreen() {
                         }}
                         style={[
                           styles.sortPill,
-                          sortBy === 'books' && { backgroundColor: c.surface },
+                          sortBy === 'books' && { backgroundColor: c.surface, borderColor: c.line },
                         ]}
                       >
                         <Txt
                           style={{
-                            fontSize: 11,
-                            fontWeight: sortBy === 'books' ? '700' : '500',
+                            fontSize: 12,
+                            fontWeight: '500',
                             color: sortBy === 'books' ? c.ink : c.muted,
                           }}
                         >
@@ -675,10 +667,11 @@ export default function ShelvesScreen() {
                                     style={{
                                       marginRight: -space[2],
                                       zIndex: 10 - i,
-                                      shadowColor: '#000',
-                                      shadowOffset: { width: 0, height: 1 },
-                                      shadowOpacity: 0.15,
-                                      shadowRadius: 2,
+                                      // Stacked covers separate with a ground-coloured edge, not a shadow
+                                      borderWidth: 1,
+                                      borderColor: c.ground,
+                                      borderRadius: radius.xs,
+                                      overflow: 'hidden',
                                     }}
                                   >
                                     <Cover coverId={cid} size="s" />
@@ -711,15 +704,15 @@ export default function ShelvesScreen() {
                                   size={11}
                                   color={c.muted}
                                 />
-                                <Txt style={{ color: c.muted, fontSize: 11 }}>
+                                <Txt style={{ color: c.muted, fontSize: 12 }}>
                                   {shelf.item_count} {shelf.item_count === 1 ? 'book' : 'books'}
                                 </Txt>
                               </View>
 
                               {shelf.is_ranked && (
-                                <View style={[styles.rankTag, { backgroundColor: c.accentSoft }]}>
+                                <View style={[styles.rankTag, { backgroundColor: c.surface2 }]}>
                                   <Txt
-                                    style={{ color: c.accent, fontSize: 10, fontWeight: '700' }}
+                                    style={{ color: c.ink2, fontSize: 12, fontWeight: '500' }}
                                   >
                                     #
                                   </Txt>
@@ -781,10 +774,10 @@ export default function ShelvesScreen() {
                                 </Txt>
                                 {shelf.is_ranked && (
                                   <View
-                                    style={[styles.rankPill, { backgroundColor: c.accentSoft }]}
+                                    style={[styles.rankPill, { backgroundColor: c.surface2 }]}
                                   >
                                     <Txt
-                                      style={{ color: c.accent, fontSize: 11, fontWeight: '700' }}
+                                      style={{ color: c.ink2, fontSize: 12, fontWeight: '500' }}
                                     >
                                       Ranked
                                     </Txt>
@@ -813,7 +806,7 @@ export default function ShelvesScreen() {
                                     size={12}
                                     color={c.muted}
                                   />
-                                  <Txt style={{ color: c.muted, fontSize: 11 }}>
+                                  <Txt style={{ color: c.muted, fontSize: 12 }}>
                                     {shelf.privacy === 'public'
                                       ? 'Public'
                                       : shelf.privacy === 'followers'
@@ -821,11 +814,11 @@ export default function ShelvesScreen() {
                                       : 'Private'}
                                   </Txt>
                                 </View>
-                                <Txt style={{ color: c.muted, fontSize: 11 }}>
+                                <Txt style={{ color: c.muted, fontSize: 12 }}>
                                   {shelf.item_count} {shelf.item_count === 1 ? 'book' : 'books'}
                                 </Txt>
                                 {shelf.save_count > 0 && (
-                                  <Txt style={{ color: c.muted, fontSize: 11 }}>
+                                  <Txt style={{ color: c.muted, fontSize: 12 }}>
                                     {shelf.save_count} saves
                                   </Txt>
                                 )}
@@ -866,10 +859,10 @@ export default function ShelvesScreen() {
                 <View
                   style={[
                     styles.starterIconBubble,
-                    { backgroundColor: c.accentSoft, width: 48, height: 48, borderRadius: 24 },
+                    { backgroundColor: c.surface2, width: 48, height: 48, borderRadius: 24 },
                   ]}
                 >
-                  <Ionicons name="bookmark" size={24} color={c.accent} />
+                  <Ionicons name="bookmark-outline" size={24} color={c.ink2} />
                 </View>
                 <Txt variant="title" style={{ textAlign: 'center', fontSize: 17 }}>
                   Save shelves you love
@@ -879,11 +872,10 @@ export default function ShelvesScreen() {
                   color="muted"
                   style={{ textAlign: 'center', lineHeight: 20 }}
                 >
-                  Sign in to bookmark curated reading lists and collections from fellow readers. Saved
-                  shelves stay dynamically in sync as curators update them.
+                  Sign in to save lists other readers make. A saved shelf stays in sync as its curator updates it.
                 </Txt>
                 <Button
-                  label="Sign in / Sign up"
+                  label="Sign in or sign up"
                   variant="primary"
                   onPress={() =>
                     promptAuth({
@@ -896,22 +888,27 @@ export default function ShelvesScreen() {
                 />
               </Card>
             ) : savedLoading && savedShelves.length === 0 ? (
-              <View style={styles.centerContainer}>
-                <ActivityIndicator size="large" color={c.accent} />
-                <Txt style={{ color: c.muted, marginTop: space[3], fontSize: 13 }}>
-                  Loading saved shelves...
-                </Txt>
+              <View style={styles.gridContainer} accessible accessibilityLabel="Loading saved shelves" accessibilityState={{ busy: true }}>
+                {[0, 1, 2, 3].map((k) => (
+                  <View key={k} style={[styles.gridCard, { width: cardWidth, backgroundColor: c.surface, borderColor: c.line }]}>
+                    <Skeleton width="100%" height={112} borderRadius={0} />
+                    <View style={[styles.gridDetails, { gap: space[2] }]}>
+                      <Skeleton width="70%" height={14} />
+                      <Skeleton width="40%" height={12} />
+                    </View>
+                  </View>
+                ))}
               </View>
             ) : savedShelves.length === 0 ? (
               <EmptyState
                 title="No saved shelves yet"
-                subtitle="Discover reading lists curated by fellow readers and tap &quot;Save Shelf&quot; to keep them in your library. They'll stay automatically in sync."
+                subtitle="Tap Save shelf on any list in Curated to keep it here. It stays in sync with its curator."
               />
             ) : (
               <View style={{ gap: space[3] }}>
                 {/* Controls Bar: Count and View Mode */}
                 <View style={styles.controlsBar}>
-                  <Txt style={{ color: c.muted, fontSize: 13, fontWeight: '600' }}>
+                  <Txt style={{ color: c.muted, fontSize: 13, fontWeight: '500' }}>
                     {savedTotal} {savedTotal === 1 ? 'saved shelf' : 'saved shelves'}
                   </Txt>
 
@@ -988,10 +985,11 @@ export default function ShelvesScreen() {
                                     style={{
                                       marginRight: -space[2],
                                       zIndex: 10 - i,
-                                      shadowColor: '#000',
-                                      shadowOffset: { width: 0, height: 1 },
-                                      shadowOpacity: 0.15,
-                                      shadowRadius: 2,
+                                      // Stacked covers separate with a ground-coloured edge, not a shadow
+                                      borderWidth: 1,
+                                      borderColor: c.ground,
+                                      borderRadius: radius.xs,
+                                      overflow: 'hidden',
                                     }}
                                   >
                                     <Cover coverId={cid} size="s" />
@@ -1016,14 +1014,14 @@ export default function ShelvesScreen() {
                               <View
                                 style={[
                                   styles.curatorAvatar,
-                                  { backgroundColor: c.accentSoft },
+                                  { backgroundColor: c.surface2 },
                                 ]}
                               >
                                 <Txt
                                   style={{
-                                    color: c.accent,
-                                    fontSize: 9,
-                                    fontWeight: '700',
+                                    color: c.ink2,
+                                    fontSize: 12,
+                                    fontWeight: '500',
                                   }}
                                 >
                                   {curatorName.charAt(0).toUpperCase()}
@@ -1033,21 +1031,21 @@ export default function ShelvesScreen() {
                                 numberOfLines={1}
                                 style={[styles.curatorText, { color: c.muted }]}
                               >
-                                by <Txt style={{ color: c.ink, fontWeight: '600' }}>{curatorName}</Txt>
+                                by <Txt style={{ color: c.ink, fontWeight: '500' }}>{curatorName}</Txt>
                               </Txt>
                             </View>
 
                             <View style={styles.gridMetaRow}>
-                              <Txt style={{ color: c.muted, fontSize: 11 }}>
+                              <Txt style={{ color: c.muted, fontSize: 12 }}>
                                 {shelf.item_count} {shelf.item_count === 1 ? 'book' : 'books'}
                               </Txt>
                               {shelf.is_ranked && (
-                                <View style={[styles.rankTag, { backgroundColor: c.accentSoft }]}>
+                                <View style={[styles.rankTag, { backgroundColor: c.surface2 }]}>
                                   <Txt
                                     style={{
-                                      color: c.accent,
-                                      fontSize: 10,
-                                      fontWeight: '700',
+                                      color: c.ink2,
+                                      fontSize: 12,
+                                      fontWeight: '500',
                                     }}
                                   >
                                     Ranked
@@ -1111,10 +1109,10 @@ export default function ShelvesScreen() {
                                 </Txt>
                                 {shelf.is_ranked && (
                                   <View
-                                    style={[styles.rankPill, { backgroundColor: c.accentSoft }]}
+                                    style={[styles.rankPill, { backgroundColor: c.surface2 }]}
                                   >
                                     <Txt
-                                      style={{ color: c.accent, fontSize: 11, fontWeight: '700' }}
+                                      style={{ color: c.ink2, fontSize: 12, fontWeight: '500' }}
                                     >
                                       Ranked
                                     </Txt>
@@ -1127,14 +1125,14 @@ export default function ShelvesScreen() {
                                 <View
                                   style={[
                                     styles.curatorAvatar,
-                                    { backgroundColor: c.accentSoft },
+                                    { backgroundColor: c.surface2 },
                                   ]}
                                 >
                                   <Txt
                                     style={{
-                                      color: c.accent,
-                                      fontSize: 9,
-                                      fontWeight: '700',
+                                      color: c.ink2,
+                                      fontSize: 12,
+                                      fontWeight: '500',
                                     }}
                                   >
                                     {curatorName.charAt(0).toUpperCase()}
@@ -1144,7 +1142,7 @@ export default function ShelvesScreen() {
                                   numberOfLines={1}
                                   style={[styles.curatorText, { color: c.muted }]}
                                 >
-                                  by <Txt style={{ color: c.ink, fontWeight: '600' }}>{curatorName}</Txt>
+                                  by <Txt style={{ color: c.ink, fontWeight: '500' }}>{curatorName}</Txt>
                                 </Txt>
                               </View>
 
@@ -1155,10 +1153,10 @@ export default function ShelvesScreen() {
                               ) : null}
 
                               <View style={[sheet.row, { gap: space[3], marginTop: 2 }]}>
-                                <Txt style={{ color: c.muted, fontSize: 11 }}>
+                                <Txt style={{ color: c.muted, fontSize: 12 }}>
                                   {shelf.item_count} {shelf.item_count === 1 ? 'book' : 'books'}
                                 </Txt>
-                                <Txt style={{ color: c.muted, fontSize: 11 }}>
+                                <Txt style={{ color: c.muted, fontSize: 12 }}>
                                   {shelf.save_count} {shelf.save_count === 1 ? 'save' : 'saves'}
                                 </Txt>
                               </View>
@@ -1206,7 +1204,7 @@ export default function ShelvesScreen() {
               <TextInput
                 value={browseQuery}
                 onChangeText={setBrowseQuery}
-                placeholder="Search curated shelves..."
+                placeholder="Search shelves"
                 placeholderTextColor={c.muted}
                 autoCorrect={false}
                 autoCapitalize="none"
@@ -1215,7 +1213,7 @@ export default function ShelvesScreen() {
                 style={{
                   flex: 1,
                   color: c.ink,
-                  fontSize: 14,
+                  fontSize: 13,
                   paddingVertical: 0,
                 }}
               />
@@ -1242,13 +1240,13 @@ export default function ShelvesScreen() {
                   }}
                   style={[
                     styles.sortPill,
-                    browseSort === 'ranked' && { backgroundColor: c.surface },
+                    browseSort === 'ranked' && { backgroundColor: c.surface, borderColor: c.line },
                   ]}
                 >
                   <Txt
                     style={{
-                      fontSize: 11,
-                      fontWeight: browseSort === 'ranked' ? '700' : '500',
+                      fontSize: 12,
+                      fontWeight: browseSort === 'ranked' ? '500' : '500',
                       color: browseSort === 'ranked' ? c.ink : c.muted,
                     }}
                   >
@@ -1262,13 +1260,13 @@ export default function ShelvesScreen() {
                   }}
                   style={[
                     styles.sortPill,
-                    browseSort === 'popular' && { backgroundColor: c.surface },
+                    browseSort === 'popular' && { backgroundColor: c.surface, borderColor: c.line },
                   ]}
                 >
                   <Txt
                     style={{
-                      fontSize: 11,
-                      fontWeight: browseSort === 'popular' ? '700' : '500',
+                      fontSize: 12,
+                      fontWeight: browseSort === 'popular' ? '500' : '500',
                       color: browseSort === 'popular' ? c.ink : c.muted,
                     }}
                   >
@@ -1282,13 +1280,13 @@ export default function ShelvesScreen() {
                   }}
                   style={[
                     styles.sortPill,
-                    browseSort === 'recent' && { backgroundColor: c.surface },
+                    browseSort === 'recent' && { backgroundColor: c.surface, borderColor: c.line },
                   ]}
                 >
                   <Txt
                     style={{
-                      fontSize: 11,
-                      fontWeight: browseSort === 'recent' ? '700' : '500',
+                      fontSize: 12,
+                      fontWeight: browseSort === 'recent' ? '500' : '500',
                       color: browseSort === 'recent' ? c.ink : c.muted,
                     }}
                   >
@@ -1319,11 +1317,16 @@ export default function ShelvesScreen() {
             </View>
 
             {browseLoading && browseShelvesList.length === 0 ? (
-              <View style={styles.centerContainer}>
-                <ActivityIndicator size="large" color={c.accent} />
-                <Txt style={{ color: c.muted, marginTop: space[3], fontSize: 13 }}>
-                  Loading curated shelves...
-                </Txt>
+              <View style={styles.gridContainer} accessible accessibilityLabel="Loading curated shelves" accessibilityState={{ busy: true }}>
+                {[0, 1, 2, 3].map((k) => (
+                  <View key={k} style={[styles.gridCard, { width: cardWidth, backgroundColor: c.surface, borderColor: c.line }]}>
+                    <Skeleton width="100%" height={112} borderRadius={0} />
+                    <View style={[styles.gridDetails, { gap: space[2] }]}>
+                      <Skeleton width="70%" height={14} />
+                      <Skeleton width="40%" height={12} />
+                    </View>
+                  </View>
+                ))}
               </View>
             ) : browseShelvesList.length === 0 ? (
               <EmptyState
@@ -1385,10 +1388,11 @@ export default function ShelvesScreen() {
                                 style={{
                                   marginRight: -space[2],
                                   zIndex: 10 - i,
-                                  shadowColor: '#000',
-                                  shadowOffset: { width: 0, height: 1 },
-                                  shadowOpacity: 0.15,
-                                  shadowRadius: 2,
+                                  // Stacked covers separate with a ground-coloured edge, not a shadow
+                                  borderWidth: 1,
+                                  borderColor: c.ground,
+                                  borderRadius: radius.xs,
+                                  overflow: 'hidden',
                                 }}
                               >
                                 <Cover coverId={cid} size="s" />
@@ -1413,14 +1417,14 @@ export default function ShelvesScreen() {
                           <View
                             style={[
                               styles.curatorAvatar,
-                              { backgroundColor: c.accentSoft },
+                              { backgroundColor: c.surface2 },
                             ]}
                           >
                             <Txt
                               style={{
-                                color: c.accent,
-                                fontSize: 9,
-                                fontWeight: '700',
+                                color: c.ink2,
+                                fontSize: 12,
+                                fontWeight: '500',
                               }}
                             >
                               {curatorName.charAt(0).toUpperCase()}
@@ -1430,28 +1434,28 @@ export default function ShelvesScreen() {
                             numberOfLines={1}
                             style={[styles.curatorText, { color: c.muted }]}
                           >
-                            by <Txt style={{ color: c.ink, fontWeight: '600' }}>{curatorName}</Txt>
+                            by <Txt style={{ color: c.ink, fontWeight: '500' }}>{curatorName}</Txt>
                           </Txt>
                         </View>
 
                         <View style={styles.gridMetaRow}>
-                          <Txt style={{ color: c.muted, fontSize: 11 }}>
+                          <Txt style={{ color: c.muted, fontSize: 12 }}>
                             {shelf.item_count} {shelf.item_count === 1 ? 'book' : 'books'}
                           </Txt>
                           {shelf.is_ranked ? (
-                            <View style={[styles.rankTag, { backgroundColor: c.accentSoft }]}>
+                            <View style={[styles.rankTag, { backgroundColor: c.surface2 }]}>
                               <Txt
                                 style={{
-                                  color: c.accent,
-                                  fontSize: 10,
-                                  fontWeight: '700',
+                                  color: c.ink2,
+                                  fontSize: 12,
+                                  fontWeight: '500',
                                 }}
                               >
                                 Ranked
                               </Txt>
                             </View>
                           ) : shelf.save_count > 0 ? (
-                            <Txt style={{ color: c.muted, fontSize: 10 }}>
+                            <Txt style={{ color: c.muted, fontSize: 12 }}>
                               {shelf.save_count} {shelf.save_count === 1 ? 'save' : 'saves'}
                             </Txt>
                           ) : null}
@@ -1519,10 +1523,10 @@ export default function ShelvesScreen() {
                             </Txt>
                             {shelf.is_ranked && (
                               <View
-                                style={[styles.rankPill, { backgroundColor: c.accentSoft }]}
+                                style={[styles.rankPill, { backgroundColor: c.surface2 }]}
                               >
                                 <Txt
-                                  style={{ color: c.accent, fontSize: 11, fontWeight: '700' }}
+                                  style={{ color: c.ink2, fontSize: 12, fontWeight: '500' }}
                                 >
                                   Ranked
                                 </Txt>
@@ -1535,14 +1539,14 @@ export default function ShelvesScreen() {
                             <View
                               style={[
                                 styles.curatorAvatar,
-                                { backgroundColor: c.accentSoft },
+                                { backgroundColor: c.surface2 },
                               ]}
                             >
                               <Txt
                                 style={{
-                                  color: c.accent,
-                                  fontSize: 9,
-                                  fontWeight: '700',
+                                  color: c.ink2,
+                                  fontSize: 12,
+                                  fontWeight: '500',
                                 }}
                               >
                                 {curatorName.charAt(0).toUpperCase()}
@@ -1552,7 +1556,7 @@ export default function ShelvesScreen() {
                               numberOfLines={1}
                               style={[styles.curatorText, { color: c.muted }]}
                             >
-                              by <Txt style={{ color: c.ink, fontWeight: '600' }}>{curatorName}</Txt>
+                              by <Txt style={{ color: c.ink, fontWeight: '500' }}>{curatorName}</Txt>
                             </Txt>
                           </View>
 
@@ -1563,10 +1567,10 @@ export default function ShelvesScreen() {
                           ) : null}
 
                           <View style={[sheet.row, { gap: space[3], marginTop: 2 }]}>
-                            <Txt style={{ color: c.muted, fontSize: 11 }}>
+                            <Txt style={{ color: c.muted, fontSize: 12 }}>
                               {shelf.item_count} {shelf.item_count === 1 ? 'book' : 'books'}
                             </Txt>
-                            <Txt style={{ color: c.muted, fontSize: 11 }}>
+                            <Txt style={{ color: c.muted, fontSize: 12 }}>
                               {shelf.save_count} {shelf.save_count === 1 ? 'save' : 'saves'}
                             </Txt>
                           </View>
@@ -1585,28 +1589,24 @@ export default function ShelvesScreen() {
 }
 
 const styles = StyleSheet.create({
-  centerContainer: {
-    paddingVertical: space[12],
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
   welcomeBanner: {
     flexDirection: 'row',
     alignItems: 'center',
     padding: space[4],
-    borderRadius: radius.md,
+    borderRadius: radius.lg,
     borderWidth: 1,
   },
   welcomeTitle: {
-    fontSize: 16,
-    fontWeight: '700',
+    fontSize: 15,
+    fontWeight: '500',
   },
   sectionTitle: {
-    fontSize: 15,
-    fontWeight: '700',
+    fontSize: 17,
+    lineHeight: 24,
+    fontWeight: '500',
   },
   starterCard: {
-    borderRadius: radius.md,
+    borderRadius: radius.lg,
     borderWidth: 1,
     padding: space[4],
     gap: space[3],
@@ -1616,20 +1616,20 @@ const styles = StyleSheet.create({
     alignItems: 'flex-start',
   },
   starterIconBubble: {
-    width: 38,
-    height: 38,
-    borderRadius: 19,
+    width: 40,
+    height: 40,
+    borderRadius: 20,
     alignItems: 'center',
     justifyContent: 'center',
   },
   starterName: {
     fontSize: 15,
-    fontWeight: '700',
+    fontWeight: '500',
   },
   starterBadge: {
     paddingHorizontal: space[2],
     paddingVertical: 2,
-    borderRadius: radius.pill,
+    borderRadius: radius.xs,
   },
   starterCardFooter: {
     flexDirection: 'row',
@@ -1644,18 +1644,21 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     paddingVertical: space[1],
   },
+  // Segmented: surface2 track, surface thumb with a hairline
   sortPillGroup: {
     flexDirection: 'row',
-    borderRadius: radius.pill,
+    borderRadius: radius.md,
     padding: 2,
   },
   sortPill: {
-    paddingHorizontal: space[2],
-    paddingVertical: 3,
-    borderRadius: radius.pill,
+    paddingHorizontal: space[3],
+    paddingVertical: space[1],
+    borderRadius: radius.sm,
+    borderWidth: 1,
+    borderColor: 'transparent',
   },
   viewModeButton: {
-    padding: 5,
+    padding: 4,
     borderRadius: radius.sm,
     borderWidth: 1,
   },
@@ -1665,12 +1668,12 @@ const styles = StyleSheet.create({
     gap: space[3],
   },
   gridCard: {
-    borderRadius: radius.md,
+    borderRadius: radius.lg,
     borderWidth: 1,
     overflow: 'hidden',
   },
   gridMosaicContainer: {
-    height: 110,
+    height: 112,
     alignItems: 'center',
     justifyContent: 'center',
     borderBottomWidth: 1,
@@ -1704,8 +1707,8 @@ const styles = StyleSheet.create({
     gap: space[1],
   },
   gridTitle: {
-    fontSize: 14,
-    fontWeight: '700',
+    fontSize: 13,
+    fontWeight: '500',
     lineHeight: 18,
   },
   gridMetaRow: {
@@ -1715,12 +1718,12 @@ const styles = StyleSheet.create({
     marginTop: space[1],
   },
   rankTag: {
-    paddingHorizontal: 5,
-    paddingVertical: 1,
-    borderRadius: radius.sm,
+    paddingHorizontal: 4,
+    paddingVertical: 2,
+    borderRadius: radius.xs,
   },
   listMosaic: {
-    width: 54,
+    width: 56,
     height: 80,
     borderRadius: radius.sm,
     borderWidth: 1,
@@ -1743,14 +1746,14 @@ const styles = StyleSheet.create({
   },
   listTitle: {
     fontSize: 15,
-    fontWeight: '700',
+    fontWeight: '500',
     flex: 1,
     marginRight: space[2],
   },
   rankPill: {
-    paddingHorizontal: 6,
-    paddingVertical: 1,
-    borderRadius: radius.pill,
+    paddingHorizontal: space[2],
+    paddingVertical: 2,
+    borderRadius: radius.xs,
   },
   curatorRow: {
     flexDirection: 'row',
@@ -1766,7 +1769,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   curatorText: {
-    fontSize: 11,
+    fontSize: 12,
     flex: 1,
   },
 });

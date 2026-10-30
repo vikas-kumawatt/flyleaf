@@ -7,7 +7,6 @@ import {
   View,
   ScrollView,
   Pressable,
-  ActivityIndicator,
   RefreshControl,
   StyleSheet,
   Alert,
@@ -22,9 +21,9 @@ import {
   EmptyState,
   Screen,
   Txt,
-  sheet,
-} from '@/ui/components';
+  sheet, SkeletonList} from '@/ui/components';
 import { radius, space, useTheme } from '@/ui/tokens';
+import { Ionicons } from '@expo/vector-icons';
 
 export default function BlockedUsersScreen() {
   const c = useTheme();
@@ -61,7 +60,7 @@ export default function BlockedUsersScreen() {
 
   const handleUnblock = async (blockedUserId: string, username: string) => {
     Alert.alert(
-      'Unblock User',
+      'Unblock account',
       `Are you sure you want to unblock @${username}? They will be able to see your public content and request to follow you again.`,
       [
         { text: 'Cancel', style: 'cancel' },
@@ -110,13 +109,11 @@ export default function BlockedUsersScreen() {
             hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
             style={{ minWidth: 44, minHeight: 44, justifyContent: 'center' }}
           >
-            <Txt variant="body" color="accent" style={{ fontWeight: '600' }}>
-              ← Back
-            </Txt>
+            <Ionicons name="chevron-back" size={24} color={c.ink} />
           </Pressable>
 
-          <Txt variant="title" style={{ fontWeight: '700', fontSize: 17 }}>
-            Blocked Accounts
+          <Txt variant="title">
+            Blocked accounts
           </Txt>
 
           <View style={{ minWidth: 44 }} />
@@ -134,10 +131,10 @@ export default function BlockedUsersScreen() {
         }
       >
         {loading && blocks.length === 0 ? (
-          <ActivityIndicator size="large" color={c.accent} style={{ marginTop: space[6] }} />
+          <SkeletonList lead="avatar" style={{ paddingHorizontal: 0, paddingTop: 0 }} />
         ) : blocks.length === 0 ? (
           <EmptyState
-            title="No Blocked Accounts"
+            title="No blocked accounts"
             subtitle="Accounts you block will appear here. Blocked users cannot see your profile, content, or activity."
           />
         ) : (
@@ -151,12 +148,12 @@ export default function BlockedUsersScreen() {
                     <View
                       style={[
                         styles.avatar,
-                        { backgroundColor: c.accentSoft, borderColor: c.line },
+                        { backgroundColor: c.surface2, borderColor: c.line },
                       ]}
                     >
                       <Txt
                         variant="title"
-                        style={{ fontSize: 18, fontWeight: '800', color: c.accent }}
+                        style={{ fontSize: 18, fontWeight: '500', color: c.ink2 }}
                       >
                         {(item.display_name || item.username).charAt(0).toUpperCase()}
                       </Txt>
@@ -164,7 +161,7 @@ export default function BlockedUsersScreen() {
 
                     {/* Info */}
                     <View style={{ flex: 1, gap: 2 }}>
-                      <Txt variant="title" style={{ fontSize: 16, fontWeight: '700' }}>
+                      <Txt variant="body" style={{ fontWeight: '500' }}>
                         {item.display_name || item.username}
                       </Txt>
                       <Txt variant="caption" color="muted">
@@ -175,7 +172,8 @@ export default function BlockedUsersScreen() {
 
                   {/* Unblock Action */}
                   <Button
-                    label={isBusy ? '...' : 'Unblock'}
+                    label="Unblock"
+                    loading={isBusy}
                     variant="outline"
                     size="sm"
                     disabled={isBusy}

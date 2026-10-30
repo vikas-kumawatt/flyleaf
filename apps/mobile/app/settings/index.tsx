@@ -75,8 +75,8 @@ export default function SettingsScreen() {
           <View style={{ gap: space[2] }}>
             <SectionTitle>App</SectionTitle>
             <Group>
-              <NavRow label="Appearance" detail="Theme and text size." onPress={() => router.push('/settings/appearance' as any)} />
-              <NavRow label="About & legal" detail="Terms, privacy policy, licences and data sources." onPress={() => router.push('/settings/about' as any)} />
+              <NavRow label="Appearance" detail="Theme and text size" onPress={() => router.push('/settings/appearance' as any)} />
+              <NavRow label="About & legal" detail="Terms, privacy policy, licences and data sources" onPress={() => router.push('/settings/about' as any)} />
             </Group>
           </View>
         )}

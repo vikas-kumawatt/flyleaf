@@ -20,10 +20,11 @@ function Bar({ fill, reduce }: { fill: number; reduce: boolean }) {
     Animated.timing(width, { toValue: fill, duration: motion.statsReveal, useNativeDriver: false }).start();
   }, [fill, reduce, width]);
   return (
-    <View style={{ flex: 1, height: 10, borderRadius: radius.pill, backgroundColor: c.surface2, overflow: 'hidden' }}>
+    <View style={{ flex: 1, height: 6, borderRadius: radius.xs, backgroundColor: c.surface2, overflow: 'hidden' }}>
       <Animated.View
         style={{
-          height: '100%', borderRadius: radius.pill, backgroundColor: c.accent,
+          // One accent per chart: the leading bar; the rest sit in neutral.
+          height: '100%', borderRadius: radius.xs, backgroundColor: fill >= 100 ? c.accent : c.muted,
           width: width.interpolate({ inputRange: [0, 100], outputRange: ['0%', '100%'] }),
         }}
       />
@@ -43,8 +44,8 @@ export function StatCard({ card, onShare, onOpenBook }: { card: StatCardView; on
   return (
     <Card style={{ padding: space[4], gap: space[2] }}>
       <View style={sheet.rowBetween}>
-        <Txt variant="caption" color="muted" style={{ fontWeight: '700', letterSpacing: 0.5 }}>
-          {card.title.toUpperCase()}
+        <Txt variant="micro" color="muted">
+          {card.title}
         </Txt>
         {onShare && (
           <Pressable
@@ -54,7 +55,7 @@ export function StatCard({ card, onShare, onOpenBook }: { card: StatCardView; on
             hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
             style={{ minWidth: 44, minHeight: 44, alignItems: 'flex-end', justifyContent: 'center' }}
           >
-            <Txt variant="caption" color="accent" style={{ fontWeight: '700' }}>
+            <Txt variant="caption" color="accent" style={{ fontWeight: '500' }}>
               Share
             </Txt>
           </Pressable>
@@ -73,8 +74,8 @@ export function StatCard({ card, onShare, onOpenBook }: { card: StatCardView; on
             <Cover coverId={card.book.cover_id} title={card.book.title} size="m" />
           </Pressable>
         )}
-        <View style={{ flex: 1, gap: 2 }}>
-          <Txt variant="displayL" tabular style={{ fontSize: 44, lineHeight: 52 }}>
+        <View style={{ flex: 1, gap: space[1] }}>
+          <Txt variant="title" tabular style={{ fontSize: 32, lineHeight: 36 }}>
             {card.hero}
           </Txt>
           {card.caption && <Txt variant="bodyL">{card.caption}</Txt>}

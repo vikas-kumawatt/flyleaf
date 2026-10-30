@@ -61,12 +61,12 @@ export default function ContentSettingsScreen() {
       <ScrollView contentContainerStyle={{ padding: space[4], gap: space[3] }}>
         {!user?.explicitSettingAvailable ? (
           // Under 18, or no confirmed date of birth: the control does not exist (§7.8).
-          <EmptyState title="No content settings" subtitle="There is nothing to change here for your account." />
+          <EmptyState title="No content settings" subtitle="There is nothing to change here for your account" />
         ) : (
           <Card style={{ padding: space[4], gap: space[3] }}>
             <View style={[sheet.rowBetween, { gap: space[3] }]}>
               <View style={{ flex: 1, gap: 2 }}>
-                <Txt variant="title" style={{ fontSize: 15, fontWeight: '700' }}>
+                <Txt variant="body" style={{ fontWeight: '500' }}>
                   Show explicit titles in search
                 </Txt>
                 <Txt variant="caption" color="muted">

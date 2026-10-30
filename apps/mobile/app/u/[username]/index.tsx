@@ -5,14 +5,16 @@
 // as a name nobody has.
 
 import React, { useEffect, useState } from 'react';
-import { View, ActivityIndicator, StyleSheet } from 'react-native';
+import { View, StyleSheet } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { api } from '@/lib/api';
-import { Screen, Txt, Button } from '@/ui/components';
+import { Screen, Txt, Button, SkeletonHeader, SkeletonList } from '@/ui/components';
 import { useTheme, space, radius } from '@/ui/tokens';
 
 export default function UsernameLinkScreen() {
   const c = useTheme();
+  const insets = useSafeAreaInsets();
   const router = useRouter();
   const { username } = useLocalSearchParams<{ username: string }>();
   const [error, setError] = useState<string | null>(null);
@@ -29,7 +31,7 @@ export default function UsernameLinkScreen() {
         if (active) router.replace(`/user/${profile.id}` as any);
       })
       .catch(() => {
-        if (active) setError('This account could not be found.');
+        if (active) setError('This account could not be found');
       });
     return () => {
       active = false;
@@ -38,8 +40,10 @@ export default function UsernameLinkScreen() {
 
   if (!error) {
     return (
-      <Screen style={[styles.center, { backgroundColor: c.ground }]}>
-        <ActivityIndicator size="large" color={c.accent} />
+      <Screen style={{ backgroundColor: c.ground, paddingTop: insets.top + space[3] }}>
+        {/* Opening profile: the shape of the screen, not a spinner (design.md §5) */}
+        <SkeletonHeader lead="avatar" />
+        <SkeletonList rows={4} lead="cover" />
       </Screen>
     );
   }

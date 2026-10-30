@@ -32,7 +32,7 @@ import type { LocalRead } from '@/offline/schema';
 import { budgetTracker } from '@/lib/budgetTracker';
 import { buildReviewPayload, canReview } from '@/lib/reviewPayload';
 import { Button, Card, Cover, Heart, Screen, SegmentedControl, Stars, Txt, sheet } from '@/ui/components';
-import { radius, space, useTheme } from '@/ui/tokens';
+import { fontFamilies, radius, space, type, useTheme } from '@/ui/tokens';
 
 export default function ReviewComposerScreen() {
   const c = useTheme();
@@ -319,8 +319,8 @@ export default function ReviewComposerScreen() {
           </Pressable>
 
           <View style={{ alignItems: 'center' }}>
-            <Txt variant="body" style={{ fontWeight: '600' }}>
-              {editing ? 'Edit Review' : 'Write Review'}
+            <Txt variant="body" style={{ fontWeight: '500' }}>
+              {editing ? 'Edit review' : 'Write a review'}
             </Txt>
             {draftSavedToast && (
               <Txt variant="micro" color="accent">
@@ -354,8 +354,8 @@ export default function ReviewComposerScreen() {
               author={displayAuthor}
               size="s"
             />
-            <View style={{ flex: 1, gap: 2 }}>
-              <Txt variant="title" numberOfLines={2}>
+            <View style={{ flex: 1, gap: space[1] }}>
+              <Txt variant="title" style={{ fontFamily: fontFamilies.displayMedium }} numberOfLines={2}>
                 {displayTitle}
               </Txt>
               {displayAuthor ? (
@@ -374,8 +374,8 @@ export default function ReviewComposerScreen() {
 
           {/* 2. Rating & Heart Row (SL-60, SL-61) */}
           <Card style={{ gap: space[2] }}>
-            <Txt variant="caption" color="muted" style={{ fontWeight: '600' }}>
-              RATING & AFFECTION
+            <Txt variant="micro" color="muted">
+              Rating and heart
             </Txt>
             <View style={[sheet.row, { justifyContent: 'space-between' }]}>
               <Stars
@@ -384,7 +384,7 @@ export default function ReviewComposerScreen() {
                   setRating(val);
                   setRatingTouched(true);
                 }}
-                size={34}
+                size={32}
               />
               <Heart
                 hearted={hearted}
@@ -400,8 +400,8 @@ export default function ReviewComposerScreen() {
           {/* 3. Review Body Input with character counter */}
           <Card style={{ gap: space[2] }}>
             <View style={[sheet.row, { justifyContent: 'space-between' }]}>
-              <Txt variant="caption" color="muted" style={{ fontWeight: '600' }}>
-                YOUR REVIEW
+              <Txt variant="micro" color="muted">
+                Your review
               </Txt>
               <Txt
                 variant="micro"
@@ -415,16 +415,14 @@ export default function ReviewComposerScreen() {
             <TextInput
               value={body}
               onChangeText={setBody}
-              placeholder="Write your thoughts... What resonated? What lingered?"
+              placeholder="What stayed with you?"
               placeholderTextColor={c.muted}
               multiline
               textAlignVertical="top"
               style={{
                 minHeight: 180,
-                fontSize: 16,
-                lineHeight: 24,
+                ...type.bodyL,
                 color: c.ink,
-                fontFamily: Platform.OS === 'ios' ? 'System' : 'normal',
               }}
               accessibilityLabel="Review text body"
             />
@@ -433,12 +431,12 @@ export default function ReviewComposerScreen() {
           {/* 4. Spoiler Gate (PRD §6.27, §10.6) */}
           <Card style={{ gap: space[3] }}>
             <View style={[sheet.row, { justifyContent: 'space-between' }]}>
-              <View style={{ flex: 1, gap: 2 }}>
-                <Txt variant="body" style={{ fontWeight: '600' }}>
+              <View style={{ flex: 1, gap: space[1] }}>
+                <Txt variant="body" style={{ fontWeight: '500' }}>
                   Contains spoilers
                 </Txt>
                 <Txt variant="caption" color="muted">
-                  Hides review text behind a tap-to-reveal gate for readers.
+                  Readers tap to reveal the text
                 </Txt>
               </View>
               <Switch
@@ -463,7 +461,7 @@ export default function ReviewComposerScreen() {
                 }}
               >
                 <Txt variant="caption" color="muted">
-                  Spoilers start after page (optional):
+                  Spoilers start after page
                 </Txt>
                 <TextInput
                   value={spoilerAfterPage}
@@ -478,7 +476,7 @@ export default function ReviewComposerScreen() {
                     paddingHorizontal: space[3],
                     paddingVertical: space[1],
                     color: c.ink,
-                    width: 90,
+                    width: 88,
                     textAlign: 'center',
                     backgroundColor: c.surface2,
                   }}
@@ -489,8 +487,8 @@ export default function ReviewComposerScreen() {
 
           {/* 5. Visibility Selector (PRD §10.5) */}
           <Card style={{ gap: space[3] }}>
-            <Txt variant="caption" color="muted" style={{ fontWeight: '600' }}>
-              VISIBILITY
+            <Txt variant="micro" color="muted">
+              Visibility
             </Txt>
             <SegmentedControl
               values={['public', 'followers', 'private'] as const}
@@ -504,10 +502,10 @@ export default function ReviewComposerScreen() {
             />
             <Txt variant="micro" color="muted">
               {visibility === 'public'
-                ? 'Visible to anyone on book pages and reader feeds.'
+                ? 'Anyone can see it on the book page and in feeds'
                 : visibility === 'followers'
-                ? 'Visible only to accounts that follow you.'
-                : 'Private to you. Never shown on feeds or public book pages.'}
+                ? 'Only people who follow you can see it'
+                : 'Only you can see it, never in feeds or on book pages'}
             </Txt>
           </Card>
         </ScrollView>

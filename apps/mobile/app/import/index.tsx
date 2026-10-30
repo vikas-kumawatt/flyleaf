@@ -11,7 +11,6 @@ import {
   ScrollView,
   Pressable,
   TextInput,
-  ActivityIndicator,
   StyleSheet,
   Alert,
   Platform,
@@ -36,8 +35,7 @@ import {
   Screen,
   SegmentedControl,
   Txt,
-  sheet,
-} from '@/ui/components';
+  sheet, SkeletonSettings} from '@/ui/components';
 import { ImportProgressBanner } from '@/ui/ImportProgressBanner';
 import { isExportDownloadable } from '@/lib/exportDownload';
 import { space, radius, useTheme } from '@/ui/tokens';
@@ -50,6 +48,9 @@ const PLATFORMS: { id: ImportSource; name: string; desc: string; icon: string }[
   { id: 'openlibrary', name: 'OpenLibrary', desc: 'openlibrary reading log', icon: 'globe-outline' },
   { id: 'openreads', name: 'OpenReads', desc: 'openreads export (.csv)', icon: 'bookmark-outline' },
 ];
+
+const sourceName = (id: string) => PLATFORMS.find((p) => p.id === id)?.name ?? id;
+const sentence = (v: string) => (v ? v.charAt(0).toUpperCase() + v.slice(1).replace(/_/g, ' ') : v);
 
 export default function ImportScreen() {
   const c = useTheme();
@@ -130,7 +131,7 @@ export default function ImportScreen() {
 
     const trimmed = csvText.trim();
     if (!trimmed) {
-      Alert.alert('Empty Content', 'Please paste your CSV export text before importing.');
+      Alert.alert('Nothing to import', 'Paste your CSV export text before importing.');
       return;
     }
 
@@ -151,18 +152,18 @@ export default function ImportScreen() {
       const refused = uploadId;
       if (err.code === 'duplicate_import' && refused) {
         Alert.alert(
-          'Duplicate File',
-          'An identical file has already been imported into your library. Would you like to import it anyway?',
+          'Already imported',
+          'This exact file is already in your library. Import it again?',
           [
             { text: 'Cancel', style: 'cancel' },
             {
-              text: 'Import Anyway',
+              text: 'Import anyway',
               onPress: async () => {
                 try {
                   setUploading(true);
                   await startImport(refused, true);
                 } catch (retryErr: any) {
-                  Alert.alert('Import Failed', retryErr.message || 'Could not start the import.');
+                  Alert.alert('Import failed', retryErr.message || 'Could not start the import.');
                 } finally {
                   setUploading(false);
                 }
@@ -175,7 +176,7 @@ export default function ImportScreen() {
         // queued (PV-03). The pasted text stays in the box.
         Alert.alert('You are offline', 'Importing needs an internet connection. Your text is still here; try again when you are back online.');
       } else {
-        Alert.alert('Import Failed', err.message || 'Could not upload import file.');
+        Alert.alert('Import failed', err.message || 'Could not upload import file.');
       }
     } finally {
       setUploading(false);
@@ -197,13 +198,13 @@ export default function ImportScreen() {
 
       void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       Alert.alert(
-        'Export Requested',
+        'Export requested',
         `Your ${exportFormat.toUpperCase()} export is being generated. A secure download link will be emailed to your account address once ready.`,
       );
       void loadImports();
     } catch (err: any) {
       void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
-      Alert.alert('Export Failed', err.message || 'Could not request data export.');
+      Alert.alert('Export failed', err.message || 'Could not request data export.');
     } finally {
       setRequestingExport(false);
     }
@@ -245,9 +246,7 @@ export default function ImportScreen() {
             <Ionicons name="arrow-back" size={24} color={c.ink} />
           </Pressable>
 
-          <Txt variant="title" style={{ fontWeight: '700', fontSize: 17 }}>
-            Import Library
-          </Txt>
+          <Txt variant="title">Import library</Txt>
 
           <View style={{ minWidth: 44 }} />
         </View>
@@ -257,8 +256,8 @@ export default function ImportScreen() {
         {/* Active Import Live Progress Banner */}
         {activeImportId && (
           <View>
-            <Txt variant="caption" color="muted" style={{ fontWeight: '700', letterSpacing: 0.5, marginBottom: space[1] }}>
-              ACTIVE IMPORT
+            <Txt variant="micro" color="muted" style={{ marginBottom: space[2] }}>
+              Active import
             </Txt>
             <ImportProgressBanner
               importId={activeImportId}
@@ -272,8 +271,8 @@ export default function ImportScreen() {
 
         {/* 1. SOURCE PLATFORM SELECTOR */}
         <View style={{ gap: space[2] }}>
-          <Txt variant="caption" color="muted" style={{ fontWeight: '700', letterSpacing: 0.5 }}>
-            1. SELECT SOURCE PLATFORM
+          <Txt variant="micro" color="muted">
+            Import from
           </Txt>
 
           <View style={styles.platformGrid}>
@@ -289,23 +288,20 @@ export default function ImportScreen() {
                   style={[
                     styles.platformCard,
                     {
-                      backgroundColor: isSelected ? c.surface : 'transparent',
+                      backgroundColor: isSelected ? c.accentSoft : c.surface,
                       borderColor: isSelected ? c.accent : c.line,
                     },
                   ]}
                 >
                   <Ionicons
                     name={p.icon as any}
-                    size={22}
+                    size={18}
                     color={isSelected ? c.accent : c.muted}
                   />
                   <Txt
                     variant="body"
-                    style={{
-                      fontWeight: isSelected ? '700' : '500',
-                      fontSize: 13,
-                      color: isSelected ? c.accent : c.ink,
-                    }}
+                    numberOfLines={1}
+                    style={{ flex: 1, fontWeight: '500', color: isSelected ? c.accent : c.ink }}
                   >
                     {p.name}
                   </Txt>
@@ -318,11 +314,11 @@ export default function ImportScreen() {
         {/* 2. CSV PAYLOAD INPUT */}
         <View style={{ gap: space[2] }}>
           <View style={sheet.rowBetween}>
-            <Txt variant="caption" color="muted" style={{ fontWeight: '700', letterSpacing: 0.5 }}>
-              2. EXPORT FILE
+            <Txt variant="micro" color="muted">
+              Export file
             </Txt>
-            <Txt variant="caption" color="muted" style={{ fontSize: 11 }}>
-              {csvText.length > 0 ? `${csvText.length.toLocaleString()} chars` : 'CSV / UTF-8'}
+            <Txt variant="micro" color="muted" tabular>
+              {csvText.length > 0 ? `${csvText.length.toLocaleString()} characters` : 'CSV, UTF-8'}
             </Txt>
           </View>
 
@@ -345,13 +341,13 @@ export default function ImportScreen() {
           <TextInput
             value={csvText}
             onChangeText={setCsvText}
-            placeholder={`Paste your ${selectedSource} CSV contents here...\nExample:\nTitle,Author,My Rating,Exclusive Shelf\nDune,Frank Herbert,5,read`}
+            placeholder={`Paste your ${selectedSource} CSV here\nExample:\nTitle,Author,My Rating,Exclusive Shelf\nDune,Frank Herbert,5,read`}
             placeholderTextColor={c.muted}
             multiline
             numberOfLines={6}
             style={[
               styles.csvInput,
-              { backgroundColor: c.surface, borderColor: c.line, color: c.ink },
+              { backgroundColor: c.surface2, borderColor: c.line, color: c.ink },
             ]}
           />
 
@@ -359,9 +355,9 @@ export default function ImportScreen() {
             label={
               uploading
                 ? uploadProgress !== null
-                  ? `Uploading ${uploadProgress}%...`
-                  : 'Uploading & Enqueueing...'
-                : 'Start Library Import'
+                  ? `Uploading ${uploadProgress}%…`
+                  : 'Uploading…'
+                : 'Start import'
             }
             variant="primary"
             loading={uploading}
@@ -371,17 +367,17 @@ export default function ImportScreen() {
         </View>
 
         {/* 3. PREVIOUS IMPORTS HISTORY */}
-        <View style={{ gap: space[2], marginTop: space[3] }}>
-          <Txt variant="caption" color="muted" style={{ fontWeight: '700', letterSpacing: 0.5 }}>
-            IMPORT HISTORY
+        <View style={{ gap: space[2], marginTop: space[4] }}>
+          <Txt variant="micro" color="muted">
+            Import history
           </Txt>
 
           {loadingPast ? (
-            <ActivityIndicator size="small" color={c.accent} style={{ padding: space[4] }} />
+            <SkeletonSettings rows={3} />
           ) : pastImports.length === 0 ? (
             <Card style={{ padding: space[4], alignItems: 'center' }}>
               <Txt variant="caption" color="muted">
-                No previous imports found.
+                No imports yet
               </Txt>
             </Card>
           ) : (
@@ -393,56 +389,27 @@ export default function ImportScreen() {
               });
 
               return (
-                <Card key={imp.id} style={{ padding: space[3], gap: space[2] }}>
+                <Card key={imp.id} style={{ padding: space[4], gap: space[3] }}>
                   <View style={sheet.rowBetween}>
-                    <View style={{ gap: 2 }}>
-                      <Txt variant="body" style={{ fontWeight: '700', fontSize: 14 }}>
-                        {imp.source.toUpperCase()}
+                    <View style={{ flex: 1, gap: 2 }}>
+                      <Txt variant="body" style={{ fontWeight: '500' }}>
+                        {sourceName(imp.source)}
                       </Txt>
                       <Txt variant="caption" color="muted">
                         {dateStr} · {imp.filename || 'export.csv'}
                       </Txt>
                     </View>
 
-                    <View
-                      style={[
-                        styles.statusBadge,
-                        {
-                          backgroundColor:
-                            imp.state === 'completed'
-                              ? c.surface
-                              : imp.state === 'failed'
-                              ? '#ffebee'
-                              : c.surface,
-                          borderColor:
-                            imp.state === 'completed'
-                              ? c.accent
-                              : imp.state === 'failed'
-                              ? '#d32f2f'
-                              : c.line,
-                        },
-                      ]}
+                    <Txt
+                      variant="micro"
+                      color={imp.state === 'completed' ? 'ink2' : imp.state === 'failed' ? 'critical' : 'muted'}
                     >
-                      <Txt
-                        variant="caption"
-                        style={{
-                          fontWeight: '700',
-                          fontSize: 11,
-                          color:
-                            imp.state === 'completed'
-                              ? c.accent
-                              : imp.state === 'failed'
-                              ? '#d32f2f'
-                              : c.ink,
-                        }}
-                      >
-                        {imp.state.toUpperCase()}
-                      </Txt>
-                    </View>
+                      {sentence(imp.state)}
+                    </Txt>
                   </View>
 
                   <View style={sheet.rowBetween}>
-                    <Txt variant="caption" color="muted">
+                    <Txt variant="caption" color="muted" tabular>
                       {imp.matched} matched · {imp.unmatched} unmatched · {imp.total_rows} total
                     </Txt>
 
@@ -457,8 +424,8 @@ export default function ImportScreen() {
                         }}
                         hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
                       >
-                        <Txt variant="caption" color="accent" style={{ fontWeight: '700' }}>
-                          Review ({imp.unmatched}) →
+                        <Txt variant="caption" color="accent" style={{ fontWeight: '500' }}>
+                          Review unmatched
                         </Txt>
                       </Pressable>
                     )}
@@ -470,27 +437,27 @@ export default function ImportScreen() {
         </View>
 
         {/* 4. EXPORT LIBRARY DATA (IM-10) */}
-        <View style={{ gap: space[3], marginTop: space[3], paddingTop: space[3], borderTopWidth: 1, borderTopColor: c.line }}>
-          <View style={{ gap: 2 }}>
-            <Txt variant="caption" color="muted" style={{ fontWeight: '700', letterSpacing: 0.5 }}>
-              EXPORT LIBRARY DATA
+        <View style={{ gap: space[3], marginTop: space[4], paddingTop: space[6], borderTopWidth: 1, borderTopColor: c.line }}>
+          <View style={{ gap: space[1] }}>
+            <Txt variant="micro" color="muted">
+              Export your library
             </Txt>
             <Txt variant="caption" color="muted">
-              Download your complete reading history, reviews, and shelves.
+              Your reading history, reviews and shelves, as one file
             </Txt>
           </View>
 
           <SegmentedControl
             options={[
-              { value: 'csv', label: 'CSV (Spreadsheet)' },
-              { value: 'json', label: 'JSON (Full Archive)' },
+              { value: 'csv', label: 'CSV spreadsheet' },
+              { value: 'json', label: 'JSON archive' },
             ]}
             value={exportFormat}
             onChange={(val) => setExportFormat(val as ExportFormat)}
           />
 
           <Button
-            label={requestingExport ? 'Requesting Export...' : `Request ${exportFormat.toUpperCase()} Export`}
+            label={requestingExport ? 'Requesting export…' : `Request ${exportFormat.toUpperCase()} export`}
             variant="secondary"
             loading={requestingExport}
             disabled={requestingExport}
@@ -500,8 +467,8 @@ export default function ImportScreen() {
           {/* Past Exports List */}
           {pastExports.length > 0 && (
             <View style={{ gap: space[2], marginTop: space[1] }}>
-              <Txt variant="caption" color="muted" style={{ fontWeight: '600', fontSize: 11 }}>
-                PREVIOUS EXPORTS:
+              <Txt variant="micro" color="muted">
+                Previous exports
               </Txt>
 
               {pastExports.map((exp) => {
@@ -512,14 +479,14 @@ export default function ImportScreen() {
                 const sizeKb = exp.file_size_bytes ? `${Math.round(exp.file_size_bytes / 1024)} KB` : null;
 
                 return (
-                  <Card key={exp.id} style={{ padding: space[3] }}>
+                  <Card key={exp.id} style={{ padding: space[4] }}>
                     <View style={sheet.rowBetween}>
-                      <View style={{ gap: 2 }}>
-                        <Txt variant="body" style={{ fontWeight: '700', fontSize: 13 }}>
-                          {exp.format.toUpperCase()} Export
+                      <View style={{ flex: 1, gap: 2 }}>
+                        <Txt variant="body" style={{ fontWeight: '500' }}>
+                          {exp.format.toUpperCase()} export
                         </Txt>
-                        <Txt variant="caption" color="muted" style={{ fontSize: 11 }}>
-                          {dateStr} {sizeKb ? `· ${sizeKb}` : ''} · {exp.state}
+                        <Txt variant="caption" color="muted" tabular>
+                          {[dateStr, sizeKb, sentence(exp.state)].filter(Boolean).join(' · ')}
                         </Txt>
                       </View>
 
@@ -560,12 +527,13 @@ const styles = StyleSheet.create({
   },
   platformCard: {
     width: '48.5%',
+    minHeight: 48,
     flexDirection: 'row',
     alignItems: 'center',
     gap: space[2],
-    padding: space[3],
+    paddingHorizontal: space[3],
     borderRadius: radius.md,
-    borderWidth: 1.5,
+    borderWidth: 1,
   },
   csvInput: {
     height: 140,
@@ -575,11 +543,5 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontFamily: Platform.OS === 'ios' ? 'Courier' : 'monospace',
     textAlignVertical: 'top',
-  },
-  statusBadge: {
-    paddingHorizontal: space[2],
-    paddingVertical: 2,
-    borderRadius: radius.sm,
-    borderWidth: 1,
   },
 });

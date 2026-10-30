@@ -19,7 +19,7 @@ import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 
 import { BottomSheet, Txt, Button, Cover, Skeleton } from './components';
-import { useTheme, space, radius } from './tokens';
+import { useTheme, space, radius, fontFamilies } from './tokens';
 import { api, type ShelfWithWorkState } from '../lib/api';
 import { validateShelfNote, validateShelfName, isAlreadyOnShelf } from '../lib/shelfValidation';
 
@@ -223,8 +223,8 @@ export function AddToShelfSheet({
         {/* Book Preview Header */}
         <View style={styles.bookHeader}>
           <Cover coverId={work.cover_id} title={work.title} size="s" />
-          <View style={{ flex: 1, gap: 2 }}>
-            <Txt variant="title" numberOfLines={2}>
+          <View style={{ flex: 1, gap: space[1] / 2 }}>
+            <Txt variant="title" numberOfLines={2} style={{ fontFamily: fontFamilies.displayMedium }}>
               {work.title}
             </Txt>
             <Txt variant="caption" color="muted" numberOfLines={1}>
@@ -245,7 +245,7 @@ export function AddToShelfSheet({
             style={[styles.createTrigger, { borderColor: c.line, backgroundColor: c.surface2 }]}
           >
             <Ionicons name="add-circle-outline" size={20} color={c.accent} />
-            <Txt variant="body" color="accent" style={{ fontWeight: '600' }}>
+            <Txt variant="body" color="accent" style={{ fontWeight: '500' }}>
               Create new shelf
             </Txt>
           </Pressable>
@@ -267,8 +267,9 @@ export function AddToShelfSheet({
               style={[
                 styles.input,
                 {
+                  fontFamily: fontFamilies.uiRegular,
                   color: c.ink,
-                  backgroundColor: c.surface,
+                  backgroundColor: c.surface2,
                   borderColor: createError ? c.critical : c.line,
                 },
               ]}
@@ -290,7 +291,7 @@ export function AddToShelfSheet({
                 }}
               />
               <Button
-                label="Create & Add"
+                label="Create and add"
                 variant="primary"
                 size="sm"
                 loading={creatingShelf}
@@ -350,30 +351,26 @@ export function AddToShelfSheet({
                       accessibilityLabel={`${shelf.name}, ${isSelected ? 'Selected' : 'Unselected'}`}
                       style={styles.shelfRow}
                     >
-                      <View style={{ flex: 1, gap: 2 }}>
+                      <View style={{ flex: 1, gap: space[1] / 2 }}>
                         <View style={styles.shelfNameRow}>
                           <Txt
                             variant="body"
-                            style={{ fontWeight: isSelected ? '700' : '500' }}
+                            style={{ fontWeight: isSelected ? '500' : '500' }}
                             numberOfLines={1}
                           >
                             {shelf.name}
                           </Txt>
                           {shelf.privacy !== 'public' && (
-                            <View style={[styles.badge, { backgroundColor: c.surface2 }]}>
-                              <Ionicons
-                                name={shelf.privacy === 'private' ? 'lock-closed' : 'people'}
-                                size={11}
-                                color={c.muted}
-                              />
-                            </View>
+                            <Ionicons
+                              name={shelf.privacy === 'private' ? 'lock-closed-outline' : 'people-outline'}
+                              size={14}
+                              color={c.muted}
+                            />
                           )}
                           {shelf.is_ranked && (
-                            <View style={[styles.badge, { backgroundColor: c.accentSoft }]}>
-                              <Txt variant="micro" color="accent" style={{ fontWeight: '600' }}>
-                                Ranked
-                              </Txt>
-                            </View>
+                            <Txt variant="micro" color="muted">
+                              Ranked
+                            </Txt>
                           )}
                         </View>
                         <Txt variant="micro" color="muted">
@@ -419,8 +416,9 @@ export function AddToShelfSheet({
                               style={[
                                 styles.noteInput,
                                 {
+                                  fontFamily: fontFamilies.uiRegular,
                                   color: c.ink,
-                                  backgroundColor: c.surface,
+                                  backgroundColor: c.surface2,
                                   borderColor: noteError ? c.critical : c.line,
                                 },
                               ]}
@@ -438,7 +436,7 @@ export function AddToShelfSheet({
                                 onPress={() => setActiveNoteShelfId(null)}
                               />
                               <Button
-                                label="Save Note"
+                                label="Save note"
                                 variant="primary"
                                 size="sm"
                                 loading={savingNote}
@@ -508,9 +506,9 @@ const styles = StyleSheet.create({
   input: {
     minHeight: 44,
     paddingHorizontal: space[3],
-    borderRadius: radius.sm,
+    borderRadius: radius.md,
     borderWidth: 1,
-    fontSize: 14,
+    fontSize: 15,
   },
   createActions: {
     flexDirection: 'row',
@@ -527,7 +525,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   shelfCard: {
-    borderRadius: radius.md,
+    borderRadius: radius.lg,
     borderWidth: 1,
     overflow: 'hidden',
   },
@@ -542,13 +540,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: space[2],
   },
-  badge: {
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-    borderRadius: radius.pill,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
   noteSection: {
     borderTopWidth: 1,
     padding: space[3],
@@ -562,7 +553,7 @@ const styles = StyleSheet.create({
   noteInput: {
     minHeight: 56,
     padding: space[2],
-    borderRadius: radius.sm,
+    borderRadius: radius.md,
     borderWidth: 1,
     fontSize: 13,
     textAlignVertical: 'top',
@@ -571,6 +562,6 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: space[2],
-    paddingVertical: 2,
+    paddingVertical: space[1] / 2,
   },
 });

@@ -7,7 +7,7 @@ import { Pressable, TextInput, View } from 'react-native';
 import * as Haptics from 'expo-haptics';
 
 import { BottomSheet, Button, Txt } from './components';
-import { radius, space, useTheme } from './tokens';
+import { radius, space, useTheme, fontFamilies } from './tokens';
 import { api, ApiError, type ReportReason, type ReportSubjectType } from '../lib/api';
 import { track } from '../lib/events';
 import { REPORT_DETAIL_MAX, reasonsFor, reportConfirmation, reportErrorMessage, reportTitle } from '../lib/moderation';
@@ -91,12 +91,13 @@ export function ReportSheet({ target, onClose }: { target: ReportTarget | null; 
             accessibilityLabel="Details"
             style={{
               minHeight: 72,
+              fontFamily: fontFamilies.uiRegular,
               borderRadius: radius.md,
               borderWidth: 1,
               borderColor: c.line,
               padding: space[3],
               color: c.ink,
-              backgroundColor: c.surface,
+              backgroundColor: c.surface2,
               textAlignVertical: 'top',
             }}
           />

@@ -4,6 +4,7 @@ import { Pressable, View } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as Haptics from 'expo-haptics';
+import { Ionicons } from '@expo/vector-icons';
 import { Txt, sheet } from './components';
 import { space, useTheme } from './tokens';
 
@@ -14,9 +15,9 @@ export function ScreenHeader({ title, right }: { title: string; right?: React.Re
   return (
     <View
       style={{
-        paddingTop: insets.top + space[2],
+        paddingTop: insets.top + space[1],
         paddingHorizontal: space[4],
-        paddingBottom: space[3],
+        paddingBottom: space[2],
         borderBottomWidth: 1,
         borderBottomColor: c.line,
         backgroundColor: c.ground,
@@ -33,11 +34,9 @@ export function ScreenHeader({ title, right }: { title: string; right?: React.Re
           hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
           style={{ minWidth: 44, minHeight: 44, justifyContent: 'center' }}
         >
-          <Txt variant="body" color="accent" style={{ fontWeight: '600' }}>
-            ← Back
-          </Txt>
+          <Ionicons name="chevron-back" size={24} color={c.ink} />
         </Pressable>
-        <Txt variant="title" style={{ fontWeight: '700', fontSize: 18 }} numberOfLines={1}>
+        <Txt variant="title" numberOfLines={1} style={{ flex: 1, textAlign: 'center' }}>
           {title}
         </Txt>
         <View style={{ minWidth: 44, minHeight: 44, alignItems: 'flex-end', justifyContent: 'center' }}>{right}</View>

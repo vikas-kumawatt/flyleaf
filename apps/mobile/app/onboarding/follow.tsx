@@ -14,7 +14,7 @@
 // Analytics: follow_suggestions_shown{count}, user_followed{source:onboarding}.
 
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as Haptics from 'expo-haptics';
@@ -24,7 +24,7 @@ import { track } from '@/lib/events';
 import { suggestionReason, toFollowAll } from '@/lib/followSuggestions';
 import { useSession } from '@/lib/session';
 import { useOfflineSync } from '@/offline/sync';
-import { Button, Card, Cover, EmptyState, Screen, Txt, sheet } from '@/ui/components';
+import { Button, Card, Cover, EmptyState, Screen, Txt, sheet, SkeletonList } from '@/ui/components';
 import { space, useTheme } from '@/ui/tokens';
 
 export default function FollowSuggestionsScreen() {
@@ -104,9 +104,7 @@ export default function FollowSuggestionsScreen() {
   return (
     <Screen style={{ flex: 1, backgroundColor: c.ground }}>
       <View style={{ paddingTop: insets.top + space[4], paddingHorizontal: space[4], paddingBottom: space[3], gap: space[1] }}>
-        <Txt variant="title" style={{ fontSize: 22, fontWeight: '700' }}>
-          Readers to follow
-        </Txt>
+        <Txt variant="displayL">Readers to follow</Txt>
         <Txt variant="caption" color="muted">
           Their reviews and finishes fill your feed. You can change this any time.
         </Txt>
@@ -114,7 +112,7 @@ export default function FollowSuggestionsScreen() {
 
       <ScrollView contentContainerStyle={{ padding: space[4], paddingBottom: insets.bottom + space[12] * 2, gap: space[3] }}>
         {loading ? (
-          <ActivityIndicator size="large" color={c.accent} style={{ marginTop: space[6] }} />
+          <SkeletonList lead="avatar" style={{ paddingHorizontal: 0, paddingTop: 0 }} />
         ) : failed ? (
           <EmptyState
             title="Could not load suggestions"
@@ -133,14 +131,14 @@ export default function FollowSuggestionsScreen() {
               <Card key={u.id} style={{ padding: space[4], gap: space[3] }}>
                 <View style={[sheet.rowTop, { gap: space[3] }]}>
                   <Pressable onPress={() => router.push(`/user/${u.id}` as any)} accessibilityRole="button" accessibilityLabel={`Open @${u.username}`}>
-                    <View style={[styles.avatar, { backgroundColor: c.accentSoft, borderColor: c.line }]}>
-                      <Txt variant="title" style={{ fontSize: 18, fontWeight: '800', color: c.accent }}>
+                    <View style={[styles.avatar, { backgroundColor: c.surface2, borderColor: c.line }]}>
+                      <Txt variant="title" style={{ fontSize: 18, fontWeight: '500', color: c.ink2 }}>
                         {(u.display_name || u.username).charAt(0).toUpperCase()}
                       </Txt>
                     </View>
                   </Pressable>
-                  <View style={{ flex: 1, gap: 2 }}>
-                    <Txt variant="title" style={{ fontSize: 16, fontWeight: '700' }} numberOfLines={1}>
+                  <View style={{ flex: 1, gap: space[1] }}>
+                    <Txt variant="body" style={{ fontWeight: '500' }} numberOfLines={1}>
                       {u.display_name || u.username}
                     </Txt>
                     <Txt variant="caption" color="muted" numberOfLines={1}>

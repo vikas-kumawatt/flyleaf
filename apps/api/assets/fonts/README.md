@@ -5,8 +5,8 @@ fonts and nothing from the network**, so a card renders the same on every machin
 
 | File | Family | Covers | Licence |
 |---|---|---|---|
-| `Literata-Regular.ttf`, `Literata-SemiBold.ttf` | Literata (opsz 24) | Titles, quotes (design.md §3 display face) | OFL 1.1, `OFL-literata.txt` |
-| `Archivo-Regular.ttf`, `Archivo-SemiBold.ttf` | Archivo (wdth 100) | Labels, numbers (design.md §3 UI face) | OFL 1.1, `OFL-archivo.txt` |
+| `Newsreader-Regular.ttf`, `Newsreader-Medium.ttf` | Newsreader (opsz 36) | Titles, quotes (design.md §3 display face) | OFL 1.1, `OFL-newsreader.txt` |
+| `InstrumentSans-Regular.ttf`, `InstrumentSans-Medium.ttf` | Instrument Sans (wdth 100) | Labels, numbers (design.md §3 UI face) | OFL 1.1, `OFL-instrumentsans.txt` |
 | `NotoSansArabic-*.ttf` | Noto Sans Arabic | Arabic, Persian, Urdu | OFL 1.1, `OFL-notosansarabic.txt` |
 | `NotoSansHebrew-*.ttf` | Noto Sans Hebrew | Hebrew | OFL 1.1, `OFL-notosanshebrew.txt` |
 | `NotoSansDevanagari-Regular.ttf` … `NotoSansGurmukhi-Regular.ttf` | Noto Sans Devanagari, Bengali, Tamil, Telugu, Kannada, Malayalam, Gujarati, Gurmukhi | The main Indian scripts | OFL 1.1, `OFL-notosans<script>.txt` |

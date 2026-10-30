@@ -9,7 +9,7 @@ import { z } from 'zod';
 import type { Db } from '../platform/index.js';
 import { ApiError, requireAdmin, requireModerator, requireViewer } from '../http.js';
 import { auditContext, logAdminAction } from './auth.js';
-import { escapeHtml, sendAdminHtml } from './html.js';
+import { adminPage, escapeHtml, sendAdminHtml } from './html.js';
 import {
   getDedupeQueue,
   previewMerge,
@@ -368,189 +368,68 @@ export function adminDedupeRoutes(db: Db) {
         getRecentMerges(db, { limit: 15 }),
       ]);
 
-      return sendAdminHtml(reply, (nonce) => `<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Flyleaf Admin — Catalog Merges</title>
-  <style>
-    :root {
-      --bg: #0d1117;
-      --card-bg: #161b22;
-      --border: #30363d;
-      --text: #c9d1d9;
-      --text-bright: #f0f6fc;
-      --text-muted: #8b949e;
-      --accent: #58a6ff;
-      --success: #2ea043;
-      --danger: #f85149;
-      --warning: #d29922;
-    }
-    * { box-sizing: border-box; margin: 0; padding: 0; }
-    body {
-      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-      background: var(--bg);
-      color: var(--text);
-      line-height: 1.5;
-      padding: 24px;
-    }
-    header {
-      margin-bottom: 28px;
-      padding-bottom: 16px;
-      border-bottom: 1px solid var(--border);
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-    }
-    h1 { font-size: 22px; color: var(--text-bright); margin-bottom: 4px; }
-    .badge {
-      display: inline-block;
-      padding: 2px 8px;
-      border-radius: 12px;
-      font-size: 12px;
-      font-weight: 500;
-    }
-    .badge-stage3 { background: rgba(88, 166, 255, 0.2); color: var(--accent); }
-    .badge-stage4 { background: rgba(210, 153, 34, 0.2); color: var(--warning); }
-    .badge-success { background: rgba(46, 160, 67, 0.2); color: var(--success); }
-    .badge-muted { background: rgba(139, 148, 158, 0.2); color: var(--text-muted); }
-    
-    section { margin-bottom: 40px; }
-    h2 { font-size: 18px; color: var(--text-bright); margin-bottom: 16px; }
-    
-    .card {
-      background: var(--card-bg);
-      border: 1px solid var(--border);
-      border-radius: 8px;
-      padding: 16px;
-      margin-bottom: 16px;
-    }
-    .grid-2 {
-      display: grid;
-      grid-template-columns: 1fr 1fr;
-      gap: 16px;
-      margin: 12px 0;
-    }
-    .col {
-      background: rgba(255, 255, 255, 0.03);
-      padding: 12px;
-      border-radius: 6px;
-      border: 1px solid rgba(255, 255, 255, 0.05);
-    }
-    .col h3 { font-size: 15px; color: var(--text-bright); margin-bottom: 4px; }
-    .meta { font-size: 13px; color: var(--text-muted); margin-bottom: 4px; }
-    .reason-box {
-      font-size: 13px;
-      background: rgba(0, 0, 0, 0.2);
-      padding: 8px 12px;
-      border-radius: 4px;
-      margin-top: 8px;
-      color: var(--text);
-    }
-    .actions {
-      display: flex;
-      gap: 10px;
-      margin-top: 14px;
-    }
-    button {
-      padding: 6px 14px;
-      border-radius: 6px;
-      border: 1px solid transparent;
-      font-size: 13px;
-      font-weight: 500;
-      cursor: pointer;
-      transition: opacity 0.15s;
-    }
-    button:hover { opacity: 0.85; }
-    .btn-merge { background: var(--success); color: white; }
-    .btn-dismiss { background: transparent; border-color: var(--border); color: var(--text-muted); }
-    .btn-undo { background: var(--danger); color: white; }
-    
-    table {
-      width: 100%;
-      border-collapse: collapse;
-      font-size: 13px;
-    }
-    th, td {
-      text-align: left;
-      padding: 10px 12px;
-      border-bottom: 1px solid var(--border);
-    }
-    th { color: var(--text-muted); font-weight: 500; }
-    tr:hover { background: rgba(255, 255, 255, 0.02); }
-  </style>
-</head>
-<body>
-  <header>
-    <div>
-      <h1>Flyleaf Admin — Catalog Merges</h1>
-      <p class="meta">Review fuzzy duplicate candidates (PRD §40.3 Stage 3/4) &amp; reverse merges within 30 days</p>
-    </div>
-    <div style="display: flex; align-items: center; gap: 14px;">
-      <a href="/admin/reports" style="color: var(--accent); text-decoration: none; font-size: 13px; font-weight: 500;">Reports</a>
-      <a href="/admin/appeals" style="color: var(--accent); text-decoration: none; font-size: 13px; font-weight: 500;">Appeals</a>
-      <a href="/admin/catalog/maturity" style="color: var(--accent); text-decoration: none; font-size: 13px; font-weight: 500;">Maturity</a>
-      <a href="/admin/ingest" style="color: var(--accent); text-decoration: none; font-size: 13px; font-weight: 500;">Ingestion</a>
-      <a href="/admin/audit-log" style="color: var(--accent); text-decoration: none; font-size: 13px; font-weight: 500;">Audit Trail</a>
-      <div style="display: flex; align-items: center; gap: 6px; background: rgba(255, 255, 255, 0.05); border: 1px solid var(--border); padding: 4px 10px; border-radius: 16px; font-size: 12px;">
-        <span>${escapeHtml(admin.email)}</span>
-        <span class="badge ${isAdmin ? 'badge-success' : 'badge-stage4'}" style="font-size: 10px;">${escapeHtml(admin.role.toUpperCase())}</span>
+      return sendAdminHtml(reply, (nonce) =>
+        adminPage({
+          title: 'Merge review',
+          path: '/admin/merges',
+          admin,
+          css: `
+    .pair { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+    .side { display: flex; flex-direction: column; gap: 4px; padding: 16px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); }
+    .side h3 { font-family: Newsreader, Georgia, serif; font-size: 17px; }
+    @media (max-width: 900px) { .pair { grid-template-columns: 1fr; } }`,
+          body: `
+    <div class="page-head">
+      <div>
+        <h1>Merge review</h1>
+        <p class="sub">Fuzzy duplicate candidates from stages 3 and 4, and merges you can still undo within 30 days</p>
       </div>
-      <form method="POST" action="/admin/logout" style="margin: 0;">
-        <button type="submit" class="btn-dismiss" style="padding: 4px 10px; font-size: 12px;">Sign Out</button>
-      </form>
     </div>
-  </header>
 
-  ${!isAdmin ? `<div style="background: rgba(210, 153, 34, 0.15); border: 1px solid var(--warning); color: var(--warning); padding: 12px 16px; border-radius: 8px; margin-bottom: 24px; font-size: 13px;"><strong>Moderator mode:</strong> You have read-only access to review catalog duplicates. Approving merges or undoing previous merges requires an administrator role.</div>` : ''}
+    ${!isAdmin ? `<div class="notice">You can review candidates as a moderator. Approving, dismissing or undoing a merge needs an administrator</div>` : ''}
 
-  <section>
-    <h2>Review Queue</h2>
+    <section class="stack">
+      <h2>Review queue</h2>
     ${
       queueItems.length === 0
-        ? '<div class="card"><p class="meta">Review queue is empty. All duplicate candidates resolved.</p></div>'
+        ? '<div class="card"><p class="meta">The queue is empty. Every candidate has been resolved</p></div>'
         : queueItems
             .map(
               (item) => `
-      <div class="card" id="item-${escapeHtml(item.id)}">
-        <div style="display: flex; justify-content: space-between; align-items: center;">
-          <div>
-            <span class="badge ${item.stage === 3 ? 'badge-stage3' : 'badge-stage4'}">
-              Stage ${escapeHtml(item.stage)} (${escapeHtml(STAGE_LABELS[item.stage] ?? 'Unknown')})
-            </span>
-            <span class="meta" style="margin-left: 8px;">Impact: ${escapeHtml(item.impact)}</span>
-            ${item.confidence != null ? `<span class="meta" style="margin-left: 8px;">Confidence: ${(item.confidence * 100).toFixed(0)}%</span>` : ''}
+      <div class="card stack" id="item-${escapeHtml(item.id)}">
+        <div class="between">
+          <div class="row" style="gap: 16px;">
+            <span class="status ${item.stage === 3 ? 'accent' : 'warning'}">Stage ${escapeHtml(item.stage)} · ${escapeHtml(STAGE_LABELS[item.stage] ?? 'Unknown')}</span>
+            <span class="meta">Impact ${escapeHtml(item.impact)}</span>
+            ${item.confidence != null ? `<span class="meta">Confidence ${(item.confidence * 100).toFixed(0)}%</span>` : ''}
           </div>
-          <span class="meta">${escapeHtml(item.createdAt.slice(0, 10))}</span>
+          <span class="mono meta">${escapeHtml(item.createdAt.slice(0, 10))}</span>
         </div>
 
-        <div class="grid-2">
-          <div class="col">
-            <span class="badge badge-success" style="font-size: 10px; margin-bottom: 4px;">Survivor (Canonical)</span>
+        <div class="pair">
+          <div class="side">
+            <span class="status positive">Survivor, kept</span>
             <h3>${escapeHtml(item.survivor.title)}</h3>
-            <p class="meta">By: ${escapeHtml(item.survivor.authors.join(', ') || 'Unknown')}</p>
-            <p class="meta">Published: ${escapeHtml(item.survivor.firstPublishYear ?? '—')} · Editions: ${escapeHtml(item.survivor.editionCount)} · Logs: ${escapeHtml(item.survivor.logCount)}</p>
+            <p class="meta">${escapeHtml(item.survivor.authors.join(', ') || 'Unknown author')}</p>
+            <p class="meta">Published ${escapeHtml(item.survivor.firstPublishYear ?? '—')} · ${escapeHtml(item.survivor.editionCount)} editions · ${escapeHtml(item.survivor.logCount)} logs</p>
           </div>
-          <div class="col">
-            <span class="badge badge-muted" style="font-size: 10px; margin-bottom: 4px;">Loser (Will be tombstoned)</span>
+          <div class="side">
+            <span class="status">Loser, tombstoned</span>
             <h3>${escapeHtml(item.loser.title)}</h3>
-            <p class="meta">By: ${escapeHtml(item.loser.authors.join(', ') || 'Unknown')}</p>
-            <p class="meta">Published: ${escapeHtml(item.loser.firstPublishYear ?? '—')} · Editions: ${escapeHtml(item.loser.editionCount)} · Logs: ${escapeHtml(item.loser.logCount)}</p>
+            <p class="meta">${escapeHtml(item.loser.authors.join(', ') || 'Unknown author')}</p>
+            <p class="meta">Published ${escapeHtml(item.loser.firstPublishYear ?? '—')} · ${escapeHtml(item.loser.editionCount)} editions · ${escapeHtml(item.loser.logCount)} logs</p>
           </div>
         </div>
 
-        <div class="reason-box">
-          <strong>Rule match:</strong> ${escapeHtml(item.reason)}
-        </div>
+        <p class="meta">Rule match: <span style="color: var(--ink2);">${escapeHtml(item.reason)}</span></p>
 
-        <div class="actions">
+        <div class="row">
           ${
             isAdmin
-              ? `<button class="btn-merge" data-resolve="${escapeHtml(item.id)}" data-action="merge" data-rule="${escapeHtml(ruleReason(item.stage) ?? '')}">Approve Merge</button>
-                 <button class="btn-dismiss" data-resolve="${escapeHtml(item.id)}" data-action="dismiss" data-rule="${escapeHtml(ruleReason(item.stage) ?? '')}">Dismiss</button>`
-              : `<button class="btn-dismiss" disabled title="Admin required to merge">Approve Merge (Admin Only)</button>
-                 <button class="btn-dismiss" disabled title="Admin required to dismiss">Dismiss (Admin Only)</button>`
+              ? `<button class="primary" data-resolve="${escapeHtml(item.id)}" data-action="merge" data-rule="${escapeHtml(ruleReason(item.stage) ?? '')}">Approve merge</button>
+                 <button data-resolve="${escapeHtml(item.id)}" data-action="dismiss" data-rule="${escapeHtml(ruleReason(item.stage) ?? '')}">Dismiss</button>`
+              : `<button disabled title="Needs an administrator">Approve merge</button>
+                 <button disabled title="Needs an administrator">Dismiss</button>`
           }
         </div>
       </div>
@@ -558,51 +437,51 @@ export function adminDedupeRoutes(db: Db) {
             )
             .join('')
     }
-  </section>
+    </section>
 
-  <section>
-    <h2>Recent Merges (30-Day Reversible Window)</h2>
-    <div class="card" style="padding: 0; overflow-x: auto;">
-      <table>
-        <thead>
-          <tr>
-            <th>Merged At</th>
-            <th>Survivor (Kept)</th>
-            <th>Loser (Tombstoned)</th>
-            <th>Rule</th>
-            <th>Moved</th>
-            <th>Status</th>
-            <th>Action</th>
-          </tr>
-        </thead>
-        <tbody>
+    <section class="stack">
+      <h2>Recent merges</h2>
+      <div class="card flush table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Merged</th>
+              <th>Survivor</th>
+              <th>Loser</th>
+              <th>Rule</th>
+              <th>Moved</th>
+              <th>Status</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody>
           ${
             recentMerges.length === 0
-              ? '<tr><td colspan="7" class="meta" style="text-align: center; padding: 24px;">No merges recorded yet.</td></tr>'
+              ? '<tr><td colspan="7" class="empty">No merges yet</td></tr>'
               : recentMerges
                   .map(
                     (m) => `
             <tr>
-              <td class="meta" style="white-space: nowrap;">${escapeHtml(m.merged_at.slice(0, 16).replace('T', ' '))}</td>
-              <td><strong>${escapeHtml(m.survivor.title)}</strong></td>
+              <td class="nowrap mono meta">${escapeHtml(m.merged_at.slice(0, 16).replace('T', ' '))}</td>
+              <td>${escapeHtml(m.survivor.title)}</td>
               <td class="meta">${escapeHtml(m.loser.title)}</td>
-              <td>Stage ${escapeHtml(m.stage)}</td>
+              <td class="nowrap">Stage ${escapeHtml(m.stage)}</td>
               <td class="meta">${escapeHtml(m.stats.reads_moved)} reads, ${escapeHtml(m.stats.editions_moved)} editions</td>
               <td>
                 ${
                   m.undone_at
-                    ? `<span class="badge badge-muted">Undone</span>`
+                    ? `<span class="status">Undone</span>`
                     : m.can_undo
-                    ? `<span class="badge badge-success">Active (Reversible)</span>`
-                    : `<span class="badge badge-muted">Permanent</span>`
+                    ? `<span class="status positive">Reversible</span>`
+                    : `<span class="status">Permanent</span>`
                 }
               </td>
-              <td>
+              <td class="num">
                 ${
                   m.can_undo && isAdmin
-                    ? `<button class="btn-undo" data-undo="${escapeHtml(m.id)}">Undo Merge</button>`
+                    ? `<button class="danger sm" data-undo="${escapeHtml(m.id)}">Undo merge</button>`
                     : m.can_undo
-                    ? `<span class="meta">Admin Required</span>`
+                    ? `<span class="meta">Needs an administrator</span>`
                     : `<span class="meta">—</span>`
                 }
               </td>
@@ -611,10 +490,10 @@ export function adminDedupeRoutes(db: Db) {
                   )
                   .join('')
           }
-        </tbody>
-      </table>
-    </div>
-  </section>
+          </tbody>
+        </table>
+      </div>
+    </section>
 
   <script nonce="${nonce}">
     // Every action carries a reason into the audit log (D-06-1): a rule's
@@ -643,10 +522,10 @@ export function adminDedupeRoutes(db: Db) {
           location.reload();
         } else {
           const err = await res.json();
-          alert('Error: ' + (err.error?.message || 'Failed to resolve candidate.'));
+          alert('Could not resolve the candidate: ' + (err.error?.message || res.statusText));
         }
       } catch (err) {
-        alert('Network error: ' + err.message);
+        alert('Could not reach the server: ' + err.message);
       }
     }
 
@@ -660,14 +539,14 @@ export function adminDedupeRoutes(db: Db) {
           body: JSON.stringify({ reason })
         });
         if (res.ok) {
-          alert('Merge successfully undone.');
+          alert('Merge undone');
           location.reload();
         } else {
           const err = await res.json();
-          alert('Error: ' + (err.error?.message || 'Failed to undo merge.'));
+          alert('Could not undo the merge: ' + (err.error?.message || res.statusText));
         }
       } catch (err) {
-        alert('Network error: ' + err.message);
+        alert('Could not reach the server: ' + err.message);
       }
     }
 
@@ -678,9 +557,9 @@ export function adminDedupeRoutes(db: Db) {
       const undo = e.target.closest('[data-undo]');
       if (undo) return undoMergeAction(undo.dataset.undo);
     });
-  </script>
-</body>
-</html>`);
+  </script>`,
+        }),
+      );
     });
   };
 }

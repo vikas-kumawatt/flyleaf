@@ -8,7 +8,7 @@
 // 6. Profile (Person) -- identity & diary
 
 import React from 'react';
-import { View, Text, Pressable, StyleSheet, Platform } from 'react-native';
+import { View, Text, Pressable, StyleSheet } from 'react-native';
 import { Tabs, useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -16,7 +16,7 @@ import * as Haptics from 'expo-haptics';
 import { useSession } from '@/lib/session';
 import { budgetTracker } from '@/lib/budgetTracker';
 import { useActionGate } from '@/ui/ActionGate';
-import { useTheme, radius, space, type as t } from '@/ui/tokens';
+import { useTheme, fontFamilies, radius, space, type as t } from '@/ui/tokens';
 
 function TabBarItem({
   title,
@@ -47,19 +47,19 @@ function TabBarItem({
       <Ionicons
         name={focused ? activeIcon : icon}
         size={22}
-        color={focused ? c.accent : c.muted}
+        color={focused ? c.ink : c.muted}
       />
       <Text
         numberOfLines={1}
         style={[
           t.micro as object,
           {
-            fontSize: 10,
-            lineHeight: 12,
-            letterSpacing: 0.2,
-            fontWeight: focused ? '600' : '400',
-            color: focused ? c.accent : c.muted,
-            marginTop: 2,
+            fontSize: 11,
+            lineHeight: 14,
+            fontFamily: focused ? fontFamilies.uiMedium : fontFamilies.uiRegular,
+            fontWeight: 'normal',
+            color: focused ? c.ink : c.muted,
+            marginTop: space[1] / 2,
           },
         ]}
       >
@@ -85,8 +85,8 @@ export default function TabLayout() {
           borderTopColor: c.line,
           borderTopWidth: 1,
           height: 60 + insets.bottom,
-          paddingBottom: Math.max(insets.bottom, 6),
-          paddingTop: 6,
+          paddingBottom: Math.max(insets.bottom, space[2]),
+          paddingTop: space[2],
         },
       }}
       tabBar={({ state, navigation }) => {
@@ -100,7 +100,7 @@ export default function TabLayout() {
               {
                 backgroundColor: c.surface,
                 borderTopColor: c.line,
-                paddingBottom: Math.max(insets.bottom, 6),
+                paddingBottom: Math.max(insets.bottom, space[2]),
               },
             ]}
           >
@@ -142,7 +142,7 @@ export default function TabLayout() {
                 accessibilityLabel="Log a book"
                 style={[styles.fabButton, { backgroundColor: c.accent }]}
               >
-                <Ionicons name="add" size={28} color={c.ground} />
+                <Ionicons name="add" size={24} color={c.onAccent} />
               </Pressable>
             </View>
 
@@ -192,7 +192,7 @@ const styles = StyleSheet.create({
     justifyContent: 'space-around',
     borderTopWidth: 1,
     minHeight: 60,
-    paddingTop: 6,
+    paddingTop: space[2],
   },
   tabItem: {
     flex: 1,
@@ -200,30 +200,18 @@ const styles = StyleSheet.create({
     minWidth: 48,
     alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: 2,
+    paddingVertical: space[1] / 2,
   },
   fabSlot: {
-    width: 52,
+    width: 56,
     alignItems: 'center',
     justifyContent: 'center',
-    marginTop: -14, // Slightly elevated over the tab bar
   },
   fabButton: {
-    width: 48,
-    height: 48,
-    borderRadius: radius.pill,
+    width: 44,
+    height: 44,
+    borderRadius: radius.md,
     alignItems: 'center',
     justifyContent: 'center',
-    ...Platform.select({
-      ios: {
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: 2 },
-        shadowOpacity: 0.15,
-        shadowRadius: 4,
-      },
-      android: {
-        elevation: 4,
-      },
-    }),
   },
 });

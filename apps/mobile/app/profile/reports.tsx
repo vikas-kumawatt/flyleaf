@@ -11,6 +11,7 @@ import { api, type ModerationNotice, type Report } from '@/lib/api';
 import { REPORT_REASONS, appealStatus } from '@/lib/moderation';
 import { Card, EmptyState, Screen, Txt, sheet } from '@/ui/components';
 import { space, useTheme } from '@/ui/tokens';
+import { Ionicons } from '@expo/vector-icons';
 
 const NOUN: Record<string, string> = { review: 'Review', comment: 'Comment', user: 'Profile', shelf: 'Shelf', work: 'Book' };
 
@@ -37,9 +38,9 @@ export default function YourReportsScreen() {
       <View style={{ paddingTop: insets.top + space[2], paddingHorizontal: space[4], paddingBottom: space[3], borderBottomWidth: 1, borderBottomColor: c.line }}>
         <View style={sheet.rowBetween}>
           <Pressable onPress={() => router.back()} accessibilityRole="button" accessibilityLabel="Back" style={{ minWidth: 44, minHeight: 44, justifyContent: 'center' }}>
-            <Txt variant="body" color="accent" style={{ fontWeight: '600' }}>← Back</Txt>
+            <Ionicons name="chevron-back" size={24} color={c.ink} />
           </Pressable>
-          <Txt variant="title" style={{ fontSize: 17 }}>Your reports</Txt>
+          <Txt variant="title">Your reports</Txt>
           <View style={{ minWidth: 44 }} />
         </View>
       </View>
@@ -49,23 +50,23 @@ export default function YourReportsScreen() {
       >
         {notices.length > 0 && (
           <View style={{ gap: space[2] }}>
-            <Txt variant="caption" color="muted" style={{ fontWeight: '700' }}>DECISIONS ABOUT YOUR CONTENT</Txt>
+            <Txt variant="micro" color="muted">Decisions about your content</Txt>
             {notices.map((n) => (
               <Card key={n.id} onPress={() => router.push(`/moderation/${n.id}` as any)} style={{ padding: space[3], gap: 2 }}>
-                <Txt variant="body" style={{ fontWeight: '600' }}>{n.rule_label}</Txt>
+                <Txt variant="body" style={{ fontWeight: '500' }}>{n.rule_label}</Txt>
                 <Txt variant="caption" color="muted">{appealStatus(n) || n.summary}</Txt>
               </Card>
             ))}
           </View>
         )}
-        <Txt variant="caption" color="muted" style={{ fontWeight: '700' }}>REPORTS YOU MADE</Txt>
+        <Txt variant="micro" color="muted">Reports you made</Txt>
         {reports.length === 0 ? (
-          <EmptyState title="No reports" subtitle="When you report something, its status shows here." />
+          <EmptyState title="No reports" subtitle="When you report something, its status shows here" />
         ) : (
           reports.map((r) => (
             <Card key={r.id} style={{ padding: space[3], gap: 2 }}>
               <View style={sheet.rowBetween}>
-                <Txt variant="body" style={{ fontWeight: '600' }}>{NOUN[r.subject_type] ?? 'Content'}</Txt>
+                <Txt variant="body" style={{ fontWeight: '500' }}>{NOUN[r.subject_type] ?? 'Content'}</Txt>
                 <Txt variant="caption" color={r.status === 'open' ? 'muted' : 'positive'}>{r.status === 'open' ? 'Waiting for review' : 'Reviewed'}</Txt>
               </View>
               <Txt variant="caption" color="muted">

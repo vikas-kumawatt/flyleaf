@@ -3,19 +3,20 @@
 // Governed by:
 //   1. Drag the progress slider — auto-saves on release, no confirm button.
 //   2. Haptic tick at each 5% increment.
-//   3. Responsive, spring-tuned thumb with optimistic local updates.
+//   3. Responsive thumb with optimistic local updates, eased on tap.
 
 import React, { useState, useRef } from 'react';
-import { View, LayoutChangeEvent, StyleProp, ViewStyle, Text } from 'react-native';
+import { View, LayoutChangeEvent, StyleProp, ViewStyle } from 'react-native';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import Animated, {
   useSharedValue,
   useAnimatedStyle,
-  withSpring,
+  withTiming,
+  Easing,
   runOnJS,
 } from 'react-native-reanimated';
 import * as Haptics from 'expo-haptics';
-import { radius, space, useTheme } from './tokens';
+import { motion, radius, space, useTheme } from './tokens';
 
 interface ProgressSliderProps {
   currentPage: number;
@@ -87,7 +88,7 @@ export function ProgressSlider({
     .onEnd((e) => {
       if (trackWidth <= 0) return;
       const newRatio = Math.max(0, Math.min(1, e.x / trackWidth));
-      progressRatio.value = withSpring(newRatio, { damping: 20 });
+      progressRatio.value = withTiming(newRatio, { duration: motion.menu, easing: Easing.bezier(...motion.easing) });
       runOnJS(handleDragRelease)(newRatio);
     });
 
@@ -123,7 +124,7 @@ export function ProgressSlider({
           {/* Background track */}
           <View
             style={{
-              height: 8,
+              height: 6,
               borderRadius: radius.pill,
               backgroundColor: c.surface2,
               overflow: 'hidden',
@@ -147,19 +148,15 @@ export function ProgressSlider({
             style={[
               {
                 position: 'absolute',
-                top: 8,
+                // Centres the 20pt thumb on the 6pt track (12 padding + 3 - 10).
+                top: 5,
                 width: 20,
                 height: 20,
                 marginLeft: -10,
                 borderRadius: radius.pill,
-                backgroundColor: c.ground,
+                backgroundColor: c.surface,
                 borderWidth: 2,
                 borderColor: c.accent,
-                shadowColor: '#000',
-                shadowOffset: { width: 0, height: 1 },
-                shadowOpacity: 0.2,
-                shadowRadius: 2,
-                elevation: 3,
               },
               thumbStyle,
             ]}

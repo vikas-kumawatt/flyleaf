@@ -13,7 +13,7 @@ import {
   Txt,
   sheet,
 } from './components';
-import { space, useTheme } from './tokens';
+import { fontFamilies, radius, space, useTheme } from './tokens';
 import {
   type FeedActivityItem,
   getCardType,
@@ -145,20 +145,20 @@ export function FeedCard({
       <Pressable
         onPress={handleRateAndReview}
         style={{
-          width: 90,
-          backgroundColor: c[rightActionConfig.backgroundColor === 'accent' ? 'accent' : 'positive'],
+          width: 88,
+          backgroundColor: c.accent,
           justifyContent: 'center',
           alignItems: 'center',
-          borderRadius: 16,
+          borderRadius: radius.lg,
           marginVertical: space[1],
         }}
         accessibilityRole="button"
         accessibilityLabel="Rate and Review book"
       >
         <RNAnimated.View style={{ transform: [{ translateX: trans }], alignItems: 'center', gap: space[1] }}>
-          <Ionicons name="star" size={24} color={c.surface} />
-          <Txt variant="caption" color="surface" style={{ fontWeight: '700' }}>
-            Rate & Review
+          <Ionicons name="star-outline" size={20} color={c.onAccent} />
+          <Txt variant="caption" color="onAccent" style={{ fontWeight: '500' }}>
+            Rate and review
           </Txt>
         </RNAnimated.View>
       </Pressable>
@@ -181,20 +181,20 @@ export function FeedCard({
       <Pressable
         onPress={handleWantToRead}
         style={{
-          width: 90,
-          backgroundColor: c.positive,
+          width: 88,
+          backgroundColor: c.ink,
           justifyContent: 'center',
           alignItems: 'center',
-          borderRadius: 16,
+          borderRadius: radius.lg,
           marginVertical: space[1],
         }}
         accessibilityRole="button"
         accessibilityLabel="Save book to Want to Read"
       >
         <RNAnimated.View style={{ transform: [{ translateX: trans }], alignItems: 'center', gap: space[1] }}>
-          <Ionicons name="bookmark" size={24} color={c.surface} />
-          <Txt variant="caption" color="surface" style={{ fontWeight: '700' }}>
-            Want to Read
+          <Ionicons name="bookmark-outline" size={20} color={c.ground} />
+          <Txt variant="caption" color="ground" style={{ fontWeight: '500' }}>
+            Want to read
           </Txt>
         </RNAnimated.View>
       </Pressable>
@@ -225,15 +225,15 @@ export function FeedCard({
               alignSelf: 'flex-start',
               backgroundColor: badge.variant === 'popular' ? c.accentSoft : c.surface2,
               paddingHorizontal: space[2],
-              paddingVertical: 2,
-              borderRadius: 6,
+              paddingVertical: space[1] / 2,
+              borderRadius: radius.sm,
               marginBottom: space[2],
             }}
           >
             <Txt
               variant="caption"
               color={badge.variant === 'popular' ? 'accent' : 'ink2'}
-              style={{ fontWeight: '600' }}
+              style={{ fontWeight: '500' }}
             >
               {badge.text}
             </Txt>
@@ -258,18 +258,18 @@ export function FeedCard({
               style={{
                 width: 32,
                 height: 32,
-                borderRadius: 16,
+                borderRadius: radius.pill,
                 backgroundColor: c.surface2,
                 alignItems: 'center',
                 justifyContent: 'center',
               }}
             >
-              <Txt variant="caption" color="ink" style={{ fontWeight: '700' }}>
+              <Txt variant="caption" color="ink" style={{ fontWeight: '500' }}>
                 {(item.actor.display_name || item.actor.username).substring(0, 1).toUpperCase()}
               </Txt>
             </View>
             <View>
-              <Txt variant="body" color="ink" style={{ fontWeight: '600' }}>
+              <Txt variant="body" color="ink" style={{ fontWeight: '500' }}>
                 {item.actor.display_name || item.actor.username}
               </Txt>
               <Txt variant="caption" color="muted">
@@ -290,8 +290,8 @@ export function FeedCard({
               author={item.work.author_name || undefined}
               size="s"
             />
-            <View style={{ flex: 1, gap: 2 }}>
-              <Txt variant="title" numberOfLines={2}>
+            <View style={{ flex: 1, gap: space[1] }}>
+              <Txt variant="title" numberOfLines={2} style={{ fontFamily: fontFamilies.displayMedium }}>
                 {item.work.title}
               </Txt>
               {item.work.author_name && (
@@ -300,7 +300,7 @@ export function FeedCard({
                 </Txt>
               )}
               {meta.read_count && meta.read_count > 1 ? (
-                <Txt variant="caption" color="accent" style={{ fontWeight: '500' }}>
+                <Txt variant="caption" color="muted" tabular>
                   Re-read #{meta.read_count}
                 </Txt>
               ) : null}
@@ -328,15 +328,15 @@ export function FeedCard({
                 style={{
                   backgroundColor: c.surface2,
                   padding: space[3],
-                  borderRadius: 8,
+                  borderRadius: radius.md,
                   alignItems: 'center',
                 }}
                 accessibilityRole="button"
                 accessibilityLabel="Show spoilers"
               >
-                <Ionicons name="eye-off-outline" size={20} color={c.ink2} />
-                <Txt variant="caption" color="ink2" style={{ marginTop: 4, fontWeight: '600' }}>
-                  Contains spoilers (Tap to reveal)
+                <Ionicons name="eye-off-outline" size={18} color={c.muted} />
+                <Txt variant="caption" color="ink2" style={{ marginTop: space[1] }}>
+                  Contains spoilers · tap to show
                 </Txt>
               </Pressable>
             ) : (
@@ -376,10 +376,10 @@ export function FeedCard({
               >
                 <Ionicons
                   name={liked ? 'heart' : 'heart-outline'}
-                  size={20}
+                  size={18}
                   color={liked ? c.heart : c.muted}
                 />
-                <Txt variant="caption" color={liked ? 'ink' : 'muted'} style={{ fontWeight: '600' }}>
+                <Txt variant="caption" color={liked ? 'ink' : 'muted'} tabular>
                   {likeCount}
                 </Txt>
               </Pressable>
@@ -392,8 +392,8 @@ export function FeedCard({
                 accessibilityLabel="Comment on post"
                 hitSlop={8}
               >
-                <Ionicons name="chatbubble-outline" size={19} color={c.muted} />
-                <Txt variant="caption" color="muted" style={{ fontWeight: '600' }}>
+                <Ionicons name="chatbubble-outline" size={18} color={c.muted} />
+                <Txt variant="caption" color="muted" tabular>
                   {interaction.commentCount}
                 </Txt>
               </Pressable>
@@ -411,7 +411,7 @@ export function FeedCard({
                   accessibilityLabel="Save to Want to Read"
                   hitSlop={8}
                 >
-                  <Ionicons name="bookmark-outline" size={20} color={c.accent} />
+                  <Ionicons name="bookmark-outline" size={18} color={c.muted} />
                 </Pressable>
                 <Pressable
                   onPress={handleRateAndReview}
@@ -420,7 +420,7 @@ export function FeedCard({
                   accessibilityLabel="Rate and Review"
                   hitSlop={8}
                 >
-                  <Ionicons name="star-outline" size={20} color={c.ink2} />
+                  <Ionicons name="star-outline" size={18} color={c.muted} />
                 </Pressable>
               </View>
             )}
@@ -440,6 +440,6 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     paddingHorizontal: space[2],
     paddingVertical: space[1],
-    borderRadius: 8,
+    borderRadius: radius.md,
   },
 });

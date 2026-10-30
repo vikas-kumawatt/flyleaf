@@ -22,9 +22,47 @@ import {
   Cover,
   Screen,
   Txt,
-  sheet,
-} from '@/ui/components';
-import { radius, space, useTheme } from '@/ui/tokens';
+  sheet, SkeletonList} from '@/ui/components';
+import { Ionicons } from '@expo/vector-icons';
+import { fontFamilies, radius, space, useTheme } from '@/ui/tokens';
+
+// Small square control for reordering and removing a favourite.
+function IconButton({
+  icon,
+  label,
+  disabled,
+  onPress,
+}: {
+  icon: React.ComponentProps<typeof Ionicons>['name'];
+  label: string;
+  disabled?: boolean;
+  onPress: () => void;
+}) {
+  const c = useTheme();
+  return (
+    <Pressable
+      onPress={onPress}
+      disabled={disabled}
+      accessibilityRole="button"
+      accessibilityLabel={label}
+      accessibilityState={{ disabled: Boolean(disabled) }}
+      hitSlop={4}
+      style={({ pressed }) => ({
+        width: 36,
+        height: 36,
+        borderRadius: radius.md,
+        borderWidth: 1,
+        borderColor: c.line,
+        backgroundColor: pressed ? c.surface2 : c.surface,
+        alignItems: 'center',
+        justifyContent: 'center',
+        opacity: disabled ? 0.4 : 1,
+      })}
+    >
+      <Ionicons name={icon} size={18} color={c.ink2} />
+    </Pressable>
+  );
+}
 
 export default function FavouritesPickerScreen() {
   const c = useTheme();
@@ -118,7 +156,7 @@ export default function FavouritesPickerScreen() {
     // Check if already in favourites
     const existingIndex = favourites.findIndex((f) => f.id === book.id);
     if (existingIndex !== -1 && existingIndex !== searchTargetSlot) {
-      Alert.alert('Already Selected', 'This book is already in your favourites.');
+      Alert.alert('Already selected', 'This book is already in your favourites.');
       return;
     }
 
@@ -184,8 +222,8 @@ export default function FavouritesPickerScreen() {
             </Txt>
           </Pressable>
 
-          <Txt variant="title" style={{ fontWeight: '700', fontSize: 18 }}>
-            Favourite Books
+          <Txt variant="title">
+            Favourite books
           </Txt>
 
           <Pressable
@@ -197,9 +235,9 @@ export default function FavouritesPickerScreen() {
             style={{ minWidth: 44, minHeight: 44, justifyContent: 'center', alignItems: 'flex-end' }}
           >
             {saving ? (
-              <ActivityIndicator size="small" color={c.accent} />
+              <ActivityIndicator size="small" color={c.muted} />
             ) : (
-              <Txt variant="body" color="accent" style={{ fontWeight: '700' }}>
+              <Txt variant="body" color="accent" style={{ fontWeight: '500' }}>
                 Done
               </Txt>
             )}
@@ -216,7 +254,7 @@ export default function FavouritesPickerScreen() {
         }}
       >
         <View style={{ gap: space[1] }}>
-          <Txt variant="body" style={{ fontWeight: '600' }}>
+          <Txt variant="body" style={{ fontWeight: '500' }}>
             Curate your 4 defining books
           </Txt>
           <Txt variant="caption" color="muted">
@@ -225,7 +263,7 @@ export default function FavouritesPickerScreen() {
         </View>
 
         {loading ? (
-          <ActivityIndicator size="large" color={c.accent} style={{ marginTop: space[6] }} />
+          <SkeletonList lead="cover" rows={4} style={{ paddingHorizontal: 0, paddingTop: 0 }} />
         ) : (
           <View style={{ gap: space[3] }}>
             {/* Render 4 slots */}
@@ -243,7 +281,7 @@ export default function FavouritesPickerScreen() {
                           { backgroundColor: c.surface, borderColor: c.line },
                         ]}
                       >
-                        <Txt variant="caption" color="accent" style={{ fontWeight: '700' }}>
+                        <Txt variant="micro" color="ink2" tabular>
                           #{slotIndex + 1}
                         </Txt>
                       </View>
@@ -253,7 +291,7 @@ export default function FavouritesPickerScreen() {
 
                       {/* Details & actions */}
                       <View style={{ flex: 1, marginLeft: space[3], gap: 2 }}>
-                        <Txt variant="title" numberOfLines={1} style={{ fontSize: 15 }}>
+                        <Txt variant="title" numberOfLines={1} style={{ fontFamily: fontFamilies.displayMedium }}>
                           {book.title}
                         </Txt>
                         <Txt variant="caption" color="muted" numberOfLines={1}>
@@ -262,17 +300,15 @@ export default function FavouritesPickerScreen() {
 
                         {/* Controls */}
                         <View style={[sheet.row, { gap: space[2], marginTop: space[2] }]}>
-                          <Button
-                            label="▲"
-                            variant="outline"
-                            size="sm"
+<IconButton
+                            icon="chevron-up"
+                            label="Move up"
                             disabled={slotIndex === 0}
                             onPress={() => moveUp(slotIndex)}
                           />
-                          <Button
-                            label="▼"
-                            variant="outline"
-                            size="sm"
+                          <IconButton
+                            icon="chevron-down"
+                            label="Move down"
                             disabled={slotIndex === favourites.length - 1}
                             onPress={() => moveDown(slotIndex)}
                           />
@@ -285,10 +321,9 @@ export default function FavouritesPickerScreen() {
                               setSearchTargetSlot(slotIndex);
                             }}
                           />
-                          <Button
-                            label="✕"
-                            variant="outline"
-                            size="sm"
+<IconButton
+                            icon="close"
+                            label="Remove"
                             onPress={() => removeSlot(slotIndex)}
                           />
                         </View>
@@ -314,16 +349,14 @@ export default function FavouritesPickerScreen() {
                   ]}
                 >
                   <View style={[styles.slotBadge, { backgroundColor: c.ground, borderColor: c.line }]}>
-                    <Txt variant="caption" color="muted" style={{ fontWeight: '700' }}>
+                    <Txt variant="micro" color="muted" tabular>
                       #{slotIndex + 1}
                     </Txt>
                   </View>
-                  <View style={{ alignItems: 'center', gap: 4 }}>
-                    <Txt variant="title" color="accent" style={{ fontSize: 20 }}>
-                      +
-                    </Txt>
-                    <Txt variant="caption" color="muted" style={{ fontWeight: '600' }}>
-                      Choose Favourite #{slotIndex + 1}
+                  <View style={{ alignItems: 'center', gap: space[1] }}>
+                    <Ionicons name="add" size={20} color={c.muted} />
+                    <Txt variant="caption" color="muted">
+                      Choose favourite #{slotIndex + 1}
                     </Txt>
                   </View>
                 </Pressable>
@@ -337,12 +370,12 @@ export default function FavouritesPickerScreen() {
           <View
             style={[
               styles.searchPanel,
-              { backgroundColor: c.surface, borderColor: c.accent, borderWidth: 1 },
+              { backgroundColor: c.surface, borderColor: c.line, borderWidth: 1 },
             ]}
           >
             <View style={[sheet.rowBetween, { marginBottom: space[2] }]}>
-              <Txt variant="title" style={{ fontSize: 16, fontWeight: '700' }}>
-                Pick book for Slot #{searchTargetSlot + 1}
+              <Txt variant="title">
+                Pick a book for #{searchTargetSlot + 1}
               </Txt>
               <Pressable
                 onPress={() => {
@@ -367,7 +400,7 @@ export default function FavouritesPickerScreen() {
               ]}
             >
               <TextInput
-                placeholder="Search title, author, or series..."
+                placeholder="Title, author or series"
                 placeholderTextColor={c.muted}
                 value={searchQuery}
                 onChangeText={handleSearch}
@@ -379,15 +412,13 @@ export default function FavouritesPickerScreen() {
                   onPress={() => handleSearch('')}
                   hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
                 >
-                  <Txt variant="caption" color="muted">
-                    ✕
-                  </Txt>
+                  <Ionicons name="close-circle" size={16} color={c.muted} accessibilityLabel="Clear search" />
                 </Pressable>
               )}
             </View>
 
             {searching && (
-              <ActivityIndicator size="small" color={c.accent} style={{ marginVertical: space[3] }} />
+              <SkeletonList lead="cover" rows={3} style={{ paddingHorizontal: 0, paddingTop: 0 }} />
             )}
 
             {/* Search Results */}
@@ -403,7 +434,7 @@ export default function FavouritesPickerScreen() {
                 >
                   <Cover coverId={book.cover_id} title={book.title} size="s" />
                   <View style={{ flex: 1, marginLeft: space[3] }}>
-                    <Txt variant="body" numberOfLines={1} style={{ fontWeight: '600' }}>
+                    <Txt variant="body" numberOfLines={1} style={{ fontWeight: '500' }}>
                       {book.title}
                     </Txt>
                     <Txt variant="caption" color="muted" numberOfLines={1}>
@@ -430,7 +461,7 @@ const styles = StyleSheet.create({
   slotBadge: {
     width: 28,
     height: 28,
-    borderRadius: radius.pill,
+    borderRadius: radius.sm,
     borderWidth: 1,
     alignItems: 'center',
     justifyContent: 'center',
@@ -438,8 +469,8 @@ const styles = StyleSheet.create({
   },
   emptySlot: {
     height: 96,
-    borderRadius: radius.md,
-    borderWidth: 1.5,
+    borderRadius: radius.lg,
+    borderWidth: 1,
     borderStyle: 'dashed',
     flexDirection: 'row',
     alignItems: 'center',
@@ -448,7 +479,7 @@ const styles = StyleSheet.create({
   },
   searchPanel: {
     padding: space[4],
-    borderRadius: radius.md,
+    borderRadius: radius.lg,
     marginTop: space[2],
   },
   searchInputContainer: {

@@ -131,28 +131,30 @@ ${image ? `<meta name="twitter:image" content="${e(image)}">\n` : ''}<meta prope
 <meta property="al:android:package" content="${ANDROID_PACKAGE}">
 <meta property="al:android:app_name" content="Flyleaf">
 <style>
-  :root { color-scheme: light dark; --ground: #FAF7F2; --card: #FFFFFF; --ink: #1F1B16; --muted: #6E747C; --accent: #7A4E2D; --line: #E4DED4; }
-  @media (prefers-color-scheme: dark) { :root { --ground: #16181B; --card: #1E2125; --ink: #ECE7DF; --muted: #868D96; --accent: #D9A574; --line: #2C3036; } }
+  :root { color-scheme: light dark; --ground: #FAFAFA; --card: #FFFFFF; --raised: #F4F4F5; --ink: #171717; --ink2: #525252; --muted: #737373; --accent: #3355C4; --on-accent: #FFFFFF; --line: rgba(23,23,23,.08); }
+  @media (prefers-color-scheme: dark) { :root { --ground: #141415; --card: #19191B; --raised: #232325; --ink: #EDEDED; --ink2: #A1A1A6; --muted: #85858B; --accent: #8DA6EE; --on-accent: #141415; --line: rgba(237,237,237,.08); } }
   * { box-sizing: border-box; }
-  body { margin: 0; background: var(--ground); color: var(--ink); font: 16px/1.55 system-ui, -apple-system, "Segoe UI", sans-serif; }
-  main { max-width: 40rem; margin: 0 auto; padding: 2rem 1rem 3rem; }
-  a { color: var(--accent); }
-  h1 { font: 600 1.75rem/1.25 Georgia, serif; margin: 0 0 .25rem; overflow-wrap: anywhere; }
-  h2 { font: 600 1.15rem/1.3 Georgia, serif; margin: 2rem 0 .75rem; }
-  .muted { color: var(--muted); font-size: .92rem; }
-  .head { display: flex; gap: 1.25rem; align-items: flex-start; }
-  .cover { width: 7.5rem; aspect-ratio: 2 / 3; object-fit: cover; border-radius: 6px; border: 1px solid var(--line); background: var(--card); flex: none; }
-  .avatar { width: 5rem; height: 5rem; border-radius: 50%; object-fit: cover; border: 1px solid var(--line); flex: none; }
-  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(5.5rem, 1fr)); gap: .75rem; padding: 0; list-style: none; margin: 0; }
-  .grid img { width: 100%; aspect-ratio: 2 / 3; object-fit: cover; border-radius: 4px; border: 1px solid var(--line); background: var(--card); }
-  .grid span { display: block; font-size: .8rem; line-height: 1.3; margin-top: .25rem; overflow-wrap: anywhere; }
-  .placeholder { display: flex; align-items: center; justify-content: center; aspect-ratio: 2 / 3; border-radius: 4px; border: 1px solid var(--line); background: var(--card); color: var(--muted); font-size: .75rem; padding: .25rem; text-align: center; }
+  body { margin: 0; background: var(--ground); color: var(--ink); font: 15px/1.5 "Instrument Sans", system-ui, -apple-system, "Segoe UI", sans-serif; }
+  main { max-width: 40rem; margin: 0 auto; padding: 32px 16px 48px; }
+  a { color: var(--accent); text-underline-offset: 2px; }
+  h1 { font: 400 32px/1.15 Newsreader, Georgia, serif; margin: 0 0 4px; overflow-wrap: anywhere; }
+  h2 { font: 500 20px/1.3 Newsreader, Georgia, serif; margin: 32px 0 12px; }
+  .muted { color: var(--muted); font-size: 13px; }
+  .head { display: flex; gap: 20px; align-items: flex-start; }
+  .cover { width: 120px; aspect-ratio: 2 / 3; object-fit: cover; border-radius: 6px; border: 1px solid var(--line); background: var(--raised); flex: none; }
+  .avatar { width: 80px; height: 80px; border-radius: 50%; object-fit: cover; border: 1px solid var(--line); flex: none; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(88px, 1fr)); gap: 12px; padding: 0; list-style: none; margin: 0; }
+  .grid img { width: 100%; aspect-ratio: 2 / 3; object-fit: cover; border-radius: 4px; border: 1px solid var(--line); background: var(--raised); }
+  .grid span { display: block; font-size: 13px; line-height: 1.35; margin-top: 4px; overflow-wrap: anywhere; }
+  .placeholder { display: flex; align-items: center; justify-content: center; aspect-ratio: 2 / 3; border-radius: 4px; border: 1px solid var(--line); background: var(--raised); color: var(--muted); font: 400 13px/1.3 Newsreader, Georgia, serif; padding: 8px; text-align: center; }
   .list { list-style: none; padding: 0; margin: 0; }
-  .list li { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: .9rem 1rem; margin: 0 0 .75rem; }
-  .list p { margin: .35rem 0 0; overflow-wrap: anywhere; }
-  .desc { white-space: pre-line; overflow-wrap: anywhere; }
-  .app { display: inline-block; margin-top: 1.5rem; padding: .8rem 1.4rem; border-radius: 10px; background: var(--accent); color: var(--ground); font-weight: 600; text-decoration: none; }
-  footer { margin-top: 2.5rem; font-size: .85rem; color: var(--muted); }
+  .list li { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 16px 20px; margin: 0 0 12px; }
+  .list p { margin: 4px 0 0; color: var(--ink2); overflow-wrap: anywhere; }
+  .desc { white-space: pre-line; color: var(--ink2); overflow-wrap: anywhere; }
+  .app { display: inline-flex; align-items: center; height: 44px; margin-top: 24px; padding: 0 20px; border-radius: 10px; background: var(--accent); color: var(--on-accent); font-weight: 500; text-decoration: none; transition: opacity 140ms cubic-bezier(0.22, 1, 0.36, 1); }
+  .app:hover { opacity: .9; }
+  .app:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  footer { margin-top: 40px; font-size: 13px; color: var(--muted); }
 </style>
 </head>
 <body><main>
@@ -172,10 +174,13 @@ export const NOT_FOUND_PAGE = `<!doctype html>
 <meta name="robots" content="noindex">
 <title>Not found · Flyleaf</title>
 <style>
-  :root { color-scheme: light dark; }
-  body { margin: 0; font: 16px/1.5 system-ui, sans-serif; }
-  main { max-width: 26rem; margin: 0 auto; padding: 3rem 1rem; }
-  h1 { font: 600 1.5rem/1.3 Georgia, serif; }
+  :root { color-scheme: light dark; --ground: #FAFAFA; --ink: #171717; --ink2: #525252; --accent: #3355C4; }
+  @media (prefers-color-scheme: dark) { :root { --ground: #141415; --ink: #EDEDED; --ink2: #A1A1A6; --accent: #8DA6EE; } }
+  body { margin: 0; background: var(--ground); color: var(--ink); font: 15px/1.5 "Instrument Sans", system-ui, sans-serif; }
+  main { max-width: 26rem; margin: 0 auto; padding: 48px 16px; }
+  h1 { font: 400 28px/1.2 Newsreader, Georgia, serif; margin: 0 0 12px; }
+  p { color: var(--ink2); }
+  a { color: var(--accent); }
 </style>
 </head>
 <body><main>

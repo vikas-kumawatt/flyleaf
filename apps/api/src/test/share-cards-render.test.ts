@@ -258,5 +258,5 @@ describe('ST-07: the render cache', () => {
 
 // Keep the palette honest: the card background the margin checks assume.
 it('the card ground is design.md ground', () => {
-  expect(C.ground.toLowerCase()).toBe('#f7f7f5');
+  expect(C.ground.toLowerCase()).toBe('#fafafa');
 });

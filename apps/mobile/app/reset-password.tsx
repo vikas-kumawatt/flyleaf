@@ -10,7 +10,7 @@ import { api, FlyleafApiError } from '@/lib/api';
 import { validatePassword } from '@/lib/auth-validation';
 import { transientAuthError, UNREACHABLE } from '@/lib/authErrors';
 import { Button, Screen, Txt, sheet } from '@/ui/components';
-import { radius, space, useTheme } from '@/ui/tokens';
+import { fontFamilies, radius, space, useTheme } from '@/ui/tokens';
 
 export default function ResetPasswordScreen() {
   const c = useTheme();
@@ -52,15 +52,15 @@ export default function ResetPasswordScreen() {
   };
 
   const input = [
-    { backgroundColor: c.surface, borderColor: c.line, color: c.ink },
-    { borderWidth: 1, borderRadius: radius.md, paddingHorizontal: space[3], minHeight: 48, fontSize: 15 },
+    { backgroundColor: c.surface2, borderColor: c.line, color: c.ink },
+    { borderWidth: 1, borderRadius: radius.md, paddingHorizontal: space[3], minHeight: 48, fontSize: 15, fontFamily: fontFamilies.uiRegular },
   ];
 
   if (state === 'done') {
     return (
       <Screen>
-        <View style={sheet.pad}>
-          <Txt variant="displayM">Password changed</Txt>
+        <View style={[sheet.pad, { gap: space[4] }]}>
+          <Txt variant="displayL">Password changed</Txt>
           <Txt variant="body" color="muted">
             You have been signed out on every device. Sign in with your new password.
           </Txt>
@@ -73,8 +73,8 @@ export default function ResetPasswordScreen() {
   if (state === 'expired') {
     return (
       <Screen>
-        <View style={sheet.pad}>
-          <Txt variant="displayM">This link has expired</Txt>
+        <View style={[sheet.pad, { gap: space[4] }]}>
+          <Txt variant="displayL">This link has expired</Txt>
           <Txt variant="body" color="muted">
             Reset links work once and expire after 60 minutes. Send yourself a new one.
           </Txt>
@@ -86,9 +86,9 @@ export default function ResetPasswordScreen() {
 
   return (
     <Screen>
-      <ScrollView contentContainerStyle={sheet.pad} keyboardShouldPersistTaps="handled">
-        <Txt variant="displayM">Choose a new password</Txt>
-        <Txt variant="body" color="muted">At least 10 characters.</Txt>
+      <ScrollView contentContainerStyle={[sheet.pad, { gap: space[4] }]} keyboardShouldPersistTaps="handled">
+        <Txt variant="displayL">Choose a new password</Txt>
+        <Txt variant="body" color="muted">At least 10 characters</Txt>
         {error ? <Txt variant="caption" color="critical">{error}</Txt> : null}
         <TextInput
           value={password}

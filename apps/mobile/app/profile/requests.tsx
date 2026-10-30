@@ -1,4 +1,4 @@
-// Pending Follow Requests Screen (PRD §6.42, AC-13, SO-02).
+// Pending Follow requests Screen (PRD §6.42, AC-13, SO-02).
 //
 // Allows account owners (especially private accounts) to inspect, accept, and decline incoming follow requests.
 
@@ -7,7 +7,6 @@ import {
   View,
   ScrollView,
   Pressable,
-  ActivityIndicator,
   RefreshControl,
   StyleSheet,
 } from 'react-native';
@@ -21,9 +20,9 @@ import {
   EmptyState,
   Screen,
   Txt,
-  sheet,
-} from '@/ui/components';
+  sheet, SkeletonList} from '@/ui/components';
 import { radius, space, useTheme } from '@/ui/tokens';
+import { Ionicons } from '@expo/vector-icons';
 
 export default function FollowRequestsScreen() {
   const c = useTheme();
@@ -108,13 +107,11 @@ export default function FollowRequestsScreen() {
             hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
             style={{ minWidth: 44, minHeight: 44, justifyContent: 'center' }}
           >
-            <Txt variant="body" color="accent" style={{ fontWeight: '600' }}>
-              ← Back
-            </Txt>
+            <Ionicons name="chevron-back" size={24} color={c.ink} />
           </Pressable>
 
-          <Txt variant="title" style={{ fontWeight: '700', fontSize: 17 }}>
-            Follow Requests
+          <Txt variant="title">
+            Follow requests
           </Txt>
 
           <View style={{ minWidth: 44 }} />
@@ -132,11 +129,11 @@ export default function FollowRequestsScreen() {
         }
       >
         {loading && requests.length === 0 ? (
-          <ActivityIndicator size="large" color={c.accent} style={{ marginTop: space[6] }} />
+          <SkeletonList lead="avatar" style={{ paddingHorizontal: 0, paddingTop: 0 }} />
         ) : requests.length === 0 ? (
           <EmptyState
-            title="No Pending Requests"
-            subtitle="When people request to follow your account, their requests will show up here."
+            title="No pending requests"
+            subtitle="When people request to follow your account, their requests will show up here"
           />
         ) : (
           requests.map((item) => {
@@ -154,12 +151,12 @@ export default function FollowRequestsScreen() {
                     <View
                       style={[
                         styles.avatar,
-                        { backgroundColor: c.accentSoft, borderColor: c.line },
+                        { backgroundColor: c.surface2, borderColor: c.line },
                       ]}
                     >
                       <Txt
                         variant="title"
-                        style={{ fontSize: 18, fontWeight: '800', color: c.accent }}
+                        style={{ fontSize: 18, fontWeight: '500', color: c.ink2 }}
                       >
                         {(item.display_name || item.username).charAt(0).toUpperCase()}
                       </Txt>
@@ -174,7 +171,7 @@ export default function FollowRequestsScreen() {
                         router.push(`/user/${item.id}` as any);
                       }}
                     >
-                      <Txt variant="title" style={{ fontSize: 16, fontWeight: '700' }}>
+                      <Txt variant="body" style={{ fontWeight: '500' }}>
                         {item.display_name || item.username}
                       </Txt>
                       <Txt variant="caption" color="muted">

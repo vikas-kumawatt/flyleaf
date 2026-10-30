@@ -26,8 +26,8 @@ import { useSession } from '@/lib/session';
 import { ReportSheet, type ReportTarget } from '@/ui/ReportSheet';
 import { useActionGate } from '@/ui/ActionGate';
 import { useOfflineSync } from '@/offline/sync';
-import { Button, Card, Cover, Screen, Stars, Txt, sheet } from '@/ui/components';
-import { radius, space, useTheme } from '@/ui/tokens';
+import { Button, Card, Cover, Screen, Stars, Txt, sheet, Skeleton } from '@/ui/components';
+import { fontFamilies, radius, space, useTheme } from '@/ui/tokens';
 
 export default function ReviewDetailScreen() {
   const c = useTheme();
@@ -109,7 +109,7 @@ export default function ReviewDetailScreen() {
     if (!review) return;
     try {
       await Share.share({
-        message: `Review of ${review.work_title ?? 'Book'} by ${review.author.username} on Flyleaf:\n\n"${review.body.slice(0, 200)}..."`,
+        message: `Review of ${review.work_title ?? 'Book'} by ${review.author.username} on Flyleaf:\n\n"${review.body.slice(0, 200)}…"`,
       });
     } catch {
       // User cancelled
@@ -118,7 +118,7 @@ export default function ReviewDetailScreen() {
 
   const handleDelete = () => {
     if (!review) return;
-    Alert.alert('Delete review?', 'Are you sure you want to delete your review?', [
+    Alert.alert('Delete review?', 'Your review, its likes and comments will be removed.', [
       { text: 'Cancel', style: 'cancel' },
       {
         text: 'Delete',
@@ -129,7 +129,7 @@ export default function ReviewDetailScreen() {
             void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
             router.back();
           } catch (err: any) {
-            Alert.alert('Error', err?.message || 'Could not delete review.');
+            Alert.alert('Not deleted', err?.message || 'The review could not be deleted. Try again.');
           }
         },
       },
@@ -139,8 +139,23 @@ export default function ReviewDetailScreen() {
   if (loading || !review) {
     return (
       <Screen>
-        <View style={[sheet.pad, { paddingTop: insets.top + space[6] }]}>
-          <Txt color="muted">Loading review…</Txt>
+        <View
+          accessible
+          accessibilityLabel="Loading review"
+          accessibilityState={{ busy: true }}
+          style={[sheet.pad, { paddingTop: insets.top + space[6], gap: space[4] }]}
+        >
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: space[3] }}>
+            <Skeleton width={40} height={40} borderRadius={20} />
+            <View style={{ flex: 1, gap: space[2] }}>
+              <Skeleton width="45%" height={14} />
+              <Skeleton width="30%" height={12} />
+            </View>
+          </View>
+          <Skeleton width="60%" height={24} />
+          {['100%', '96%', '92%', '98%', '64%'].map((w, i) => (
+            <Skeleton key={i} width={w as `${number}%`} height={16} />
+          ))}
         </View>
       </Screen>
     );
@@ -174,7 +189,7 @@ export default function ReviewDetailScreen() {
           <Ionicons name="chevron-back" size={24} color={c.ink} />
         </Pressable>
 
-        <Txt variant="body" style={{ fontWeight: '600' }}>
+        <Txt variant="body" style={{ fontWeight: '500' }}>
           Review
         </Txt>
 
@@ -232,12 +247,12 @@ export default function ReviewDetailScreen() {
                 borderColor: c.line,
               }}
             >
-              <Txt variant="title" style={{ fontWeight: '600' }}>
+              <Txt variant="title">
                 {review.author.username.charAt(0).toUpperCase()}
               </Txt>
             </View>
-            <View style={{ gap: 2 }}>
-              <Txt variant="body" style={{ fontWeight: '600' }}>
+            <View style={{ gap: space[1] }}>
+              <Txt variant="body" style={{ fontWeight: '500' }}>
                 {review.author.display_name || review.author.username}
               </Txt>
               <Txt variant="caption" color="muted">
@@ -259,7 +274,6 @@ export default function ReviewDetailScreen() {
               flexDirection: 'row',
               alignItems: 'center',
               gap: space[3],
-              backgroundColor: c.surface2,
             }}
           >
             <Cover
@@ -268,8 +282,8 @@ export default function ReviewDetailScreen() {
               author={review.work_author ?? ''}
               size="s"
             />
-            <View style={{ flex: 1, gap: 2 }}>
-              <Txt variant="body" style={{ fontWeight: '600' }} numberOfLines={2}>
+            <View style={{ flex: 1, gap: space[1] }}>
+              <Txt variant="title" style={{ fontFamily: fontFamilies.displayMedium }} numberOfLines={2}>
                 {review.work_title ?? 'Book'}
               </Txt>
               {review.work_author ? (
@@ -283,24 +297,22 @@ export default function ReviewDetailScreen() {
         </Pressable>
 
         {/* 3. Rating & Affection Header */}
-        <View style={[sheet.row, { justifyContent: 'space-between', paddingHorizontal: space[1] }]}>
+        <View style={[sheet.row, { justifyContent: 'space-between' }]}>
           <View style={[sheet.row, { gap: space[2] }]}>
             <Stars value={review.rating ?? null} size={22} />
           </View>
           {review.hearted && (
             <View style={[sheet.row, { gap: space[1] }]}>
-              <Txt variant="body" style={{ color: c.heart }}>
-                ♥
-              </Txt>
+              <Ionicons name="heart" size={16} color={c.heart} />
               <Txt variant="micro" color="muted">
-                Loved
+                Hearted
               </Txt>
             </View>
           )}
         </View>
 
         {/* 4. Review Body with Spoiler Gate (PRD §6.25, §6.26) */}
-        <Card style={{ gap: space[3], minHeight: 120 }}>
+        <View style={{ gap: space[3], minHeight: 120 }}>
           {isSpoiled ? (
             <Pressable
               onPress={() => {
@@ -316,29 +328,25 @@ export default function ReviewDetailScreen() {
               accessibilityRole="button"
               accessibilityLabel="Reveal spoiler review content"
             >
-              <Ionicons name="alert-circle-outline" size={32} color={c.accent} />
-              <Txt variant="body" style={{ fontWeight: '600', textAlign: 'center' }}>
+              <Ionicons name="alert-circle-outline" size={24} color={c.ink2} />
+              <Txt variant="body" style={{ fontWeight: '500', textAlign: 'center' }}>
                 This review contains spoilers
               </Txt>
               {review.spoiler_after_page ? (
                 <Txt variant="caption" color="muted">
-                  (Spoilers start after page {review.spoiler_after_page})
+                  Spoilers start after page {review.spoiler_after_page}
                 </Txt>
               ) : null}
-              <Txt variant="caption" color="accent" style={{ marginTop: space[1] }}>
-                Tap to reveal review
+              <Txt variant="caption" color="accent" style={{ fontWeight: '500', marginTop: space[1] }}>
+                Tap to reveal
               </Txt>
             </Pressable>
           ) : (
-            <Txt
-              variant="body"
-              color="ink"
-              style={{ fontSize: 17, lineHeight: 26, letterSpacing: -0.2 }}
-            >
+            <Txt variant="bodyL" color="ink">
               {review.body}
             </Txt>
           )}
-        </Card>
+        </View>
 
         {/* 5. Like Button & Social Footer */}
         <View style={[sheet.row, { justifyContent: 'space-between', marginTop: space[2] }]}>
@@ -349,20 +357,18 @@ export default function ReviewDetailScreen() {
             style={[
               sheet.row,
               {
-                paddingHorizontal: space[4],
-                paddingVertical: space[2],
-                borderRadius: radius.pill,
+                paddingHorizontal: space[3],
+                minHeight: 44,
+                borderRadius: radius.md,
                 borderWidth: 1,
-                borderColor: liked ? c.heart : c.line,
-                backgroundColor: liked ? c.surface2 : c.surface,
+                borderColor: c.line,
+                backgroundColor: c.surface,
                 gap: space[2],
               },
             ]}
           >
-            <Txt variant="title" style={{ color: liked ? c.heart : c.lineStrong }}>
-              {liked ? '♥' : '♡'}
-            </Txt>
-            <Txt variant="caption" style={{ fontWeight: '600', color: liked ? c.heart : c.ink }} tabular>
+            <Ionicons name={liked ? 'heart' : 'heart-outline'} size={18} color={liked ? c.heart : c.ink2} />
+            <Txt variant="caption" style={{ fontWeight: '500' }} tabular>
               {likeCount > 0 ? likeCount.toLocaleString() : 'Like'}
             </Txt>
           </Pressable>
@@ -374,10 +380,9 @@ export default function ReviewDetailScreen() {
             style={[
               sheet.row,
               {
-                paddingHorizontal: space[4],
-                paddingVertical: space[2],
+                paddingHorizontal: space[3],
                 minHeight: 44,
-                borderRadius: radius.pill,
+                borderRadius: radius.md,
                 borderWidth: 1,
                 borderColor: c.line,
                 backgroundColor: c.surface,
@@ -385,14 +390,14 @@ export default function ReviewDetailScreen() {
               },
             ]}
           >
-            <Ionicons name="chatbubble-outline" size={16} color={c.ink} />
-            <Txt variant="caption" style={{ fontWeight: '600', color: c.ink }} tabular>
+            <Ionicons name="chatbubble-outline" size={18} color={c.ink2} />
+            <Txt variant="caption" style={{ fontWeight: '500' }} tabular>
               {(review.comment_count ?? 0) > 0 ? (review.comment_count ?? 0).toLocaleString() : 'Comment'}
             </Txt>
           </Pressable>
 
-          <Txt variant="micro" color="muted">
-            Visibility: {review.visibility}
+          <Txt variant="micro" color="muted" style={{ textTransform: 'capitalize' }}>
+            {review.visibility}
           </Txt>
         </View>
       </ScrollView>

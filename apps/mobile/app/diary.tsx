@@ -13,8 +13,9 @@ import { OfflineRepository } from '@/offline/repository';
 import type { LocalRead } from '@/offline/schema';
 import { api } from '@/lib/api';
 import { DiaryView } from '@/ui/DiaryView';
-import { Screen, Txt, sheet } from '@/ui/components';
+import { Screen, Txt, sheet, SkeletonList } from '@/ui/components';
 import { space, useTheme } from '@/ui/tokens';
+import { Ionicons } from '@expo/vector-icons';
 
 export default function DiaryScreen() {
   const c = useTheme();
@@ -85,14 +86,10 @@ export default function DiaryScreen() {
             hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
             style={{ minWidth: 44, minHeight: 44, justifyContent: 'center' }}
           >
-            <Txt variant="body" color="accent" style={{ fontWeight: '600' }}>
-              ← Back
-            </Txt>
+            <Ionicons name="chevron-back" size={24} color={c.ink} />
           </Pressable>
 
-          <Txt variant="title" style={{ fontWeight: '700', fontSize: 18 }}>
-            Reading Diary
-          </Txt>
+          <Txt variant="title">Diary</Txt>
 
           <Pressable
             onPress={() => {
@@ -104,7 +101,7 @@ export default function DiaryScreen() {
             hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
             style={{ minWidth: 44, minHeight: 44, justifyContent: 'center', alignItems: 'flex-end' }}
           >
-            <Txt variant="body" color="accent" style={{ fontWeight: '600' }}>
+            <Txt variant="body" color="ink2" style={{ fontWeight: '500' }}>
               Stats
             </Txt>
           </Pressable>
@@ -121,7 +118,11 @@ export default function DiaryScreen() {
           <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={c.accent} />
         }
       >
-        <DiaryView reads={reads} />
+        {loading && reads.length === 0 ? (
+          <SkeletonList lead="cover" style={{ paddingHorizontal: 0, paddingTop: 0 }} />
+        ) : (
+          <DiaryView reads={reads} />
+        )}
       </ScrollView>
     </Screen>
   );

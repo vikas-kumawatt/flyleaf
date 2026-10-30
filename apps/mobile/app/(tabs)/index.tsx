@@ -47,15 +47,8 @@ import {
   type FeedTab,
   type WantToReadOutcome,
 } from '@/lib/homeFeed';
-import {
-  Card,
-  EmptyState,
-  Screen,
-  SegmentedControl,
-  Txt,
-  sheet,
-} from '@/ui/components';
-import { radius, space, useTheme } from '@/ui/tokens';
+import { Card, EmptyState, Screen, SegmentedControl, Txt, sheet, Skeleton } from '@/ui/components';
+import { cover, radius, space, useTheme } from '@/ui/tokens';
 
 const DISMISSED_IMPORTS_KEY = 'home_dismissed_imports';
 
@@ -281,8 +274,8 @@ export default function HomeScreen() {
         </View>
       )}
       {banner && (
-        <Card style={{ backgroundColor: c.accentSoft, borderColor: c.accentSoft }}>
-          <Txt variant="body" color="accent" style={{ fontWeight: '600' }}>
+        <Card>
+          <Txt variant="body" style={{ fontWeight: '500' }}>
             {banner.title}
           </Txt>
           <Txt variant="caption" color="ink2" style={{ marginTop: space[1] }}>
@@ -295,7 +288,7 @@ export default function HomeScreen() {
               accessibilityLabel="Find readers to follow"
               style={styles.link}
             >
-              <Txt variant="caption" color="accent" style={{ fontWeight: '600' }}>
+              <Txt variant="caption" color="accent" style={{ fontWeight: '500' }}>
                 Find readers to follow
               </Txt>
             </Pressable>
@@ -307,7 +300,7 @@ export default function HomeScreen() {
 
   const footer = (() => {
     if (load === 'more') {
-      return <ActivityIndicator style={{ marginVertical: space[4] }} color={c.accent} />;
+      return <ActivityIndicator style={{ marginVertical: space[4] }} color={c.muted} />;
     }
     if (failure === 'more') {
       return (
@@ -318,7 +311,7 @@ export default function HomeScreen() {
           style={[styles.retryRow, { borderColor: c.line }]}
         >
           <Ionicons name="refresh" size={18} color={c.accent} />
-          <Txt variant="caption" color="accent" style={{ fontWeight: '600' }}>
+          <Txt variant="caption" color="accent" style={{ fontWeight: '500' }}>
             Could not load more. Tap to try again.
           </Txt>
         </Pressable>
@@ -341,11 +334,27 @@ export default function HomeScreen() {
     if (load === 'loading') {
       // Skeleton cards on first load (§6.13).
       return (
-        <View style={{ gap: space[4] }} accessibilityLabel="Loading your feed">
+        <View
+          style={{ gap: space[4] }}
+          accessible
+          accessibilityLabel="Loading your feed"
+          accessibilityState={{ busy: true }}
+        >
           {[0, 1, 2].map((k) => (
             <Card key={k}>
-              <View style={[styles.skeletonLine, { width: '40%', backgroundColor: c.surface2 }]} />
-              <View style={[styles.skeletonBlock, { backgroundColor: c.surface2 }]} />
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: space[3] }}>
+                <Skeleton width={32} height={32} borderRadius={16} />
+                <Skeleton width="45%" height={12} />
+              </View>
+              <View style={{ flexDirection: 'row', gap: space[3], marginTop: space[3] }}>
+                <Skeleton width={cover.s.width} height={cover.s.height} borderRadius={radius.xs} />
+                <View style={{ flex: 1, gap: space[2] }}>
+                  <Skeleton width="75%" height={16} />
+                  <Skeleton width="50%" height={12} />
+                  <Skeleton width="90%" height={12} style={{ marginTop: space[2] }} />
+                  <Skeleton width="70%" height={12} />
+                </View>
+              </View>
             </Card>
           ))}
         </View>
@@ -360,7 +369,7 @@ export default function HomeScreen() {
           style={[styles.retryRow, { borderColor: c.line }]}
         >
           <Ionicons name="refresh" size={18} color={c.accent} />
-          <Txt variant="caption" color="accent" style={{ fontWeight: '600' }}>
+          <Txt variant="caption" color="accent" style={{ fontWeight: '500' }}>
             Could not load the feed. Tap to try again.
           </Txt>
         </Pressable>
@@ -374,7 +383,7 @@ export default function HomeScreen() {
           subtitle="Follow a few readers and their finishes and reviews show up here."
           action={
             <Pressable onPress={() => router.push('/onboarding/follow' as any)} accessibilityRole="button" style={styles.link}>
-              <Txt variant="body" color="accent" style={{ fontWeight: '600' }}>
+              <Txt variant="body" color="accent" style={{ fontWeight: '500' }}>
                 Find readers to follow
               </Txt>
             </Pressable>
@@ -395,7 +404,8 @@ export default function HomeScreen() {
             styles.toast,
             {
               top: insets.top + space[2],
-              backgroundColor: toast.tone === 'error' ? c.critical : toast.tone === 'info' ? c.ink2 : c.accent,
+              // Inverted neutral; the icon carries the tone, critical keeps its colour
+              backgroundColor: toast.tone === 'error' ? c.critical : c.ink,
               shadowColor: c.ink,
             },
           ]}
@@ -405,7 +415,7 @@ export default function HomeScreen() {
             size={20}
             color={c.surface}
           />
-          <Txt variant="body" color="surface" style={{ fontWeight: '600', flex: 1 }}>
+          <Txt variant="body" color="surface" style={{ fontWeight: '500', flex: 1 }}>
             {toast.message}
           </Txt>
           {toast.undoReadId && (
@@ -415,7 +425,7 @@ export default function HomeScreen() {
               accessibilityLabel="Undo"
               style={styles.toastButton}
             >
-              <Txt variant="body" color="surface" style={{ fontWeight: '700' }}>
+              <Txt variant="body" color="surface" style={{ fontWeight: '500' }}>
                 Undo
               </Txt>
             </Pressable>
@@ -429,7 +439,7 @@ export default function HomeScreen() {
           style={{
             flexDirection: 'row',
             alignItems: 'center',
-            backgroundColor: c.accentSoft,
+            backgroundColor: c.surface2,
             paddingHorizontal: space[4],
             paddingVertical: space[3],
             gap: space[3],
@@ -437,8 +447,8 @@ export default function HomeScreen() {
             borderBottomColor: c.line,
           }}
         >
-          <Ionicons name="bookmark" size={20} color={c.accent} />
-          <Txt variant="body" color="accent" style={{ flex: 1, fontWeight: '500' }}>
+          <Ionicons name="bookmark-outline" size={18} color={c.ink2} />
+          <Txt variant="body" style={{ flex: 1 }}>
             {migrationMessage}
           </Txt>
           <Pressable
@@ -464,7 +474,7 @@ export default function HomeScreen() {
         }}
       >
         <View style={[sheet.row, { justifyContent: 'space-between' }]}>
-          <Txt variant="displayM">Flyleaf</Txt>
+          <Txt variant="displayL">Flyleaf</Txt>
           <View style={sheet.row}>
             {user ? (
               <Pressable
@@ -476,10 +486,10 @@ export default function HomeScreen() {
                 accessibilityLabel={badge ? `Notifications, ${badge} unread` : 'Notifications'}
                 style={styles.headerIconButton}
               >
-                <Ionicons name="notifications-outline" size={22} color={c.ink} />
+                <Ionicons name="notifications-outline" size={20} color={c.ink2} />
                 {badge ? (
                   <View style={[styles.badge, { backgroundColor: c.accent, borderColor: c.ground }]}>
-                    <Txt variant="micro" style={{ color: c.ground, fontSize: 10, lineHeight: 12, fontWeight: '700' }}>
+                    <Txt variant="micro" tabular style={{ color: c.onAccent, lineHeight: 16 }}>
                       {badge}
                     </Txt>
                   </View>
@@ -492,7 +502,7 @@ export default function HomeScreen() {
                 accessibilityLabel="Sign in"
                 style={styles.headerIconButton}
               >
-                <Txt variant="body" color="accent" style={{ fontWeight: '600' }}>
+                <Txt variant="body" color="accent" style={{ fontWeight: '500' }}>
                   Sign in
                 </Txt>
               </Pressable>
@@ -517,11 +527,11 @@ export default function HomeScreen() {
       {gated ? (
         <EmptyState
           title="Follow readers to see their activity"
-          subtitle="Sign in to follow friends, discover book recommendations, and see reviews in your personal feed."
+          subtitle="Sign in to follow friends and see what they finish and review."
           action={
             <Pressable onPress={() => router.push('/auth')} accessibilityRole="button" style={styles.link}>
-              <Txt variant="body" color="accent" style={{ fontWeight: '600' }}>
-                Sign in to Flyleaf
+              <Txt variant="body" color="accent" style={{ fontWeight: '500' }}>
+                Sign in
               </Txt>
             </Pressable>
           }
@@ -565,13 +575,13 @@ const styles = StyleSheet.create({
   },
   badge: {
     position: 'absolute',
-    top: 6,
+    top: space[2],
     right: 4,
     minWidth: 16,
     height: 16,
-    paddingHorizontal: 3,
-    borderRadius: radius.pill,
-    borderWidth: 1.5,
+    paddingHorizontal: 4,
+    borderRadius: 8,
+    borderWidth: 2,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -586,10 +596,11 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: space[2],
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.15,
-    shadowRadius: 6,
-    elevation: 4,
+    // Floating: one soft neutral shadow, nothing coloured
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.08,
+    shadowRadius: 24,
+    elevation: 3,
   },
   toastButton: {
     minWidth: 44,
@@ -622,14 +633,5 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: space[1],
     paddingVertical: space[6],
-  },
-  skeletonLine: {
-    height: 12,
-    borderRadius: 6,
-    marginBottom: space[3],
-  },
-  skeletonBlock: {
-    height: 72,
-    borderRadius: 8,
   },
 });

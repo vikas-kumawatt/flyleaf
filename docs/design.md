@@ -1,7 +1,7 @@
 # Flyleaf — Design System
 
 **Companion to:** `PRD.md` §36–38
-**Version:** 1.0
+**Version:** 2.0 (unslop redesign, Oct 2026)
 **Platform:** React Native (Expo). Values in dp/pt; both platforms share one scale.
 
 ---
@@ -10,7 +10,19 @@
 
 > **The interface recedes; covers advance.**
 
-Book covers are wildly varied and saturated. An interface with its own strong colour fights every single one of them. So Flyleaf is near-monochrome with one accent, and the colour in the product comes from the books.
+Book covers are wildly varied and saturated. An interface with its own strong colour fights every single one of them. So Flyleaf is graphite with one ink-blue accent, and the colour in the product comes from the books.
+
+Version 2 is built on [unslop](../.claude/skills/unslop/SKILL.md) by Damir Sokolovsky (@heydamir, CC BY 4.0): quiet chrome, richness only in the moments that matter.
+
+### Direction
+
+| | |
+|---|---|
+| **Product** | A reading tracker where people log what they read, rate it in half-stars, and keep a diary and a wall of covers |
+| **Character** | Bookish, unhurried, exact |
+| **World** | A well-made hardback: paper, ink and cloth, often read at night |
+| **Moments** | The covers themselves (Wall, reading card, book hero), and the progress bar and goal ring filling |
+| **Signature** | The gold half-star row with its numeral. Gold appears nowhere else |
 
 The product should feel like **a well-made hardback, not a SaaS dashboard.** Literary but modern, expressive but calm, premium through restraint rather than ornament.
 
@@ -20,38 +32,41 @@ The product should feel like **a well-made hardback, not a SaaS dashboard.** Lit
 
 ## 2. Colour
 
-Near-monochrome, cover-forward. One accent, used only for interactive elements. Stars are the only other coloured element.
+Graphite surfaces, one ink-blue accent for interaction. Stars and the heart are the only other coloured elements.
 
 ### Tokens
 
 | Token | Light | Dark | Use |
 |---|---|---|---|
-| `ground` | `#F7F7F5` | `#0F1113` | App background |
-| `surface` | `#FFFFFF` | `#17191C` | Cards, sheets |
-| `surface2` | `#EFEFEC` | `#1F2226` | Nested surfaces, inputs |
-| `ink` | `#14161A` | `#ECEEF0` | Primary text |
-| `ink2` | `#43484F` | `#B4BAC2` | Secondary text |
-| `muted` | `#6E747C` | `#868D96` | Tertiary, metadata |
-| `line` | `#E2E2DE` | `#262A2F` | Dividers, borders |
-| `lineStrong` | `#CBCBC5` | `#363B41` | Emphasised borders |
-| `accent` | `#2F5D50` | `#7FB3A1` | Interactive, links, active tab |
-| `accentSoft` | `#E4EDE9` | `#18241F` | Selected backgrounds |
-| `star` | `#C8951F` | `#E0AF45` | **Rating stars only** |
-| `heart` | `#A8443A` | `#D9756A` | The heart (§9.4) |
-| `positive` | `#2E6B4E` | `#6DB68B` | Success |
-| `critical` | `#93441D` | `#D4906A` | Destructive, errors |
-| `overlay` | `rgba(20,22,26,0.4)` | `rgba(0,0,0,0.6)` | Sheet scrims |
+| `ground` | `#FAFAFA` | `#141415` | App background |
+| `surface` | `#FFFFFF` | `#19191B` | Cards, sheets |
+| `surface2` | `#F4F4F5` | `#232325` | Raised: inputs, active rows, segmented tracks |
+| `ink` | `#171717` | `#EDEDED` | Primary text |
+| `ink2` | `#525252` | `#A1A1A6` | Secondary text |
+| `muted` | `#737373` | `#85858B` | Meta, captions, icons |
+| `line` | ink at 8% | ink at 8% | Hairlines |
+| `lineStrong` | ink at 16% | ink at 16% | Emphasised hairlines, empty stars |
+| `accent` | `#3355C4` | `#8DA6EE` | Primary action, links, selection (6.5:1 / 7.7:1) |
+| `onAccent` | `#FFFFFF` | `#141415` | Text and icons on an accent fill |
+| `accentSoft` | `#EEF2FC` | `#1B2133` | Selected backgrounds |
+| `star` | `#B07F14` | `#E0AF45` | **Rating stars only** |
+| `heart` | `#B4423A` | `#E5726A` | The heart (§9.4) |
+| `positive` | `#16A34A` | `#4CC38A` | Success |
+| `critical` | `#DC2626` | `#E5484D` | Destructive, errors |
+| `overlay` | black 40% | black 60% | Sheet scrims |
+| `scrim` | black 64% | black 64% | Badges drawn over cover art |
 
 ### Rules
 
-1. **Dark mode is a first-class design, not an inversion.** This audience reads at night; a large share will never see the light theme. Dark surfaces are warm-neutral, never pure black, so covers do not appear to float.
+1. **Dark mode is a first-class design, not an inversion.** This audience reads at night. Depth in dark comes from surface steps and hairlines, never shadows.
 2. **Never hardcode a colour.** Every value comes from a token. A literal in a component is a bug.
-3. **Accent restraint.** One accent for interaction. Status is communicated by label first, colour second.
+3. **Accent restraint.** The accent covers a few percent of a screen: the primary action, the selection, a link. Tab bar and filter chips stay neutral.
 4. **Colour is never the sole carrier of meaning.** Ratings show a numeral, statuses show text, charts carry direct labels rather than a colour legend (§38).
+5. **No gradients, glows or coloured shadows.** Light mode may use one soft neutral shadow on floating things (the FAB), nothing else.
 
 ### Status colours — deliberately absent
 
-Want / Reading / Finished / DNF are **not** colour-coded chips. They are labelled controls in `ink2`. Four coloured pills on every book card would fight the covers and reintroduce exactly the visual noise this palette exists to avoid.
+Want / Reading / Finished / DNF are **not** colour-coded chips. They are labelled controls in `ink2`.
 
 ---
 
@@ -59,23 +74,25 @@ Want / Reading / Finished / DNF are **not** colour-coded chips. They are labelle
 
 | Role | Face | Fallback | Why |
 |---|---|---|---|
-| **Display** — screen titles, book titles, review body | **Literata** | Georgia, serif | Designed for screen reading. Serif for review bodies makes long text feel like reading, which is thematically exact |
-| **UI** — labels, buttons, navigation, metadata | **Archivo** | system sans | Legible at small sizes, gets out of the way |
-| **Numerals** — statistics, page counts | Archivo, `tabular-nums` | — | Digits must align in columns |
+| **Display** — screen titles, book titles, review body | **Newsreader** | Georgia, serif | A text serif drawn for long reading on screens. Book titles and reviews should feel like reading |
+| **UI** — labels, buttons, navigation, metadata | **Instrument Sans** | system sans | Warm, legible at 12–15, gets out of the way |
+| **Numerals** — statistics, page counts | Instrument Sans, `tabular-nums` | — | Digits must align in columns |
 
-**Not Inter, not Space Grotesk, not Playfair Display.** The first two are the default-safe choices everything looks like; the third is the "literary" cliché.
+Weights are 400 and 500, with 600 for rare emphasis. **No 700+ anywhere.** Hierarchy comes from size and colour. Custom fonts ignore `fontWeight` on Android, so `Txt` maps a weight to its family (`familyFor` in `tokens.ts`).
+
+**Sentence case everywhere.** No uppercase tracked labels, no italic for emphasis, no negative letter spacing below 16.
 
 ### Scale
 
 | Name | Size / line height | Weight | Use |
 |---|---|---|---|
-| `displayL` | 34 / 40 | 600 | Screen titles |
-| `displayM` | 26 / 32 | 600 | Section headings, book title on detail |
-| `title` | 20 / 26 | 600 | Card titles |
-| `bodyL` | 17 / 26 | 400 | **Review body — serif** |
+| `displayL` | 32 / 38 | 400 serif | Screen titles |
+| `displayM` | 24 / 30 | 500 serif | Section headings, book title on detail |
+| `title` | 17 / 24 | 500 | Card titles |
+| `bodyL` | 17 / 26 | 400 serif | **Review body** |
 | `body` | 15 / 22 | 400 | Standard UI text |
-| `caption` | 13 / 18 | 400 | Metadata |
-| `micro` | 11 / 14 | 500 | Labels, uppercase, `letterSpacing: 0.08em` |
+| `caption` | 13 / 20 | 400 | Metadata |
+| `micro` | 12 / 16 | 500 | Section labels and meta, sentence case, no tracking |
 
 Book titles use the display serif everywhere they appear — cards, rows, detail. It is the single most repeated element in the product and the main carrier of the literary feel.
 
@@ -124,17 +141,20 @@ Everything must work at **360 dp** (Android) and **375 pt** (iPhone SE). Where i
 
 ## 5. Components
 
+### Radius
+Tags 4–6 · controls and inputs 10 · cards 14 · sheets 20 · pill only for avatars, the progress track and toggles. Nested radius: inner = outer − padding, never below 4.
+
 ### Cards
-12pt radius · 1pt `line` border · **no drop shadow in light mode** — elevation comes from surface contrast, which is quieter and reads better against cover art.
+14pt radius · 1pt `line` hairline · **no drop shadow** — elevation comes from surface steps, which is quieter and reads better against cover art.
 
 ### Buttons
 
 | Variant | Spec |
 |---|---|
-| Primary | Filled `accent`, 48pt height, 12pt radius, `body` weight 600 |
-| Secondary | 1pt `accent` outline, transparent fill |
+| Primary | Filled `accent`, `onAccent` text, 48pt height (36 small), 10pt radius, `body` weight 500 |
+| Secondary | `surface2` fill, 1pt `line` hairline, `ink` text |
 | Tertiary | Text only, `accent` |
-| Destructive | `critical` outline; filled only on the confirmation step |
+| Destructive | `critical` text with a hairline; filled only on the confirmation step |
 
 Minimum touch target **44 × 44** everywhere, regardless of visual size.
 
@@ -158,7 +178,7 @@ Outline → filled, `heart` token, scale bounce 200ms, haptic. Sits beside the s
 6pt height, fully rounded, `accent` fill, animates over 400ms on change. **That animation is the reward for the core daily action** — do not shorten it.
 
 ### Tab bar
-5 tabs plus a central FAB. Icons with labels. Active state in `accent`. The bar never disappears except in full-screen modals (log sheet, scanner, share preview).
+5 tabs plus a central FAB. Outline icons with labels, hairline top border. Active state in `ink`, inactive `muted`; the accent is kept for actions. The bar never disappears except in full-screen modals (log sheet, scanner, share preview).
 
 ### Empty states
 **Always an illustration or real content, a warm line of copy, and one concrete action. Never a shrug.**
@@ -170,6 +190,9 @@ Outline → filled, `heart` token, scale bounce 200ms, haptic. Sits beside the s
 | Feed, no follows | *Never empty* — auto-switch to Popular with an inline suggestion carousel |
 | Wall, <4 books | Section hidden entirely — a sparse grid looks worse than nothing |
 | Stats, <3 books | "Finish a few books and your stats will appear" + preview illustration |
+
+### Icons
+Ionicons outline, 16 or 18 inline (22 in the tab bar), coloured by their text role. **No emoji in the interface.** Stars and hearts are icons in `star` / `heart`, never typed glyphs.
 
 ### Skeletons
 Shape-matched to real content, subtle shimmer. **Never a centred spinner on a full screen.**
@@ -207,12 +230,14 @@ Every gesture has a visible, tappable equivalent. **A gesture is never the only 
 | Bottom sheet | Spring, damping 0.8 |
 | **Progress bar change** | **400ms ease-out** — the small reward that makes tracking feel good |
 | Star selection | Scale to 1.15 and back, 150ms, haptic |
-| Like / heart | Scale bounce, 200ms |
+| Like / heart | Scale to 1.1 and back, 200ms, no bounce |
 | Card entry | 40ms stagger, 8pt rise with fade |
 | Stats reveal | Bars grow, donuts sweep, 600ms, first view only |
 | Finish moment | Cover briefly gains a subtle sheen — a beat of ceremony, not confetti |
 
 **Reduced motion:** all of the above become instant opacity changes; the stats reveal renders in its final state. Non-negotiable. Additionally degrade the stats reveal on low-end devices where 60fps is not achievable.
+
+One easing curve everywhere: `cubic-bezier(0.22, 1, 0.36, 1)` (`motion.easing`). Feedback 120–180ms, menus 160–220ms, entrances 300–500ms. Only colour, opacity and transform animate.
 
 > **Restraint rule:** motion confirms actions and rewards the core loop. It never decorates. A book app that animates constantly feels cheap.
 
@@ -233,6 +258,7 @@ Every gesture has a visible, tappable equivalent. **A gesture is never the only 
 | **Never shame** | "Stopped reading" — never "Gave up" or "Failed" |
 | Warm on abandonment | "Not every book is for every reader." |
 | Specific over clever | "Sign up to log *Piranesi*" — not "Join Flyleaf" |
+| Plain punctuation | No exclamation marks; no full stop on labels, buttons or headings; "…" not "..." |
 | Errors explain and offer a fix | "We couldn't load this book. Try again." Never a raw error |
 | No manufactured urgency | No countdowns, no "your streak is at risk", no "you're 3 books behind" |
 | Own it plainly | "Based on 180 of your 247 books — 67 are missing page counts." with a link to fix them |
@@ -270,7 +296,7 @@ Segmented **Reading / Want to read / Diary**. Cards at `coverL` with a progress 
 `coverXL` hero with parallax. Title in display serif. The **status control is the largest element after the cover**. Rating distribution as a histogram. **Friends' ratings above strangers'.** Tabs: Reviews / Editions / Your history. "Where to read" below the fold, library links first.
 
 ### Finish flow
-Cover, "You finished!", **star row already visible and interactive**, heart, date, format chips, review field collapsed to one tap. Skip is visible and unambiguous. Whole flow under 20 seconds.
+Cover, "Finished", **star row already visible and interactive**, heart, date, format chips, review field collapsed to one tap. Skip is visible and unambiguous. Whole flow under 20 seconds.
 
 ### The Wall (§6.37a)
 3-column 2:3 poster grid, sticky filters (Year · Rating · Hearted · Genre · Format). Blurhash placeholders in grid position. Missing covers get a generated typographic poster so the grid never has holes. Shares as a 4×4 collage.
@@ -288,45 +314,7 @@ Segmented Friends / Popular. Reviewed and finished cards are largest. Review exc
 
 ## 11. Tokens as code
 
-```ts
-// src/ui/tokens.ts — the only place literals are permitted
-export const color = {
-  ground:{light:'#F7F7F5',dark:'#0F1113'},
-  surface:{light:'#FFFFFF',dark:'#17191C'},
-  surface2:{light:'#EFEFEC',dark:'#1F2226'},
-  ink:{light:'#14161A',dark:'#ECEEF0'},
-  ink2:{light:'#43484F',dark:'#B4BAC2'},
-  muted:{light:'#6E747C',dark:'#868D96'},
-  line:{light:'#E2E2DE',dark:'#262A2F'},
-  lineStrong:{light:'#CBCBC5',dark:'#363B41'},
-  accent:{light:'#2F5D50',dark:'#7FB3A1'},
-  accentSoft:{light:'#E4EDE9',dark:'#18241F'},
-  star:{light:'#C8951F',dark:'#E0AF45'},
-  heart:{light:'#A8443A',dark:'#D9756A'},
-  positive:{light:'#2E6B4E',dark:'#6DB68B'},
-  critical:{light:'#93441D',dark:'#D4906A'},
-} as const;
-
-export const space = {1:4,2:8,3:12,4:16,6:24,8:32,12:48,16:64} as const;
-export const radius = {sm:6,md:12,lg:16,pill:999} as const;
-export const cover = {
-  xs:{w:32,h:48}, s:{w:56,h:84}, m:{w:88,h:132},
-  l:{w:120,h:180}, xl:{w:180,h:270},
-} as const;
-export const type = {
-  displayL:{family:'Literata',size:34,lh:40,weight:'600'},
-  displayM:{family:'Literata',size:26,lh:32,weight:'600'},
-  title:{family:'Archivo',size:20,lh:26,weight:'600'},
-  bodyL:{family:'Literata',size:17,lh:26,weight:'400'},
-  body:{family:'Archivo',size:15,lh:22,weight:'400'},
-  caption:{family:'Archivo',size:13,lh:18,weight:'400'},
-  micro:{family:'Archivo',size:11,lh:14,weight:'500',tracking:0.08},
-} as const;
-export const motion = {
-  push:280, sheet:{damping:0.8}, progress:400,
-  star:150, like:200, statsReveal:600, stagger:40,
-} as const;
-```
+`apps/mobile/src/ui/tokens.ts` is the only place literals are permitted and the source of truth for every value in §2–§7: `palette`, `space`, `radius` (`xs 4 · sm 6 · md 10 · lg 14 · xl 20 · pill`), `cover`, `fontFamilies`, `familyFor`, `type`, `motion`. The web pages (`apps/api/src/web`, `identity/link-pages.ts`) and the admin console mirror the same palette as CSS variables; the share cards (`apps/api/src/cards/templates.ts`) mirror the light palette and use the same two faces.
 
 ---
 
@@ -345,4 +333,6 @@ Before any screen is considered done:
 - [ ] Screen-reader pass complete for the core flows
 - [ ] Reduced-motion path verified
 - [ ] **No colour literals** — every value from a token
+- [ ] No emoji, no uppercase labels, no weight above 600, no exclamation marks
+- [ ] Spacing on the 4pt grid, radii from `radius`
 - [ ] Covers requested at the size the surface renders

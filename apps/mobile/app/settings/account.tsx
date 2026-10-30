@@ -9,7 +9,7 @@
 //   phone out at its next refresh, and "Sign out everywhere" signs out here at once.
 
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, Alert, ScrollView, View } from 'react-native';
+import { Alert, ScrollView, View } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { Session } from '@flyleaf/api-client';
@@ -24,7 +24,7 @@ import {
   SIGN_OUT_EVERYWHERE_WARNING,
   usernameChangeError,
 } from '@/lib/settings';
-import { Button, Field, Screen, Txt } from '@/ui/components';
+import { Button, Field, Screen, Txt, SkeletonSettings } from '@/ui/components';
 import { ScreenHeader } from '@/ui/ScreenHeader';
 import { Group, NavRow, SectionTitle } from '@/ui/SettingsRows';
 import { space, useTheme } from '@/ui/tokens';
@@ -221,10 +221,12 @@ export default function AccountSettingsScreen() {
         {sessions === null ? (
           sessionsFailed ? (
             <Group>
-              <NavRow label="Could not load your devices" detail="Tap to try again." onPress={() => void loadSessions()} />
+              <NavRow label="Could not load your devices" detail="Tap to try again" onPress={() => void loadSessions()} />
             </Group>
           ) : (
-            <ActivityIndicator color={c.accent} accessibilityLabel="Loading signed-in devices" />
+            <View accessible accessibilityLabel="Loading signed-in devices">
+              <SkeletonSettings rows={2} />
+            </View>
           )
         ) : (
           <Group>
@@ -234,7 +236,7 @@ export default function AccountSettingsScreen() {
                 style={{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: space[4], paddingVertical: space[3], gap: space[3], minHeight: 56 }}
               >
                 <View style={{ flex: 1, gap: 2 }}>
-                  <Txt variant="body" style={{ fontWeight: '600' }}>
+                  <Txt variant="body" style={{ fontWeight: '500' }}>
                     {sessionLabel(s)}
                   </Txt>
                   <Txt variant="caption" color="muted">

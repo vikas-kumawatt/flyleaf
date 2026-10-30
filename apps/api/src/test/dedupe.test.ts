@@ -741,7 +741,7 @@ describe('Admin Dedupe & Merge HTTP Endpoints', () => {
     });
     expect(htmlRes.statusCode).toBe(200);
     expect(htmlRes.headers['content-type']).toContain('text/html');
-    expect(htmlRes.payload).toContain('Flyleaf Admin — Catalog Merges');
+    expect(htmlRes.payload).toContain('<title>Merge review — Flyleaf admin</title>');
     expect(htmlRes.payload).toContain('dedupe_runner@flyleaf.app');
 
     await app.close();

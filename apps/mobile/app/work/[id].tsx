@@ -69,6 +69,20 @@ const formatLabel = (f?: string | null) =>
 /** PRD §9.4: the heart count sits next to the rating count ("2,847 ratings · 1,203 hearts"). */
 const heartsLabel = (n: number) => `${n.toLocaleString()} ${n === 1 ? 'heart' : 'hearts'}`;
 
+/** Filter chip: raised neutral, the selected one a step lighter with a stronger hairline. */
+function useChip() {
+  const c = useTheme();
+  return (selected: boolean) => ({
+    minHeight: 32,
+    paddingHorizontal: space[3],
+    justifyContent: 'center' as const,
+    borderRadius: radius.sm,
+    borderWidth: 1,
+    borderColor: selected ? c.lineStrong : c.line,
+    backgroundColor: selected ? c.surface : c.surface2,
+  });
+}
+
 export default function WorkScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const { user } = useSession();
@@ -78,6 +92,7 @@ export default function WorkScreen() {
   const { isSaved, addBook, removeBook } = useGuestShelf();
   const router = useRouter();
   const c = useTheme();
+  const chip = useChip();
 
   const db = useDatabase();
   const remote = useRemote(id ? () => api.work(id) : null, [id, user?.id]);
@@ -108,11 +123,11 @@ export default function WorkScreen() {
       } else {
         await api.muteWork(work.id);
         setIsMuted(true);
-        Alert.alert('Muted Book', `"${work.title}" has been muted. It will no longer appear in your activity feeds.`);
+        Alert.alert('Muted', `"${work.title}" will no longer appear in your feed.`);
       }
       void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     } catch {
-      Alert.alert('Error', 'Failed to update mute state. Please try again.');
+      Alert.alert('Not saved', 'That change could not be saved. Try again.');
     }
   };
 
@@ -372,7 +387,7 @@ export default function WorkScreen() {
         <View style={{ alignItems: 'center', gap: space[3] }}>
           <Cover coverId={work.cover_id} size="xl" />
           <View style={{ alignItems: 'center', gap: space[1] }}>
-            <Txt variant="displayM" style={{ textAlign: 'center' }}>
+            <Txt variant="displayL" style={{ textAlign: 'center' }}>
               {work.title}
             </Txt>
 
@@ -384,7 +399,7 @@ export default function WorkScreen() {
               accessibilityLabel={`Author ${work.author_name}`}
               hitSlop={8}
             >
-              <Txt variant="bodyL" color="accent" style={{ fontWeight: '500' }}>
+              <Txt variant="body" color="ink2">
                 {work.author_name}
               </Txt>
             </Pressable>
@@ -423,7 +438,7 @@ export default function WorkScreen() {
                 : work.your_read?.status === s.key;
             const label =
               !user && s.key === 'want' && savedInGuestShelf
-                ? 'Saved to Want to read ✓'
+                ? 'Saved to Want to read'
                 : s.label;
             return (
               <Button
@@ -458,8 +473,8 @@ export default function WorkScreen() {
               },
             ]}
           >
-            <Ionicons name="bookmark-outline" size={18} color={c.accent} style={{ marginRight: space[2] }} />
-            <Txt variant="body" color="accent" style={{ fontWeight: '600' }}>
+            <Ionicons name="bookmark-outline" size={18} color={c.ink2} style={{ marginRight: space[2] }} />
+            <Txt variant="body" style={{ fontWeight: '500' }}>
               Add to shelf
             </Txt>
           </Pressable>
@@ -469,7 +484,7 @@ export default function WorkScreen() {
               void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
               void Share.share({
                 title: work.title,
-                message: `Check out ${work.title} by ${work.author_name} on Flyleaf!`,
+                message: `${work.title} by ${work.author_name}, on Flyleaf`,
               });
             }}
             accessibilityRole="button"
@@ -502,13 +517,13 @@ export default function WorkScreen() {
                   paddingHorizontal: space[3],
                   borderRadius: radius.md,
                   borderWidth: 1,
-                  borderColor: isMuted ? c.accent : c.line,
-                  backgroundColor: isMuted ? c.accentSoft : c.surface,
+                  borderColor: isMuted ? c.lineStrong : c.line,
+                  backgroundColor: isMuted ? c.surface2 : c.surface,
                   justifyContent: 'center',
                 },
               ]}
             >
-              <Ionicons name={isMuted ? "volume-mute" : "volume-mute-outline"} size={18} color={isMuted ? c.accent : c.muted} />
+              <Ionicons name={isMuted ? "volume-mute" : "volume-mute-outline"} size={18} color={isMuted ? c.ink : c.muted} />
             </Pressable>
           )}
           {user && (
@@ -527,7 +542,7 @@ export default function WorkScreen() {
         <Card style={{ gap: space[3] }}>
           <View style={[sheet.row, { justifyContent: 'space-between' }]}>
             <Txt variant="micro" color="muted">
-              YOUR RATING
+              Your rating
             </Txt>
             <Txt variant="caption" color="muted">
               Optional
@@ -536,11 +551,6 @@ export default function WorkScreen() {
 
           <View style={[sheet.row, { justifyContent: 'space-between', alignItems: 'center' }]}>
             <Stars value={work.your_read?.rating ?? null} onChange={rate} size={28} />
-            {work.your_read?.rating ? (
-              <Txt variant="body" color="accent" style={{ fontWeight: '600' }}>
-                {work.your_read.rating} ★
-              </Txt>
-            ) : null}
           </View>
 
           {/* Histogram Divider */}
@@ -565,7 +575,7 @@ export default function WorkScreen() {
                   // PRD §9.5: below 5 ratings, the count instead of an average
                   // (the stars drew the average here; audit 09).
                   <View>
-                    <Txt variant="body" style={{ fontWeight: '600' }}>
+                    <Txt variant="body" style={{ fontWeight: '500' }}>
                       {work.rating_count} {work.rating_count === 1 ? 'rating' : 'ratings'}
                     </Txt>
                     {work.heart_count ? (
@@ -588,14 +598,17 @@ export default function WorkScreen() {
             {/* 5-Bar Distribution (work's real ratings; hidden when there are none) */}
             {ratedTotal > 0 && ratingsDistribution.map((item) => (
               <View key={item.stars} style={[sheet.row, { gap: space[2] }]}>
-                <Txt variant="caption" color="muted" tabular style={{ width: 22 }}>
-                  {item.stars}★
-                </Txt>
+                <View style={[sheet.row, { width: 28, gap: 2 }]}>
+                  <Txt variant="caption" color="muted" tabular>
+                    {item.stars}
+                  </Txt>
+                  <Ionicons name="star" size={12} color={c.star} />
+                </View>
                 <View
                   style={{
                     flex: 1,
                     height: 8,
-                    borderRadius: 4,
+                    borderRadius: radius.xs,
                     backgroundColor: c.surface2,
                     overflow: 'hidden',
                   }}
@@ -604,12 +617,12 @@ export default function WorkScreen() {
                     style={{
                       height: '100%',
                       width: `${item.pct}%`,
-                      backgroundColor: c.accent,
-                      borderRadius: 4,
+                      backgroundColor: c.muted,
+                      borderRadius: radius.xs,
                     }}
                   />
                 </View>
-                <Txt variant="micro" color="muted" tabular style={{ width: 34, textAlign: 'right' }}>
+                <Txt variant="micro" color="muted" tabular style={{ width: 36, textAlign: 'right' }}>
                   {item.pct}%
                 </Txt>
               </View>
@@ -621,7 +634,7 @@ export default function WorkScreen() {
         {work.your_read?.status === 'reading' && (
           <Card style={{ gap: space[3] }}>
             <Txt variant="micro" color="muted">
-              CURRENT READING PROGRESS
+              Progress
             </Txt>
             <ProgressBar percent={percent ?? 0} />
             <Txt variant="caption" color="ink2">
@@ -664,7 +677,7 @@ export default function WorkScreen() {
         {work.description ? (
         <Card style={{ gap: space[2] }}>
           <Txt variant="micro" color="muted">
-            ABOUT THIS BOOK
+            About this book
           </Txt>
           <Txt
             variant="body"
@@ -680,7 +693,7 @@ export default function WorkScreen() {
             accessibilityLabel={descExpanded ? 'Show less description' : 'Read full description'}
             hitSlop={8}
           >
-            <Txt variant="caption" color="accent" style={{ fontWeight: '600' }}>
+            <Txt variant="caption" color="accent" style={{ fontWeight: '500' }}>
               {descExpanded ? 'Show less' : 'Read more'}
             </Txt>
           </Pressable>
@@ -690,7 +703,7 @@ export default function WorkScreen() {
         {/* 6. Metadata Strip */}
         <Card style={{ gap: space[2] }}>
           <Txt variant="micro" color="muted">
-            EDITION DETAILS
+            Edition
           </Txt>
           <View style={{ gap: space[2] }}>
             <View style={[sheet.row, { justifyContent: 'space-between' }]}>
@@ -711,7 +724,7 @@ export default function WorkScreen() {
             </View>
             <View style={[sheet.row, { justifyContent: 'space-between' }]}>
               <Txt variant="caption" color="muted">
-                First Published
+                First published
               </Txt>
               <Txt variant="caption" color="ink" tabular>
                 {work.first_publish_year ?? '—'}
@@ -737,7 +750,7 @@ export default function WorkScreen() {
             labels={{
               reviews: 'Reviews',
               editions: 'Editions',
-              history: 'My History',
+              history: 'Your history',
             }}
           />
 
@@ -745,8 +758,8 @@ export default function WorkScreen() {
             <View style={{ gap: space[3] }}>
               {/* Reviews Header with Write CTA */}
               <View style={[sheet.row, { justifyContent: 'space-between', alignItems: 'center' }]}>
-                <Txt variant="body" style={{ fontWeight: '600' }}>
-                  {reviewsTotal > 0 ? `${reviewsTotal} ${reviewsTotal === 1 ? 'Review' : 'Reviews'}` : 'Reviews'}
+                <Txt variant="body" style={{ fontWeight: '500' }}>
+                  {reviewsTotal > 0 ? `${reviewsTotal.toLocaleString()} ${reviewsTotal === 1 ? 'review' : 'reviews'}` : 'Reviews'}
                 </Txt>
                 <Button
                   label="Write a review"
@@ -782,19 +795,14 @@ export default function WorkScreen() {
                       void Haptics.selectionAsync();
                       setReviewSort(s.key);
                     }}
-                    style={{
-                      paddingHorizontal: space[3],
-                      paddingVertical: space[2],
-                      borderRadius: radius.pill,
-                      backgroundColor: reviewSort === s.key ? c.accent : c.surface2,
-                    }}
+                    accessibilityRole="button"
+                    accessibilityState={{ selected: reviewSort === s.key }}
+                    style={chip(reviewSort === s.key)}
                   >
                     <Txt
                       variant="caption"
-                      style={{
-                        fontWeight: reviewSort === s.key ? '600' : '400',
-                        color: reviewSort === s.key ? c.ground : c.ink,
-                      }}
+                      color={reviewSort === s.key ? 'ink' : 'ink2'}
+                      style={{ fontWeight: reviewSort === s.key ? '500' : '400' }}
                     >
                       {s.label}
                     </Txt>
@@ -811,24 +819,20 @@ export default function WorkScreen() {
                       void Haptics.selectionAsync();
                       setRatingFilter(rVal);
                     }}
-                    style={{
-                      paddingHorizontal: space[3],
-                      paddingVertical: 4,
-                      borderRadius: radius.pill,
-                      borderWidth: 1,
-                      borderColor: ratingFilter === rVal ? c.accent : c.line,
-                      backgroundColor: ratingFilter === rVal ? c.surface2 : c.surface,
-                    }}
+                    accessibilityRole="button"
+                    accessibilityLabel={rVal === null ? 'All ratings' : `${rVal} stars`}
+                    accessibilityState={{ selected: ratingFilter === rVal }}
+                    style={[chip(ratingFilter === rVal), sheet.row, { gap: space[1] }]}
                   >
                     <Txt
-                      variant="micro"
-                      style={{
-                        fontWeight: ratingFilter === rVal ? '600' : '400',
-                        color: ratingFilter === rVal ? c.accent : c.muted,
-                      }}
+                      variant="caption"
+                      color={ratingFilter === rVal ? 'ink' : 'ink2'}
+                      tabular
+                      style={{ fontWeight: ratingFilter === rVal ? '500' : '400' }}
                     >
-                      {rVal === null ? 'All stars' : `${rVal}★`}
+                      {rVal === null ? 'All ratings' : rVal}
                     </Txt>
+                    {rVal !== null ? <Ionicons name="star" size={12} color={c.star} /> : null}
                   </Pressable>
                 ))}
               </ScrollView>
@@ -873,20 +877,20 @@ export default function WorkScreen() {
                         <View style={[sheet.row, { gap: space[2] }]}>
                           <View
                             style={{
-                              width: 30,
-                              height: 30,
-                              borderRadius: 15,
+                              width: 32,
+                              height: 32,
+                              borderRadius: 16,
                               backgroundColor: c.surface2,
                               alignItems: 'center',
                               justifyContent: 'center',
                             }}
                           >
-                            <Txt variant="caption" style={{ fontWeight: '600' }}>
+                            <Txt variant="caption" style={{ fontWeight: '500' }}>
                               {rev.author.username.charAt(0).toUpperCase()}
                             </Txt>
                           </View>
                           <View>
-                            <Txt variant="caption" style={{ fontWeight: '600' }}>
+                            <Txt variant="caption" style={{ fontWeight: '500' }}>
                               {rev.author.display_name || rev.author.username}
                             </Txt>
                             <Txt variant="micro" color="muted">
@@ -900,9 +904,7 @@ export default function WorkScreen() {
                         <View style={[sheet.row, { gap: space[2] }]}>
                           <Stars value={rev.rating ?? null} size={14} />
                           {rev.hearted && (
-                            <Txt variant="caption" style={{ color: c.heart }}>
-                              ♥
-                            </Txt>
+                            <Ionicons name="heart" size={14} color={c.heart} accessibilityLabel="Hearted" />
                           )}
                         </View>
                       </View>
@@ -921,15 +923,18 @@ export default function WorkScreen() {
                             backgroundColor: c.surface2,
                             borderRadius: radius.sm,
                             alignItems: 'center',
-                            gap: 4,
+                            gap: space[1],
                           }}
                         >
-                          <Txt variant="caption" style={{ fontWeight: '600', color: c.accent }}>
-                            ⚠️ Contains spoilers
-                          </Txt>
+                          <View style={[sheet.row, { gap: space[1] }]}>
+                            <Ionicons name="alert-circle-outline" size={16} color={c.ink2} />
+                            <Txt variant="caption" color="ink2" style={{ fontWeight: '500' }}>
+                              Contains spoilers
+                            </Txt>
+                          </View>
                           {rev.spoiler_after_page ? (
                             <Txt variant="micro" color="muted">
-                              (after page {rev.spoiler_after_page})
+                              After page {rev.spoiler_after_page}
                             </Txt>
                           ) : null}
                           <Txt variant="micro" color="muted">
@@ -937,7 +942,7 @@ export default function WorkScreen() {
                           </Txt>
                         </Pressable>
                       ) : (
-                        <Txt variant="body" color="ink" style={{ lineHeight: 22 }}>
+                        <Txt variant="bodyL" color="ink" numberOfLines={6}>
                           {rev.body}
                         </Txt>
                       )}
@@ -954,12 +959,16 @@ export default function WorkScreen() {
                             e.stopPropagation();
                             void toggleReviewLike(rev);
                           }}
-                          style={[sheet.row, { gap: 4 }]}
+                          style={[sheet.row, { gap: space[1] }]}
                           hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                          accessibilityRole="button"
+                          accessibilityLabel={rev.viewer_has_liked ? 'Unlike review' : 'Like review'}
                         >
-                          <Txt variant="body" style={{ color: rev.viewer_has_liked ? c.heart : c.muted }}>
-                            {rev.viewer_has_liked ? '♥' : '♡'}
-                          </Txt>
+                          <Ionicons
+                            name={rev.viewer_has_liked ? 'heart' : 'heart-outline'}
+                            size={16}
+                            color={rev.viewer_has_liked ? c.heart : c.muted}
+                          />
                           <Txt variant="micro" color="muted" tabular>
                             {rev.like_count > 0 ? rev.like_count : 'Like'}
                           </Txt>
@@ -982,10 +991,10 @@ export default function WorkScreen() {
               <Card style={{ gap: space[3] }}>
                 <Txt variant="title">Editions of {work.title}</Txt>
                 <Txt variant="caption" color="muted">
-                  {work.editions?.length ?? 0} editions in the catalog.
+                  {(work.editions?.length ?? 0).toLocaleString()} {work.editions?.length === 1 ? 'edition' : 'editions'} in the catalog
                 </Txt>
                 <Button
-                  label="Choose your edition (The copy I own)"
+                  label="Choose the copy you own"
                   variant="primary"
                   onPress={() => router.push(`/work/${work.id}/editions` as any)}
                 />
@@ -998,14 +1007,10 @@ export default function WorkScreen() {
               {work.your_read ? (
                 <Card style={{ gap: space[2] }}>
                   <Txt variant="title">Latest attempt</Txt>
-                  <Txt variant="caption" color="muted">
-                    Status: {work.your_read.status.toUpperCase()}
+                  <Txt variant="caption" color="ink2">
+                    {STATUSES.find((s) => s.key === work.your_read?.status)?.label ?? work.your_read.status}
                   </Txt>
-                  {work.your_read.rating && (
-                    <Txt variant="caption" color="accent">
-                      Your rating: {work.your_read.rating} ★
-                    </Txt>
-                  )}
+                  {work.your_read.rating ? <Stars value={work.your_read.rating} size={14} /> : null}
                 </Card>
               ) : (
                 <EmptyState
