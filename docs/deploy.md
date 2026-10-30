@@ -385,6 +385,7 @@ Check it any time: `sudo docker exec flyleaf-pg psql -U flyleaf -d flyleaf -c '\
 | Task | Command (on the VM) |
 |---|---|
 | Ship a new version | `sudo /opt/flyleaf/deploy/release.sh [branch/tag/commit]` |
+| Ship automatically | merging to `main` does it once CI passes (§ Automatic deploys below) |
 | Undo the last version (code only) | `sudo /opt/flyleaf/deploy/release.sh --rollback` |
 | What is running | `sudo /opt/flyleaf/deploy/release.sh --status` |
 | Re-apply the database roles and grants | `sudo /opt/flyleaf/deploy/db-roles.sh` |
@@ -399,6 +400,45 @@ Check it any time: `sudo docker exec flyleaf-pg psql -U flyleaf -d flyleaf -c '\
 | Update the kit itself | `scp -r deploy …:~/` then `sudo bash ~/deploy/provision.sh` (it reinstalls itself into `/opt/flyleaf/deploy`) |
 
 Migrations are forward-only (§11 rule 5): `--rollback` runs the previous code against the newer schema, which the additive-migration style keeps safe. A release whose migration is not backward-compatible should say so in its PR.
+
+## Automatic deploys
+
+A merge to `main` ships itself: when CI passes on `main`, `.github/workflows/deploy-api.yml` SSHes in and runs the same `release.sh` (build, migrate, restart, health check, roll back by itself on failure). It skips when the server already runs that commit or a newer one, or when nothing under `apps/api` or `packages/api-client` changed. GitHub → Actions → **Deploy API** → **Run workflow** ships `main` by hand.
+
+It logs in as `flyleaf-ci`, whose key can do two things and nothing else: `release <40-hex commit>` and `status`. Three layers hold that: the key is pinned to `deploy/ci-deploy.sh` with `restrict` (no shell, no pty, no forwarding), the script refuses any other command, and `/etc/sudoers.d/flyleaf-ci` allows `release.sh` only with an exact commit or `--status`. It cannot roll back, read the env file, or open a shell.
+
+Until both secrets below exist, every run stops at its first step with a notice and deploys nothing.
+
+### One-time setup ⏱ 15 min · Who: YOU (laptop + GitHub), or Claude through Remote Control
+
+1. **Update the kit on the server** (creates `flyleaf-ci` and its sudoers rule), from the repo on an up-to-date `main`:
+   ```
+   scp -r deploy <admin>@<host>:~/
+   ssh <admin>@<host> 'sudo bash ~/deploy/provision.sh'
+   ```
+2. **Make the key** on the laptop, in a folder outside the repo:
+   ```
+   ssh-keygen -t ed25519 -N '' -C flyleaf-ci -f flyleaf-ci
+   ```
+3. **Give the server the public half:**
+   ```
+   ssh <admin>@<host> "sudo /opt/flyleaf/deploy/ci-deploy.sh --install '$(cat flyleaf-ci.pub)'"
+   ```
+4. **Check it can do only what it should:**
+   - `ssh -i flyleaf-ci flyleaf-ci@<host> status` → `current: /opt/flyleaf/releases/<commit>`
+   - `ssh -i flyleaf-ci flyleaf-ci@<host> id` → `ci-deploy: refused: 'id' …`
+5. **Pin the server's host key.** `ssh-keyscan -t ed25519 <host>` prints one line. Its fingerprint (`ssh-keyscan -t ed25519 <host> | ssh-keygen -lf -`) must equal the one the server reports for itself (`ssh <admin>@<host> ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub`). Different means stop: something is in between.
+6. **GitHub → the repo → Settings → Secrets and variables → Actions → New repository secret**, twice:
+   - `FLYLEAF_DEPLOY_SSH_KEY`: the whole content of the private file `flyleaf-ci` (from `-----BEGIN` to `END … -----`).
+   - `FLYLEAF_DEPLOY_KNOWN_HOSTS`: the `ssh-keyscan` line from step 5.
+
+   Then delete `flyleaf-ci` from the laptop. GitHub keeps it; a lost key is replaced by repeating steps 2, 3 and 6.
+7. **Try it:** Actions → **Deploy API** → **Run workflow**. The run's summary says `released` or `skipped`, and why.
+8. *(Optional)* **Approve each deploy:** Settings → Environments → `production` → Required reviewers → you. Every deploy then waits for a tap.
+
+- **Another host name** (a real domain later): set a repository *variable* `FLYLEAF_DEPLOY_HOST`, and redo step 5 for it.
+- **Turn it off:** `sudo rm /var/lib/flyleaf-ci/.ssh/authorized_keys` on the server, and delete the two secrets.
+- **`deploy/` itself changed:** `release.sh` ships code, not the kit. The run warns; update the kit as in Routine operations (`scp -r deploy …`, then `provision.sh`).
 
 ## When a backup fails
 

@@ -1,0 +1,133 @@
+# Ships main to the server after CI passes on it (docs/deploy.md › Automatic
+# deploys). The same release.sh a person would run: build, migrate, restart,
+# health check, and roll back by itself if the new build is not healthy.
+#
+# Needs two repository secrets, set once:
+#   FLYLEAF_DEPLOY_SSH_KEY     the private half of flyleaf-ci's key
+#   FLYLEAF_DEPLOY_KNOWN_HOSTS the server's host key line (ssh-keyscan, checked)
+# Without them every run stops at the first step with a notice, and nothing
+# is deployed.
+#
+# The key can do two things on the server and nothing else (ci-deploy.sh and
+# its sudoers rule): release an exact commit, or report status.
+
+name: Deploy API
+
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+
+# One release at a time, in order. release.sh also holds a lock on the server.
+concurrency:
+  group: deploy-api
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  DEPLOY_HOST: ${{ vars.FLYLEAF_DEPLOY_HOST || 'flyleaf-vk.koreacentral.cloudapp.azure.com' }}
+  DEPLOY_USER: flyleaf-ci
+
+jobs:
+  deploy:
+    # A green CI run of a push to main, or a manual run (which ships main's tip).
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push')
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    environment:
+      name: production
+      url: https://${{ vars.FLYLEAF_DEPLOY_HOST || 'flyleaf-vk.koreacentral.cloudapp.azure.com' }}/healthz
+
+    steps:
+      - name: Check the deploy secrets
+        id: secrets
+        env:
+          KEY: ${{ secrets.FLYLEAF_DEPLOY_SSH_KEY }}
+          KNOWN: ${{ secrets.FLYLEAF_DEPLOY_KNOWN_HOSTS }}
+        run: |
+          if [ -z "$KEY" ] || [ -z "$KNOWN" ]; then
+            echo "::notice::Automatic deploys are not set up: add FLYLEAF_DEPLOY_SSH_KEY and FLYLEAF_DEPLOY_KNOWN_HOSTS (docs/deploy.md › Automatic deploys). Nothing deployed."
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Which commit
+        if: steps.secrets.outputs.ready == 'true'
+        env:
+          RUN_SHA: ${{ github.event.workflow_run.head_sha }}
+        run: echo "SHA=${RUN_SHA:-$GITHUB_SHA}" >> "$GITHUB_ENV"
+
+      - uses: actions/checkout@v5
+        if: steps.secrets.outputs.ready == 'true'
+        with:
+          ref: ${{ env.SHA }}
+          fetch-depth: 0
+
+      - name: SSH key and pinned host key
+        if: steps.secrets.outputs.ready == 'true'
+        env:
+          KEY: ${{ secrets.FLYLEAF_DEPLOY_SSH_KEY }}
+          KNOWN: ${{ secrets.FLYLEAF_DEPLOY_KNOWN_HOSTS }}
+        run: |
+          install -d -m 700 ~/.ssh
+          printf '%s\n' "$KEY" > ~/.ssh/flyleaf_ci && chmod 600 ~/.ssh/flyleaf_ci
+          printf '%s\n' "$KNOWN" > ~/.ssh/known_hosts && chmod 644 ~/.ssh/known_hosts
+          cat > ~/.ssh/config <<EOF
+          Host flyleaf
+            HostName $DEPLOY_HOST
+            User $DEPLOY_USER
+            IdentityFile ~/.ssh/flyleaf_ci
+            IdentitiesOnly yes
+            BatchMode yes
+            StrictHostKeyChecking yes
+            ServerAliveInterval 30
+          EOF
+
+      # Skip when the server already runs this commit or a newer one (CI runs
+      # can finish out of order), or when nothing the server runs changed.
+      - name: Decide
+        id: decide
+        if: steps.secrets.outputs.ready == 'true'
+        run: |
+          status="$(ssh flyleaf status 2>&1 || true)"
+          current="$(printf '%s\n' "$status" | sed -n 's#^current: .*/releases/\([0-9a-f]\{40\}\)$#\1#p')"
+          echo "Server runs: ${current:-unknown}"
+          if [ -n "$current" ] && git cat-file -e "$current^{commit}" 2>/dev/null; then
+            if git merge-base --is-ancestor "$SHA" "$current"; then
+              echo "::notice::The server already runs $current, which contains $SHA. Nothing to do."
+              echo "go=false" >> "$GITHUB_OUTPUT"; exit 0
+            fi
+            if ! git diff --quiet "$current" "$SHA" -- deploy; then
+              echo "::warning::deploy/ changed. release.sh does not update the kit on the server: run provision.sh there (docs/deploy.md › Routine operations)."
+            fi
+            if git diff --quiet "$current" "$SHA" -- apps/api packages/api-client; then
+              echo "::notice::No change under apps/api or packages/api-client since $current. Nothing to do."
+              echo "go=false" >> "$GITHUB_OUTPUT"; exit 0
+            fi
+          fi
+          echo "go=true" >> "$GITHUB_OUTPUT"
+
+      - name: Release
+        if: steps.decide.outputs.go == 'true'
+        run: ssh flyleaf "release $SHA"
+
+      - name: Summary
+        if: always() && steps.secrets.outputs.ready == 'true'
+        run: |
+          {
+            echo "### Deploy API"
+            echo "- Commit: \`$SHA\`"
+            echo "- Decision: ${{ steps.decide.outputs.go == 'true' && 'released' || 'skipped' }}"
+            echo "- Outcome: ${{ job.status }}"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Forget the key
+        if: always()
+        run: rm -f ~/.ssh/flyleaf_ci

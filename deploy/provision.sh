@@ -407,6 +407,31 @@ step_deploykey() {
   sed 's/^/    /' "$ssh_dir/id_ed25519.pub" >&2
 }
 
+step_cideploy() {
+  # GitHub Actions deploys main through this user (docs/deploy.md › Automatic
+  # deploys). Its key is pinned to ci-deploy.sh, and sudo lets it run
+  # release.sh with an exact commit or --status, nothing else. No key is
+  # installed here: `ci-deploy.sh --install` does that, once, by hand.
+  local home=/var/lib/flyleaf-ci
+  if ! id flyleaf-ci >/dev/null 2>&1; then
+    useradd --system --home-dir "$home" --create-home --shell /bin/bash flyleaf-ci
+  fi
+  # No password, but not "locked" ('!'), which sshd can treat as no login at all.
+  usermod -p '*' flyleaf-ci
+  install -d -m 700 -o flyleaf-ci -g flyleaf-ci "$home/.ssh"
+  command -v visudo >/dev/null || { log "cideploy: no visudo (no sudo here); sudoers rule not written"; return 0; }
+  local tmp; tmp="$(mktemp)"
+  # sudo >= 1.9.10 reads a ^...$ argument as a regular expression.
+  printf 'flyleaf-ci ALL=(root) NOPASSWD: %s ^[0-9a-f]{40}$, %s --status\n' \
+    "$FLYLEAF_HOME/deploy/release.sh" "$FLYLEAF_HOME/deploy/release.sh" > "$tmp"
+  # A broken sudoers file breaks sudo for everyone: check it before it lands.
+  visudo -cqf "$tmp" || { rm -f "$tmp"; die "cideploy: visudo rejected the sudoers rule"; }
+  if ! cmp -s "$tmp" /etc/sudoers.d/flyleaf-ci 2>/dev/null; then
+    install -m 440 -o root -g root "$tmp" /etc/sudoers.d/flyleaf-ci
+  fi
+  rm -f "$tmp"
+}
+
 main() {
   require_root
   # shellcheck disable=SC1091
@@ -415,7 +440,7 @@ main() {
   fi
   local s
   for s in swap apt upgrades docker caddy node user kit env hosts ssh firewall journald \
-           services dbroles storage proxy units deploykey; do
+           services dbroles storage proxy units deploykey cideploy; do
     step "$s"
   done
   log "provision: done. Next: sudo $FLYLEAF_HOME/deploy/release.sh (docs/deploy.md)"
