@@ -403,7 +403,7 @@ Migrations are forward-only (§11 rule 5): `--rollback` runs the previous code a
 
 ## Automatic deploys
 
-A merge to `main` ships itself: when CI passes on `main`, `.github/workflows/deploy-api.yml` SSHes in and runs the same `release.sh` (build, migrate, restart, health check, roll back by itself on failure). It skips when the server already runs that commit or a newer one, or when nothing under `apps/api` or `packages/api-client` changed. GitHub → Actions → **Deploy API** → **Run workflow** ships `main` by hand.
+A merge to `main` ships itself: when CI passes on `main`, `.github/workflows/deploy-api.yml` SSHes in and runs the same `release.sh` (build, migrate, restart, health check, roll back by itself on failure). It skips when the server already runs that commit or a newer one, or when nothing under `apps/api` or `packages/api-client` changed. GitHub → Actions → **Deploy API** → **Run workflow** ships `main` by hand. On a pull request the same workflow only runs `shellcheck` on `deploy/` and writes a summary of what merging will do (deploy or not, migrations, kit changes); it never connects to the server.
 
 It logs in as `flyleaf-ci`, whose key can do two things and nothing else: `release <40-hex commit>` and `status`. Three layers hold that: the key is pinned to `deploy/ci-deploy.sh` with `restrict` (no shell, no pty, no forwarding), the script refuses any other command, and `/etc/sudoers.d/flyleaf-ci` allows `release.sh` only with an exact commit or `--status`. It cannot roll back, read the env file, or open a shell.
 

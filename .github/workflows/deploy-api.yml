@@ -2,6 +2,9 @@
 # deploys). The same release.sh a person would run: build, migrate, restart,
 # health check, and roll back by itself if the new build is not healthy.
 #
+# On a pull request it only checks: shellcheck on the deploy kit, and a
+# summary of whether merging will deploy. It never connects to the server.
+#
 # Needs two repository secrets, set once:
 #   FLYLEAF_DEPLOY_SSH_KEY     the private half of flyleaf-ci's key
 #   FLYLEAF_DEPLOY_KNOWN_HOSTS the server's host key line (ssh-keyscan, checked)
@@ -14,16 +17,13 @@
 name: Deploy API
 
 on:
+  pull_request:
+    paths: ['apps/api/**', 'packages/api-client/**', 'deploy/**', '.github/workflows/deploy-api.yml']
   workflow_run:
     workflows: [CI]
     types: [completed]
     branches: [main]
   workflow_dispatch:
-
-# One release at a time, in order. release.sh also holds a lock on the server.
-concurrency:
-  group: deploy-api
-  cancel-in-progress: false
 
 permissions:
   contents: read
@@ -33,6 +33,47 @@ env:
   DEPLOY_USER: flyleaf-ci
 
 jobs:
+  # ---------------------------------------------------------------- PR dry run
+  check:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    concurrency:
+      group: deploy-check-${{ github.ref }}
+      cancel-in-progress: true
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      # The kit runs as root on the server; CI does not run it otherwise.
+      # (The API build itself is CI's job: scripts/ci.mjs builds it.)
+      - name: shellcheck the deploy kit
+        working-directory: deploy
+        run: find . -name '*.sh' -print0 | xargs -0 shellcheck -x
+
+      - name: Will merging deploy?
+        env:
+          BASE: ${{ github.event.pull_request.base.sha }}
+        run: |
+          {
+            echo "### Deploy API (dry run)"
+            if git diff --quiet "$BASE" HEAD -- apps/api packages/api-client; then
+              echo "No change under apps/api or packages/api-client: merging deploys nothing."
+            else
+              echo "Merging deploys the API once CI passes on main (release.sh: build, migrate, restart, health check, self-rollback)."
+              if ! git diff --quiet "$BASE" HEAD -- apps/api/drizzle; then
+                echo ""
+                echo "**Includes database migrations.** They run before the restart and stay applied on rollback: keep them additive."
+              fi
+            fi
+            if ! git diff --quiet "$BASE" HEAD -- deploy; then
+              echo ""
+              echo "**deploy/ changed.** release.sh does not update the kit on the server: after merging, run provision.sh there (docs/deploy.md › Routine operations)."
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  # ---------------------------------------------------------------- deploy
   deploy:
     # A green CI run of a push to main, or a manual run (which ships main's tip).
     if: >-
@@ -40,6 +81,10 @@ jobs:
       (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push')
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    # One release at a time, in order. release.sh also holds a lock on the server.
+    concurrency:
+      group: deploy-api
+      cancel-in-progress: false
     environment:
       name: production
       url: https://${{ vars.FLYLEAF_DEPLOY_HOST || 'flyleaf-vk.koreacentral.cloudapp.azure.com' }}/healthz
