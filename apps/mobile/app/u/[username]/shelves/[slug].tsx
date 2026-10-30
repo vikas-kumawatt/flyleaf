@@ -42,8 +42,8 @@ export default function UserShelfDeepLinkScreen() {
         if (active) {
           setError(
             err?.status === 404 || err?.code === 'not_found'
-              ? 'This shelf could not be found or is private.'
-              : err?.message || 'Unable to open shelf.',
+              ? 'This shelf does not exist, or it is private'
+              : err?.message || 'Could not open this shelf',
           );
           setLoading(false);
         }
@@ -61,7 +61,7 @@ export default function UserShelfDeepLinkScreen() {
     return (
       <Screen style={[styles.center, { backgroundColor: c.ground }]}>
         <ActivityIndicator size="large" color={c.accent} />
-        <Txt style={{ color: c.muted, marginTop: space[3] }}>Opening shelf...</Txt>
+        <Txt style={{ color: c.muted, marginTop: space[3] }}>Opening shelf…</Txt>
       </Screen>
     );
   }
@@ -69,16 +69,16 @@ export default function UserShelfDeepLinkScreen() {
   return (
     <Screen style={[styles.center, { backgroundColor: c.ground, padding: space[4] }]}>
       <View style={[styles.errorCard, { backgroundColor: c.surface, borderColor: c.line }]}>
-        <Ionicons name="book-outline" size={48} color={c.muted} style={{ marginBottom: space[2] }} />
+        <Ionicons name="book-outline" size={32} color={c.muted} style={{ marginBottom: space[3] }} />
         <Txt variant="title" style={{ color: c.ink, textAlign: 'center', marginBottom: space[2] }}>
-          Shelf Not Available
+          Shelf not available
         </Txt>
         <Txt style={{ color: c.muted, textAlign: 'center', marginBottom: space[4] }}>
           {error}
         </Txt>
         <Button
           variant="primary"
-          label="Explore Shelves"
+          label="Browse shelves"
           onPress={() => router.replace('/(tabs)/shelves' as any)}
           style={{ width: '100%' }}
         />

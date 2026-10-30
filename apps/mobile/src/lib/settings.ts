@@ -41,39 +41,39 @@ export function settingsGroups(opts: { explicitSettingAvailable: boolean }): Set
     {
       title: 'Account',
       rows: [
-        { key: 'account', label: 'Account', detail: 'Email, username, password and signed-in devices.', href: '/settings/account' },
-        { key: 'privacy', label: 'Privacy', detail: 'Who can see your reading.', href: '/settings/privacy' },
-        { key: 'notifications', label: 'Notifications', detail: 'What reaches you, quiet hours and a reading reminder.', href: '/settings/notifications' },
+        { key: 'account', label: 'Account', detail: 'Email, username, password and signed-in devices', href: '/settings/account' },
+        { key: 'privacy', label: 'Privacy', detail: 'Who can see your reading', href: '/settings/privacy' },
+        { key: 'notifications', label: 'Notifications', detail: 'What reaches you, quiet hours and a reading reminder', href: '/settings/notifications' },
       ],
     },
     {
       title: 'Content & people',
       rows: [
         ...(opts.explicitSettingAvailable
-          ? [{ key: 'content', label: 'Content', detail: 'Explicit titles in search.', href: '/profile/content' }]
+          ? [{ key: 'content', label: 'Content', detail: 'Explicit titles in search', href: '/profile/content' }]
           : []),
-        { key: 'blocked', label: 'Blocked accounts', detail: 'People you have blocked.', href: '/profile/blocked' },
-        { key: 'muted', label: 'Muted', detail: 'Muted people and books.', href: '/profile/muted' },
-        { key: 'reports', label: 'Your reports', detail: 'What you reported, and decisions about your content.', href: '/profile/reports' },
+        { key: 'blocked', label: 'Blocked accounts', detail: 'People you have blocked', href: '/profile/blocked' },
+        { key: 'muted', label: 'Muted', detail: 'Muted people and books', href: '/profile/muted' },
+        { key: 'reports', label: 'Your reports', detail: 'What you reported, and decisions about your content', href: '/profile/reports' },
       ],
     },
     {
       title: 'Your data',
       rows: [
-        { key: 'import', label: 'Import & export', detail: 'Bring in Goodreads or StoryGraph, or take a copy of your library.', href: '/import' },
+        { key: 'import', label: 'Import & export', detail: 'Bring in Goodreads or StoryGraph, or take a copy of your library', href: '/import' },
       ],
     },
     {
       title: 'App',
       rows: [
-        { key: 'appearance', label: 'Appearance', detail: 'Theme and text size.', href: '/settings/appearance' },
-        { key: 'about', label: 'About & legal', detail: 'Terms, privacy policy, licences and data sources.', href: '/settings/about' },
+        { key: 'appearance', label: 'Appearance', detail: 'Theme and text size', href: '/settings/appearance' },
+        { key: 'about', label: 'About & legal', detail: 'Terms, privacy policy, licences and data sources', href: '/settings/about' },
       ],
     },
     {
       title: 'Danger zone',
       rows: [
-        { key: 'delete', label: 'Delete account', detail: 'Permanently delete your account after 30 days.', href: '/profile/delete-account', destructive: true },
+        { key: 'delete', label: 'Delete account', detail: 'Permanently delete your account after 30 days', href: '/profile/delete-account', destructive: true },
       ],
     },
   ];
@@ -142,19 +142,19 @@ export function splitTime(value: string | null | undefined): { hour: number | nu
 // ---------------------------------------------------------------- Notifications
 
 export const CATEGORY_COPY: Record<NotificationCategoryKey, { title: string; detail: string }> = {
-  new_follower: { title: 'New followers', detail: 'Someone follows you.' },
-  follow_request: { title: 'Follow requests', detail: 'Someone asks to follow your private account.' },
-  likes: { title: 'Likes', detail: 'Someone likes your review.' },
-  comments: { title: 'Comments', detail: 'Someone comments on your review.' },
-  comment_replies: { title: 'Replies', detail: 'Someone else comments in a thread you commented in.' },
-  mentions: { title: 'Mentions', detail: 'Someone mentions you in a review or comment.' },
-  import_complete: { title: 'Import finished', detail: 'Your library import is done.' },
-  year_in_review: { title: 'Year in Review', detail: 'Your Year in Review is ready.' },
-  invite_joined: { title: 'Invites', detail: 'Someone joins from your invite.' },
-  friend_finished_want: { title: 'Friends finishing your want-to-reads', detail: 'Someone you follow finishes a book you want to read.' },
-  author_new_book: { title: 'New books from authors you follow', detail: 'An author you follow has a new book.' },
-  milestones: { title: 'Milestones', detail: 'A reading milestone you reached.' },
-  weekly_summary: { title: 'Weekly summary', detail: 'Your week of reading.' },
+  new_follower: { title: 'New followers', detail: 'Someone follows you' },
+  follow_request: { title: 'Follow requests', detail: 'Someone asks to follow your private account' },
+  likes: { title: 'Likes', detail: 'Someone likes your review' },
+  comments: { title: 'Comments', detail: 'Someone comments on your review' },
+  comment_replies: { title: 'Replies', detail: 'Someone else comments in a thread you commented in' },
+  mentions: { title: 'Mentions', detail: 'Someone mentions you in a review or comment' },
+  import_complete: { title: 'Import finished', detail: 'Your library import is done' },
+  year_in_review: { title: 'Year in Review', detail: 'Your Year in Review is ready' },
+  invite_joined: { title: 'Invites', detail: 'Someone joins from your invite' },
+  friend_finished_want: { title: 'Friends finishing your want-to-reads', detail: 'Someone you follow finishes a book you want to read' },
+  author_new_book: { title: 'New books from authors you follow', detail: 'An author you follow has a new book' },
+  milestones: { title: 'Milestones', detail: 'A reading milestone you reached' },
+  weekly_summary: { title: 'Weekly summary', detail: 'Your week of reading' },
 };
 
 export type Channel = 'push' | 'in_app';

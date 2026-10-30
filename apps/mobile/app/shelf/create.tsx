@@ -94,7 +94,7 @@ export default function CreateShelfScreen() {
     } catch (err: any) {
       void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
       Alert.alert(
-        'Failed to Create Shelf',
+        'Failed to create shelf',
         err?.message || 'Something went wrong while creating your shelf. Please try again.',
       );
     } finally {
@@ -110,7 +110,7 @@ export default function CreateShelfScreen() {
     },
     {
       id: 'followers',
-      label: 'Followers Only',
+      label: 'Followers only',
       description: 'Only your approved followers can view',
     },
     {
@@ -138,10 +138,10 @@ export default function CreateShelfScreen() {
           hitSlop={12}
           onPress={() => router.back()}
         >
-          <Txt style={{ color: c.muted, fontSize: 16 }}>Cancel</Txt>
+          <Txt variant="body" color="ink2">Cancel</Txt>
         </Pressable>
 
-        <Txt style={{ fontSize: 17, fontWeight: '700', color: c.ink }}>New Shelf</Txt>
+        <Txt variant="title">New shelf</Txt>
 
         <Pressable
           accessibilityRole="button"
@@ -156,8 +156,8 @@ export default function CreateShelfScreen() {
             <Txt
               style={{
                 color: nameTouched && !validation.isValid ? c.muted : c.accent,
-                fontSize: 16,
-                fontWeight: '700',
+                fontSize: 15,
+                fontWeight: '500',
               }}
             >
               Create
@@ -177,7 +177,7 @@ export default function CreateShelfScreen() {
           {/* Name Field */}
           <View style={styles.section}>
             <View style={styles.labelRow}>
-              <Txt style={[styles.label, { color: c.ink }]}>Shelf Name</Txt>
+              <Txt style={[styles.label, { color: c.ink }]}>Name</Txt>
               <Txt style={[styles.counter, { color: c.muted }]}>
                 {name.length}/60
               </Txt>
@@ -191,7 +191,7 @@ export default function CreateShelfScreen() {
                   color: c.ink,
                 },
               ]}
-              placeholder="e.g. Best Sci-Fi 2026, Summer Reads..."
+              placeholder="Comfort reads"
               placeholderTextColor={c.muted}
               value={name}
               maxLength={60}
@@ -226,7 +226,7 @@ export default function CreateShelfScreen() {
                   color: c.ink,
                 },
               ]}
-              placeholder="What makes this list special? Add notes, themes, or context."
+              placeholder="What ties these books together"
               placeholderTextColor={c.muted}
               value={description}
               maxLength={2000}
@@ -255,8 +255,8 @@ export default function CreateShelfScreen() {
                     style={[
                       styles.optionCard,
                       {
-                        backgroundColor: selected ? c.accentSoft : c.surface,
-                        borderColor: selected ? c.accent : c.line,
+                        backgroundColor: c.surface,
+                        borderColor: selected ? c.lineStrong : c.line,
                       },
                     ]}
                   >
@@ -264,7 +264,7 @@ export default function CreateShelfScreen() {
                       <Txt
                         style={[
                           styles.optionTitle,
-                          { color: selected ? c.accent : c.ink, fontWeight: selected ? '700' : '600' },
+                          { color: c.ink, fontWeight: selected ? '500' : '400' },
                         ]}
                       >
                         {opt.label}
@@ -273,12 +273,12 @@ export default function CreateShelfScreen() {
                         style={[
                           styles.radioCircle,
                           {
-                            borderColor: selected ? c.accent : c.line,
+                            borderColor: selected ? c.accent : c.lineStrong,
                             backgroundColor: selected ? c.accent : 'transparent',
                           },
                         ]}
                       >
-                        {selected && <View style={styles.radioInner} />}
+                        {selected && <View style={[styles.radioInner, { backgroundColor: c.onAccent }]} />}
                       </View>
                     </View>
                     <Txt style={[styles.optionDesc, { color: c.muted }]}>
@@ -302,7 +302,7 @@ export default function CreateShelfScreen() {
               ]}
             >
               <View style={{ flex: 1, paddingRight: space[3] }}>
-                <Txt style={[styles.switchTitle, { color: c.ink }]}>Ranked List</Txt>
+                <Txt style={[styles.switchTitle, { color: c.ink }]}>Ranked</Txt>
                 <Txt style={[styles.switchDesc, { color: c.muted }]}>
                   Items are numbered sequentially (1, 2, 3...) and can be reordered.
                 </Txt>
@@ -313,7 +313,7 @@ export default function CreateShelfScreen() {
                   void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
                   setIsRanked(val);
                 }}
-                trackColor={{ false: c.line, true: c.accent }}
+                trackColor={{ false: c.lineStrong, true: c.accent }}
               />
             </View>
           </View>
@@ -321,7 +321,7 @@ export default function CreateShelfScreen() {
           {/* Bottom Create Button */}
           <View style={{ marginTop: space[4] }}>
             <Button
-              label={submitting ? 'Creating Shelf...' : 'Create Shelf'}
+              label="Create shelf"
               onPress={handleCreate}
               disabled={submitting || (nameTouched && !validation.isValid)}
               loading={submitting}
@@ -358,7 +358,7 @@ const styles = StyleSheet.create({
   },
   label: {
     fontSize: 14,
-    fontWeight: '600',
+    fontWeight: '500',
   },
   counter: {
     fontSize: 12,
@@ -371,7 +371,7 @@ const styles = StyleSheet.create({
     fontSize: 16,
   },
   textArea: {
-    height: 100,
+    height: 104,
     borderRadius: radius.md,
     borderWidth: 1,
     paddingHorizontal: space[3],
@@ -385,7 +385,7 @@ const styles = StyleSheet.create({
   optionCard: {
     padding: space[3],
     borderRadius: radius.md,
-    borderWidth: 1.5,
+    borderWidth: 1,
     gap: space[1],
   },
   optionHeader: {
@@ -411,23 +411,22 @@ const styles = StyleSheet.create({
     width: 8,
     height: 8,
     borderRadius: 4,
-    backgroundColor: '#fff',
   },
   switchCard: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
     padding: space[3],
-    borderRadius: radius.md,
+    borderRadius: radius.lg,
     borderWidth: 1,
   },
   switchTitle: {
     fontSize: 15,
-    fontWeight: '600',
+    fontWeight: '500',
     marginBottom: space[1],
   },
   switchDesc: {
     fontSize: 13,
-    lineHeight: 18,
+    lineHeight: 20,
   },
 });

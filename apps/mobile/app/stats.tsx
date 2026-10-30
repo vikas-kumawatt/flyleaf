@@ -10,7 +10,7 @@
 // here: §8.6 [LOCKED] keeps it on the profile.
 
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { ActivityIndicator, Pressable, RefreshControl, ScrollView, StyleSheet, View } from 'react-native';
+import { ActivityIndicator, Pressable, RefreshControl, ScrollView, View } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as Haptics from 'expo-haptics';
@@ -22,9 +22,10 @@ import { deviceTimeZone } from '@/lib/statsView';
 import { statCards, statsEmpty } from '@/lib/statCards';
 import { encodeShareOptions, statShareOptions } from '@/lib/shareCard';
 import { yirBanner } from '@/lib/yearInReview';
-import { Button, Card, EmptyState, Screen, Txt, sheet } from '@/ui/components';
+import { Button, Card, Chip, EmptyState, Screen, Txt, sheet } from '@/ui/components';
 import { StatCard } from '@/ui/StatCard';
-import { radius, space, useTheme } from '@/ui/tokens';
+import { space, useTheme } from '@/ui/tokens';
+import { Ionicons } from '@expo/vector-icons';
 
 export default function StatsScreen() {
   const c = useTheme();
@@ -98,13 +99,9 @@ export default function StatsScreen() {
             hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
             style={{ minWidth: 44, minHeight: 44, justifyContent: 'center' }}
           >
-            <Txt variant="body" color="accent" style={{ fontWeight: '600' }}>
-              ← Back
-            </Txt>
+            <Ionicons name="chevron-back" size={24} color={c.ink} />
           </Pressable>
-          <Txt variant="title" style={{ fontWeight: '700', fontSize: 18 }}>
-            Reading Stats
-          </Txt>
+          <Txt variant="title">Stats</Txt>
           <Pressable
             onPress={() => {
               void Haptics.selectionAsync();
@@ -115,7 +112,7 @@ export default function StatsScreen() {
             hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
             style={{ minWidth: 44, minHeight: 44, justifyContent: 'center', alignItems: 'flex-end' }}
           >
-            <Txt variant="body" color="accent" style={{ fontWeight: '600' }}>
+            <Txt variant="body" color="ink2" style={{ fontWeight: '500' }}>
               The Wall
             </Txt>
           </Pressable>
@@ -123,23 +120,12 @@ export default function StatsScreen() {
 
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: space[2], marginTop: space[3] }}>
           {['all', String(currentYear), String(currentYear - 1), String(currentYear - 2)].map((yr) => (
-            <Pressable
+            <Chip
               key={yr}
-              onPress={() => {
-                void Haptics.selectionAsync();
-                setSelectedYear(yr);
-              }}
-              accessibilityRole="button"
-              accessibilityState={{ selected: selectedYear === yr }}
-              style={[
-                styles.yearPill,
-                { backgroundColor: selectedYear === yr ? c.ink : c.surface, borderColor: selectedYear === yr ? c.ink : c.line },
-              ]}
-            >
-              <Txt variant="caption" style={{ color: selectedYear === yr ? c.ground : c.ink, fontWeight: '600' }}>
-                {yr === 'all' ? 'All-Time' : yr}
-              </Txt>
-            </Pressable>
+              selected={selectedYear === yr}
+              onPress={() => setSelectedYear(yr)}
+              label={yr === 'all' ? 'All time' : yr}
+            />
           ))}
         </ScrollView>
       </View>
@@ -151,11 +137,9 @@ export default function StatsScreen() {
         {banner && (
           <Card
             onPress={() => router.push(`/year-in-review?year=${banner.year}` as any)}
-            style={{ padding: space[4], backgroundColor: c.accentSoft, borderColor: c.accent }}
+            style={{ padding: space[4], gap: space[1] }}
           >
-            <Txt variant="title" style={{ fontWeight: '700' }}>
-              {banner.title}
-            </Txt>
+            <Txt variant="displayM">{banner.title}</Txt>
             <Txt variant="caption" color="ink2">
               {banner.subtitle}
             </Txt>
@@ -167,7 +151,7 @@ export default function StatsScreen() {
         ) : statsEmpty(stats) ? (
           <EmptyState
             title="Finish a few books and your stats will appear"
-            subtitle="Once three books are finished, this is where your year in reading takes shape."
+            subtitle="Once three books are finished, your year in reading takes shape here"
             action={<Button label="Explore books" variant="primary" onPress={() => router.push('/(tabs)/discover' as any)} />}
           />
         ) : (
@@ -193,14 +177,3 @@ export default function StatsScreen() {
   );
 }
 
-const styles = StyleSheet.create({
-  yearPill: {
-    paddingHorizontal: space[3],
-    paddingVertical: space[1],
-    borderRadius: radius.pill,
-    borderWidth: 1,
-    minHeight: 32,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-});

@@ -68,13 +68,21 @@ function StoryCard({ card, height, onShare }: { card: YearInReviewCard; height: 
           ))}
         </View>
       )}
-      {card.bars.map((b) => (
+      {card.bars.map((b, i) => (
         <View key={b.label} style={[sheet.row, { gap: space[2] }]}>
           <Txt variant="caption" style={{ width: 96 }} numberOfLines={1}>
             {b.label}
           </Txt>
-          <View style={{ flex: 1, height: 10, borderRadius: radius.pill, backgroundColor: c.surface2 }}>
-            <View style={{ width: `${(b.value / max) * 100}%`, height: '100%', borderRadius: radius.pill, backgroundColor: c.accent }} />
+          {/* One accent per chart: the leading bar; the rest sit in a neutral step. */}
+          <View style={{ flex: 1, height: 8, borderRadius: radius.pill, backgroundColor: c.surface2 }}>
+            <View
+              style={{
+                width: `${(b.value / max) * 100}%`,
+                height: '100%',
+                borderRadius: radius.pill,
+                backgroundColor: i === 0 ? c.accent : c.muted,
+              }}
+            />
           </View>
           <Txt variant="caption" color="muted" tabular>
             {b.text}
@@ -117,10 +125,10 @@ export default function YearInReviewScreen() {
   const empty = yir ? yirEmptyCopy(yir) : null;
   return (
     <Screen>
-      <ScreenHeader title={yir ? `${yir.year} in books` : 'Year in Review'} />
+      <ScreenHeader title={yir ? `${yir.year} in books` : 'Year in review'} />
       {!yir ? (
         failed ? (
-          <EmptyState title="We couldn't load your Year in Review." subtitle="Try again in a moment." />
+          <EmptyState title="We couldn't load your year in review" subtitle="Try again in a moment" />
         ) : (
           <ActivityIndicator style={{ marginTop: space[8] }} />
         )

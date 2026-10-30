@@ -23,13 +23,17 @@ import { api } from '@/lib/api';
 import {
   Button,
   Card,
+  Chip,
   Cover,
   EmptyState,
+  HeartMark,
+  RatingMark,
   Screen,
   Txt,
   sheet,
 } from '@/ui/components';
-import { radius, space, useTheme } from '@/ui/tokens';
+import { Ionicons } from '@expo/vector-icons';
+import { palette, radius, space, useTheme } from '@/ui/tokens';
 
 export default function WallScreen() {
   const c = useTheme();
@@ -205,16 +209,12 @@ export default function WallScreen() {
             hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
             style={{ minWidth: 44, minHeight: 44, justifyContent: 'center' }}
           >
-            <Txt variant="body" color="accent" style={{ fontWeight: '600' }}>
-              ← Back
-            </Txt>
+            <Ionicons name="chevron-back" size={24} color={c.ink} />
           </Pressable>
 
           <View style={{ alignItems: 'center' }}>
-            <Txt variant="title" style={{ fontWeight: '700', fontSize: 18 }}>
-              The Wall
-            </Txt>
-            <Txt variant="caption" color="muted">
+            <Txt variant="displayM">The Wall</Txt>
+            <Txt variant="caption" color="muted" tabular>
               {processedReads.length} {processedReads.length === 1 ? 'cover' : 'covers'}
             </Txt>
           </View>
@@ -234,8 +234,8 @@ export default function WallScreen() {
             hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
             style={{ minWidth: 44, minHeight: 44, justifyContent: 'center', alignItems: 'flex-end' }}
           >
-            <Txt variant="caption" color="accent" style={{ fontWeight: '600' }}>
-              {sortBy === 'date_desc' ? 'Recent' : sortBy === 'rating_desc' ? 'Rating' : 'A-Z'}
+            <Txt variant="caption" color="ink2" style={{ fontWeight: '500' }}>
+              {sortBy === 'date_desc' ? 'Recent' : sortBy === 'rating_desc' ? 'Rating' : 'A–Z'}
             </Txt>
           </Pressable>
         </View>
@@ -246,123 +246,40 @@ export default function WallScreen() {
           showsHorizontalScrollIndicator={false}
           contentContainerStyle={{ gap: space[2], marginTop: space[3] }}
         >
-          {/* Hearted Toggle */}
-          <Pressable
-            onPress={() => {
-              void Haptics.selectionAsync();
-              setHeartedOnly(!heartedOnly);
-            }}
-            style={[
-              styles.filterPill,
-              {
-                backgroundColor: heartedOnly ? c.accent : c.surface,
-                borderColor: heartedOnly ? c.accent : c.line,
-              },
-            ]}
-          >
-            <Txt variant="caption" style={{ color: heartedOnly ? '#fff' : c.ink, fontWeight: '600' }}>
-              ♥ {heartedOnly ? 'Hearted' : 'All'}
-            </Txt>
-          </Pressable>
+          <Chip
+            selected={heartedOnly}
+            onPress={() => setHeartedOnly(!heartedOnly)}
+            label="Hearted"
+            icon={heartedOnly ? 'heart' : 'heart-outline'}
+          />
 
-          {/* Year Pills */}
-          <Pressable
-            onPress={() => {
-              void Haptics.selectionAsync();
-              setSelectedYear('all');
-            }}
-            style={[
-              styles.filterPill,
-              {
-                backgroundColor: selectedYear === 'all' ? c.ink : c.surface,
-                borderColor: selectedYear === 'all' ? c.ink : c.line,
-              },
-            ]}
-          >
-            <Txt variant="caption" style={{ color: selectedYear === 'all' ? c.ground : c.ink, fontWeight: '600' }}>
-              All Time
-            </Txt>
-          </Pressable>
+          <View style={{ width: 1, backgroundColor: c.line, marginHorizontal: space[1] }} />
 
+          <Chip selected={selectedYear === 'all'} onPress={() => setSelectedYear('all')} label="All time" />
           {availableYears.map((yr) => (
-            <Pressable
-              key={yr}
-              onPress={() => {
-                void Haptics.selectionAsync();
-                setSelectedYear(yr);
-              }}
-              style={[
-                styles.filterPill,
-                {
-                  backgroundColor: selectedYear === yr ? c.ink : c.surface,
-                  borderColor: selectedYear === yr ? c.ink : c.line,
-                },
-              ]}
-            >
-              <Txt variant="caption" style={{ color: selectedYear === yr ? c.ground : c.ink, fontWeight: '600' }}>
-                {yr}
-              </Txt>
-            </Pressable>
+            <Chip key={yr} selected={selectedYear === yr} onPress={() => setSelectedYear(yr)} label={yr} />
           ))}
 
           <View style={{ width: 1, backgroundColor: c.line, marginHorizontal: space[1] }} />
 
-          {/* Rating Pills */}
           {(['all', '5', '4', '3'] as const).map((rKey) => (
-            <Pressable
+            <Chip
               key={rKey}
-              onPress={() => {
-                void Haptics.selectionAsync();
-                setRatingFilter(rKey);
-              }}
-              style={[
-                styles.filterPill,
-                {
-                  backgroundColor: ratingFilter === rKey ? c.surface : 'transparent',
-                  borderColor: ratingFilter === rKey ? c.accent : c.line,
-                },
-              ]}
-            >
-              <Txt
-                variant="caption"
-                style={{
-                  color: ratingFilter === rKey ? c.accent : c.muted,
-                  fontWeight: ratingFilter === rKey ? '700' : '500',
-                }}
-              >
-                {rKey === 'all' ? 'All Ratings' : `${rKey}★+`}
-              </Txt>
-            </Pressable>
+              selected={ratingFilter === rKey}
+              onPress={() => setRatingFilter(rKey)}
+              label={rKey === 'all' ? 'All ratings' : `${rKey}+ stars`}
+            />
           ))}
 
           <View style={{ width: 1, backgroundColor: c.line, marginHorizontal: space[1] }} />
 
-          {/* Format Pills */}
           {(['all', 'print', 'ebook', 'audiobook'] as const).map((fmt) => (
-            <Pressable
+            <Chip
               key={fmt}
-              onPress={() => {
-                void Haptics.selectionAsync();
-                setFormatFilter(fmt);
-              }}
-              style={[
-                styles.filterPill,
-                {
-                  backgroundColor: formatFilter === fmt ? c.surface : 'transparent',
-                  borderColor: formatFilter === fmt ? c.accent : c.line,
-                },
-              ]}
-            >
-              <Txt
-                variant="caption"
-                style={{
-                  color: formatFilter === fmt ? c.accent : c.muted,
-                  fontWeight: formatFilter === fmt ? '700' : '500',
-                }}
-              >
-                {fmt === 'all' ? 'All Formats' : fmt.charAt(0).toUpperCase() + fmt.slice(1)}
-              </Txt>
-            </Pressable>
+              selected={formatFilter === fmt}
+              onPress={() => setFormatFilter(fmt)}
+              label={fmt === 'all' ? 'All formats' : fmt.charAt(0).toUpperCase() + fmt.slice(1)}
+            />
           ))}
         </ScrollView>
       </View>
@@ -383,8 +300,8 @@ export default function WallScreen() {
             title="No covers to display"
             subtitle={
               reads.length === 0
-                ? "As you finish books, their cover art creates your Wall."
-                : 'No books matched the selected filters.'
+                ? 'Every book you finish adds its cover here'
+                : 'No books match these filters'
             }
             action={
               reads.length > 0 ? (
@@ -415,20 +332,16 @@ export default function WallScreen() {
                 accessibilityRole="button"
                 accessibilityLabel={r.title ?? 'Book cover'}
               >
-                <View style={styles.coverFrame}>
+                <View style={[styles.coverFrame, { backgroundColor: c.surface2 }]}>
                   <Cover coverId={r.cover_id} title={r.title ?? ''} size="fluid" />
                   {(r.rating !== null || Boolean(r.hearted)) && (
                     <View style={styles.bottomOverlay}>
-                      {r.rating !== null && r.rating !== undefined && (
-                        <Txt variant="caption" style={styles.overlayText}>
-                          ★ {Number(r.rating).toFixed(1)}
-                        </Txt>
+                      {r.rating !== null && r.rating !== undefined ? (
+                        <RatingMark value={Number(r.rating)} size={11} onCover />
+                      ) : (
+                        <View />
                       )}
-                      {Boolean(r.hearted) && (
-                        <Txt variant="caption" style={{ color: '#f43f5e', fontSize: 10 }}>
-                          ♥
-                        </Txt>
-                      )}
+                      {Boolean(r.hearted) && <HeartMark size={11} />}
                     </View>
                   )}
                 </View>
@@ -442,15 +355,6 @@ export default function WallScreen() {
 }
 
 const styles = StyleSheet.create({
-  filterPill: {
-    paddingHorizontal: space[3],
-    paddingVertical: space[1],
-    borderRadius: radius.pill,
-    borderWidth: 1,
-    minHeight: 32,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
   gridWrap: {
     flexDirection: 'row',
     flexWrap: 'wrap',
@@ -461,26 +365,20 @@ const styles = StyleSheet.create({
   },
   coverFrame: {
     aspectRatio: 2 / 3,
-    borderRadius: radius.sm,
+    borderRadius: radius.xs,
     overflow: 'hidden',
     position: 'relative',
-    backgroundColor: '#262626',
   },
   bottomOverlay: {
     position: 'absolute',
     bottom: 0,
     left: 0,
     right: 0,
-    backgroundColor: 'rgba(0, 0, 0, 0.72)',
+    backgroundColor: palette.scrim.dark,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: 6,
-    paddingVertical: 3,
-  },
-  overlayText: {
-    color: '#fbbf24',
-    fontSize: 10,
-    fontWeight: '700',
+    paddingHorizontal: space[2],
+    paddingVertical: space[1],
   },
 });

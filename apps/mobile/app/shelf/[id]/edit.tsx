@@ -83,7 +83,7 @@ export default function EditShelfScreen() {
     // If transitioning from ranked to unranked, prompt confirmation warning (PRD §15.2)
     if (initialShelf?.is_ranked && !nextVal) {
       Alert.alert(
-        'Switch to Unranked?',
+        'Switch to unranked?',
         'Switching this shelf to an unranked list will clear custom ranking order. Are you sure you want to continue?',
         [
           {
@@ -137,7 +137,7 @@ export default function EditShelfScreen() {
     } catch (err: any) {
       void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
       Alert.alert(
-        'Failed to Update Shelf',
+        'Failed to update shelf',
         err?.message || 'Something went wrong while updating your shelf. Please try again.',
       );
     } finally {
@@ -148,7 +148,7 @@ export default function EditShelfScreen() {
   const handleDelete = () => {
     if (!id) return;
     Alert.alert(
-      'Delete Shelf?',
+      'Delete shelf?',
       'This shelf will be hidden and scheduled for deletion. You can recover it within 30 days.',
       [
         { text: 'Cancel', style: 'cancel' },
@@ -166,7 +166,7 @@ export default function EditShelfScreen() {
               router.back();
             } catch (err: any) {
               void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
-              Alert.alert('Failed to Delete Shelf', err?.message || 'Could not delete shelf.');
+              Alert.alert('Failed to delete shelf', err?.message || 'Could not delete shelf.');
             } finally {
               setDeleting(false);
             }
@@ -184,7 +184,7 @@ export default function EditShelfScreen() {
     },
     {
       id: 'followers',
-      label: 'Followers Only',
+      label: 'Followers only',
       description: 'Only your approved followers can view',
     },
     {
@@ -198,7 +198,7 @@ export default function EditShelfScreen() {
     return (
       <Screen style={[styles.center, { backgroundColor: c.ground }]}>
         <ActivityIndicator size="large" color={c.accent} />
-        <Txt style={{ color: c.muted, marginTop: space[3] }}>Loading shelf details...</Txt>
+        <Txt style={{ color: c.muted, marginTop: space[3] }}>Loading shelf details…</Txt>
       </Screen>
     );
   }
@@ -221,10 +221,10 @@ export default function EditShelfScreen() {
           hitSlop={12}
           onPress={() => router.back()}
         >
-          <Txt style={{ color: c.muted, fontSize: 16 }}>Cancel</Txt>
+          <Txt variant="body" color="ink2">Cancel</Txt>
         </Pressable>
 
-        <Txt style={{ fontSize: 17, fontWeight: '700', color: c.ink }}>Edit Shelf</Txt>
+        <Txt variant="title">Edit shelf</Txt>
 
         <Pressable
           accessibilityRole="button"
@@ -239,8 +239,8 @@ export default function EditShelfScreen() {
             <Txt
               style={{
                 color: nameTouched && !validation.isValid ? c.muted : c.accent,
-                fontSize: 16,
-                fontWeight: '700',
+                fontSize: 15,
+                fontWeight: '500',
               }}
             >
               Save
@@ -260,7 +260,7 @@ export default function EditShelfScreen() {
           {/* Name Field */}
           <View style={styles.section}>
             <View style={styles.labelRow}>
-              <Txt style={[styles.label, { color: c.ink }]}>Shelf Name</Txt>
+              <Txt style={[styles.label, { color: c.ink }]}>Name</Txt>
               <Txt style={[styles.counter, { color: c.muted }]}>
                 {name.length}/60
               </Txt>
@@ -274,7 +274,7 @@ export default function EditShelfScreen() {
                   color: c.ink,
                 },
               ]}
-              placeholder="e.g. Best Sci-Fi 2026, Summer Reads..."
+              placeholder="Comfort reads"
               placeholderTextColor={c.muted}
               value={name}
               maxLength={60}
@@ -308,7 +308,7 @@ export default function EditShelfScreen() {
                   color: c.ink,
                 },
               ]}
-              placeholder="What makes this list special? Add notes, themes, or context."
+              placeholder="What ties these books together"
               placeholderTextColor={c.muted}
               value={description}
               maxLength={2000}
@@ -337,8 +337,8 @@ export default function EditShelfScreen() {
                     style={[
                       styles.optionCard,
                       {
-                        backgroundColor: selected ? c.accentSoft : c.surface,
-                        borderColor: selected ? c.accent : c.line,
+                        backgroundColor: c.surface,
+                        borderColor: selected ? c.lineStrong : c.line,
                       },
                     ]}
                   >
@@ -346,7 +346,7 @@ export default function EditShelfScreen() {
                       <Txt
                         style={[
                           styles.optionTitle,
-                          { color: selected ? c.accent : c.ink, fontWeight: selected ? '700' : '600' },
+                          { color: c.ink, fontWeight: selected ? '500' : '400' },
                         ]}
                       >
                         {opt.label}
@@ -355,12 +355,12 @@ export default function EditShelfScreen() {
                         style={[
                           styles.radioCircle,
                           {
-                            borderColor: selected ? c.accent : c.line,
+                            borderColor: selected ? c.accent : c.lineStrong,
                             backgroundColor: selected ? c.accent : 'transparent',
                           },
                         ]}
                       >
-                        {selected && <View style={styles.radioInner} />}
+                        {selected && <View style={[styles.radioInner, { backgroundColor: c.onAccent }]} />}
                       </View>
                     </View>
                     <Txt style={[styles.optionDesc, { color: c.muted }]}>
@@ -384,7 +384,7 @@ export default function EditShelfScreen() {
               ]}
             >
               <View style={{ flex: 1, paddingRight: space[3] }}>
-                <Txt style={[styles.switchTitle, { color: c.ink }]}>Ranked List</Txt>
+                <Txt style={[styles.switchTitle, { color: c.ink }]}>Ranked</Txt>
                 <Txt style={[styles.switchDesc, { color: c.muted }]}>
                   Items are numbered sequentially (1, 2, 3...) and can be reordered.
                 </Txt>
@@ -392,7 +392,7 @@ export default function EditShelfScreen() {
               <Switch
                 value={isRanked}
                 onValueChange={handleRankedToggle}
-                trackColor={{ false: c.line, true: c.accent }}
+                trackColor={{ false: c.lineStrong, true: c.accent }}
               />
             </View>
           </View>
@@ -400,7 +400,7 @@ export default function EditShelfScreen() {
           {/* Bottom Save Button */}
           <View style={{ marginTop: space[3] }}>
             <Button
-              label={saving ? 'Saving Changes...' : 'Save Changes'}
+              label="Save changes"
               onPress={handleSave}
               disabled={saving || (nameTouched && !validation.isValid)}
               loading={saving}
@@ -409,16 +409,16 @@ export default function EditShelfScreen() {
           </View>
 
           {/* Danger Zone: Delete Shelf */}
-          <View style={[styles.dangerZone, { borderColor: c.critical }]}>
-            <Txt style={[styles.dangerTitle, { color: c.critical }]}>
-              Danger Zone
+          <View style={[styles.dangerZone, { borderColor: c.line, backgroundColor: c.surface }]}>
+            <Txt style={[styles.dangerTitle, { color: c.ink }]}>
+              Delete shelf
             </Txt>
             <Txt style={[styles.dangerDesc, { color: c.muted }]}>
-              Deleting a shelf removes it from public view. You can restore deleted shelves within 30 days before they are permanently purged.
+              The shelf disappears from view straight away. You can restore it for 30 days, then it is deleted for good.
             </Txt>
             <Button
               variant="destructive"
-              label={deleting ? 'Deleting Shelf...' : 'Delete Shelf'}
+              label="Delete shelf"
               onPress={handleDelete}
               disabled={deleting}
               loading={deleting}
@@ -460,7 +460,7 @@ const styles = StyleSheet.create({
   },
   label: {
     fontSize: 14,
-    fontWeight: '600',
+    fontWeight: '500',
   },
   counter: {
     fontSize: 12,
@@ -473,7 +473,7 @@ const styles = StyleSheet.create({
     fontSize: 16,
   },
   textArea: {
-    height: 100,
+    height: 104,
     borderRadius: radius.md,
     borderWidth: 1,
     paddingHorizontal: space[3],
@@ -487,7 +487,7 @@ const styles = StyleSheet.create({
   optionCard: {
     padding: space[3],
     borderRadius: radius.md,
-    borderWidth: 1.5,
+    borderWidth: 1,
     gap: space[1],
   },
   optionHeader: {
@@ -513,38 +513,37 @@ const styles = StyleSheet.create({
     width: 8,
     height: 8,
     borderRadius: 4,
-    backgroundColor: '#fff',
   },
   switchCard: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
     padding: space[3],
-    borderRadius: radius.md,
+    borderRadius: radius.lg,
     borderWidth: 1,
   },
   switchTitle: {
     fontSize: 15,
-    fontWeight: '600',
+    fontWeight: '500',
     marginBottom: space[1],
   },
   switchDesc: {
     fontSize: 13,
-    lineHeight: 18,
+    lineHeight: 20,
   },
   dangerZone: {
     marginTop: space[4],
     padding: space[4],
-    borderRadius: radius.md,
+    borderRadius: radius.lg,
     borderWidth: 1,
     gap: space[2],
   },
   dangerTitle: {
     fontSize: 15,
-    fontWeight: '700',
+    fontWeight: '500',
   },
   dangerDesc: {
     fontSize: 13,
-    lineHeight: 18,
+    lineHeight: 20,
   },
 });

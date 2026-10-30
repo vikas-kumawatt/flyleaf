@@ -12,6 +12,7 @@
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
+  Easing,
   View,
   ScrollView,
   Pressable,
@@ -32,7 +33,7 @@ import { api, type Shelf, type ShelfItem } from '@/lib/api';
 import { moveItemInArray, repositionItem, formatShelfRank, fetchAllShelfItems } from '@/lib/shelfValidation';
 import { track } from '@/lib/events';
 import { Button, Cover, Screen, Txt } from '@/ui/components';
-import { radius, space, useTheme } from '@/ui/tokens';
+import { fontFamilies, motion, radius, space, useTheme } from '@/ui/tokens';
 
 interface ReorderRowProps {
   item: ShelfItem;
@@ -83,16 +84,19 @@ function ReorderRow({
       },
       onPanResponderRelease: () => {
         isDragging.current = false;
-        Animated.spring(panY, {
+        Animated.timing(panY, {
           toValue: 0,
+          duration: motion.menu,
+          easing: Easing.bezier(...motion.easing),
           useNativeDriver: true,
-          bounciness: 4,
         }).start();
       },
       onPanResponderTerminate: () => {
         isDragging.current = false;
-        Animated.spring(panY, {
+        Animated.timing(panY, {
           toValue: 0,
+          duration: motion.menu,
+          easing: Easing.bezier(...motion.easing),
           useNativeDriver: true,
         }).start();
       },
@@ -122,8 +126,8 @@ function ReorderRow({
         onPress={() => onOpenMoveToModal(index)}
         style={[styles.rankBadge, { backgroundColor: c.surface2, borderColor: c.lineStrong }]}
       >
-        <Txt style={[styles.rankText, { color: c.accent }]}>#{index + 1}</Txt>
-        <Ionicons name="pencil" size={10} color={c.muted} style={{ marginTop: 2 }} />
+        <Txt tabular style={[styles.rankText, { color: c.ink2 }]}>#{index + 1}</Txt>
+        <Ionicons name="pencil" size={12} color={c.muted} />
       </Pressable>
 
       {/* Book Cover */}
@@ -287,7 +291,7 @@ export default function ReorderShelfScreen() {
     if (targetItemIndex === null) return;
     const parsed = parseInt(targetPositionText, 10);
     if (isNaN(parsed) || parsed < 1 || parsed > items.length) {
-      setModalError(`Please enter a valid rank between 1 and ${items.length}.`);
+      setModalError(`Enter a number from 1 to ${items.length}`);
       void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
       return;
     }
@@ -310,11 +314,11 @@ export default function ReorderShelfScreen() {
       if (err?.code === 'order_mismatch') {
         // The shelf changed since this screen loaded (another device added or
         // removed a book). Reload rather than overwrite.
-        Alert.alert('Shelf Changed', 'This shelf changed while you were reordering. It has been reloaded.');
+        Alert.alert('Shelf changed', 'This shelf changed while you were reordering. It has been reloaded.');
         void loadShelfData();
         return;
       }
-      Alert.alert('Reorder Failed', err?.message || 'Could not update shelf order. Please try again.');
+      Alert.alert('Reorder failed', err?.message || 'Could not update shelf order. Please try again.');
     } finally {
       setSaving(false);
     }
@@ -323,10 +327,10 @@ export default function ReorderShelfScreen() {
   const handleCancel = () => {
     if (isDirty) {
       Alert.alert(
-        'Discard Changes?',
+        'Discard changes?',
         'You have unsaved changes to this shelf order. Are you sure you want to discard them?',
         [
-          { text: 'Keep Editing', style: 'cancel' },
+          { text: 'Keep editing', style: 'cancel' },
           { text: 'Discard', style: 'destructive', onPress: () => router.back() },
         ],
       );
@@ -339,7 +343,7 @@ export default function ReorderShelfScreen() {
     return (
       <Screen style={[styles.center, { backgroundColor: c.ground }]}>
         <ActivityIndicator size="large" color={c.accent} />
-        <Txt style={{ color: c.muted, marginTop: space[3] }}>Loading shelf order...</Txt>
+        <Txt style={{ color: c.muted, marginTop: space[3] }}>Loading shelf order…</Txt>
       </Screen>
     );
   }
@@ -355,7 +359,7 @@ export default function ReorderShelfScreen() {
           {
             paddingTop: Math.max(insets.top, space[3]),
             borderBottomColor: c.line,
-            backgroundColor: c.surface,
+            backgroundColor: c.ground,
           },
         ]}
       >
@@ -366,15 +370,15 @@ export default function ReorderShelfScreen() {
           onPress={handleCancel}
           style={styles.navButton}
         >
-          <Txt style={{ color: c.ink, fontSize: 16 }}>Cancel</Txt>
+          <Txt variant="body" color="ink2">Cancel</Txt>
         </Pressable>
 
         <View style={styles.navTitleContainer}>
           <Txt numberOfLines={1} style={[styles.navTitle, { color: c.ink }]}>
-            Reorder Shelf
+            Reorder
           </Txt>
           {shelf?.name && (
-            <Txt numberOfLines={1} style={{ color: c.muted, fontSize: 12 }}>
+            <Txt variant="micro" numberOfLines={1} color="muted">
               {shelf.name}
             </Txt>
           )}
@@ -391,32 +395,29 @@ export default function ReorderShelfScreen() {
           {saving ? (
             <ActivityIndicator size="small" color={c.accent} />
           ) : (
-            <Txt style={{ color: c.accent, fontSize: 16, fontWeight: '700' }}>Save</Txt>
+            <Txt variant="body" color="accent" style={{ fontWeight: '500' }}>Save</Txt>
           )}
         </Pressable>
       </View>
 
       {/* Instructions & Status Bar */}
-      <View style={[styles.statusBar, { backgroundColor: c.surface2, borderBottomColor: c.line }]}>
+      <View style={[styles.statusBar, { borderBottomColor: c.line }]}>
         <View style={{ flex: 1 }}>
           <Txt style={[styles.statusText, { color: c.muted }]}>
-            Drag handles, tap arrows, or tap{' '}
-            <Txt style={{ color: c.accent, fontWeight: '600' }}>#rank</Txt> for numeric positioning.
+            Drag a handle, use the arrows, or tap a number to type a position
           </Txt>
         </View>
 
         {isDirty && (
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: space[2] }}>
-            <View style={[styles.dirtyPill, { backgroundColor: c.accentSoft }]}>
-              <Txt style={[styles.dirtyPillText, { color: c.accent }]}>Unsaved changes</Txt>
-            </View>
+            <Txt style={[styles.dirtyPillText, { color: c.muted }]}>Unsaved</Txt>
             <Pressable
               accessibilityRole="button"
               accessibilityLabel="Reset to original order"
               hitSlop={8}
               onPress={handleResetOrder}
             >
-              <Txt style={{ color: c.muted, fontSize: 12, textDecorationLine: 'underline' }}>
+              <Txt variant="caption" color="ink2" style={{ fontWeight: '500' }}>
                 Reset
               </Txt>
             </Pressable>
@@ -433,7 +434,7 @@ export default function ReorderShelfScreen() {
       >
         {items.length === 0 ? (
           <View style={styles.emptyContainer}>
-            <Txt style={{ color: c.muted }}>No books on this shelf to reorder.</Txt>
+            <Txt style={{ color: c.muted }}>No books to reorder</Txt>
           </View>
         ) : (
           items.map((item, index) => (
@@ -458,7 +459,7 @@ export default function ReorderShelfScreen() {
         animationType="fade"
         onRequestClose={() => setModalVisible(false)}
       >
-        <View style={styles.modalOverlay}>
+        <View style={[styles.modalOverlay, { backgroundColor: c.overlay }]}>
           <Pressable
             style={StyleSheet.absoluteFill}
             onPress={() => setModalVisible(false)}
@@ -471,31 +472,30 @@ export default function ReorderShelfScreen() {
             ]}
           >
             <View style={styles.modalHeader}>
-              <Ionicons name="swap-vertical" size={22} color={c.accent} />
-              <Txt style={[styles.modalTitle, { color: c.ink }]}>Move to Position</Txt>
+              <Txt style={[styles.modalTitle, { color: c.ink }]}>Move to position</Txt>
             </View>
 
             {selectedItem && (
-              <View style={styles.modalBookRow}>
+              <View style={[styles.modalBookRow, { borderBottomColor: c.line }]}>
                 <Cover coverId={selectedItem.work.cover_id} size="xs" />
                 <View style={{ flex: 1, marginLeft: space[3] }}>
                   <Txt numberOfLines={1} style={[styles.modalBookTitle, { color: c.ink }]}>
                     {selectedItem.work.title}
                   </Txt>
-                  <Txt style={{ color: c.muted, fontSize: 13, marginTop: 2 }}>
-                    Currently at rank #{targetItemIndex! + 1} of {items.length}
+                  <Txt variant="caption" color="muted" tabular>
+                    Now #{targetItemIndex! + 1} of {items.length}
                   </Txt>
                 </View>
               </View>
             )}
 
             {/* Quick jump presets */}
-            <Txt style={[styles.presetLabel, { color: c.muted }]}>Quick Jump</Txt>
+            <Txt style={[styles.presetLabel, { color: c.muted }]}>Jump to</Txt>
             <View style={styles.presetsRow}>
               <Button
                 variant="outline"
                 size="sm"
-                label="Top (#1)"
+                label="Top"
                 onPress={() => handleApplyPositionJump(1)}
                 style={{ flex: 1 }}
               />
@@ -503,7 +503,7 @@ export default function ReorderShelfScreen() {
                 <Button
                   variant="outline"
                   size="sm"
-                  label={`Middle (#${Math.ceil(items.length / 2)})`}
+                  label={`Middle · ${Math.ceil(items.length / 2)}`}
                   onPress={() => handleApplyPositionJump(Math.ceil(items.length / 2))}
                   style={{ flex: 1 }}
                 />
@@ -511,7 +511,7 @@ export default function ReorderShelfScreen() {
               <Button
                 variant="outline"
                 size="sm"
-                label={`Bottom (#${items.length})`}
+                label={`Bottom · ${items.length}`}
                 onPress={() => handleApplyPositionJump(items.length)}
                 style={{ flex: 1 }}
               />
@@ -519,7 +519,7 @@ export default function ReorderShelfScreen() {
 
             {/* Custom rank input */}
             <Txt style={[styles.presetLabel, { color: c.muted, marginTop: space[3] }]}>
-              Enter Custom Rank (1 – {items.length})
+              Position, 1 to {items.length}
             </Txt>
             <TextInput
               keyboardType="number-pad"
@@ -542,7 +542,7 @@ export default function ReorderShelfScreen() {
             />
 
             {modalError && (
-              <Txt style={{ color: c.critical, fontSize: 12, marginTop: space[1] }}>
+              <Txt variant="micro" style={{ color: c.critical, marginTop: space[1] }}>
                 {modalError}
               </Txt>
             )}
@@ -585,7 +585,9 @@ const styles = StyleSheet.create({
   },
   navButton: {
     minWidth: 60,
+    minHeight: 44,
     alignItems: 'center',
+    justifyContent: 'center',
   },
   navTitleContainer: {
     flex: 1,
@@ -594,7 +596,7 @@ const styles = StyleSheet.create({
   },
   navTitle: {
     fontSize: 17,
-    fontWeight: '700',
+    fontWeight: '500',
   },
   statusBar: {
     flexDirection: 'row',
@@ -605,17 +607,11 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
   },
   statusText: {
-    fontSize: 12,
-    lineHeight: 16,
-  },
-  dirtyPill: {
-    paddingHorizontal: space[2],
-    paddingVertical: 2,
-    borderRadius: radius.pill,
+    fontSize: 13,
+    lineHeight: 20,
   },
   dirtyPillText: {
-    fontSize: 11,
-    fontWeight: '700',
+    fontSize: 12,
   },
   listContent: {
     padding: space[4],
@@ -630,24 +626,24 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     padding: space[3],
-    borderRadius: radius.md,
+    borderRadius: radius.lg,
     borderWidth: 1,
   },
   rankBadge: {
     flexDirection: 'row',
     alignItems: 'center',
+    gap: space[1],
     paddingHorizontal: space[2],
-    paddingVertical: 4,
+    minHeight: 32,
     borderRadius: radius.sm,
     borderWidth: 1,
     marginRight: space[3],
-    minWidth: 38,
+    minWidth: 44,
     justifyContent: 'center',
   },
   rankText: {
     fontSize: 13,
-    fontWeight: '700',
-    marginRight: 2,
+    fontWeight: '500',
   },
   coverWrapper: {
     marginRight: space[3],
@@ -658,12 +654,12 @@ const styles = StyleSheet.create({
     marginRight: space[2],
   },
   bookTitle: {
-    fontSize: 14,
-    fontWeight: '600',
+    fontFamily: fontFamilies.displayMedium,
+    fontSize: 15,
+    lineHeight: 20,
   },
   bookAuthor: {
-    fontSize: 12,
-    marginTop: 2,
+    fontSize: 13,
   },
   rowControls: {
     flexDirection: 'row',
@@ -671,16 +667,20 @@ const styles = StyleSheet.create({
     gap: space[1],
   },
   stepButton: {
-    padding: space[1],
-    borderRadius: radius.sm,
+    width: 36,
+    height: 36,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: radius.md,
   },
   dragHandle: {
-    padding: space[1],
-    marginLeft: space[1],
+    width: 36,
+    height: 36,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   modalOverlay: {
     flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.5)',
     justifyContent: 'center',
     alignItems: 'center',
     padding: space[4],
@@ -700,26 +700,23 @@ const styles = StyleSheet.create({
   },
   modalTitle: {
     fontSize: 18,
-    fontWeight: '700',
+    fontWeight: '500',
   },
   modalBookRow: {
     flexDirection: 'row',
     alignItems: 'center',
     paddingBottom: space[3],
     borderBottomWidth: 1,
-    borderBottomColor: 'rgba(128,128,128,0.2)',
     marginBottom: space[3],
   },
   modalBookTitle: {
-    fontSize: 15,
-    fontWeight: '600',
+    fontFamily: fontFamilies.displayMedium,
+    fontSize: 16,
   },
   presetLabel: {
     fontSize: 12,
-    fontWeight: '600',
+    fontWeight: '500',
     marginBottom: space[2],
-    textTransform: 'uppercase',
-    letterSpacing: 0.5,
   },
   presetsRow: {
     flexDirection: 'row',
@@ -731,8 +728,9 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderRadius: radius.md,
     paddingHorizontal: space[3],
+    fontFamily: fontFamilies.uiMedium,
     fontSize: 16,
-    fontWeight: '600',
+    fontVariant: ['tabular-nums'],
   },
   modalActionRow: {
     flexDirection: 'row',

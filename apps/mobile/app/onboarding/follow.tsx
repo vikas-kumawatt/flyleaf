@@ -104,9 +104,7 @@ export default function FollowSuggestionsScreen() {
   return (
     <Screen style={{ flex: 1, backgroundColor: c.ground }}>
       <View style={{ paddingTop: insets.top + space[4], paddingHorizontal: space[4], paddingBottom: space[3], gap: space[1] }}>
-        <Txt variant="title" style={{ fontSize: 22, fontWeight: '700' }}>
-          Readers to follow
-        </Txt>
+        <Txt variant="displayL">Readers to follow</Txt>
         <Txt variant="caption" color="muted">
           Their reviews and finishes fill your feed. You can change this any time.
         </Txt>
@@ -133,14 +131,14 @@ export default function FollowSuggestionsScreen() {
               <Card key={u.id} style={{ padding: space[4], gap: space[3] }}>
                 <View style={[sheet.rowTop, { gap: space[3] }]}>
                   <Pressable onPress={() => router.push(`/user/${u.id}` as any)} accessibilityRole="button" accessibilityLabel={`Open @${u.username}`}>
-                    <View style={[styles.avatar, { backgroundColor: c.accentSoft, borderColor: c.line }]}>
-                      <Txt variant="title" style={{ fontSize: 18, fontWeight: '800', color: c.accent }}>
+                    <View style={[styles.avatar, { backgroundColor: c.surface2, borderColor: c.line }]}>
+                      <Txt variant="title" style={{ fontSize: 18, fontWeight: '500', color: c.ink2 }}>
                         {(u.display_name || u.username).charAt(0).toUpperCase()}
                       </Txt>
                     </View>
                   </Pressable>
-                  <View style={{ flex: 1, gap: 2 }}>
-                    <Txt variant="title" style={{ fontSize: 16, fontWeight: '700' }} numberOfLines={1}>
+                  <View style={{ flex: 1, gap: space[1] }}>
+                    <Txt variant="body" style={{ fontWeight: '500' }} numberOfLines={1}>
                       {u.display_name || u.username}
                     </Txt>
                     <Txt variant="caption" color="muted" numberOfLines={1}>

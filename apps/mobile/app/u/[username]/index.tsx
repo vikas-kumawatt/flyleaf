@@ -29,7 +29,7 @@ export default function UsernameLinkScreen() {
         if (active) router.replace(`/user/${profile.id}` as any);
       })
       .catch(() => {
-        if (active) setError('This account could not be found.');
+        if (active) setError('This account could not be found');
       });
     return () => {
       active = false;

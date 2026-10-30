@@ -28,6 +28,7 @@ import {
   sheet,
 } from '@/ui/components';
 import { radius, space, useTheme } from '@/ui/tokens';
+import { Ionicons } from '@expo/vector-icons';
 
 export default function FollowingScreen() {
   const c = useTheme();
@@ -144,21 +145,21 @@ export default function FollowingScreen() {
           <Pressable
             onPress={() => router.back()}
             hitSlop={8}
-            style={{
-              paddingVertical: space[1],
-              paddingHorizontal: space[2],
-              borderRadius: radius.sm,
-              backgroundColor: c.surface,
-            }}
+            accessibilityRole="button"
+            accessibilityLabel="Back"
+            style={{ minWidth: 44, minHeight: 44, justifyContent: 'center' }}
           >
-            <Txt variant="body" style={{ fontWeight: '600', color: c.ink }}>
-              ← Back
-            </Txt>
+            <Ionicons name="chevron-back" size={24} color={c.ink} />
           </Pressable>
-          <Txt variant="title" style={{ fontSize: 18, fontWeight: '700' }}>
-            Following {total > 0 ? `(${total})` : ''}
+          <Txt variant="title">
+            Following
+            {total > 0 ? (
+              <Txt variant="title" color="muted" tabular>
+                {`  ${total}`}
+              </Txt>
+            ) : null}
           </Txt>
-          <View style={{ width: 60 }} />
+          <View style={{ width: 44 }} />
         </View>
       </View>
 
@@ -177,7 +178,7 @@ export default function FollowingScreen() {
         ) : notFound ? (
           <EmptyState
             title="Account unavailable"
-            subtitle="This profile is private or unavailable."
+            subtitle="This profile is private or unavailable"
             action={
               <Button label="Go back" variant="primary" onPress={() => router.back()} />
             }
@@ -185,7 +186,7 @@ export default function FollowingScreen() {
         ) : users.length === 0 ? (
           <EmptyState
             title="Not following anyone yet"
-            subtitle="Accounts followed by this user will appear here."
+            subtitle="Accounts followed by this user will appear here"
           />
         ) : (
           users.map((item) => (
@@ -207,25 +208,23 @@ export default function FollowingScreen() {
                   style={[
                     styles.avatar,
                     {
-                      backgroundColor: c.accentSoft,
+                      backgroundColor: c.surface2,
                       borderColor: c.line,
                     },
                   ]}
                 >
-                  <Txt variant="body" style={{ fontWeight: '800', color: c.accent }}>
+                  <Txt variant="body" style={{ fontWeight: '500', color: c.ink2 }}>
                     {(item.displayName || item.username).charAt(0).toUpperCase()}
                   </Txt>
                 </View>
 
                 <View style={{ flex: 1 }}>
                   <View style={sheet.row}>
-                    <Txt variant="body" style={{ fontWeight: '700' }} numberOfLines={1}>
+                    <Txt variant="body" style={{ fontWeight: '500' }} numberOfLines={1}>
                       {item.displayName || item.username}
                     </Txt>
                     {item.isPrivate && (
-                      <Txt variant="caption" color="muted" style={{ marginLeft: 4 }}>
-                        🔒
-                      </Txt>
+                      <Ionicons name="lock-closed-outline" size={14} color={c.muted} style={{ marginLeft: space[1] }} accessibilityLabel="Private account" />
                     )}
                   </View>
                   <Txt variant="caption" color="muted" numberOfLines={1}>

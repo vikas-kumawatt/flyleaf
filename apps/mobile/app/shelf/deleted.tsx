@@ -74,7 +74,7 @@ export default function DeletedShelvesScreen() {
         ) : shelves.length === 0 ? (
           <EmptyState
             title="Nothing deleted recently"
-            subtitle="Shelves you delete can be restored here for 30 days."
+            subtitle="Shelves you delete can be restored here for 30 days"
           />
         ) : (
           shelves.map((shelf) => {

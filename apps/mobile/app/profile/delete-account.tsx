@@ -73,11 +73,11 @@ export default function DeleteAccountScreen() {
       </View>
       <ScrollView contentContainerStyle={{ padding: space[4], paddingBottom: insets.bottom + space[8], gap: space[3] }}>
         {!user ? (
-          <EmptyState title="Not signed in" subtitle="Sign in to delete your account." />
+          <EmptyState title="Not signed in" subtitle="Sign in to delete your account" />
         ) : step === 'consequences' ? (
           <>
             <Card style={{ padding: space[4], gap: space[2] }}>
-              <Txt variant="title" style={{ fontSize: 15, fontWeight: '700' }}>
+              <Txt variant="body" style={{ fontWeight: '500' }}>
                 What will be deleted
               </Txt>
               {WHAT_IS_LOST.map((line) => (
@@ -91,7 +91,7 @@ export default function DeleteAccountScreen() {
             </Card>
 
             <Card style={{ padding: space[4], gap: space[2] }}>
-              <Txt variant="title" style={{ fontSize: 15, fontWeight: '700' }}>
+              <Txt variant="body" style={{ fontWeight: '500' }}>
                 30 days to change your mind
               </Txt>
               <Txt variant="body">{GRACE_PROMISE} After that it is permanent.</Txt>
@@ -99,7 +99,7 @@ export default function DeleteAccountScreen() {
 
             {/* PRD §25.4 step 7: the export is offered before deletion. */}
             <Card style={{ padding: space[4], gap: space[2] }}>
-              <Txt variant="title" style={{ fontSize: 15, fontWeight: '700' }}>
+              <Txt variant="body" style={{ fontWeight: '500' }}>
                 Keep a copy first
               </Txt>
               <Txt variant="body">
@@ -127,7 +127,7 @@ export default function DeleteAccountScreen() {
         ) : (
           <Card style={{ padding: space[4], gap: space[3] }}>
             <Txt variant="body">
-              Enter your password to delete <Txt variant="body" style={{ fontWeight: '700' }}>@{user.username}</Txt>. Your
+              Enter your password to delete <Txt variant="body" style={{ fontWeight: '500' }}>@{user.username}</Txt>. Your
               profile, reads, reviews and shelves disappear for everyone straight away, and you are signed out on every device.
             </Txt>
             <Field
