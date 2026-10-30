@@ -1,18 +1,32 @@
-# Publish a JavaScript-only change to installed builds, from a phone
-# (docs/mobile-release.md › Next builds). GitHub → Actions → "EAS update" →
-# Run workflow. No laptop, no new APK.
+# Ships JavaScript-only changes to installed builds as an EAS update
+# (docs/mobile-release.md › Next builds). Three ways in:
 #
-# Needs one repository secret, EXPO_TOKEN: an access token from expo.dev
-# (account → Access tokens). Without it the first step stops and says so.
+#   pull request      dry run: bundle the app as the update would, and say in
+#                     the summary whether merging will publish or needs a new
+#                     APK. Nothing is published; no token is used.
+#   push to main      after CI passes: publish to the preview channel (the
+#                     beta APK), unless nothing under apps/mobile or
+#                     packages/api-client changed, or the change needs a new
+#                     build (scripts/ota-check.mjs).
+#   Run workflow      by hand, to preview or production, from a phone.
 #
-# Only for changes without native parts: a new native module, an app.json
-# plugin or permission, or intent filters still need a new build (steps 5–6).
-# An update reaches only builds with the same app.json `version`
-# (runtimeVersion: appVersion).
+# Needs one repository secret for publishing, EXPO_TOKEN: an access token from
+# expo.dev (account → Access tokens). Without it a main run stops with a
+# notice and publishes nothing; a manual run fails and says so.
+#
+# Native changes (a new native module, an app.json plugin or permission,
+# intent filters) still need a new build (steps 5–6). An update reaches only
+# builds with the same app.json `version` (runtimeVersion: appVersion).
 
 name: EAS update
 
 on:
+  pull_request:
+    paths: ['apps/mobile/**', 'packages/api-client/**', '.github/workflows/eas-update.yml']
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches: [main]
   workflow_dispatch:
     inputs:
       channel:
@@ -25,34 +39,25 @@ on:
         type: string
         required: false
 
-# Two publishes to one channel at once would race for "latest".
-concurrency:
-  group: eas-update-${{ inputs.channel }}
-  cancel-in-progress: false
-
 permissions:
   contents: read
 
 jobs:
-  update:
+  # ---------------------------------------------------------------- PR dry run
+  check:
+    if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    concurrency:
+      group: eas-check-${{ github.ref }}
+      cancel-in-progress: true
     defaults:
       run:
         working-directory: apps/mobile
-
     steps:
-      - name: Check the Expo token
-        working-directory: .
-        env:
-          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
-        run: |
-          if [ -z "$EXPO_TOKEN" ]; then
-            echo "::error::Add the EXPO_TOKEN repository secret (expo.dev → Access tokens; GitHub → Settings → Secrets and variables → Actions)."
-            exit 1
-          fi
-
       - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
 
       - uses: actions/setup-node@v5
         with:
@@ -63,16 +68,117 @@ jobs:
       - name: Install — mobile
         run: npm ci --no-audit --no-fund
 
+      - name: Build the API client
+        run: npm run build:api-client
+
+      # The bundle an update would carry. Catches what tsc cannot: a module or
+      # asset Metro cannot resolve.
+      - name: Bundle (expo export, android)
+        run: |
+          FLYLEAF_API_URL="$(node -p 'require("./eas.json").build.preview.env.FLYLEAF_API_URL')" \
+            npx expo export --platform android --output-dir "$RUNNER_TEMP/ota-bundle"
+
+      - name: Will merging publish an update?
+        env:
+          BASE: ${{ github.event.pull_request.base.sha }}
+        run: |
+          r="$(node scripts/ota-check.mjs "$BASE" HEAD)"
+          echo "$r"
+          {
+            echo "### EAS update (dry run)"
+            if [ "$(node -p "JSON.parse(process.argv[1]).changed" "$r")" != true ]; then
+              echo "No change under apps/mobile or packages/api-client: merging publishes nothing."
+            elif [ "$(node -p "JSON.parse(process.argv[1]).native.length" "$r")" != 0 ]; then
+              echo "**Needs a new APK** (docs/mobile-release.md steps 5–6). Merging will not publish an update, because:"
+              node -p "JSON.parse(process.argv[1]).native.map((n) => '- ' + n).join('\n')" "$r"
+            else
+              echo "JavaScript and assets only: merging publishes an update to the **preview** channel."
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  # ---------------------------------------------------------------- publish
+  update:
+    # A green CI run of a push to main, or a manual run.
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'workflow_run' &&
+       github.event.workflow_run.conclusion == 'success' &&
+       github.event.workflow_run.event == 'push')
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    # Two publishes to one channel at once would race for "latest".
+    concurrency:
+      group: eas-update-${{ inputs.channel || 'preview' }}
+      cancel-in-progress: false
+    defaults:
+      run:
+        working-directory: apps/mobile
+    env:
+      CHANNEL: ${{ inputs.channel || 'preview' }}
+      SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
+
+    steps:
+      - name: Check the Expo token
+        id: token
+        working-directory: .
+        env:
+          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+          MANUAL: ${{ github.event_name == 'workflow_dispatch' }}
+        run: |
+          if [ -n "$EXPO_TOKEN" ]; then echo "ready=true" >> "$GITHUB_OUTPUT"; exit 0; fi
+          msg="Add the EXPO_TOKEN repository secret (expo.dev → Access tokens; GitHub → Settings → Secrets and variables → Actions)."
+          if [ "$MANUAL" = true ]; then echo "::error::$msg"; exit 1; fi
+          echo "::notice::$msg Nothing published."
+          echo "ready=false" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/checkout@v5
+        if: steps.token.outputs.ready == 'true'
+        with:
+          ref: ${{ env.SHA }}
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v5
+        if: steps.token.outputs.ready == 'true'
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: apps/mobile/package-lock.json
+
+      - name: Install — mobile
+        if: steps.token.outputs.ready == 'true'
+        run: npm ci --no-audit --no-fund
+
+      # On main: publish only what an update can carry. The base is main as it
+      # was before this push (first parent), so a merge counts all its commits.
+      - name: Decide
+        id: decide
+        if: steps.token.outputs.ready == 'true'
+        env:
+          AUTO: ${{ github.event_name == 'workflow_run' }}
+        run: |
+          if [ "$AUTO" != true ]; then echo "go=true" >> "$GITHUB_OUTPUT"; exit 0; fi
+          r="$(node scripts/ota-check.mjs "$SHA^1" "$SHA")"
+          echo "$r"
+          if [ "$(node -p "JSON.parse(process.argv[1]).changed" "$r")" != true ]; then
+            echo "::notice::No change under apps/mobile or packages/api-client. Nothing published."
+            echo "go=false" >> "$GITHUB_OUTPUT"; exit 0
+          fi
+          if [ "$(node -p "JSON.parse(process.argv[1]).native.length" "$r")" != 0 ]; then
+            echo "::warning::This change needs a new APK (docs/mobile-release.md steps 5–6); no update published: $(node -p "JSON.parse(process.argv[1]).native.join('; ')" "$r")"
+            echo "go=false" >> "$GITHUB_OUTPUT"; exit 0
+          fi
+          echo "go=true" >> "$GITHUB_OUTPUT"
+
       # Metro maps @flyleaf/api-client to its git-ignored dist (metro.config.js).
       - name: Build the API client
+        if: steps.decide.outputs.go == 'true'
         run: npm run build:api-client
 
       # Updates do not read eas.json's env, and an update without the address
       # makes the app refuse to start. Read it from the same profile the build
       # used, so the address is written in one place.
       - name: API address for the channel
-        env:
-          CHANNEL: ${{ inputs.channel }}
+        if: steps.decide.outputs.go == 'true'
         run: |
           url=$(node -e 'const p = require("./eas.json").build[process.env.CHANNEL]; process.stdout.write(p?.env?.FLYLEAF_API_URL ?? "")')
           if [ -z "$url" ]; then
@@ -82,20 +188,23 @@ jobs:
           echo "FLYLEAF_API_URL=$url" >> "$GITHUB_ENV"
           echo "Publishing to the ${CHANNEL} channel against $url"
 
-      # What CI checks, so a broken bundle never reaches phones.
+      # What CI checks, so a broken bundle never reaches phones (a manual run
+      # has no CI run in front of it).
       - name: Typecheck and offline tests
+        if: steps.decide.outputs.go == 'true'
         run: |
           npm run typecheck
           npm test
 
       - uses: expo/expo-github-action@v8
+        if: steps.decide.outputs.go == 'true'
         with:
           eas-version: latest
           token: ${{ secrets.EXPO_TOKEN }}
 
       - name: Publish
+        if: steps.decide.outputs.go == 'true'
         env:
-          CHANNEL: ${{ inputs.channel }}
           MESSAGE: ${{ inputs.message }}
         run: |
           msg="${MESSAGE:-$(git log -1 --pretty=%s)}"
