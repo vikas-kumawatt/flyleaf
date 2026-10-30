@@ -1107,7 +1107,7 @@ Jobs commit **in the same transaction** as the data that created them — that i
 | Images | `expo-image` with blurhash placeholders |
 | Animation | Reanimated 4 + `react-native-gesture-handler` (required by the swipe vocabulary in design.md §6) |
 | Haptics | `expo-haptics` — every half-star and 5% progress tick |
-| Fonts | `expo-font` — Newsreader + Instrument Sans in the app (design.md §3); share cards keep Literata + Archivo |
+| Fonts | `expo-font` — Newsreader + Instrument Sans (design.md §3); share cards use the same two, cut as static instances in `apps/api/assets/fonts` |
 | Camera | `expo-camera` — barcode scanning |
 | Push | Expo Notifications → FCM / APNs |
 | Secure storage | `expo-secure-store` for the refresh token only |

@@ -314,7 +314,7 @@ Segmented Friends / Popular. Reviewed and finished cards are largest. Review exc
 
 ## 11. Tokens as code
 
-`apps/mobile/src/ui/tokens.ts` is the only place literals are permitted and the source of truth for every value in §2–§7: `palette`, `space`, `radius` (`xs 4 · sm 6 · md 10 · lg 14 · xl 20 · pill`), `cover`, `fontFamilies`, `familyFor`, `type`, `motion`. The web pages (`apps/api/src/web`, `identity/link-pages.ts`) and the admin console mirror the same palette as CSS variables.
+`apps/mobile/src/ui/tokens.ts` is the only place literals are permitted and the source of truth for every value in §2–§7: `palette`, `space`, `radius` (`xs 4 · sm 6 · md 10 · lg 14 · xl 20 · pill`), `cover`, `fontFamilies`, `familyFor`, `type`, `motion`. The web pages (`apps/api/src/web`, `identity/link-pages.ts`) and the admin console mirror the same palette as CSS variables; the share cards (`apps/api/src/cards/templates.ts`) mirror the light palette and use the same two faces.
 
 ---
 
