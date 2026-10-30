@@ -54,20 +54,22 @@ export function sendPage(reply: FastifyReply, status: number, title: string, bod
 <meta name="referrer" content="no-referrer">
 <title>${escapeHtml(title)} · Flyleaf</title>
 <style>
-  :root { color-scheme: light dark; --ground: #FAF7F2; --ink: #1F1B16; --muted: #6E747C; --accent: #7A4E2D; --line: #E4DED4; }
-  @media (prefers-color-scheme: dark) { :root { --ground: #16181B; --ink: #ECE7DF; --muted: #868D96; --accent: #D9A574; --line: #2C3036; } }
-  body { margin: 0; background: var(--ground); color: var(--ink); font: 16px/1.5 system-ui, sans-serif; }
-  main { max-width: 26rem; margin: 0 auto; padding: 3rem 1rem; }
-  h1 { font: 600 1.5rem/1.3 Georgia, serif; margin: 0 0 .75rem; }
-  p { margin: 0 0 1rem; }
-  .muted { color: var(--muted); font-size: .9rem; }
-  .error { color: #B3261E; }
-  label { display: block; margin: 0 0 .25rem; font-size: .9rem; }
-  input { box-sizing: border-box; width: 100%; padding: .7rem; margin: 0 0 1rem; font: inherit; color: var(--ink); background: transparent; border: 1px solid var(--line); border-radius: 8px; }
-  button, .app { display: block; box-sizing: border-box; width: 100%; padding: .8rem; margin: 0 0 .75rem; border-radius: 8px; font: 600 1rem system-ui, sans-serif; text-align: center; text-decoration: none; cursor: pointer; }
-  button { border: 0; background: var(--accent); color: var(--ground); }
+  :root { color-scheme: light dark; --ground: #FAFAFA; --raised: #F4F4F5; --ink: #171717; --muted: #737373; --accent: #3355C4; --on-accent: #FFFFFF; --critical: #DC2626; --line: rgba(23,23,23,.08); }
+  @media (prefers-color-scheme: dark) { :root { --ground: #141415; --raised: #232325; --ink: #EDEDED; --muted: #85858B; --accent: #8DA6EE; --on-accent: #141415; --critical: #E5484D; --line: rgba(237,237,237,.08); } }
+  body { margin: 0; background: var(--ground); color: var(--ink); font: 15px/1.5 "Instrument Sans", system-ui, sans-serif; }
+  main { max-width: 26rem; margin: 0 auto; padding: 48px 16px; }
+  h1 { font: 400 28px/1.2 Newsreader, Georgia, serif; margin: 0 0 12px; }
+  p { margin: 0 0 16px; }
+  .muted { color: var(--muted); font-size: 13px; }
+  .error { color: var(--critical); }
+  label { display: block; margin: 0 0 4px; font-size: 13px; color: var(--muted); }
+  input { box-sizing: border-box; width: 100%; height: 44px; padding: 0 12px; margin: 0 0 16px; font: inherit; color: var(--ink); background: var(--raised); border: 1px solid var(--line); border-radius: 10px; }
+  input:focus-visible, button:focus-visible, .app:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  button, .app { display: flex; align-items: center; justify-content: center; box-sizing: border-box; width: 100%; height: 44px; padding: 0 16px; margin: 0 0 12px; border-radius: 10px; font: 500 15px "Instrument Sans", system-ui, sans-serif; text-decoration: none; cursor: pointer; transition: opacity 140ms cubic-bezier(0.22, 1, 0.36, 1); }
+  button { border: 0; background: var(--accent); color: var(--on-accent); }
+  button:hover { opacity: .9; }
   button[disabled] { opacity: .6; }
-  .app { border: 1px solid var(--line); color: var(--accent); }
+  .app { border: 1px solid var(--line); background: var(--raised); color: var(--ink); }
 </style>
 </head>
 <body><main>
