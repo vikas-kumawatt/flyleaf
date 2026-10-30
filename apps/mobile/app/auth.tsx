@@ -36,7 +36,7 @@ import { RESTORED_MESSAGE, RESTORED_TITLE } from '@/lib/accountDeletion';
 import { createUsernameChecker, type UsernameStatus } from '@/lib/usernameCheck';
 import { WelcomeCarousel } from '@/ui/WelcomeCarousel';
 import { Button, Card, Screen, Txt, sheet } from '@/ui/components';
-import { space, radius, useTheme } from '@/ui/tokens';
+import { space, radius, useTheme, fontFamilies } from '@/ui/tokens';
 
 type AuthMode =
   | 'welcome'
@@ -295,11 +295,11 @@ export default function AuthScreen() {
         {/* ------------------------------------------------ Login Mode */}
         {mode === 'login' && (
           <View style={{ gap: space[4] }}>
-            <Txt variant="displayM">Welcome back</Txt>
+            <Txt variant="displayL">Sign in</Txt>
 
             <View style={{ gap: space[1] }}>
               <Txt variant="micro" color="muted">
-                EMAIL
+                Email
               </Txt>
               <TextInput
                 value={email}
@@ -308,14 +308,14 @@ export default function AuthScreen() {
                 autoCapitalize="none"
                 placeholder="name@example.com"
                 placeholderTextColor={c.muted}
-                style={[styles.input, { backgroundColor: c.surface, borderColor: c.line, color: c.ink }]}
+                style={[styles.input, { backgroundColor: c.surface2, borderColor: c.line, color: c.ink }]}
               />
             </View>
 
             <View style={{ gap: space[1] }}>
               <View style={[sheet.row, { justifyContent: 'space-between' }]}>
                 <Txt variant="micro" color="muted">
-                  PASSWORD
+                  Password
                 </Txt>
                 <Pressable onPress={() => setMode('forgot')}>
                   <Txt variant="caption" color="accent">
@@ -323,7 +323,7 @@ export default function AuthScreen() {
                   </Txt>
                 </Pressable>
               </View>
-              <View style={[styles.passwordContainer, { backgroundColor: c.surface, borderColor: c.line }]}>
+              <View style={[styles.passwordContainer, { backgroundColor: c.surface2, borderColor: c.line }]}>
                 <TextInput
                   value={password}
                   onChangeText={setPassword}
@@ -350,7 +350,7 @@ export default function AuthScreen() {
                 New to Flyleaf?
               </Txt>
               <Pressable onPress={() => setMode('signup_step1')}>
-                <Txt variant="body" color="accent" style={{ fontWeight: '600' }}>
+                <Txt variant="body" color="accent" style={{ fontWeight: '500' }}>
                   Create account
                 </Txt>
               </Pressable>
@@ -361,14 +361,14 @@ export default function AuthScreen() {
         {/* ------------------------------------------------ Sign Up Step 1 */}
         {mode === 'signup_step1' && (
           <View style={{ gap: space[4] }}>
-            <Txt variant="displayM">Create an account</Txt>
+            <Txt variant="displayL">Create an account</Txt>
             <Txt variant="body" color="muted">
               Step 1 of 2 · Account credentials
             </Txt>
 
             <View style={{ gap: space[1] }}>
               <Txt variant="micro" color="muted">
-                EMAIL
+                Email
               </Txt>
               <TextInput
                 value={email}
@@ -377,15 +377,15 @@ export default function AuthScreen() {
                 autoCapitalize="none"
                 placeholder="name@example.com"
                 placeholderTextColor={c.muted}
-                style={[styles.input, { backgroundColor: c.surface, borderColor: c.line, color: c.ink }]}
+                style={[styles.input, { backgroundColor: c.surface2, borderColor: c.line, color: c.ink }]}
               />
             </View>
 
             <View style={{ gap: space[1] }}>
               <Txt variant="micro" color="muted">
-                PASSWORD
+                Password
               </Txt>
-              <View style={[styles.passwordContainer, { backgroundColor: c.surface, borderColor: c.line }]}>
+              <View style={[styles.passwordContainer, { backgroundColor: c.surface2, borderColor: c.line }]}>
                 <TextInput
                   value={password}
                   onChangeText={setPassword}
@@ -406,7 +406,7 @@ export default function AuthScreen() {
 
               {/* Password strength indicator */}
               {password.length > 0 && (
-                <View style={{ flexDirection: 'row', gap: 4, marginTop: 4, alignItems: 'center' }}>
+                <View style={{ flexDirection: 'row', gap: space[1], marginTop: space[1], alignItems: 'center' }}>
                   {[1, 2, 3, 4].map((step) => (
                     <View
                       key={step}
@@ -423,7 +423,7 @@ export default function AuthScreen() {
                       }}
                     />
                   ))}
-                  <Txt variant="micro" color="muted" style={{ marginLeft: 4 }}>
+                  <Txt variant="micro" color="muted" style={{ marginLeft: space[1] }}>
                     {passwordCheck.score < 2
                       ? 'Weak'
                       : passwordCheck.score < 3
@@ -438,14 +438,14 @@ export default function AuthScreen() {
 
             <View style={{ gap: space[1] }}>
               <Txt variant="micro" color="muted">
-                DATE OF BIRTH
+                Date of birth
               </Txt>
               <TextInput
                 value={dob}
                 onChangeText={setDob}
                 placeholder="YYYY-MM-DD"
                 placeholderTextColor={c.muted}
-                style={[styles.input, { backgroundColor: c.surface, borderColor: c.line, color: c.ink }]}
+                style={[styles.input, { backgroundColor: c.surface2, borderColor: c.line, color: c.ink }]}
               />
             </View>
 
@@ -456,7 +456,7 @@ export default function AuthScreen() {
                 Already have an account?
               </Txt>
               <Pressable onPress={() => setMode('login')}>
-                <Txt variant="body" color="accent" style={{ fontWeight: '600' }}>
+                <Txt variant="body" color="accent" style={{ fontWeight: '500' }}>
                   Sign in
                 </Txt>
               </Pressable>
@@ -467,7 +467,7 @@ export default function AuthScreen() {
         {/* ------------------------------------------------ Sign Up Step 2 (Username + Avatar) */}
         {mode === 'signup_step2' && (
           <View style={{ gap: space[4] }}>
-            <Txt variant="displayM">Choose your username</Txt>
+            <Txt variant="displayL">Choose your username</Txt>
             <Txt variant="body" color="muted">
               Step 2 of 2 · Your identity on Flyleaf
             </Txt>
@@ -497,13 +497,13 @@ export default function AuthScreen() {
 
             <View style={{ gap: space[1] }}>
               <Txt variant="micro" color="muted">
-                USERNAME
+                Username
               </Txt>
               <View
                 style={[
                   styles.input,
                   {
-                    backgroundColor: c.surface,
+                    backgroundColor: c.surface2,
                     borderColor: username.length > 0 && !usernameCheck.valid ? c.critical : c.line,
                     flexDirection: 'row',
                     alignItems: 'center',
@@ -520,7 +520,7 @@ export default function AuthScreen() {
                   autoCorrect={false}
                   placeholder="username"
                   placeholderTextColor={c.muted}
-                  style={{ flex: 1, color: c.ink, fontSize: 15 }}
+                  style={{ flex: 1, color: c.ink, fontSize: 15, fontFamily: fontFamilies.uiRegular }}
                 />
                 {usernameCheck.valid && usernameStatus.state === 'checking' && (
                   <ActivityIndicator size="small" color={c.muted} />
@@ -551,7 +551,7 @@ export default function AuthScreen() {
                         accessibilityLabel={`Use ${s}`}
                         style={{ minHeight: 44, justifyContent: 'center' }}
                       >
-                        <Txt variant="caption" color="accent" style={{ fontWeight: '600' }}>
+                        <Txt variant="caption" color="accent" style={{ fontWeight: '500' }}>
                           @{s}
                         </Txt>
                       </Pressable>
@@ -560,7 +560,7 @@ export default function AuthScreen() {
                 </View>
               ) : (
                 <Txt variant="caption" color="muted">
-                  3–20 characters: letters, numbers, underscores.
+                  3–20 characters: letters, numbers, underscores
                 </Txt>
               )}
             </View>
@@ -578,14 +578,14 @@ export default function AuthScreen() {
         {/* ------------------------------------------------ Forgot Password Mode */}
         {mode === 'forgot' && (
           <View style={{ gap: space[4] }}>
-            <Txt variant="displayM">Reset password</Txt>
+            <Txt variant="displayL">Reset password</Txt>
             <Txt variant="body" color="muted">
               Enter your registered email address and we will send you a link to reset your password.
             </Txt>
 
             <View style={{ gap: space[1] }}>
               <Txt variant="micro" color="muted">
-                EMAIL
+                Email
               </Txt>
               <TextInput
                 value={email}
@@ -594,7 +594,7 @@ export default function AuthScreen() {
                 autoCapitalize="none"
                 placeholder="name@example.com"
                 placeholderTextColor={c.muted}
-                style={[styles.input, { backgroundColor: c.surface, borderColor: c.line, color: c.ink }]}
+                style={[styles.input, { backgroundColor: c.surface2, borderColor: c.line, color: c.ink }]}
               />
             </View>
 
@@ -611,11 +611,11 @@ export default function AuthScreen() {
         {/* ------------------------------------------------ Reset Password Mode */}
         {mode === 'reset' && (
           <View style={{ gap: space[4] }}>
-            <Txt variant="displayM">Set new password</Txt>
+            <Txt variant="displayL">Set new password</Txt>
 
             <View style={{ gap: space[1] }}>
               <Txt variant="micro" color="muted">
-                RESET TOKEN
+                Reset token
               </Txt>
               <TextInput
                 value={resetToken}
@@ -623,13 +623,13 @@ export default function AuthScreen() {
                 autoCapitalize="none"
                 placeholder="Paste token from email"
                 placeholderTextColor={c.muted}
-                style={[styles.input, { backgroundColor: c.surface, borderColor: c.line, color: c.ink }]}
+                style={[styles.input, { backgroundColor: c.surface2, borderColor: c.line, color: c.ink }]}
               />
             </View>
 
             <View style={{ gap: space[1] }}>
               <Txt variant="micro" color="muted">
-                NEW PASSWORD
+                New password
               </Txt>
               <TextInput
                 value={password}
@@ -639,13 +639,13 @@ export default function AuthScreen() {
                 autoCorrect={false}
                 placeholder="Min 10 characters"
                 placeholderTextColor={c.muted}
-                style={[styles.input, { backgroundColor: c.surface, borderColor: c.line, color: c.ink }]}
+                style={[styles.input, { backgroundColor: c.surface2, borderColor: c.line, color: c.ink }]}
               />
             </View>
 
             <View style={{ gap: space[1] }}>
               <Txt variant="micro" color="muted">
-                CONFIRM NEW PASSWORD
+                Confirm new password
               </Txt>
               <TextInput
                 value={confirmPassword}
@@ -655,7 +655,7 @@ export default function AuthScreen() {
                 autoCorrect={false}
                 placeholder="Re-enter password"
                 placeholderTextColor={c.muted}
-                style={[styles.input, { backgroundColor: c.surface, borderColor: c.line, color: c.ink }]}
+                style={[styles.input, { backgroundColor: c.surface2, borderColor: c.line, color: c.ink }]}
               />
             </View>
 
@@ -666,7 +666,7 @@ export default function AuthScreen() {
         {/* ------------------------------------------------ Verify Email Mode */}
         {mode === 'verify' && (
           <View style={{ gap: space[4] }}>
-            <Txt variant="displayM">Check your email</Txt>
+            <Txt variant="displayL">Check your email</Txt>
             <Txt variant="body" color="muted">
               We sent a verification link to {email || 'your email'}.
             </Txt>
@@ -713,6 +713,7 @@ const styles = StyleSheet.create({
     borderRadius: radius.md,
     borderWidth: 1,
     fontSize: 15,
+    fontFamily: fontFamilies.uiRegular,
   },
   passwordContainer: {
     flexDirection: 'row',
@@ -725,6 +726,7 @@ const styles = StyleSheet.create({
     flex: 1,
     paddingHorizontal: space[3],
     fontSize: 15,
+    fontFamily: fontFamilies.uiRegular,
     minHeight: 48,
   },
   eyeButton: {

@@ -34,7 +34,7 @@ import {
   Txt,
   sheet,
 } from '@/ui/components';
-import { space, radius, useTheme } from '@/ui/tokens';
+import { fontFamilies, space, radius, useTheme } from '@/ui/tokens';
 
 export default function UnmatchedReviewScreen() {
   const c = useTheme();
@@ -157,7 +157,7 @@ export default function UnmatchedReviewScreen() {
       }
     } catch (err: any) {
       void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
-      Alert.alert('Resolution Failed', err.message || 'Could not resolve book.');
+      Alert.alert('Could not match', err.message || 'Could not resolve book.');
     } finally {
       setResolvingRow(null);
     }
@@ -182,7 +182,7 @@ export default function UnmatchedReviewScreen() {
         });
       }
     } catch (err: any) {
-      Alert.alert('Skip Failed', err.message || 'Could not skip book.');
+      Alert.alert('Could not skip', err.message || 'Could not skip book.');
     } finally {
       setSkippingRow(null);
     }
@@ -211,11 +211,9 @@ export default function UnmatchedReviewScreen() {
           </Pressable>
 
           <View style={{ alignItems: 'center' }}>
-            <Txt variant="title" style={{ fontWeight: '700', fontSize: 17 }}>
-              Unmatched Books
-            </Txt>
+            <Txt variant="title">Unmatched books</Txt>
             {importJob && (
-              <Txt variant="caption" color="muted" style={{ fontSize: 11 }}>
+              <Txt variant="micro" color="muted" tabular>
                 {rows.length} remaining · {importJob.matched} matched
               </Txt>
             )}
@@ -230,11 +228,11 @@ export default function UnmatchedReviewScreen() {
           <ActivityIndicator size="large" color={c.accent} style={{ padding: space[6] }} />
         ) : rows.length === 0 ? (
           <EmptyState
-            title="All Books Reviewed"
-            subtitle="Every book from this export has been matched or resolved. Your reading diary and library are up to date."
+            title="Every book is sorted"
+            subtitle="Each book from this export is matched or skipped, so your diary and library are up to date."
             action={
               <Button
-                label="Back to Library"
+                label="Back to library"
                 variant="primary"
                 onPress={() => router.replace('/(tabs)/profile')}
               />
@@ -243,8 +241,8 @@ export default function UnmatchedReviewScreen() {
         ) : (
           rows.map((row) => {
             const raw = row.raw as Record<string, string>;
-            const rawTitle = raw.Title || raw.title || raw['Book Title'] || 'Unknown Title';
-            const rawAuthor = raw.Author || raw.author || raw['Author l-f'] || 'Unknown Author';
+            const rawTitle = raw.Title || raw.title || raw['Book Title'] || 'Untitled';
+            const rawAuthor = raw.Author || raw.author || raw['Author l-f'] || 'Unknown author';
             const rawRating = raw['My Rating'] || raw.rating || raw['User Rating'] || null;
             const rawShelf = raw['Exclusive Shelf'] || raw.bookshelves || raw.shelf || null;
 
@@ -256,56 +254,35 @@ export default function UnmatchedReviewScreen() {
               <Card key={row.row_no} style={[styles.rowCard, { borderColor: c.line }]}>
                 {/* Row Header & Reason */}
                 <View style={sheet.rowBetween}>
-                  <Txt variant="caption" color="muted" style={{ fontWeight: '700' }}>
-                    ROW #{row.row_no}
+                  <Txt variant="micro" color="muted" tabular>
+                    Row {row.row_no}
                   </Txt>
 
-                  <View
-                    style={[
-                      styles.reasonBadge,
-                      {
-                        backgroundColor:
-                          row.failure_reason === 'ambiguous_match' ? '#fff3e0' : c.surface,
-                        borderColor:
-                          row.failure_reason === 'ambiguous_match' ? '#f57c00' : c.line,
-                      },
-                    ]}
-                  >
-                    <Txt
-                      variant="caption"
-                      style={{
-                        fontSize: 10,
-                        fontWeight: '700',
-                        color: row.failure_reason === 'ambiguous_match' ? '#e65100' : c.ink,
-                      }}
-                    >
-                      {row.failure_reason === 'ambiguous_match'
-                        ? 'AMBIGUOUS MATCH'
-                        : 'NOT FOUND IN CATALOG'}
-                    </Txt>
-                  </View>
+                  <Txt variant="micro" color={row.failure_reason === 'ambiguous_match' ? 'ink2' : 'muted'}>
+                    {row.failure_reason === 'ambiguous_match' ? 'Several possible matches' : 'Not in the catalog'}
+                  </Txt>
                 </View>
 
                 {/* Raw Book Metadata */}
-                <View style={{ gap: 2, marginVertical: space[1] }}>
-                  <Txt variant="body" style={{ fontWeight: '700', fontSize: 16 }}>
+                <View style={{ gap: space[1] }}>
+                  <Txt variant="bodyL" style={{ fontWeight: '500' }}>
                     {rawTitle}
                   </Txt>
                   <Txt variant="caption" color="muted">
                     by {rawAuthor}
-                    {rawRating && rawRating !== '0' ? ` · Rated ${rawRating}★` : ''}
+                    {rawRating && rawRating !== '0' ? ` · Rated ${rawRating} of 5` : ''}
                     {rawShelf ? ` · Shelf: ${rawShelf}` : ''}
                   </Txt>
                 </View>
 
                 {/* Search in Catalog Input */}
                 <View style={{ gap: space[2], marginTop: space[2] }}>
-                  <View style={[styles.searchInputWrapper, { backgroundColor: c.surface, borderColor: c.line }]}>
-                    <Ionicons name="search" size={16} color={c.muted} style={{ marginLeft: space[2] }} />
+                  <View style={[styles.searchInputWrapper, { backgroundColor: c.surface2, borderColor: c.line }]}>
+                    <Ionicons name="search-outline" size={16} color={c.muted} style={{ marginLeft: space[3] }} />
                     <TextInput
                       value={sState.query}
                       onChangeText={(text) => handleSearch(row.row_no, text)}
-                      placeholder="Search catalog to match..."
+                      placeholder="Search the catalog"
                       placeholderTextColor={c.muted}
                       style={[styles.searchInput, { color: c.ink }]}
                     />
@@ -317,8 +294,8 @@ export default function UnmatchedReviewScreen() {
                   {/* Catalog Candidates List */}
                   {sState.results.length > 0 && (
                     <View style={{ gap: space[2], marginTop: space[1] }}>
-                      <Txt variant="caption" color="muted" style={{ fontSize: 11, fontWeight: '600' }}>
-                        MATCHING CANDIDATES:
+                      <Txt variant="micro" color="muted">
+                        Possible matches
                       </Txt>
 
                       {sState.results.map((candidate) => (
@@ -335,14 +312,13 @@ export default function UnmatchedReviewScreen() {
                             coverId={candidate.cover_id}
                             title={candidate.title}
                             size="xs"
-                            style={{ width: 34, height: 50 }}
                           />
 
                           <View style={{ flex: 1, gap: 2 }}>
-                            <Txt variant="body" numberOfLines={1} style={{ fontWeight: '700', fontSize: 13 }}>
+                            <Txt variant="bodyL" numberOfLines={1} style={{ fontSize: 15, lineHeight: 22 }}>
                               {candidate.title}
                             </Txt>
-                            <Txt variant="caption" color="muted" numberOfLines={1} style={{ fontSize: 11 }}>
+                            <Txt variant="caption" color="muted" numberOfLines={1}>
                               {candidate.author_name}
                             </Txt>
                           </View>
@@ -362,13 +338,13 @@ export default function UnmatchedReviewScreen() {
                 </View>
 
                 {/* Footer Action: Skip */}
-                <View style={[sheet.rowBetween, { marginTop: space[3], paddingTop: space[2], borderTopWidth: 1, borderTopColor: c.line }]}>
-                  <Txt variant="caption" color="muted" style={{ fontSize: 11 }}>
-                    Can't find this book? Skip to ignore it.
+                <View style={[sheet.rowBetween, { marginTop: space[2], paddingTop: space[3], borderTopWidth: 1, borderTopColor: c.line }]}>
+                  <Txt variant="caption" color="muted" style={{ flex: 1 }}>
+                    Not in the catalog? Skip it
                   </Txt>
 
                   <Button
-                    label="Skip Book"
+                    label="Skip book"
                     size="sm"
                     variant="text"
                     loading={isSkipping}
@@ -387,35 +363,30 @@ export default function UnmatchedReviewScreen() {
 
 const styles = StyleSheet.create({
   rowCard: {
-    padding: space[3],
-    borderRadius: radius.md,
-    gap: space[1],
-  },
-  reasonBadge: {
-    paddingHorizontal: space[2],
-    paddingVertical: 2,
-    borderRadius: radius.sm,
-    borderWidth: 1,
+    padding: space[4],
+    borderRadius: radius.lg,
+    gap: space[3],
   },
   searchInputWrapper: {
     flexDirection: 'row',
     alignItems: 'center',
-    height: 40,
-    borderRadius: radius.sm,
+    height: 44,
+    borderRadius: radius.md,
     borderWidth: 1,
   },
   searchInput: {
     flex: 1,
-    height: 40,
+    height: 44,
     paddingHorizontal: space[2],
-    fontSize: 13,
+    fontSize: 15,
+    fontFamily: fontFamilies.uiRegular,
   },
   candidateRow: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: space[2],
     padding: space[2],
-    borderRadius: radius.sm,
+    borderRadius: radius.md,
     borderWidth: 1,
   },
 });

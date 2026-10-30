@@ -7,11 +7,12 @@ import { ActivityIndicator, Pressable, ScrollView, TextInput, View } from 'react
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as Haptics from 'expo-haptics';
+import { Ionicons } from '@expo/vector-icons';
 
 import { api, ApiError, type ModerationNotice } from '@/lib/api';
 import { APPEAL_MAX, appealStatus } from '@/lib/moderation';
 import { Button, Card, EmptyState, Screen, Txt, sheet } from '@/ui/components';
-import { radius, space, useTheme } from '@/ui/tokens';
+import { fontFamilies, radius, space, useTheme } from '@/ui/tokens';
 
 export default function ModerationNoticeScreen() {
   const c = useTheme();
@@ -56,9 +57,9 @@ export default function ModerationNoticeScreen() {
       <View style={{ paddingTop: insets.top + space[2], paddingHorizontal: space[4], paddingBottom: space[3], borderBottomWidth: 1, borderBottomColor: c.line }}>
         <View style={sheet.rowBetween}>
           <Pressable onPress={() => router.back()} accessibilityRole="button" accessibilityLabel="Back" style={{ minWidth: 44, minHeight: 44, justifyContent: 'center' }}>
-            <Txt variant="body" color="accent" style={{ fontWeight: '600' }}>← Back</Txt>
+            <Ionicons name="arrow-back" size={24} color={c.ink} />
           </Pressable>
-          <Txt variant="title" style={{ fontSize: 17 }}>Moderation notice</Txt>
+          <Txt variant="title">Moderation notice</Txt>
           <View style={{ minWidth: 44 }} />
         </View>
       </View>
@@ -70,17 +71,17 @@ export default function ModerationNoticeScreen() {
         ) : (
           <>
             <Card style={{ padding: space[4], gap: space[2] }}>
-              <Txt variant="caption" color="muted">Rule applied</Txt>
+              <Txt variant="micro" color="muted">Rule applied</Txt>
               <Txt variant="title">{notice.rule_label}</Txt>
               {notice.consequences.map((line) => (
                 <Txt key={line} variant="body">{line}</Txt>
               ))}
-              <Txt variant="caption" color="muted">{new Date(notice.created_at).toLocaleDateString()}</Txt>
+              <Txt variant="caption" color="muted" tabular>{new Date(notice.created_at).toLocaleDateString()}</Txt>
             </Card>
             <Txt variant="body" color="ink2">{appealStatus(notice)}</Txt>
             {notice.appeal && (
-              <Card style={{ padding: space[3], gap: space[1] }}>
-                <Txt variant="caption" color="muted">Your appeal</Txt>
+              <Card style={{ padding: space[4], gap: space[2] }}>
+                <Txt variant="micro" color="muted">Your appeal</Txt>
                 <Txt variant="body">{notice.appeal.body}</Txt>
               </Card>
             )}
@@ -93,7 +94,7 @@ export default function ModerationNoticeScreen() {
                   placeholderTextColor={c.muted}
                   multiline
                   accessibilityLabel="Appeal"
-                  style={{ minHeight: 120, borderRadius: radius.md, borderWidth: 1, borderColor: c.line, padding: space[3], color: c.ink, backgroundColor: c.surface, textAlignVertical: 'top' }}
+                  style={{ minHeight: 120, borderRadius: radius.md, borderWidth: 1, borderColor: c.line, padding: space[3], color: c.ink, backgroundColor: c.surface2, fontSize: 15, fontFamily: fontFamilies.uiRegular, textAlignVertical: 'top' }}
                 />
                 {error && <Txt variant="caption" color="critical">{error}</Txt>}
                 <Button label="Send appeal" onPress={appeal} disabled={!draft.trim()} loading={sending} />

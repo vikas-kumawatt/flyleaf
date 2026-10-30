@@ -221,7 +221,7 @@ export default function AccountSettingsScreen() {
         {sessions === null ? (
           sessionsFailed ? (
             <Group>
-              <NavRow label="Could not load your devices" detail="Tap to try again." onPress={() => void loadSessions()} />
+              <NavRow label="Could not load your devices" detail="Tap to try again" onPress={() => void loadSessions()} />
             </Group>
           ) : (
             <ActivityIndicator color={c.accent} accessibilityLabel="Loading signed-in devices" />
@@ -234,7 +234,7 @@ export default function AccountSettingsScreen() {
                 style={{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: space[4], paddingVertical: space[3], gap: space[3], minHeight: 56 }}
               >
                 <View style={{ flex: 1, gap: 2 }}>
-                  <Txt variant="body" style={{ fontWeight: '600' }}>
+                  <Txt variant="body" style={{ fontWeight: '500' }}>
                     {sessionLabel(s)}
                   </Txt>
                   <Txt variant="caption" color="muted">

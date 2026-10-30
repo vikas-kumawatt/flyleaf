@@ -33,8 +33,8 @@ export default function LicencesScreen() {
               packages inside the app, with their licences.
             </Txt>
             {ASSET_CREDITS.map((a) => (
-              <Card key={a.name} onPress={() => void Linking.openURL(a.url)} style={{ padding: space[3], gap: space[1] }}>
-                <Txt variant="title" style={{ fontSize: 15, fontWeight: '700' }}>
+              <Card key={a.name} onPress={() => void Linking.openURL(a.url)} style={{ padding: space[4], gap: space[1] }}>
+                <Txt variant="body" style={{ fontWeight: '500' }}>
                   {a.name}
                 </Txt>
                 <Txt variant="caption" color="muted">
@@ -46,13 +46,13 @@ export default function LicencesScreen() {
                 </Txt>
               </Card>
             ))}
-            <Txt variant="title" style={{ fontSize: 16, fontWeight: '700', marginTop: space[3] }}>
+            <Txt variant="title" style={{ marginTop: space[4] }}>
               Open-source packages
             </Txt>
           </View>
         }
         renderSectionHeader={({ section }) => (
-          <Txt variant="caption" color="muted" style={{ fontWeight: '700', marginTop: space[3], backgroundColor: c.ground }}>
+          <Txt variant="micro" color="muted" style={{ paddingTop: space[4], paddingBottom: space[1], backgroundColor: c.ground }}>
             {section.title}
           </Txt>
         )}
