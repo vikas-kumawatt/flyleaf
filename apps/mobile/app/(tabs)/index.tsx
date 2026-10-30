@@ -47,15 +47,8 @@ import {
   type FeedTab,
   type WantToReadOutcome,
 } from '@/lib/homeFeed';
-import {
-  Card,
-  EmptyState,
-  Screen,
-  SegmentedControl,
-  Txt,
-  sheet,
-} from '@/ui/components';
-import { radius, space, useTheme } from '@/ui/tokens';
+import { Card, EmptyState, Screen, SegmentedControl, Txt, sheet, Skeleton } from '@/ui/components';
+import { cover, radius, space, useTheme } from '@/ui/tokens';
 
 const DISMISSED_IMPORTS_KEY = 'home_dismissed_imports';
 
@@ -307,7 +300,7 @@ export default function HomeScreen() {
 
   const footer = (() => {
     if (load === 'more') {
-      return <ActivityIndicator style={{ marginVertical: space[4] }} color={c.accent} />;
+      return <ActivityIndicator style={{ marginVertical: space[4] }} color={c.muted} />;
     }
     if (failure === 'more') {
       return (
@@ -341,11 +334,27 @@ export default function HomeScreen() {
     if (load === 'loading') {
       // Skeleton cards on first load (§6.13).
       return (
-        <View style={{ gap: space[4] }} accessibilityLabel="Loading your feed">
+        <View
+          style={{ gap: space[4] }}
+          accessible
+          accessibilityLabel="Loading your feed"
+          accessibilityState={{ busy: true }}
+        >
           {[0, 1, 2].map((k) => (
             <Card key={k}>
-              <View style={[styles.skeletonLine, { width: '40%', backgroundColor: c.surface2 }]} />
-              <View style={[styles.skeletonBlock, { backgroundColor: c.surface2 }]} />
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: space[3] }}>
+                <Skeleton width={32} height={32} borderRadius={16} />
+                <Skeleton width="45%" height={12} />
+              </View>
+              <View style={{ flexDirection: 'row', gap: space[3], marginTop: space[3] }}>
+                <Skeleton width={cover.s.width} height={cover.s.height} borderRadius={radius.xs} />
+                <View style={{ flex: 1, gap: space[2] }}>
+                  <Skeleton width="75%" height={16} />
+                  <Skeleton width="50%" height={12} />
+                  <Skeleton width="90%" height={12} style={{ marginTop: space[2] }} />
+                  <Skeleton width="70%" height={12} />
+                </View>
+              </View>
             </Card>
           ))}
         </View>
@@ -624,14 +633,5 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: space[1],
     paddingVertical: space[6],
-  },
-  skeletonLine: {
-    height: 12,
-    borderRadius: radius.sm,
-    marginBottom: space[3],
-  },
-  skeletonBlock: {
-    height: 72,
-    borderRadius: radius.sm,
   },
 });

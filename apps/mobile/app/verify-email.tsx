@@ -56,7 +56,7 @@ export default function VerifyEmailScreen() {
       <View style={[sheet.pad, { gap: space[4] }]}>
         {state === 'verifying' && (
           <View style={{ alignItems: 'center', gap: space[3], marginTop: space[8] }}>
-            <ActivityIndicator color={c.accent} />
+            <ActivityIndicator color={c.muted} />
             <Txt variant="body" color="muted">Verifying your email…</Txt>
           </View>
         )}

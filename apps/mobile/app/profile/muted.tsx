@@ -7,7 +7,6 @@ import {
   View,
   ScrollView,
   Pressable,
-  ActivityIndicator,
   RefreshControl,
   StyleSheet,
   Alert,
@@ -24,8 +23,7 @@ import {
   Screen,
   SegmentedControl,
   Txt,
-  sheet,
-} from '@/ui/components';
+  sheet, SkeletonList} from '@/ui/components';
 import { radius, space, useTheme } from '@/ui/tokens';
 import { Ionicons } from '@expo/vector-icons';
 
@@ -152,7 +150,7 @@ export default function MutedItemsScreen() {
         }
       >
         {loading && mutedUsers.length === 0 && mutedWorks.length === 0 ? (
-          <ActivityIndicator size="large" color={c.accent} style={{ marginTop: space[6] }} />
+          <SkeletonList lead={activeTab === 'users' ? 'avatar' : 'cover'} style={{ paddingHorizontal: 0, paddingTop: 0 }} />
         ) : activeTab === 'users' ? (
           mutedUsers.length === 0 ? (
             <EmptyState

@@ -5,12 +5,12 @@
 // shelves deleted in the last 30 days and restores one with a tap.
 
 import React, { useCallback, useState } from 'react';
-import { ActivityIndicator, Alert, ScrollView, View } from 'react-native';
+import { Alert, ScrollView, View } from 'react-native';
 import { useFocusEffect, useRouter } from 'expo-router';
 import * as Haptics from 'expo-haptics';
 import { api } from '@/lib/api';
 import { track } from '@/lib/events';
-import { Button, Card, EmptyState, Screen, Txt } from '@/ui/components';
+import { Button, Card, EmptyState, Screen, Txt, SkeletonList } from '@/ui/components';
 import { space, useTheme } from '@/ui/tokens';
 
 type DeletedShelf = Awaited<ReturnType<typeof api.getDeletedShelves>>['shelves'][number];
@@ -70,7 +70,7 @@ export default function DeletedShelvesScreen() {
     <Screen>
       <ScrollView contentContainerStyle={{ padding: space[4], gap: space[3] }}>
         {loading && shelves.length === 0 ? (
-          <ActivityIndicator color={c.accent} />
+          <SkeletonList rows={3} lead="cover" style={{ paddingHorizontal: 0, paddingTop: 0 }} />
         ) : shelves.length === 0 ? (
           <EmptyState
             title="Nothing deleted recently"

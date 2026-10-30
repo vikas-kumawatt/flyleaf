@@ -14,7 +14,7 @@
 // Analytics: follow_suggestions_shown{count}, user_followed{source:onboarding}.
 
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as Haptics from 'expo-haptics';
@@ -24,7 +24,7 @@ import { track } from '@/lib/events';
 import { suggestionReason, toFollowAll } from '@/lib/followSuggestions';
 import { useSession } from '@/lib/session';
 import { useOfflineSync } from '@/offline/sync';
-import { Button, Card, Cover, EmptyState, Screen, Txt, sheet } from '@/ui/components';
+import { Button, Card, Cover, EmptyState, Screen, Txt, sheet, SkeletonList } from '@/ui/components';
 import { space, useTheme } from '@/ui/tokens';
 
 export default function FollowSuggestionsScreen() {
@@ -112,7 +112,7 @@ export default function FollowSuggestionsScreen() {
 
       <ScrollView contentContainerStyle={{ padding: space[4], paddingBottom: insets.bottom + space[12] * 2, gap: space[3] }}>
         {loading ? (
-          <ActivityIndicator size="large" color={c.accent} style={{ marginTop: space[6] }} />
+          <SkeletonList lead="avatar" style={{ paddingHorizontal: 0, paddingTop: 0 }} />
         ) : failed ? (
           <EmptyState
             title="Could not load suggestions"

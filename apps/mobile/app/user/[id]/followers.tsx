@@ -6,7 +6,6 @@ import {
   View,
   ScrollView,
   Pressable,
-  ActivityIndicator,
   RefreshControl,
   StyleSheet,
   Alert,
@@ -25,8 +24,7 @@ import {
   EmptyState,
   Screen,
   Txt,
-  sheet,
-} from '@/ui/components';
+  sheet, SkeletonList} from '@/ui/components';
 import { radius, space, useTheme } from '@/ui/tokens';
 import { Ionicons } from '@expo/vector-icons';
 
@@ -174,7 +172,7 @@ export default function FollowersScreen() {
         }
       >
         {loading && !refreshing ? (
-          <ActivityIndicator size="large" color={c.accent} style={{ marginTop: space[6] }} />
+          <SkeletonList lead="avatar" style={{ paddingHorizontal: 0, paddingTop: 0 }} />
         ) : notFound ? (
           <EmptyState
             title="Account unavailable"

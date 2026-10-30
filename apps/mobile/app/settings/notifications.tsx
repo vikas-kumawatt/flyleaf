@@ -10,7 +10,7 @@
 // has picked an hour and a minute. Off is one tap.
 
 import React, { useCallback, useEffect, useState } from 'react';
-import { ActivityIndicator, ScrollView, View } from 'react-native';
+import { ScrollView, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { UpdateNotificationPreferencesRequest } from '@flyleaf/api-client';
 import { api, type NotificationPreferences } from '@/lib/api';
@@ -29,7 +29,7 @@ import {
   splitTime,
   type Channel,
 } from '@/lib/settings';
-import { Button, EmptyState, Screen, Txt } from '@/ui/components';
+import { Button, EmptyState, Screen, Txt, SkeletonSettings } from '@/ui/components';
 import { ScreenHeader } from '@/ui/ScreenHeader';
 import { Group, NavRow, SectionTitle, SwitchRow, TimePicker } from '@/ui/SettingsRows';
 import { space, useTheme } from '@/ui/tokens';
@@ -89,7 +89,10 @@ export default function NotificationSettingsScreen() {
               action={<Button label="Try again" variant="primary" onPress={() => void load()} />}
             />
           ) : (
-            <ActivityIndicator color={c.accent} accessibilityLabel="Loading notification settings" />
+            <View accessible accessibilityLabel="Loading notification settings" style={{ gap: space[6] }}>
+              <SkeletonSettings rows={4} />
+              <SkeletonSettings rows={3} />
+            </View>
           )}
         </View>
       </Screen>

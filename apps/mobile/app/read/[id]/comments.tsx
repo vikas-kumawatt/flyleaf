@@ -24,7 +24,7 @@ import { api, FlyleafApiError, type ReadComment } from '@/lib/api';
 import { useSession } from '@/lib/session';
 import { ReportSheet, type ReportTarget } from '@/ui/ReportSheet';
 import { useActionGate } from '@/ui/ActionGate';
-import { EmptyState, Screen, Txt, sheet } from '@/ui/components';
+import { EmptyState, Screen, Txt, sheet, SkeletonList } from '@/ui/components';
 import { radius, space, type, useTheme } from '@/ui/tokens';
 import { Ionicons } from '@expo/vector-icons';
 import {
@@ -189,7 +189,7 @@ export default function CommentThreadScreen() {
         keyboardVerticalOffset={insets.top}
       >
         {loading ? (
-          <ActivityIndicator color={c.muted} style={{ marginTop: space[6] }} />
+          <SkeletonList lead="avatar" rows={4} />
         ) : missing ? (
           <EmptyState title="Not available" subtitle="This read is no longer available." />
         ) : (

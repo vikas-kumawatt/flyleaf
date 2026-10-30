@@ -22,8 +22,7 @@ import {
   Cover,
   Screen,
   Txt,
-  sheet,
-} from '@/ui/components';
+  sheet, SkeletonList} from '@/ui/components';
 import { Ionicons } from '@expo/vector-icons';
 import { fontFamilies, radius, space, useTheme } from '@/ui/tokens';
 
@@ -236,7 +235,7 @@ export default function FavouritesPickerScreen() {
             style={{ minWidth: 44, minHeight: 44, justifyContent: 'center', alignItems: 'flex-end' }}
           >
             {saving ? (
-              <ActivityIndicator size="small" color={c.accent} />
+              <ActivityIndicator size="small" color={c.muted} />
             ) : (
               <Txt variant="body" color="accent" style={{ fontWeight: '500' }}>
                 Done
@@ -264,7 +263,7 @@ export default function FavouritesPickerScreen() {
         </View>
 
         {loading ? (
-          <ActivityIndicator size="large" color={c.accent} style={{ marginTop: space[6] }} />
+          <SkeletonList lead="cover" rows={4} style={{ paddingHorizontal: 0, paddingTop: 0 }} />
         ) : (
           <View style={{ gap: space[3] }}>
             {/* Render 4 slots */}
@@ -419,7 +418,7 @@ export default function FavouritesPickerScreen() {
             </View>
 
             {searching && (
-              <ActivityIndicator size="small" color={c.accent} style={{ marginVertical: space[3] }} />
+              <SkeletonList lead="cover" rows={3} style={{ paddingHorizontal: 0, paddingTop: 0 }} />
             )}
 
             {/* Search Results */}

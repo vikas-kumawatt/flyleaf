@@ -32,7 +32,7 @@ import * as Haptics from 'expo-haptics';
 import { api, type Shelf, type ShelfItem } from '@/lib/api';
 import { moveItemInArray, repositionItem, formatShelfRank, fetchAllShelfItems } from '@/lib/shelfValidation';
 import { track } from '@/lib/events';
-import { Button, Cover, Screen, Txt } from '@/ui/components';
+import { Button, Cover, Screen, Txt, SkeletonList, Skeleton } from '@/ui/components';
 import { fontFamilies, motion, radius, space, useTheme } from '@/ui/tokens';
 
 interface ReorderRowProps {
@@ -341,9 +341,12 @@ export default function ReorderShelfScreen() {
 
   if (loading) {
     return (
-      <Screen style={[styles.center, { backgroundColor: c.ground }]}>
-        <ActivityIndicator size="large" color={c.accent} />
-        <Txt style={{ color: c.muted, marginTop: space[3] }}>Loading shelf order…</Txt>
+      <Screen style={{ backgroundColor: c.ground, paddingTop: Math.max(insets.top, space[3]) }}>
+        {/* Loading shelf order: the shape of the screen, not a spinner (design.md §5) */}
+        <View style={{ height: 44, paddingHorizontal: space[4], justifyContent: 'center' }}>
+          <Skeleton width={24} height={24} borderRadius={radius.sm} />
+        </View>
+        <SkeletonList rows={7} lead="cover" />
       </Screen>
     );
   }
@@ -393,7 +396,7 @@ export default function ReorderShelfScreen() {
           style={[styles.navButton, { opacity: !isDirty || saving ? 0.35 : 1 }]}
         >
           {saving ? (
-            <ActivityIndicator size="small" color={c.accent} />
+            <ActivityIndicator size="small" color={c.muted} />
           ) : (
             <Txt variant="body" color="accent" style={{ fontWeight: '500' }}>Save</Txt>
           )}
@@ -570,11 +573,6 @@ export default function ReorderShelfScreen() {
 }
 
 const styles = StyleSheet.create({
-  center: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
   navBar: {
     flexDirection: 'row',
     alignItems: 'center',

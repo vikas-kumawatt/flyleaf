@@ -15,7 +15,6 @@ import {
   TextInput,
   View,
   ScrollView,
-  ActivityIndicator,
   StyleSheet,
 } from 'react-native';
 import { useFocusEffect, useRouter } from 'expo-router';
@@ -30,15 +29,7 @@ import { useGuestShelf } from '@/lib/guest';
 import { useActionGate } from '@/ui/ActionGate';
 import { AddToShelfSheet, type AddToShelfWork } from '@/ui/AddToShelfSheet';
 import { budgetTracker } from '@/lib/budgetTracker';
-import {
-  Card,
-  Cover,
-  EmptyState,
-  Screen,
-  SegmentedControl,
-  Txt,
-  sheet,
-} from '@/ui/components';
+import { Card, Cover, EmptyState, Screen, SegmentedControl, Txt, sheet, SkeletonList } from '@/ui/components';
 import { space, radius, useTheme } from '@/ui/tokens';
 
 
@@ -431,12 +422,7 @@ export default function DiscoverScreen() {
             <View style={{ gap: space[3] }}>
               <Txt variant="title">Featured Community Lists</Txt>
               {curatedListsLoading && curatedLists.length === 0 ? (
-                <View style={{ paddingVertical: space[8], alignItems: 'center' }}>
-                  <ActivityIndicator size="large" color={c.accent} />
-                  <Txt variant="body" color="muted" style={{ marginTop: space[2] }}>
-                    Loading community lists…
-                  </Txt>
-                </View>
+                <SkeletonList rows={4} lead="cover" style={{ paddingHorizontal: 0 }} />
               ) : curatedLists.length === 0 ? (
                 <EmptyState
                   title="No community lists yet"
@@ -572,12 +558,7 @@ export default function DiscoverScreen() {
           keyboardShouldPersistTaps="handled"
           ListEmptyComponent={
             shelfLoading ? (
-              <View style={{ paddingVertical: space[8], alignItems: 'center' }}>
-                <ActivityIndicator size="small" color={c.accent} />
-                <Txt variant="body" color="muted" style={{ marginTop: space[2] }}>
-                  Searching curated lists…
-                </Txt>
-              </View>
+              <SkeletonList rows={4} lead="cover" />
             ) : (
               <EmptyState
                 title={`No lists found for "${q}"`}

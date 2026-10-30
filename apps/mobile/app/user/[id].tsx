@@ -7,7 +7,6 @@ import {
   View,
   ScrollView,
   Pressable,
-  ActivityIndicator,
   StyleSheet,
   RefreshControl,
   Alert,
@@ -29,8 +28,7 @@ import {
   EmptyState,
   Screen,
   Txt,
-  sheet,
-} from '@/ui/components';
+  sheet, SkeletonHeader, SkeletonCoverGrid} from '@/ui/components';
 import { fontFamilies, radius, space, useTheme } from '@/ui/tokens';
 import { Ionicons } from '@expo/vector-icons';
 
@@ -249,7 +247,10 @@ export default function UserProfileScreen() {
         }
       >
         {loading && !profile ? (
-          <ActivityIndicator size="large" color={c.accent} style={{ marginTop: space[6] }} />
+          <View style={{ gap: space[4] }}>
+            <SkeletonHeader style={{ padding: 0 }} />
+            <SkeletonCoverGrid count={4} columns={4} style={{ padding: 0 }} />
+          </View>
         ) : !profile ? (
           <EmptyState
             title="Reader not found"

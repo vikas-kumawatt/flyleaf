@@ -30,6 +30,7 @@ import Animated, {
   withRepeat,
   Easing,
   runOnJS,
+  useReducedMotion,
 } from 'react-native-reanimated';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import { decrementRating, incrementRating, starTarget, tapRating } from '../lib/stars';
@@ -692,9 +693,12 @@ export function Skeleton({
   style?: StyleProp<ViewStyle>;
 }) {
   const c = useTheme();
+  const reduceMotion = useReducedMotion();
   const opacity = useSharedValue(0.4);
 
   useEffect(() => {
+    // Reduced motion: a still placeholder, no shimmer (design.md §7).
+    if (reduceMotion) return;
     opacity.value = withRepeat(
       withSequence(
         withTiming(0.7, { duration: 900, easing: Easing.inOut(Easing.ease) }),
@@ -722,6 +726,136 @@ export function Skeleton({
         style,
       ]}
     />
+  );
+}
+
+// ---------------------------------------------------------------- Skeleton presets
+// Shape-matched loading states (design.md §5): never a centred spinner on a
+// full screen. Each preset mirrors the layout it stands in for, so nothing
+// jumps when the content arrives.
+
+function SkeletonFrame({ children, style }: { children: React.ReactNode; style?: StyleProp<ViewStyle> }) {
+  return (
+    <View
+      accessible
+      accessibilityLabel="Loading"
+      accessibilityState={{ busy: true }}
+      style={style}
+    >
+      {children}
+    </View>
+  );
+}
+
+/** Rows of a list: an avatar, a cover or nothing, then a title and a meta line. */
+export function SkeletonList({
+  rows = 6,
+  lead = 'avatar',
+  style,
+}: {
+  rows?: number;
+  lead?: 'avatar' | 'cover' | 'none';
+  style?: StyleProp<ViewStyle>;
+}) {
+  return (
+    <SkeletonFrame style={[{ paddingHorizontal: space[4], paddingTop: space[4], gap: space[4] }, style]}>
+      {Array.from({ length: rows }, (_, i) => (
+        <View key={i} style={{ flexDirection: 'row', alignItems: 'center', gap: space[3] }}>
+          {lead === 'avatar' ? <Skeleton width={40} height={40} borderRadius={20} /> : null}
+          {lead === 'cover' ? <Skeleton width={cover.s.width} height={cover.s.height} borderRadius={radius.xs} /> : null}
+          <View style={{ flex: 1, gap: space[2] }}>
+            <Skeleton width={i % 2 ? '55%' : '70%'} height={16} />
+            <Skeleton width={i % 2 ? '35%' : '45%'} height={12} />
+          </View>
+        </View>
+      ))}
+    </SkeletonFrame>
+  );
+}
+
+/** A grid of 2:3 covers, like the Wall or a shelf. */
+export function SkeletonCoverGrid({
+  count = 9,
+  columns = 3,
+  style,
+}: {
+  count?: number;
+  columns?: number;
+  style?: StyleProp<ViewStyle>;
+}) {
+  const basis = `${(100 - (columns - 1) * 3) / columns}%` as DimensionValue;
+  return (
+    <SkeletonFrame
+      style={[{ flexDirection: 'row', flexWrap: 'wrap', gap: space[3], padding: space[4] }, style]}
+    >
+      {Array.from({ length: count }, (_, i) => (
+        <View key={i} style={{ width: basis, aspectRatio: 2 / 3 }}>
+          <Skeleton width="100%" height={0} borderRadius={radius.xs} style={{ flex: 1 }} />
+        </View>
+      ))}
+    </SkeletonFrame>
+  );
+}
+
+/** A profile or shelf header: avatar or cover, name, a line of meta, a row of counts. */
+export function SkeletonHeader({
+  lead = 'avatar',
+  style,
+}: {
+  lead?: 'avatar' | 'cover';
+  style?: StyleProp<ViewStyle>;
+}) {
+  return (
+    <SkeletonFrame style={[{ padding: space[4], gap: space[4] }, style]}>
+      <View style={{ flexDirection: 'row', alignItems: 'center', gap: space[4] }}>
+        {lead === 'avatar' ? (
+          <Skeleton width={72} height={72} borderRadius={36} />
+        ) : (
+          <Skeleton width={cover.m.width} height={cover.m.height} borderRadius={radius.xs} />
+        )}
+        <View style={{ flex: 1, gap: space[2] }}>
+          <Skeleton width="60%" height={24} />
+          <Skeleton width="40%" height={12} />
+        </View>
+      </View>
+      <View style={{ flexDirection: 'row', gap: space[6] }}>
+        {[0, 1, 2].map((i) => (
+          <View key={i} style={{ gap: space[1] }}>
+            <Skeleton width={40} height={20} />
+            <Skeleton width={56} height={12} />
+          </View>
+        ))}
+      </View>
+    </SkeletonFrame>
+  );
+}
+
+/** A settings group: a card of equal rows. */
+export function SkeletonSettings({ rows = 3, style }: { rows?: number; style?: StyleProp<ViewStyle> }) {
+  const c = useTheme();
+  return (
+    <SkeletonFrame
+      style={[
+        { borderRadius: radius.lg, borderWidth: 1, borderColor: c.line, backgroundColor: c.surface, overflow: 'hidden' },
+        style,
+      ]}
+    >
+      {Array.from({ length: rows }, (_, i) => (
+        <View
+          key={i}
+          style={{
+            minHeight: 52,
+            paddingHorizontal: space[4],
+            justifyContent: 'center',
+            gap: space[2],
+            borderTopWidth: i ? 1 : 0,
+            borderTopColor: c.line,
+          }}
+        >
+          <Skeleton width={i % 2 ? '40%' : '55%'} height={14} />
+        </View>
+      ))}
+    </SkeletonFrame>
   );
 }
 

@@ -31,6 +31,7 @@ import {
   Screen,
   Txt,
   sheet,
+  SkeletonCoverGrid,
 } from '@/ui/components';
 import { Ionicons } from '@expo/vector-icons';
 import { palette, radius, space, useTheme } from '@/ui/tokens';
@@ -295,7 +296,9 @@ export default function WallScreen() {
           <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={c.accent} />
         }
       >
-        {processedReads.length === 0 ? (
+        {loading && reads.length === 0 ? (
+          <SkeletonCoverGrid count={12} columns={3} style={{ padding: 0 }} />
+        ) : processedReads.length === 0 ? (
           <EmptyState
             title="No covers to display"
             subtitle={

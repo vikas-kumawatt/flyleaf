@@ -13,7 +13,7 @@ import { OfflineRepository } from '@/offline/repository';
 import type { LocalRead } from '@/offline/schema';
 import { api } from '@/lib/api';
 import { DiaryView } from '@/ui/DiaryView';
-import { Screen, Txt, sheet } from '@/ui/components';
+import { Screen, Txt, sheet, SkeletonList } from '@/ui/components';
 import { space, useTheme } from '@/ui/tokens';
 import { Ionicons } from '@expo/vector-icons';
 
@@ -118,7 +118,11 @@ export default function DiaryScreen() {
           <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={c.accent} />
         }
       >
-        <DiaryView reads={reads} />
+        {loading && reads.length === 0 ? (
+          <SkeletonList lead="cover" style={{ paddingHorizontal: 0, paddingTop: 0 }} />
+        ) : (
+          <DiaryView reads={reads} />
+        )}
       </ScrollView>
     </Screen>
   );

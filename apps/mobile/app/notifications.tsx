@@ -24,7 +24,7 @@ import {
   type NotificationRow,
 } from '@/lib/notifications';
 import { enablePush, pushPermissionGranted } from '@/lib/push';
-import { EmptyState, Screen, Txt, sheet } from '@/ui/components';
+import { EmptyState, Screen, Txt, sheet, SkeletonList } from '@/ui/components';
 import { radius, space, useTheme } from '@/ui/tokens';
 import { Ionicons } from '@expo/vector-icons';
 
@@ -228,7 +228,7 @@ export default function NotificationsScreen() {
       ) : null}
 
       {loading ? (
-        <ActivityIndicator color={c.accent} style={{ marginTop: space[8] }} />
+        <SkeletonList lead="avatar" rows={8} />
       ) : error && items.length === 0 ? (
         <EmptyState
           title="Couldn't load notifications"
@@ -257,7 +257,7 @@ export default function NotificationsScreen() {
           ListEmptyComponent={
             <EmptyState title="Nothing yet" subtitle="When people react to your reviews, you'll see it here" />
           }
-          ListFooterComponent={loadingMore ? <ActivityIndicator color={c.accent} style={{ margin: space[4] }} /> : null}
+          ListFooterComponent={loadingMore ? <ActivityIndicator color={c.muted} style={{ margin: space[4] }} /> : null}
         />
       )}
     </Screen>

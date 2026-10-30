@@ -11,7 +11,6 @@ import {
   ScrollView,
   Pressable,
   TextInput,
-  ActivityIndicator,
   StyleSheet,
   Alert,
   Platform,
@@ -36,8 +35,7 @@ import {
   Screen,
   SegmentedControl,
   Txt,
-  sheet,
-} from '@/ui/components';
+  sheet, SkeletonSettings} from '@/ui/components';
 import { ImportProgressBanner } from '@/ui/ImportProgressBanner';
 import { isExportDownloadable } from '@/lib/exportDownload';
 import { space, radius, useTheme } from '@/ui/tokens';
@@ -375,7 +373,7 @@ export default function ImportScreen() {
           </Txt>
 
           {loadingPast ? (
-            <ActivityIndicator size="small" color={c.accent} style={{ padding: space[4] }} />
+            <SkeletonSettings rows={3} />
           ) : pastImports.length === 0 ? (
             <Card style={{ padding: space[4], alignItems: 'center' }}>
               <Txt variant="caption" color="muted">

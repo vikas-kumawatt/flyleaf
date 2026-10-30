@@ -14,7 +14,6 @@ import {
   View,
   ScrollView,
   Pressable,
-  ActivityIndicator,
   Share,
   StyleSheet,
   Alert,
@@ -29,7 +28,7 @@ import { useSession } from '@/lib/session';
 import { ReportSheet, type ReportTarget } from '@/ui/ReportSheet';
 import { useActionGate } from '@/ui/ActionGate';
 import { track } from '@/lib/events';
-import { Button, Card, Cover, Screen, Stars, Txt } from '@/ui/components';
+import { Button, Card, Cover, Screen, Stars, Txt, Skeleton, SkeletonHeader, SkeletonList } from '@/ui/components';
 import { ShareShelfModal } from '@/ui/ShareShelfModal';
 import { SHELF_ITEMS_PAGE } from '@/lib/shelfValidation';
 import { fontFamilies, radius, space, useTheme } from '@/ui/tokens';
@@ -156,9 +155,13 @@ export default function ShelfDetailScreen() {
 
   if (loading) {
     return (
-      <Screen style={[styles.center, { backgroundColor: c.ground }]}>
-        <ActivityIndicator size="large" color={c.accent} />
-        <Txt style={{ color: c.muted, marginTop: space[3] }}>Loading shelf…</Txt>
+      <Screen style={{ backgroundColor: c.ground, paddingTop: Math.max(insets.top, space[3]) }}>
+        {/* Loading shelf: the shape of the screen, not a spinner (design.md §5) */}
+        <View style={{ height: 44, paddingHorizontal: space[4], justifyContent: 'center' }}>
+          <Skeleton width={24} height={24} borderRadius={radius.sm} />
+        </View>
+        <SkeletonHeader lead="cover" />
+        <SkeletonList rows={5} lead="cover" />
       </Screen>
     );
   }
@@ -511,11 +514,6 @@ export default function ShelfDetailScreen() {
 }
 
 const styles = StyleSheet.create({
-  center: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
   navBar: {
     flexDirection: 'row',
     alignItems: 'center',

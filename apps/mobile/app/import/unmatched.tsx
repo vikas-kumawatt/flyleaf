@@ -32,8 +32,7 @@ import {
   EmptyState,
   Screen,
   Txt,
-  sheet,
-} from '@/ui/components';
+  sheet, SkeletonList} from '@/ui/components';
 import { fontFamilies, space, radius, useTheme } from '@/ui/tokens';
 
 export default function UnmatchedReviewScreen() {
@@ -225,7 +224,7 @@ export default function UnmatchedReviewScreen() {
 
       <ScrollView contentContainerStyle={{ padding: space[4], gap: space[4] }}>
         {loading ? (
-          <ActivityIndicator size="large" color={c.accent} style={{ padding: space[6] }} />
+          <SkeletonList lead="cover" rows={4} style={{ paddingHorizontal: 0, paddingTop: 0 }} />
         ) : rows.length === 0 ? (
           <EmptyState
             title="Every book is sorted"
@@ -287,7 +286,7 @@ export default function UnmatchedReviewScreen() {
                       style={[styles.searchInput, { color: c.ink }]}
                     />
                     {sState.loading && (
-                      <ActivityIndicator size="small" color={c.accent} style={{ marginRight: space[2] }} />
+                      <ActivityIndicator size="small" color={c.muted} style={{ marginRight: space[2] }} />
                     )}
                   </View>
 

@@ -26,7 +26,7 @@ import { useSession } from '@/lib/session';
 import { ReportSheet, type ReportTarget } from '@/ui/ReportSheet';
 import { useActionGate } from '@/ui/ActionGate';
 import { useOfflineSync } from '@/offline/sync';
-import { Button, Card, Cover, Screen, Stars, Txt, sheet } from '@/ui/components';
+import { Button, Card, Cover, Screen, Stars, Txt, sheet, Skeleton } from '@/ui/components';
 import { fontFamilies, radius, space, useTheme } from '@/ui/tokens';
 
 export default function ReviewDetailScreen() {
@@ -139,8 +139,23 @@ export default function ReviewDetailScreen() {
   if (loading || !review) {
     return (
       <Screen>
-        <View style={[sheet.pad, { paddingTop: insets.top + space[6] }]}>
-          <Txt color="muted">Loading review…</Txt>
+        <View
+          accessible
+          accessibilityLabel="Loading review"
+          accessibilityState={{ busy: true }}
+          style={[sheet.pad, { paddingTop: insets.top + space[6], gap: space[4] }]}
+        >
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: space[3] }}>
+            <Skeleton width={40} height={40} borderRadius={20} />
+            <View style={{ flex: 1, gap: space[2] }}>
+              <Skeleton width="45%" height={14} />
+              <Skeleton width="30%" height={12} />
+            </View>
+          </View>
+          <Skeleton width="60%" height={24} />
+          {['100%', '96%', '92%', '98%', '64%'].map((w, i) => (
+            <Skeleton key={i} width={w as `${number}%`} height={16} />
+          ))}
         </View>
       </Screen>
     );

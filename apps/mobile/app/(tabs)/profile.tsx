@@ -41,16 +41,7 @@ import {
   type ReadingStats,
   type GoalResponse,
 } from '@/lib/api';
-import {
-  Button,
-  Card,
-  Cover,
-  EmptyState,
-  ProgressBar,
-  Screen,
-  Txt,
-  sheet,
-} from '@/ui/components';
+import { Button, Card, Cover, EmptyState, ProgressBar, Screen, Txt, sheet, Skeleton } from '@/ui/components';
 import { radius, space, useTheme } from '@/ui/tokens';
 import { Ionicons } from '@expo/vector-icons';
 import { GoalRing } from '@/ui/GoalRing';
@@ -366,164 +357,199 @@ export default function ProfileScreen() {
               </View>
             </View>
 
-            {/* 2. FAVOURITES SECTION (Taste before volume) */}
-            <View style={{ gap: space[2] }}>
-              <View style={sheet.rowBetween}>
-                <Txt variant="title">
-                  Defining favourites
-                </Txt>
-                <Pressable
-                  onPress={() => {
-                    void Haptics.selectionAsync();
-                    router.push('/profile/favourites' as any);
-                  }}
-                  hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
-                >
-                  <Txt variant="caption" color="accent" style={{ fontWeight: '500' }}>
-                    Edit 4
-                  </Txt>
-                </Pressable>
+            {loading && !profile ? (
+              // First load: favourites and stats as their shapes (design.md §5).
+              <View
+                style={{ gap: space[4] }}
+                accessible
+                accessibilityLabel="Loading your profile"
+                accessibilityState={{ busy: true }}
+              >
+                <View style={{ gap: space[2] }}>
+                  <Skeleton width={140} height={16} />
+                  <View style={{ flexDirection: 'row', gap: space[2] }}>
+                    {[0, 1, 2, 3].map((k) => (
+                      <View key={k} style={{ flex: 1, aspectRatio: 2 / 3 }}>
+                        <Skeleton width="100%" height={0} borderRadius={radius.xs} style={{ flex: 1 }} />
+                      </View>
+                    ))}
+                  </View>
+                </View>
+                <View style={{ gap: space[2] }}>
+                  <Skeleton width={120} height={16} />
+                  <View style={{ flexDirection: 'row', gap: space[3] }}>
+                    {[0, 1, 2].map((k) => (
+                      <View key={k} style={{ flex: 1, padding: space[4], gap: space[2], borderRadius: radius.lg, borderWidth: 1, borderColor: c.line }}>
+                        <Skeleton width={40} height={24} />
+                        <Skeleton width="70%" height={12} />
+                      </View>
+                    ))}
+                  </View>
+                </View>
               </View>
+            ) : (
+              <>
+              {/* 2. FAVOURITES SECTION (Taste before volume) */}
+              <View style={{ gap: space[2] }}>
+                <View style={sheet.rowBetween}>
+                  <Txt variant="title">
+                    Defining favourites
+                  </Txt>
+                  <Pressable
+                    onPress={() => {
+                      void Haptics.selectionAsync();
+                      router.push('/profile/favourites' as any);
+                    }}
+                    hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+                  >
+                    <Txt variant="caption" color="accent" style={{ fontWeight: '500' }}>
+                      Edit 4
+                    </Txt>
+                  </Pressable>
+                </View>
 
-              {/* 4 Favourite book covers */}
-              <View style={styles.favouritesRow}>
-                {[0, 1, 2, 3].map((idx) => {
-                  const fav = profile?.favourites?.[idx];
-                  if (fav) {
+                {/* 4 Favourite book covers */}
+                <View style={styles.favouritesRow}>
+                  {[0, 1, 2, 3].map((idx) => {
+                    const fav = profile?.favourites?.[idx];
+                    if (fav) {
+                      return (
+                        <Pressable
+                          key={fav.id}
+                          onPress={() => {
+                            void Haptics.selectionAsync();
+                            router.push(`/work/${fav.id}` as any);
+                          }}
+                          style={styles.favItem}
+                          accessibilityRole="button"
+                          accessibilityLabel={fav.title}
+                        >
+                          <Cover coverId={fav.cover_id} title={fav.title} size="fluid" />
+                          <Txt variant="caption" numberOfLines={1} style={{ marginTop: space[1] }}>
+                            {fav.title}
+                          </Txt>
+                        </Pressable>
+                      );
+                    }
+
                     return (
                       <Pressable
-                        key={fav.id}
+                        key={`empty-${idx}`}
                         onPress={() => {
                           void Haptics.selectionAsync();
-                          router.push(`/work/${fav.id}` as any);
+                          router.push('/profile/favourites' as any);
                         }}
-                        style={styles.favItem}
+                        style={[
+                          styles.favItem,
+                          styles.emptyFavSlot,
+                          { borderColor: c.line, backgroundColor: c.surface },
+                        ]}
                         accessibilityRole="button"
-                        accessibilityLabel={fav.title}
+                        accessibilityLabel="Add favourite book"
                       >
-                        <Cover coverId={fav.cover_id} title={fav.title} size="fluid" />
-                        <Txt variant="caption" numberOfLines={1} style={{ marginTop: space[1] }}>
-                          {fav.title}
+                        <Txt variant="title" color="muted" style={{ fontSize: 17 }}>
+                          +
+                        </Txt>
+                        <Txt variant="caption" color="muted">
+                          Slot {idx + 1}
                         </Txt>
                       </Pressable>
                     );
-                  }
-
-                  return (
-                    <Pressable
-                      key={`empty-${idx}`}
-                      onPress={() => {
-                        void Haptics.selectionAsync();
-                        router.push('/profile/favourites' as any);
-                      }}
-                      style={[
-                        styles.favItem,
-                        styles.emptyFavSlot,
-                        { borderColor: c.line, backgroundColor: c.surface },
-                      ]}
-                      accessibilityRole="button"
-                      accessibilityLabel="Add favourite book"
-                    >
-                      <Txt variant="title" color="muted" style={{ fontSize: 17 }}>
-                        +
-                      </Txt>
-                      <Txt variant="caption" color="muted">
-                        Slot {idx + 1}
-                      </Txt>
-                    </Pressable>
-                  );
-                })}
+                  })}
+                </View>
               </View>
-            </View>
 
-            {/* 3. READING STATS STRIP */}
-            <View style={{ gap: space[2] }}>
-              <View style={sheet.rowBetween}>
-                <Txt variant="title">
-                  {stats?.year ? `Reading in ${stats.year}` : 'Reading stats'}
-                </Txt>
+              {/* 3. READING STATS STRIP */}
+              <View style={{ gap: space[2] }}>
+                <View style={sheet.rowBetween}>
+                  <Txt variant="title">
+                    {stats?.year ? `Reading in ${stats.year}` : 'Reading stats'}
+                  </Txt>
+                  <Pressable
+                    onPress={() => {
+                      void Haptics.selectionAsync();
+                      router.push('/stats' as any);
+                    }}
+                    hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+                  >
+                    <Txt variant="caption" color="accent" style={{ fontWeight: '500' }}>
+                      Full stats
+                    </Txt>
+                  </Pressable>
+                </View>
+
                 <Pressable
                   onPress={() => {
                     void Haptics.selectionAsync();
                     router.push('/stats' as any);
                   }}
-                  hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
                 >
-                  <Txt variant="caption" color="accent" style={{ fontWeight: '500' }}>
-                    Full stats
-                  </Txt>
-                </Pressable>
-              </View>
-
-              <Pressable
-                onPress={() => {
-                  void Haptics.selectionAsync();
-                  router.push('/stats' as any);
-                }}
-              >
-                <View style={[sheet.row, { gap: space[2] }]}>
-                  <Card style={{ flex: 1, alignItems: 'center', padding: space[3] }}>
-                    <Txt variant="title" tabular style={{ fontSize: 24, lineHeight: 28 }}>
-                      {stats?.books_count ?? finishedReads.length}
-                    </Txt>
-                    <Txt variant="caption" color="muted">
-                      books read
-                    </Txt>
-                  </Card>
-
-                  <Card style={{ flex: 1, alignItems: 'center', padding: space[3] }}>
-                    <Txt variant="title" tabular style={{ fontSize: 24, lineHeight: 28 }}>
-                      {(stats?.pages_count ?? 0).toLocaleString()}
-                    </Txt>
-                    <Txt variant="caption" color="muted">
-                      pages tracked
-                    </Txt>
-                  </Card>
-
-                  <Card style={{ flex: 1, alignItems: 'center', padding: space[3] }}>
-                    <View style={[sheet.row, { gap: space[1] }]}>
-                      {stats?.avg_rating ? <Ionicons name="star" size={16} color={c.star} /> : null}
+                  <View style={[sheet.row, { gap: space[2] }]}>
+                    <Card style={{ flex: 1, alignItems: 'center', padding: space[3] }}>
                       <Txt variant="title" tabular style={{ fontSize: 24, lineHeight: 28 }}>
-                        {stats?.avg_rating ? stats.avg_rating.toFixed(1) : '—'}
+                        {stats?.books_count ?? finishedReads.length}
                       </Txt>
-                    </View>
-                    <Txt variant="caption" color="muted">
-                      avg rating
-                    </Txt>
+                      <Txt variant="caption" color="muted">
+                        books read
+                      </Txt>
+                    </Card>
+
+                    <Card style={{ flex: 1, alignItems: 'center', padding: space[3] }}>
+                      <Txt variant="title" tabular style={{ fontSize: 24, lineHeight: 28 }}>
+                        {(stats?.pages_count ?? 0).toLocaleString()}
+                      </Txt>
+                      <Txt variant="caption" color="muted">
+                        pages tracked
+                      </Txt>
+                    </Card>
+
+                    <Card style={{ flex: 1, alignItems: 'center', padding: space[3] }}>
+                      <View style={[sheet.row, { gap: space[1] }]}>
+                        {stats?.avg_rating ? <Ionicons name="star" size={16} color={c.star} /> : null}
+                        <Txt variant="title" tabular style={{ fontSize: 24, lineHeight: 28 }}>
+                          {stats?.avg_rating ? stats.avg_rating.toFixed(1) : '—'}
+                        </Txt>
+                      </View>
+                      <Txt variant="caption" color="muted">
+                        avg rating
+                      </Txt>
+                    </Card>
+                  </View>
+                </Pressable>
+
+                {/* Streak (§8.7: a broken one shows as the longest, never as a loss; nothing at all
+                    for a reader who never logs progress) and the goal ring (§8.6). */}
+                <View style={[sheet.row, { gap: space[2] }]}>
+                  {streak && (
+                    <Card style={{ flex: 1, padding: space[3], justifyContent: 'center' }}>
+                      <Txt variant="title" tabular style={{ fontSize: 24, lineHeight: 28 }}>
+                        {streak.hero}
+                      </Txt>
+                      <Txt variant="caption" color="muted">
+                        {streak.label}
+                      </Txt>
+                      {streak.detail && (
+                        <Txt variant="caption" color="muted">
+                          {streak.detail}
+                        </Txt>
+                      )}
+                    </Card>
+                  )}
+                  <Card style={{ padding: space[3], alignItems: 'center', justifyContent: 'center' }}>
+                    <GoalRing
+                      model={goalRingModel(goal)}
+                      emptyLabel="Set goal"
+                      onPress={() => {
+                        void Haptics.selectionAsync();
+                        setGoalSheetVisible(true);
+                      }}
+                    />
                   </Card>
                 </View>
-              </Pressable>
-
-              {/* Streak (§8.7: a broken one shows as the longest, never as a loss; nothing at all
-                  for a reader who never logs progress) and the goal ring (§8.6). */}
-              <View style={[sheet.row, { gap: space[2] }]}>
-                {streak && (
-                  <Card style={{ flex: 1, padding: space[3], justifyContent: 'center' }}>
-                    <Txt variant="title" tabular style={{ fontSize: 24, lineHeight: 28 }}>
-                      {streak.hero}
-                    </Txt>
-                    <Txt variant="caption" color="muted">
-                      {streak.label}
-                    </Txt>
-                    {streak.detail && (
-                      <Txt variant="caption" color="muted">
-                        {streak.detail}
-                      </Txt>
-                    )}
-                  </Card>
-                )}
-                <Card style={{ padding: space[3], alignItems: 'center', justifyContent: 'center' }}>
-                  <GoalRing
-                    model={goalRingModel(goal)}
-                    emptyLabel="Set goal"
-                    onPress={() => {
-                      void Haptics.selectionAsync();
-                      setGoalSheetVisible(true);
-                    }}
-                  />
-                </Card>
               </View>
-            </View>
+
+              </>
+            )}
 
             {/* 4. CURRENTLY READING SHELF */}
             {currentlyReading.length > 0 && (
@@ -752,7 +778,7 @@ export default function ProfileScreen() {
                 style={{ minWidth: 44, minHeight: 44, justifyContent: 'center', alignItems: 'flex-end' }}
               >
                 {savingProfile ? (
-                  <ActivityIndicator size="small" color={c.accent} />
+                  <ActivityIndicator size="small" color={c.muted} />
                 ) : (
                   <Txt variant="body" color="accent" style={{ fontWeight: '500' }}>
                     Save

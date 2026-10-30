@@ -10,7 +10,7 @@
 // here: §8.6 [LOCKED] keeps it on the profile.
 
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { ActivityIndicator, Pressable, RefreshControl, ScrollView, View } from 'react-native';
+import { Pressable, RefreshControl, ScrollView, View } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as Haptics from 'expo-haptics';
@@ -22,9 +22,9 @@ import { deviceTimeZone } from '@/lib/statsView';
 import { statCards, statsEmpty } from '@/lib/statCards';
 import { encodeShareOptions, statShareOptions } from '@/lib/shareCard';
 import { yirBanner } from '@/lib/yearInReview';
-import { Button, Card, Chip, EmptyState, Screen, Txt, sheet } from '@/ui/components';
+import { Button, Card, Chip, EmptyState, Screen, Txt, sheet, Skeleton } from '@/ui/components';
 import { StatCard } from '@/ui/StatCard';
-import { space, useTheme } from '@/ui/tokens';
+import { radius, space, useTheme } from '@/ui/tokens';
 import { Ionicons } from '@expo/vector-icons';
 
 export default function StatsScreen() {
@@ -147,7 +147,21 @@ export default function StatsScreen() {
         )}
 
         {loading && !stats ? (
-          <ActivityIndicator size="large" color={c.accent} style={{ marginTop: space[6] }} />
+          // Stat cards as their shapes: label, figure, a few bars (design.md §5).
+          <View style={{ gap: space[4] }} accessible accessibilityLabel="Loading stats" accessibilityState={{ busy: true }}>
+            {[0, 1, 2].map((k) => (
+              <Card key={k} style={{ gap: space[3] }}>
+                <Skeleton width={120} height={12} />
+                <Skeleton width={k ? 64 : 96} height={32} />
+                {[0, 1, 2].map((r) => (
+                  <View key={r} style={{ flexDirection: 'row', alignItems: 'center', gap: space[3] }}>
+                    <Skeleton width={56} height={12} />
+                    <Skeleton width={`${70 - r * 20}%`} height={6} borderRadius={radius.pill} />
+                  </View>
+                ))}
+              </Card>
+            ))}
+          </View>
         ) : statsEmpty(stats) ? (
           <EmptyState
             title="Finish a few books and your stats will appear"

@@ -3,7 +3,7 @@
 // notification (flyleaf://moderation/<id>) or from Your reports.
 
 import React, { useCallback, useEffect, useState } from 'react';
-import { ActivityIndicator, Pressable, ScrollView, TextInput, View } from 'react-native';
+import { Pressable, ScrollView, TextInput, View } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as Haptics from 'expo-haptics';
@@ -11,7 +11,7 @@ import { Ionicons } from '@expo/vector-icons';
 
 import { api, ApiError, type ModerationNotice } from '@/lib/api';
 import { APPEAL_MAX, appealStatus } from '@/lib/moderation';
-import { Button, Card, EmptyState, Screen, Txt, sheet } from '@/ui/components';
+import { Button, Card, EmptyState, Screen, Txt, sheet, Skeleton } from '@/ui/components';
 import { fontFamilies, radius, space, useTheme } from '@/ui/tokens';
 
 export default function ModerationNoticeScreen() {
@@ -67,7 +67,12 @@ export default function ModerationNoticeScreen() {
         {missing ? (
           <EmptyState title="Not found" subtitle="This notice is no longer available." />
         ) : !notice ? (
-          <ActivityIndicator color={c.accent} style={{ marginTop: space[6] }} />
+          <View accessible accessibilityLabel="Loading" accessibilityState={{ busy: true }} style={{ gap: space[3] }}>
+            <Skeleton width="50%" height={20} />
+            <Skeleton width="100%" height={14} />
+            <Skeleton width="90%" height={14} />
+            <Skeleton width="70%" height={14} />
+          </View>
         ) : (
           <>
             <Card style={{ padding: space[4], gap: space[2] }}>

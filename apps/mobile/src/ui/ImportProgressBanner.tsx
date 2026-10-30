@@ -63,7 +63,7 @@ export function ImportProgressBanner({
     return (
       <Card style={[styles.container, { borderColor: c.line }]}>
         <View style={sheet.row}>
-          <ActivityIndicator size="small" color={c.accent} style={{ marginRight: space[2] }} />
+          <ActivityIndicator size="small" color={c.muted} style={{ marginRight: space[2] }} />
           <Txt variant="caption" color="muted">
             Connecting to import service...
           </Txt>
@@ -107,7 +107,7 @@ export function ImportProgressBanner({
       <View style={sheet.rowBetween}>
         <View style={[sheet.row, { gap: space[2], flex: 1 }]}>
           {isProcessing || isQueued ? (
-            <ActivityIndicator size="small" color={c.accent} />
+            <ActivityIndicator size="small" color={c.muted} />
           ) : isCompleted ? (
             <Ionicons name="checkmark-circle-outline" size={18} color={c.positive} />
           ) : (

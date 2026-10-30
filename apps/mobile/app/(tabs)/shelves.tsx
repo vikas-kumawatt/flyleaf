@@ -36,16 +36,7 @@ import {
   type ShelfSortOption,
 } from '@/lib/shelfValidation';
 import { track } from '@/lib/events';
-import {
-  Button,
-  Card,
-  Cover,
-  EmptyState,
-  Screen,
-  SegmentedControl,
-  Txt,
-  sheet,
-} from '@/ui/components';
+import { Button, Card, Cover, EmptyState, Screen, SegmentedControl, Txt, sheet, Skeleton } from '@/ui/components';
 import { space, radius, useTheme } from '@/ui/tokens';
 
 /** Saved shelves per page (the API allows up to 100). */
@@ -408,9 +399,16 @@ export default function ShelvesScreen() {
               </View>
             ) : loading && !refreshing && shelves.length === 0 ? (
               // Loading State
-              <View style={styles.centerContainer}>
-                <ActivityIndicator size="large" color={c.accent} />
-                <Txt style={{ color: c.muted, marginTop: space[3] }}>Loading your shelves…</Txt>
+              <View style={styles.gridContainer} accessible accessibilityLabel="Loading your shelves" accessibilityState={{ busy: true }}>
+                {[0, 1, 2, 3].map((k) => (
+                  <View key={k} style={[styles.gridCard, { width: cardWidth, backgroundColor: c.surface, borderColor: c.line }]}>
+                    <Skeleton width="100%" height={112} borderRadius={0} />
+                    <View style={[styles.gridDetails, { gap: space[2] }]}>
+                      <Skeleton width="70%" height={14} />
+                      <Skeleton width="40%" height={12} />
+                    </View>
+                  </View>
+                ))}
               </View>
             ) : shelves.length === 0 ? (
               // Empty State with 3 Start with one of these (PRD §6.33)
@@ -500,7 +498,7 @@ export default function ShelvesScreen() {
                           </Txt>
                           <View style={{ flexDirection: 'row', alignItems: 'center' }}>
                             {isCreating ? (
-                              <ActivityIndicator size="small" color={c.accent} />
+                              <ActivityIndicator size="small" color={c.muted} />
                             ) : (
                               <Txt style={{ color: c.accent, fontWeight: '500', fontSize: 13 }}>
                                 Create
@@ -890,11 +888,16 @@ export default function ShelvesScreen() {
                 />
               </Card>
             ) : savedLoading && savedShelves.length === 0 ? (
-              <View style={styles.centerContainer}>
-                <ActivityIndicator size="large" color={c.accent} />
-                <Txt style={{ color: c.muted, marginTop: space[3], fontSize: 13 }}>
-                  Loading saved shelves…
-                </Txt>
+              <View style={styles.gridContainer} accessible accessibilityLabel="Loading saved shelves" accessibilityState={{ busy: true }}>
+                {[0, 1, 2, 3].map((k) => (
+                  <View key={k} style={[styles.gridCard, { width: cardWidth, backgroundColor: c.surface, borderColor: c.line }]}>
+                    <Skeleton width="100%" height={112} borderRadius={0} />
+                    <View style={[styles.gridDetails, { gap: space[2] }]}>
+                      <Skeleton width="70%" height={14} />
+                      <Skeleton width="40%" height={12} />
+                    </View>
+                  </View>
+                ))}
               </View>
             ) : savedShelves.length === 0 ? (
               <EmptyState
@@ -1314,11 +1317,16 @@ export default function ShelvesScreen() {
             </View>
 
             {browseLoading && browseShelvesList.length === 0 ? (
-              <View style={styles.centerContainer}>
-                <ActivityIndicator size="large" color={c.accent} />
-                <Txt style={{ color: c.muted, marginTop: space[3], fontSize: 13 }}>
-                  Loading curated shelves…
-                </Txt>
+              <View style={styles.gridContainer} accessible accessibilityLabel="Loading curated shelves" accessibilityState={{ busy: true }}>
+                {[0, 1, 2, 3].map((k) => (
+                  <View key={k} style={[styles.gridCard, { width: cardWidth, backgroundColor: c.surface, borderColor: c.line }]}>
+                    <Skeleton width="100%" height={112} borderRadius={0} />
+                    <View style={[styles.gridDetails, { gap: space[2] }]}>
+                      <Skeleton width="70%" height={14} />
+                      <Skeleton width="40%" height={12} />
+                    </View>
+                  </View>
+                ))}
               </View>
             ) : browseShelvesList.length === 0 ? (
               <EmptyState
@@ -1581,11 +1589,6 @@ export default function ShelvesScreen() {
 }
 
 const styles = StyleSheet.create({
-  centerContainer: {
-    paddingVertical: space[12],
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
   welcomeBanner: {
     flexDirection: 'row',
     alignItems: 'center',

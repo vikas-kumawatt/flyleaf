@@ -25,7 +25,7 @@ import * as Haptics from 'expo-haptics';
 import { api, type Shelf, type ShelfPrivacy } from '@/lib/api';
 import { validateShelfForm } from '@/lib/shelfValidation';
 import { track } from '@/lib/events';
-import { Button, Screen, Txt } from '@/ui/components';
+import { Button, Screen, Txt, Skeleton } from '@/ui/components';
 import { radius, space, useTheme } from '@/ui/tokens';
 
 export default function EditShelfScreen() {
@@ -196,9 +196,24 @@ export default function EditShelfScreen() {
 
   if (loading) {
     return (
-      <Screen style={[styles.center, { backgroundColor: c.ground }]}>
-        <ActivityIndicator size="large" color={c.accent} />
-        <Txt style={{ color: c.muted, marginTop: space[3] }}>Loading shelf details…</Txt>
+      <Screen style={{ backgroundColor: c.ground, paddingTop: Math.max(insets.top, space[3]) }}>
+        {/* Loading shelf details: the shape of the screen, not a spinner (design.md §5) */}
+        <View style={{ height: 44, paddingHorizontal: space[4], justifyContent: 'center' }}>
+          <Skeleton width={24} height={24} borderRadius={radius.sm} />
+        </View>
+        <View
+          style={{ padding: space[4], gap: space[6] }}
+          accessible
+          accessibilityLabel="Loading shelf details"
+          accessibilityState={{ busy: true }}
+        >
+          {[44, 96, 44].map((h, k) => (
+            <View key={k} style={{ gap: space[2] }}>
+              <Skeleton width={80} height={12} />
+              <Skeleton width="100%" height={h} borderRadius={radius.md} />
+            </View>
+          ))}
+        </View>
       </Screen>
     );
   }
@@ -234,7 +249,7 @@ export default function EditShelfScreen() {
           onPress={handleSave}
         >
           {saving ? (
-            <ActivityIndicator size="small" color={c.accent} />
+            <ActivityIndicator size="small" color={c.muted} />
           ) : (
             <Txt
               style={{
@@ -432,11 +447,6 @@ export default function EditShelfScreen() {
 }
 
 const styles = StyleSheet.create({
-  center: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
