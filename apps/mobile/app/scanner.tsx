@@ -32,10 +32,25 @@ import {
   Txt,
   sheet,
 } from '@/ui/components';
-import { space, radius, useTheme } from '@/ui/tokens';
+import { palette, space, radius, useTheme } from '@/ui/tokens';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+
+// The viewfinder sits over a live camera feed, so it always uses the dark
+// values whatever the app theme is.
+const cam = {
+  ground: palette.ground.dark,
+  ink: palette.ink.dark,
+  ink2: palette.ink2.dark,
+  raised: palette.surface2.dark,
+  line: palette.lineStrong.dark,
+  scrim: palette.scrim.dark,
+  accent: palette.accent.dark,
+  critical: palette.critical.dark,
+};
 
 export default function ScannerScreen() {
   const c = useTheme();
+  const insets = useSafeAreaInsets();
   const router = useRouter();
   const [permission, requestPermission] = useCameraPermissions();
 
@@ -153,23 +168,23 @@ export default function ScannerScreen() {
                 width: 72,
                 height: 72,
                 borderRadius: 36,
-                backgroundColor: c.accentSoft,
+                backgroundColor: c.surface2,
                 alignItems: 'center',
                 justifyContent: 'center',
               }}
             >
-              <Ionicons name="camera-outline" size={36} color={c.accent} />
+              <Ionicons name="barcode-outline" size={32} color={c.ink2} />
             </View>
             <Txt variant="displayM" style={{ textAlign: 'center' }}>
-              Scan Book Barcodes
+              Scan a barcode
             </Txt>
             <Txt
               variant="body"
               color="muted"
-              style={{ textAlign: 'center', lineHeight: 22 }}
+              style={{ textAlign: 'center' }}
             >
-              Flyleaf uses your camera to scan ISBN barcodes on the back of physical books, so you can
-              instantly log, rate, and track what you read without typing.
+              Flyleaf uses the camera to read the ISBN barcode on the back of a book, so you can log it
+              without typing.
             </Txt>
           </View>
 
@@ -193,7 +208,7 @@ export default function ScannerScreen() {
 
           {manualMode && (
             <Card style={{ gap: space[3], marginTop: space[4] }}>
-              <Txt variant="title">Manual ISBN Entry</Txt>
+              <Txt variant="title">Enter an ISBN</Txt>
               <TextInput
                 value={manualIsbn}
                 onChangeText={setManualIsbn}
@@ -211,12 +226,12 @@ export default function ScannerScreen() {
                 }}
               />
               {errorMessage && (
-                <Txt variant="caption" color="accent">
+                <Txt variant="caption" color="critical">
                   {errorMessage}
                 </Txt>
               )}
               <Button
-                label={loading ? 'Searching…' : 'Lookup ISBN'}
+                label={loading ? 'Searching…' : 'Look up'}
                 variant="primary"
                 disabled={loading || manualIsbn.length < 10}
                 onPress={() => handleLookupIsbn(manualIsbn)}
@@ -241,18 +256,18 @@ export default function ScannerScreen() {
       />
 
       {/* Top Controls Overlay */}
-      <View style={[styles.topOverlay, { backgroundColor: 'rgba(0,0,0,0.45)' }]}>
+      <View style={[styles.topOverlay, { paddingTop: insets.top + space[2] }]}>
         <Pressable
           onPress={() => router.back()}
           accessibilityRole="button"
           accessibilityLabel="Close scanner"
           style={styles.iconCircle}
         >
-          <Ionicons name="close" size={24} color="#FFFFFF" />
+          <Ionicons name="close" size={24} color={cam.ink} />
         </Pressable>
 
-        <Txt variant="title" style={{ color: '#FFFFFF' }}>
-          Scan ISBN Barcode
+        <Txt variant="title" style={{ color: cam.ink }}>
+          Scan a barcode
         </Txt>
 
         <Pressable
@@ -267,7 +282,7 @@ export default function ScannerScreen() {
           <Ionicons
             name={torch ? 'flash' : 'flash-outline'}
             size={22}
-            color={torch ? '#FFD700' : '#FFFFFF'}
+            color={cam.ink}
           />
         </Pressable>
       </View>
@@ -282,27 +297,27 @@ export default function ScannerScreen() {
           <View style={[styles.corner, styles.bottomRight]} />
 
           {loading ? (
-            <ActivityIndicator size="large" color={c.accent} />
+            <ActivityIndicator color={cam.ink} />
           ) : (
-            <View style={[styles.scanLine, { backgroundColor: c.accent }]} />
+            <View style={[styles.scanLine, { backgroundColor: cam.accent }]} />
           )}
         </View>
 
-        <Txt variant="caption" style={{ color: '#FFFFFF', marginTop: space[4], textAlign: 'center' }}>
-          Center the ISBN barcode on the back cover inside the frame
+        <Txt variant="caption" style={{ color: cam.ink, marginTop: space[4], textAlign: 'center' }}>
+          Fit the barcode on the back cover inside the frame
         </Txt>
 
         {errorMessage && (
           <View
             style={{
-              backgroundColor: 'rgba(0,0,0,0.85)',
+              backgroundColor: cam.scrim,
               paddingHorizontal: space[3],
               paddingVertical: space[2],
               borderRadius: radius.md,
               marginTop: space[3],
             }}
           >
-            <Txt variant="caption" style={{ color: '#FFB4AB' }}>
+            <Txt variant="caption" style={{ color: cam.critical }}>
               {errorMessage}
             </Txt>
           </View>
@@ -310,7 +325,7 @@ export default function ScannerScreen() {
       </View>
 
       {/* Bottom Manual Entry Shortcut */}
-      <View style={[styles.bottomOverlay, { backgroundColor: 'rgba(0,0,0,0.5)' }]}>
+      <View style={[styles.bottomOverlay, { paddingBottom: insets.bottom + space[6] }]}>
         <Button
           label="Enter ISBN manually"
           variant="secondary"
@@ -326,13 +341,15 @@ export default function ScannerScreen() {
         <View style={styles.manualModalOverlay}>
           <Card style={{ gap: space[3], width: '90%', maxWidth: 400 }}>
             <View style={[sheet.row, { justifyContent: 'space-between' }]}>
-              <Txt variant="title">Enter ISBN Manually</Txt>
+              <Txt variant="title">Enter an ISBN</Txt>
               <Pressable
                 onPress={() => {
                   setManualMode(false);
                   setScanned(false);
                 }}
                 hitSlop={8}
+                accessibilityRole="button"
+                accessibilityLabel="Close"
               >
                 <Ionicons name="close" size={22} color={c.muted} />
               </Pressable>
@@ -341,7 +358,7 @@ export default function ScannerScreen() {
             <TextInput
               value={manualIsbn}
               onChangeText={setManualIsbn}
-              placeholder="10 or 13-digit ISBN (e.g. 9780571353408)"
+              placeholder="10 or 13 digits"
               placeholderTextColor={c.muted}
               keyboardType="numeric"
               autoFocus
@@ -357,13 +374,13 @@ export default function ScannerScreen() {
             />
 
             {errorMessage && (
-              <Txt variant="caption" color="accent">
+              <Txt variant="caption" color="critical">
                 {errorMessage}
               </Txt>
             )}
 
             <Button
-              label={loading ? 'Searching…' : 'Lookup Book'}
+              label={loading ? 'Searching…' : 'Look up'}
               variant="primary"
               disabled={loading || manualIsbn.length < 10}
               onPress={() => handleLookupIsbn(manualIsbn)}
@@ -378,21 +395,21 @@ export default function ScannerScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#000000',
+    backgroundColor: cam.ground,
   },
   topOverlay: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingTop: 50,
     paddingBottom: space[4],
+    backgroundColor: cam.scrim,
     paddingHorizontal: space[4],
   },
   iconCircle: {
     width: 44,
     height: 44,
     borderRadius: 22,
-    backgroundColor: 'rgba(255,255,255,0.2)',
+    backgroundColor: cam.raised,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -406,8 +423,8 @@ const styles = StyleSheet.create({
     width: 280,
     height: 180,
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.4)',
-    borderRadius: 16,
+    borderColor: cam.line,
+    borderRadius: radius.lg,
     alignItems: 'center',
     justifyContent: 'center',
     position: 'relative',
@@ -416,35 +433,35 @@ const styles = StyleSheet.create({
     position: 'absolute',
     width: 24,
     height: 24,
-    borderColor: '#FFFFFF',
+    borderColor: cam.ink,
   },
   topLeft: {
     top: -2,
     left: -2,
-    borderTopWidth: 4,
-    borderLeftWidth: 4,
-    borderTopLeftRadius: 16,
+    borderTopWidth: 3,
+    borderLeftWidth: 3,
+    borderTopLeftRadius: radius.lg,
   },
   topRight: {
     top: -2,
     right: -2,
-    borderTopWidth: 4,
-    borderRightWidth: 4,
-    borderTopRightRadius: 16,
+    borderTopWidth: 3,
+    borderRightWidth: 3,
+    borderTopRightRadius: radius.lg,
   },
   bottomLeft: {
     bottom: -2,
     left: -2,
-    borderBottomWidth: 4,
-    borderLeftWidth: 4,
-    borderBottomLeftRadius: 16,
+    borderBottomWidth: 3,
+    borderLeftWidth: 3,
+    borderBottomLeftRadius: radius.lg,
   },
   bottomRight: {
     bottom: -2,
     right: -2,
-    borderBottomWidth: 4,
-    borderRightWidth: 4,
-    borderBottomRightRadius: 16,
+    borderBottomWidth: 3,
+    borderRightWidth: 3,
+    borderBottomRightRadius: radius.lg,
   },
   scanLine: {
     width: '90%',
@@ -453,12 +470,12 @@ const styles = StyleSheet.create({
   },
   bottomOverlay: {
     paddingHorizontal: space[4],
-    paddingBottom: 40,
     paddingTop: space[4],
+    backgroundColor: cam.scrim,
   },
   manualModalOverlay: {
     ...StyleSheet.absoluteFill,
-    backgroundColor: 'rgba(0,0,0,0.7)',
+    backgroundColor: cam.scrim,
     alignItems: 'center',
     justifyContent: 'center',
     padding: space[4],

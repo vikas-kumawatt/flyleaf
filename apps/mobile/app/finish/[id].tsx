@@ -30,7 +30,8 @@ import type { LocalRead } from '@/offline/schema';
 import { budgetTracker } from '@/lib/budgetTracker';
 import { localDate } from '@/lib/readingRules';
 import { Button, Card, Cover, Heart, Screen, Stars, Txt, sheet } from '@/ui/components';
-import { radius, space, useTheme } from '@/ui/tokens';
+import { radius, space, type, useTheme } from '@/ui/tokens';
+import { Ionicons } from '@expo/vector-icons';
 
 export default function FinishScreen() {
   const c = useTheme();
@@ -199,7 +200,7 @@ export default function FinishScreen() {
           </Txt>
         </Pressable>
 
-        <Txt variant="title">Finished!</Txt>
+        <Txt variant="title">Finished</Txt>
 
         <Pressable
           onPress={handleFinish}
@@ -208,7 +209,7 @@ export default function FinishScreen() {
           accessibilityLabel="Done"
           style={{ minHeight: 44, justifyContent: 'center' }}
         >
-          <Txt variant="body" color="accent" style={{ fontWeight: '700' }}>
+          <Txt variant="body" color="accent" style={{ fontWeight: '500' }}>
             Done
           </Txt>
         </Pressable>
@@ -235,8 +236,8 @@ export default function FinishScreen() {
               size="l"
             />
             <View style={{ alignItems: 'center', gap: space[1] }}>
-              <Txt variant="title" style={{ textAlign: 'center', fontSize: 22 }}>
-                You finished {read?.title ?? 'this book'}!
+              <Txt variant="displayM" style={{ textAlign: 'center' }}>
+                {read?.title ?? 'This book'}
               </Txt>
               <Txt variant="caption" color="muted">
                 {read?.author_name ?? ''}
@@ -247,13 +248,13 @@ export default function FinishScreen() {
 
           {/* Rating & Heart Row (Immediately visible and interactive) */}
           <Card style={{ alignItems: 'center', gap: space[3], paddingVertical: space[4] }}>
-            <Txt variant="caption" color="muted">
-              TAP TO RATE (OPTIONAL)
+            <Txt variant="micro" color="muted">
+              Tap to rate, if you like
             </Txt>
 
             <View style={[sheet.row, { gap: space[4], alignItems: 'center' }]}>
-              <Stars value={rating} onChange={(val) => setRating(val)} size={38} />
-              <Heart hearted={hearted} onToggle={() => setHearted(!hearted)} size={34} />
+              <Stars value={rating} onChange={(val) => setRating(val)} size={40} />
+              <Heart hearted={hearted} onToggle={() => setHearted(!hearted)} size={32} />
             </View>
 
             {rating !== null && (
@@ -275,7 +276,7 @@ export default function FinishScreen() {
           {/* Format Chips (Print · Ebook · Audio) */}
           <View style={{ gap: space[2] }}>
             <Txt variant="micro" color="muted">
-              FORMAT READ
+              Format
             </Txt>
             <View style={[sheet.row, { gap: space[2] }]}>
               {(['print', 'ebook', 'audiobook'] as const).map((fmt) => {
@@ -295,17 +296,17 @@ export default function FinishScreen() {
                       flex: 1,
                       minHeight: 40,
                       borderRadius: radius.sm,
-                      backgroundColor: selected ? c.accentSoft : c.surface2,
+                      backgroundColor: selected ? c.surface : c.surface2,
                       borderWidth: 1,
-                      borderColor: selected ? c.accent : c.line,
+                      borderColor: selected ? c.lineStrong : c.line,
                       alignItems: 'center',
                       justifyContent: 'center',
                     }}
                   >
                     <Txt
                       variant="caption"
-                      color={selected ? 'accent' : 'ink'}
-                      style={{ fontWeight: selected ? '700' : '400' }}
+                      color={selected ? 'ink' : 'ink2'}
+                      style={{ fontWeight: selected ? '500' : '400' }}
                     >
                       {label}
                     </Txt>
@@ -319,7 +320,7 @@ export default function FinishScreen() {
           <View style={{ gap: space[2] }}>
             <View style={[sheet.row, { justifyContent: 'space-between' }]}>
               <Txt variant="micro" color="muted">
-                FINISH DATE
+                Finished on
               </Txt>
               {read?.started_at && (
                 <Txt variant="micro" color="muted">
@@ -341,7 +342,7 @@ export default function FinishScreen() {
                 borderColor: c.line,
                 backgroundColor: c.surface2,
                 color: c.ink,
-                fontSize: 15,
+                ...type.body,
               }}
             />
           </View>
@@ -366,15 +367,18 @@ export default function FinishScreen() {
                   justifyContent: 'center',
                 }}
               >
-                <Txt variant="body" color="muted">
-                  + Add a review or notes (optional)
-                </Txt>
+                <View style={[sheet.row, { gap: space[2] }]}>
+                  <Ionicons name="add" size={18} color={c.muted} />
+                  <Txt variant="body" color="muted">
+                    Add a review or notes
+                  </Txt>
+                </View>
               </Pressable>
             ) : (
               <View style={{ gap: space[3] }}>
                 <View style={[sheet.row, { justifyContent: 'space-between' }]}>
                   <Txt variant="micro" color="muted">
-                    REVIEW (AUTOSAVED)
+                    Review, saved as you type
                   </Txt>
                   <Pressable
                     onPress={() => {
@@ -385,9 +389,16 @@ export default function FinishScreen() {
                     accessibilityState={{ checked: hasSpoilers }}
                     accessibilityLabel="Contains spoilers"
                   >
-                    <Txt variant="caption" color={hasSpoilers ? 'critical' : 'muted'}>
-                      {hasSpoilers ? '⚠ Contains spoilers' : 'Mark spoilers'}
-                    </Txt>
+                    <View style={[sheet.row, { gap: space[1], minHeight: 32 }]}>
+                      <Ionicons
+                        name={hasSpoilers ? 'alert-circle' : 'alert-circle-outline'}
+                        size={16}
+                        color={hasSpoilers ? c.ink : c.muted}
+                      />
+                      <Txt variant="caption" color={hasSpoilers ? 'ink' : 'muted'}>
+                        {hasSpoilers ? 'Contains spoilers' : 'Mark spoilers'}
+                      </Txt>
+                    </View>
                   </Pressable>
                 </View>
 
@@ -401,7 +412,7 @@ export default function FinishScreen() {
                   autoFocus
                   accessibilityLabel="Review text"
                   style={{
-                    minHeight: 90,
+                    minHeight: 96,
                     paddingHorizontal: space[3],
                     paddingVertical: space[2],
                     borderRadius: radius.md,
@@ -409,7 +420,7 @@ export default function FinishScreen() {
                     borderColor: c.line,
                     backgroundColor: c.surface2,
                     color: c.ink,
-                    fontSize: 15,
+                    ...type.bodyL,
                     textAlignVertical: 'top',
                   }}
                 />
@@ -417,7 +428,7 @@ export default function FinishScreen() {
                 {/* Visibility selector */}
                 <View style={[sheet.row, { gap: space[2] }]}>
                   <Txt variant="micro" color="muted">
-                    VISIBILITY:
+                    Visible to
                   </Txt>
                   {(['public', 'followers', 'private'] as const).map((v) => (
                     <Pressable
@@ -430,8 +441,9 @@ export default function FinishScreen() {
                       accessibilityState={{ selected: visibility === v }}
                       accessibilityLabel={`Visibility: ${v}`}
                       style={{
+                        minHeight: 32,
+                        justifyContent: 'center',
                         paddingHorizontal: space[2],
-                        paddingVertical: 4,
                         borderRadius: radius.sm,
                         backgroundColor: visibility === v ? c.surface : 'transparent',
                         borderWidth: visibility === v ? 1 : 0,
@@ -441,7 +453,7 @@ export default function FinishScreen() {
                       <Txt
                         variant="caption"
                         color={visibility === v ? 'ink' : 'muted'}
-                        style={{ fontWeight: visibility === v ? '600' : '400' }}
+                        style={{ fontWeight: visibility === v ? '500' : '400' }}
                       >
                         {v.charAt(0).toUpperCase() + v.slice(1)}
                       </Txt>
@@ -455,7 +467,7 @@ export default function FinishScreen() {
           {/* Primary Action Button */}
           <View style={{ marginTop: space[4], gap: space[2] }}>
             <Button
-              label={submitting ? 'Saving...' : 'Done'}
+              label={submitting ? 'Saving…' : 'Done'}
               variant="primary"
               onPress={handleFinish}
               disabled={submitting}

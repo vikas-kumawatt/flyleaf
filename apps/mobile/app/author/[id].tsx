@@ -31,7 +31,14 @@ import {
   Txt,
   sheet,
 } from '@/ui/components';
-import { space, radius, useTheme } from '@/ui/tokens';
+import { fontFamilies, space, useTheme } from '@/ui/tokens';
+
+const STATUS_LABEL: Record<string, string> = {
+  want: 'Want to read',
+  reading: 'Reading',
+  finished: 'Finished',
+  dnf: 'Stopped',
+};
 
 export default function AuthorScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -83,10 +90,10 @@ export default function AuthorScreen() {
           accessibilityLabel="Back"
           hitSlop={8}
         >
-          <Ionicons name="arrow-back" size={24} color={c.ink} />
+          <Ionicons name="chevron-back" size={24} color={c.ink} />
         </Pressable>
-        <Txt variant="displayM" numberOfLines={1}>
-          {author.name}
+        <Txt variant="title" numberOfLines={1}>
+          Author
         </Txt>
       </View>
 
@@ -102,36 +109,26 @@ export default function AuthorScreen() {
           {/* Avatar / Portrait placeholder */}
           <View
             style={{
-              width: 84,
-              height: 84,
-              borderRadius: 42,
-              backgroundColor: c.accentSoft,
+              width: 88,
+              height: 88,
+              borderRadius: 44,
+              backgroundColor: c.surface2,
               alignItems: 'center',
               justifyContent: 'center',
               borderWidth: 1,
               borderColor: c.line,
             }}
           >
-            <Txt variant="displayM" color="accent">
+            <Txt variant="displayM" color="ink2">
               {author.name.charAt(0).toUpperCase()}
             </Txt>
           </View>
 
           <View style={{ alignItems: 'center', gap: space[1] }}>
-            <Txt variant="title">{author.name}</Txt>
-            <View
-              style={{
-                backgroundColor: c.surface2,
-                paddingHorizontal: space[3],
-                paddingVertical: 4,
-                borderRadius: radius.pill,
-                marginTop: space[1],
-              }}
-            >
-              <Txt variant="caption" color="ink" style={{ fontWeight: '600' }}>
-                {author.read_count} of {author.works_count} books read
-              </Txt>
-            </View>
+            <Txt variant="displayL" style={{ textAlign: 'center' }}>{author.name}</Txt>
+            <Txt variant="caption" color="muted" tabular>
+              {author.read_count.toLocaleString()} of {author.works_count.toLocaleString()} books read
+            </Txt>
           </View>
         </View>
 
@@ -139,13 +136,12 @@ export default function AuthorScreen() {
         {author.bio && (
           <Card style={{ gap: space[2] }}>
             <Txt variant="micro" color="muted">
-              BIOGRAPHY
+              Biography
             </Txt>
             <Txt
               variant="body"
               color="ink"
               numberOfLines={bioExpanded ? undefined : 3}
-              style={{ lineHeight: 22 }}
             >
               {author.bio}
             </Txt>
@@ -155,7 +151,7 @@ export default function AuthorScreen() {
               accessibilityLabel={bioExpanded ? 'Show less bio' : 'Read full bio'}
               hitSlop={8}
             >
-              <Txt variant="caption" color="accent" style={{ fontWeight: '600' }}>
+              <Txt variant="caption" color="accent" style={{ fontWeight: '500' }}>
                 {bioExpanded ? 'Show less' : 'Read more'}
               </Txt>
             </Pressable>
@@ -167,7 +163,7 @@ export default function AuthorScreen() {
           <Txt variant="title">Bibliography</Txt>
           <View style={{ gap: space[3] }}>
             {works.length === 0 ? (
-              <Txt color="muted">No books by this author in the catalog yet.</Txt>
+              <Txt color="muted">No books by this author in the catalog yet</Txt>
             ) : null}
             {works.map((work) => (
               <Card
@@ -186,33 +182,24 @@ export default function AuthorScreen() {
                     }}
                   >
                     <View>
-                      <Txt variant="title" numberOfLines={2}>
+                      <Txt variant="title" style={{ fontFamily: fontFamilies.displayMedium }} numberOfLines={2}>
                         {work.title}
                       </Txt>
                       {work.first_publish_year ? (
-                        <Txt variant="caption" color="muted">
+                        <Txt variant="caption" color="muted" tabular>
                           First published {work.first_publish_year}
                         </Txt>
                       ) : null}
                     </View>
 
-                    <View style={[sheet.row, { justifyContent: 'space-between', marginTop: 4 }]}>
-                      <Txt variant="micro" color="muted">
-                        {work.log_count} readers
+                    <View style={[sheet.row, { justifyContent: 'space-between', marginTop: space[1] }]}>
+                      <Txt variant="micro" color="muted" tabular>
+                        {work.log_count.toLocaleString()} {work.log_count === 1 ? 'reader' : 'readers'}
                       </Txt>
                       {work.your_read && (
-                        <View
-                          style={{
-                            backgroundColor: c.accentSoft,
-                            paddingHorizontal: space[2],
-                            paddingVertical: 2,
-                            borderRadius: radius.pill,
-                          }}
-                        >
-                          <Txt variant="micro" color="accent" style={{ fontWeight: '600' }}>
-                            {work.your_read.status.toUpperCase()}
-                          </Txt>
-                        </View>
+                        <Txt variant="micro" color="ink2">
+                          {STATUS_LABEL[work.your_read.status] ?? work.your_read.status}
+                        </Txt>
                       )}
                     </View>
                   </View>

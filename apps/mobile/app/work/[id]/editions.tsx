@@ -137,18 +137,17 @@ export default function EditionPickerScreen() {
             left: space[4],
             right: space[4],
             zIndex: 999,
-            backgroundColor: c.accent,
+            backgroundColor: c.ink,
             paddingHorizontal: space[4],
             paddingVertical: space[3],
-            borderRadius: 12,
+            borderRadius: radius.md,
             flexDirection: 'row',
             alignItems: 'center',
             gap: space[2],
-            elevation: 4,
           }}
         >
-          <Ionicons name="checkmark-circle" size={20} color="#FFFFFF" />
-          <Txt variant="body" color="ground" style={{ fontWeight: '600', flex: 1 }}>
+          <Ionicons name="checkmark-circle-outline" size={18} color={c.ground} />
+          <Txt variant="body" color="ground" style={{ fontWeight: '500', flex: 1 }}>
             {toast}
           </Txt>
         </View>
@@ -166,7 +165,7 @@ export default function EditionPickerScreen() {
         }}
       >
         <View style={[sheet.row, { justifyContent: 'space-between' }]}>
-          <Txt variant="displayM">Choose Your Cover</Txt>
+          <Txt variant="displayM">Choose your cover</Txt>
           <Pressable
             onPress={() => router.back()}
             accessibilityRole="button"
@@ -177,7 +176,7 @@ export default function EditionPickerScreen() {
           </Pressable>
         </View>
         <Txt variant="body" color="muted">
-          Pick the edition you own. Its cover will represent {work.title} across your Diary, Wall, and reading tracking.
+          Pick the edition you own. Its cover stands for {work.title} in your diary, on your wall and in your reading.
         </Txt>
 
         {/* Format Filter Chips */}
@@ -198,18 +197,19 @@ export default function EditionPickerScreen() {
                 accessibilityRole="button"
                 accessibilityState={{ selected: active }}
                 style={{
+                  minHeight: 32,
+                  justifyContent: 'center',
                   paddingHorizontal: space[3],
-                  paddingVertical: 4,
-                  borderRadius: radius.pill,
-                  backgroundColor: active ? c.accent : c.surface,
+                  borderRadius: radius.sm,
+                  backgroundColor: active ? c.surface : c.surface2,
                   borderWidth: 1,
-                  borderColor: active ? c.accent : c.line,
+                  borderColor: active ? c.lineStrong : c.line,
                 }}
               >
                 <Txt
                   variant="caption"
-                  color={active ? 'ground' : 'ink2'}
-                  style={{ fontWeight: active ? '600' : '400', textTransform: 'capitalize' }}
+                  color={active ? 'ink' : 'ink2'}
+                  style={{ fontWeight: active ? '500' : '400', textTransform: 'capitalize' }}
                 >
                   {fmt}
                 </Txt>
@@ -235,7 +235,7 @@ export default function EditionPickerScreen() {
               key={ed.id}
               onPress={() => handleSelectEdition(ed.id)}
               style={{
-                borderWidth: isSelected ? 2 : 1,
+                borderWidth: 1,
                 borderColor: isSelected ? c.accent : c.line,
                 padding: space[4],
               }}
@@ -252,33 +252,24 @@ export default function EditionPickerScreen() {
                     gap: space[2],
                   }}
                 >
-                  <View style={{ gap: 2 }}>
+                  <View style={{ gap: space[1] }}>
                     <View style={[sheet.row, { justifyContent: 'space-between' }]}>
                       <Txt
-                        variant="caption"
-                        color="accent"
-                        style={{ fontWeight: '600', textTransform: 'uppercase', letterSpacing: 0.5 }}
+                        variant="micro"
+                        color="muted"
+                        style={{ textTransform: 'capitalize' }}
                       >
                         {ed.format}
                       </Txt>
                       {ed.is_canonical && (
-                        <View
-                          style={{
-                            backgroundColor: c.surface2,
-                            paddingHorizontal: space[2],
-                            paddingVertical: 2,
-                            borderRadius: radius.sm,
-                          }}
-                        >
-                          <Txt variant="micro" color="ink" style={{ fontWeight: '600' }}>
-                            Most Common
-                          </Txt>
-                        </View>
+                        <Txt variant="micro" color="muted">
+                          Most common
+                        </Txt>
                       )}
                     </View>
 
                     <Txt variant="title" numberOfLines={1}>
-                      {ed.publisher ?? 'Canonical Edition'}
+                      {ed.publisher ?? 'Standard edition'}
                     </Txt>
                     <Txt variant="caption" color="muted">
                       Published {ed.publish_year ?? work.first_publish_year}
@@ -305,8 +296,8 @@ export default function EditionPickerScreen() {
                     />
                     <Txt
                       variant="caption"
-                      color={isSelected ? 'accent' : 'muted'}
-                      style={{ marginLeft: space[2], fontWeight: isSelected ? '600' : '400' }}
+                      color={isSelected ? 'ink' : 'muted'}
+                      style={{ marginLeft: space[2], fontWeight: isSelected ? '500' : '400' }}
                     >
                       {isSelected ? 'Selected cover' : 'Tap to choose'}
                     </Txt>
@@ -320,7 +311,7 @@ export default function EditionPickerScreen() {
         {filteredEditions.length === 0 && (
           <EmptyState
             title="No editions found in this format"
-            subtitle="Try selecting 'All' to see every available hardcover, paperback, and digital edition."
+            subtitle="Choose All to see every hardcover, paperback and digital edition."
           />
         )}
       </ScrollView>
@@ -341,7 +332,7 @@ export default function EditionPickerScreen() {
         }}
       >
         <Button
-          label={savedSuccess ? 'Saved as your copy ✓' : 'This is the copy I own'}
+          label={savedSuccess ? 'Saved as your copy' : 'This is the copy I own'}
           variant="primary"
           onPress={handleConfirmCopy}
         />

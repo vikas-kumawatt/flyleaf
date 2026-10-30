@@ -14,7 +14,6 @@ import {
   ScrollView,
   View,
   Pressable,
-  StyleSheet,
 } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
@@ -30,7 +29,7 @@ import {
   Txt,
   sheet,
 } from '@/ui/components';
-import { space, radius, useTheme } from '@/ui/tokens';
+import { fontFamilies, space, useTheme } from '@/ui/tokens';
 
 export default function SeriesScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -70,7 +69,7 @@ export default function SeriesScreen() {
           accessibilityLabel="Back"
           hitSlop={8}
         >
-          <Ionicons name="arrow-back" size={24} color={c.ink} />
+          <Ionicons name="chevron-back" size={24} color={c.ink} />
         </Pressable>
         <View style={{ flex: 1 }}>
           <Txt variant="displayM" numberOfLines={1}>
@@ -95,10 +94,10 @@ export default function SeriesScreen() {
         <Card style={{ gap: space[3] }}>
           <View style={[sheet.row, { justifyContent: 'space-between' }]}>
             <Txt variant="micro" color="muted">
-              YOUR SERIES PROGRESS
+              Your progress
             </Txt>
-            <Txt variant="caption" color="accent" style={{ fontWeight: '600' }}>
-              {series.read_books} of {total} read ({percent}%)
+            <Txt variant="caption" color="ink2" tabular>
+              {series.read_books} of {total} read · {percent}%
             </Txt>
           </View>
           <ProgressBar percent={percent} />
@@ -108,21 +107,21 @@ export default function SeriesScreen() {
         {next ? (
         <Card
           onPress={() => router.push(`/work/${next.work_id}`)}
-          style={{
-            backgroundColor: c.surface,
-            borderLeftWidth: 4,
-            borderLeftColor: c.accent,
-            gap: space[2],
-          }}
+          style={{ gap: space[3] }}
         >
-          <Txt variant="micro" color="accent" style={{ fontWeight: '600' }}>
-            UP NEXT IN SERIES
+          <Txt variant="micro" color="muted">
+            Up next
           </Txt>
           <View style={sheet.rowTop}>
             <Cover coverId={next.cover_id} title={next.title} size="s" />
             <View style={{ flex: 1, marginLeft: space[3], justifyContent: 'center' }}>
-              <Txt variant="title">
-                {next.position != null ? `Book #${next.position}: ` : ''}{next.title}
+              {next.position != null ? (
+                <Txt variant="micro" color="muted" tabular>
+                  Book {next.position}
+                </Txt>
+              ) : null}
+              <Txt variant="title" style={{ fontFamily: fontFamilies.displayMedium }}>
+                {next.title}
               </Txt>
               <Txt variant="caption" color="muted">
                 {next.author_name}
@@ -134,7 +133,7 @@ export default function SeriesScreen() {
 
         {/* Ordered Series Book List */}
         <View style={{ gap: space[3] }}>
-          <Txt variant="title">Books in Series</Txt>
+          <Txt variant="title">Books in the series</Txt>
           <View style={{ gap: space[3] }}>
             {series.entries.map((entry) => {
               const isFinished = entry.your_status === 'finished';
@@ -160,8 +159,8 @@ export default function SeriesScreen() {
                         marginRight: space[3],
                       }}
                     >
-                      <Txt variant="caption" color="ink" style={{ fontWeight: '700' }}>
-                        {entry.position != null ? `#${entry.position}` : '–'}
+                      <Txt variant="caption" color="ink2" tabular style={{ fontWeight: '500' }}>
+                        {entry.position != null ? entry.position : '–'}
                       </Txt>
                     </View>
 
@@ -176,7 +175,7 @@ export default function SeriesScreen() {
                       }}
                     >
                       <View>
-                        <Txt variant="title" numberOfLines={2}>
+                        <Txt variant="title" style={{ fontFamily: fontFamilies.displayMedium }} numberOfLines={2}>
                           {entry.title}
                         </Txt>
                         <Txt variant="caption" color="muted">
@@ -185,27 +184,24 @@ export default function SeriesScreen() {
                       </View>
 
                       {/* Status Tag */}
-                      <View style={{ alignSelf: 'flex-start', marginTop: 4 }}>
+                      <View style={[sheet.row, { gap: space[1], marginTop: space[1] }]}>
                         {isFinished && (
-                          <View style={[styles.badge, { backgroundColor: c.accentSoft }]}>
-                            <Txt variant="micro" color="accent" style={{ fontWeight: '600' }}>
-                              Finished ✓
+                          <>
+                            <Ionicons name="checkmark" size={14} color={c.ink2} />
+                            <Txt variant="micro" color="ink2">
+                              Finished
                             </Txt>
-                          </View>
+                          </>
                         )}
                         {isReading && (
-                          <View style={[styles.badge, { backgroundColor: c.surface2 }]}>
-                            <Txt variant="micro" color="ink" style={{ fontWeight: '600' }}>
-                              Currently Reading
-                            </Txt>
-                          </View>
+                          <Txt variant="micro" color="ink2">
+                            Reading
+                          </Txt>
                         )}
                         {isWant && (
-                          <View style={[styles.badge, { backgroundColor: c.surface2 }]}>
-                            <Txt variant="micro" color="muted" style={{ fontWeight: '600' }}>
-                              Want to Read
-                            </Txt>
-                          </View>
+                          <Txt variant="micro" color="muted">
+                            Want to read
+                          </Txt>
                         )}
                       </View>
                     </View>
@@ -220,10 +216,3 @@ export default function SeriesScreen() {
   );
 }
 
-const styles = StyleSheet.create({
-  badge: {
-    paddingHorizontal: space[2],
-    paddingVertical: 2,
-    borderRadius: radius.pill,
-  },
-});
