@@ -281,8 +281,8 @@ export default function HomeScreen() {
         </View>
       )}
       {banner && (
-        <Card style={{ backgroundColor: c.accentSoft, borderColor: c.accentSoft }}>
-          <Txt variant="body" color="accent" style={{ fontWeight: '600' }}>
+        <Card>
+          <Txt variant="body" style={{ fontWeight: '500' }}>
             {banner.title}
           </Txt>
           <Txt variant="caption" color="ink2" style={{ marginTop: space[1] }}>
@@ -295,7 +295,7 @@ export default function HomeScreen() {
               accessibilityLabel="Find readers to follow"
               style={styles.link}
             >
-              <Txt variant="caption" color="accent" style={{ fontWeight: '600' }}>
+              <Txt variant="caption" color="accent" style={{ fontWeight: '500' }}>
                 Find readers to follow
               </Txt>
             </Pressable>
@@ -318,7 +318,7 @@ export default function HomeScreen() {
           style={[styles.retryRow, { borderColor: c.line }]}
         >
           <Ionicons name="refresh" size={18} color={c.accent} />
-          <Txt variant="caption" color="accent" style={{ fontWeight: '600' }}>
+          <Txt variant="caption" color="accent" style={{ fontWeight: '500' }}>
             Could not load more. Tap to try again.
           </Txt>
         </Pressable>
@@ -360,7 +360,7 @@ export default function HomeScreen() {
           style={[styles.retryRow, { borderColor: c.line }]}
         >
           <Ionicons name="refresh" size={18} color={c.accent} />
-          <Txt variant="caption" color="accent" style={{ fontWeight: '600' }}>
+          <Txt variant="caption" color="accent" style={{ fontWeight: '500' }}>
             Could not load the feed. Tap to try again.
           </Txt>
         </Pressable>
@@ -374,7 +374,7 @@ export default function HomeScreen() {
           subtitle="Follow a few readers and their finishes and reviews show up here."
           action={
             <Pressable onPress={() => router.push('/onboarding/follow' as any)} accessibilityRole="button" style={styles.link}>
-              <Txt variant="body" color="accent" style={{ fontWeight: '600' }}>
+              <Txt variant="body" color="accent" style={{ fontWeight: '500' }}>
                 Find readers to follow
               </Txt>
             </Pressable>
@@ -395,7 +395,8 @@ export default function HomeScreen() {
             styles.toast,
             {
               top: insets.top + space[2],
-              backgroundColor: toast.tone === 'error' ? c.critical : toast.tone === 'info' ? c.ink2 : c.accent,
+              // Inverted neutral; the icon carries the tone, critical keeps its colour
+              backgroundColor: toast.tone === 'error' ? c.critical : c.ink,
               shadowColor: c.ink,
             },
           ]}
@@ -405,7 +406,7 @@ export default function HomeScreen() {
             size={20}
             color={c.surface}
           />
-          <Txt variant="body" color="surface" style={{ fontWeight: '600', flex: 1 }}>
+          <Txt variant="body" color="surface" style={{ fontWeight: '500', flex: 1 }}>
             {toast.message}
           </Txt>
           {toast.undoReadId && (
@@ -415,7 +416,7 @@ export default function HomeScreen() {
               accessibilityLabel="Undo"
               style={styles.toastButton}
             >
-              <Txt variant="body" color="surface" style={{ fontWeight: '700' }}>
+              <Txt variant="body" color="surface" style={{ fontWeight: '500' }}>
                 Undo
               </Txt>
             </Pressable>
@@ -429,7 +430,7 @@ export default function HomeScreen() {
           style={{
             flexDirection: 'row',
             alignItems: 'center',
-            backgroundColor: c.accentSoft,
+            backgroundColor: c.surface2,
             paddingHorizontal: space[4],
             paddingVertical: space[3],
             gap: space[3],
@@ -437,8 +438,8 @@ export default function HomeScreen() {
             borderBottomColor: c.line,
           }}
         >
-          <Ionicons name="bookmark" size={20} color={c.accent} />
-          <Txt variant="body" color="accent" style={{ flex: 1, fontWeight: '500' }}>
+          <Ionicons name="bookmark-outline" size={18} color={c.ink2} />
+          <Txt variant="body" style={{ flex: 1 }}>
             {migrationMessage}
           </Txt>
           <Pressable
@@ -464,7 +465,7 @@ export default function HomeScreen() {
         }}
       >
         <View style={[sheet.row, { justifyContent: 'space-between' }]}>
-          <Txt variant="displayM">Flyleaf</Txt>
+          <Txt variant="displayL">Flyleaf</Txt>
           <View style={sheet.row}>
             {user ? (
               <Pressable
@@ -476,10 +477,10 @@ export default function HomeScreen() {
                 accessibilityLabel={badge ? `Notifications, ${badge} unread` : 'Notifications'}
                 style={styles.headerIconButton}
               >
-                <Ionicons name="notifications-outline" size={22} color={c.ink} />
+                <Ionicons name="notifications-outline" size={20} color={c.ink2} />
                 {badge ? (
                   <View style={[styles.badge, { backgroundColor: c.accent, borderColor: c.ground }]}>
-                    <Txt variant="micro" style={{ color: c.ground, fontSize: 10, lineHeight: 12, fontWeight: '700' }}>
+                    <Txt variant="micro" tabular style={{ color: c.onAccent, lineHeight: 16 }}>
                       {badge}
                     </Txt>
                   </View>
@@ -492,7 +493,7 @@ export default function HomeScreen() {
                 accessibilityLabel="Sign in"
                 style={styles.headerIconButton}
               >
-                <Txt variant="body" color="accent" style={{ fontWeight: '600' }}>
+                <Txt variant="body" color="accent" style={{ fontWeight: '500' }}>
                   Sign in
                 </Txt>
               </Pressable>
@@ -517,11 +518,11 @@ export default function HomeScreen() {
       {gated ? (
         <EmptyState
           title="Follow readers to see their activity"
-          subtitle="Sign in to follow friends, discover book recommendations, and see reviews in your personal feed."
+          subtitle="Sign in to follow friends and see what they finish and review."
           action={
             <Pressable onPress={() => router.push('/auth')} accessibilityRole="button" style={styles.link}>
-              <Txt variant="body" color="accent" style={{ fontWeight: '600' }}>
-                Sign in to Flyleaf
+              <Txt variant="body" color="accent" style={{ fontWeight: '500' }}>
+                Sign in
               </Txt>
             </Pressable>
           }
@@ -565,13 +566,13 @@ const styles = StyleSheet.create({
   },
   badge: {
     position: 'absolute',
-    top: 6,
+    top: space[2],
     right: 4,
     minWidth: 16,
     height: 16,
-    paddingHorizontal: 3,
-    borderRadius: radius.pill,
-    borderWidth: 1.5,
+    paddingHorizontal: 4,
+    borderRadius: 8,
+    borderWidth: 2,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -586,10 +587,11 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: space[2],
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.15,
-    shadowRadius: 6,
-    elevation: 4,
+    // Floating: one soft neutral shadow, nothing coloured
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.08,
+    shadowRadius: 24,
+    elevation: 3,
   },
   toastButton: {
     minWidth: 44,
@@ -625,11 +627,11 @@ const styles = StyleSheet.create({
   },
   skeletonLine: {
     height: 12,
-    borderRadius: 6,
+    borderRadius: radius.sm,
     marginBottom: space[3],
   },
   skeletonBlock: {
     height: 72,
-    borderRadius: 8,
+    borderRadius: radius.sm,
   },
 });

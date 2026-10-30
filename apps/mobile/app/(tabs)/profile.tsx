@@ -52,6 +52,7 @@ import {
   sheet,
 } from '@/ui/components';
 import { radius, space, useTheme } from '@/ui/tokens';
+import { Ionicons } from '@expo/vector-icons';
 import { GoalRing } from '@/ui/GoalRing';
 import { GoalSheet } from '@/ui/GoalSheet';
 import { deviceTimeZone, goalRingModel, streakCopy } from '@/lib/statsView';
@@ -180,7 +181,7 @@ export default function ProfileScreen() {
   // Save profile edits
   const handleSaveProfile = async () => {
     if (editBio.length > 160) {
-      Alert.alert('Bio Too Long', 'Bio must be 160 characters or fewer.');
+      Alert.alert('Bio too long', 'Keep it to 160 characters.');
       return;
     }
 
@@ -195,7 +196,7 @@ export default function ProfileScreen() {
       setEditModalVisible(false);
       void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     } catch {
-      Alert.alert('Error', 'Failed to update profile. Please try again.');
+      Alert.alert('Profile not saved', 'Try again in a moment.');
     } finally {
       setSavingProfile(false);
     }
@@ -215,7 +216,7 @@ export default function ProfileScreen() {
         }}
       >
         <View style={sheet.rowBetween}>
-          <Txt variant="title" style={{ fontWeight: '800', fontSize: 22 }}>
+          <Txt variant="displayL">
             Profile
           </Txt>
           <Button
@@ -256,18 +257,18 @@ export default function ProfileScreen() {
                   style={[
                     styles.avatar,
                     {
-                      backgroundColor: c.accentSoft,
+                      backgroundColor: c.surface2,
                       borderColor: c.line,
                       overflow: 'hidden',
                     },
                   ]}
                 >
                   {avatarBusy ? (
-                    <ActivityIndicator color={c.accent} />
+                    <ActivityIndicator color={c.muted} />
                   ) : avatarSource ? (
                     <Image source={avatarSource} style={{ width: '100%', height: '100%' }} contentFit="cover" />
                   ) : (
-                    <Txt variant="title" style={{ fontSize: 26, fontWeight: '800', color: c.accent }}>
+                    <Txt variant="displayM" color="ink2">
                       {(profile?.displayName || user.username).charAt(0).toUpperCase()}
                     </Txt>
                   )}
@@ -276,13 +277,17 @@ export default function ProfileScreen() {
                 {/* Identity Info */}
                 <View style={{ flex: 1, gap: 2 }}>
                   <View style={sheet.row}>
-                    <Txt variant="title" style={{ fontSize: 18, fontWeight: '700' }} numberOfLines={1}>
+                    <Txt variant="title" style={{ fontSize: 17, fontWeight: '500' }} numberOfLines={1}>
                       {profile?.displayName || user.username}
                     </Txt>
                     {profile?.isPrivate && (
-                      <Txt variant="caption" color="muted" style={{ marginLeft: 6 }}>
-                        🔒
-                      </Txt>
+                      <Ionicons
+                        name="lock-closed-outline"
+                        size={16}
+                        color={c.muted}
+                        style={{ marginLeft: space[2] }}
+                        accessibilityLabel="Private account"
+                      />
                     )}
                   </View>
 
@@ -300,7 +305,7 @@ export default function ProfileScreen() {
                       }}
                     >
                       <Txt variant="caption">
-                        <Txt variant="caption" style={{ fontWeight: '700' }}>
+                        <Txt variant="caption" style={{ fontWeight: '500' }}>
                           {profile?.followerCount ?? 0}
                         </Txt>{' '}
                         followers
@@ -314,7 +319,7 @@ export default function ProfileScreen() {
                       }}
                     >
                       <Txt variant="caption">
-                        <Txt variant="caption" style={{ fontWeight: '700' }}>
+                        <Txt variant="caption" style={{ fontWeight: '500' }}>
                           {profile?.followingCount ?? 0}
                         </Txt>{' '}
                         following
@@ -331,7 +336,7 @@ export default function ProfileScreen() {
                 </Txt>
               ) : (
                 <Txt variant="caption" color="muted" style={{ fontStyle: 'italic' }}>
-                  No bio yet. Tap Edit profile to add a brief introduction.
+                  No bio yet. Tap Edit profile to add one.
                 </Txt>
               )}
 
@@ -354,7 +359,7 @@ export default function ProfileScreen() {
                   onPress={() => {
                     void Haptics.selectionAsync();
                     // SO-51: <server>/@username, the server-rendered public profile.
-                    Alert.alert('Share Profile', profileShareUrl(user.username, PUBLIC_BASE));
+                    Alert.alert('Share profile', profileShareUrl(user.username, PUBLIC_BASE));
                   }}
                   style={{ flex: 1 }}
                 />
@@ -364,17 +369,17 @@ export default function ProfileScreen() {
             {/* 2. FAVOURITES SECTION (Taste before volume) */}
             <View style={{ gap: space[2] }}>
               <View style={sheet.rowBetween}>
-                <Txt variant="caption" color="muted" style={{ fontWeight: '700', letterSpacing: 0.5 }}>
-                  DEFINING FAVOURITES
+                <Txt variant="title">
+                  Defining favourites
                 </Txt>
                 <Pressable
                   onPress={() => {
                     void Haptics.selectionAsync();
                     router.push('/profile/favourites' as any);
                   }}
-                  hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                  hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
                 >
-                  <Txt variant="caption" color="accent" style={{ fontWeight: '600' }}>
+                  <Txt variant="caption" color="accent" style={{ fontWeight: '500' }}>
                     Edit 4
                   </Txt>
                 </Pressable>
@@ -397,7 +402,7 @@ export default function ProfileScreen() {
                         accessibilityLabel={fav.title}
                       >
                         <Cover coverId={fav.cover_id} title={fav.title} size="fluid" />
-                        <Txt variant="caption" numberOfLines={1} style={{ fontSize: 11, marginTop: 4 }}>
+                        <Txt variant="caption" numberOfLines={1} style={{ marginTop: space[1] }}>
                           {fav.title}
                         </Txt>
                       </Pressable>
@@ -419,10 +424,10 @@ export default function ProfileScreen() {
                       accessibilityRole="button"
                       accessibilityLabel="Add favourite book"
                     >
-                      <Txt variant="title" color="muted" style={{ fontSize: 18 }}>
+                      <Txt variant="title" color="muted" style={{ fontSize: 17 }}>
                         +
                       </Txt>
-                      <Txt variant="caption" color="muted" style={{ fontSize: 10 }}>
+                      <Txt variant="caption" color="muted">
                         Slot {idx + 1}
                       </Txt>
                     </Pressable>
@@ -434,18 +439,18 @@ export default function ProfileScreen() {
             {/* 3. READING STATS STRIP */}
             <View style={{ gap: space[2] }}>
               <View style={sheet.rowBetween}>
-                <Txt variant="caption" color="muted" style={{ fontWeight: '700', letterSpacing: 0.5 }}>
-                  {stats?.year ? `${stats.year} READING STATS` : 'READING STATS'}
+                <Txt variant="title">
+                  {stats?.year ? `Reading in ${stats.year}` : 'Reading stats'}
                 </Txt>
                 <Pressable
                   onPress={() => {
                     void Haptics.selectionAsync();
                     router.push('/stats' as any);
                   }}
-                  hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                  hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
                 >
-                  <Txt variant="caption" color="accent" style={{ fontWeight: '600' }}>
-                    Full Stats →
+                  <Txt variant="caption" color="accent" style={{ fontWeight: '500' }}>
+                    Full stats
                   </Txt>
                 </Pressable>
               </View>
@@ -458,32 +463,31 @@ export default function ProfileScreen() {
               >
                 <View style={[sheet.row, { gap: space[2] }]}>
                   <Card style={{ flex: 1, alignItems: 'center', padding: space[3] }}>
-                    <Txt variant="title" tabular style={{ fontSize: 20, fontWeight: '800' }}>
+                    <Txt variant="title" tabular style={{ fontSize: 24, lineHeight: 28 }}>
                       {stats?.books_count ?? finishedReads.length}
                     </Txt>
-                    <Txt variant="caption" color="muted" style={{ fontSize: 11 }}>
+                    <Txt variant="caption" color="muted">
                       books read
                     </Txt>
                   </Card>
 
                   <Card style={{ flex: 1, alignItems: 'center', padding: space[3] }}>
-                    <Txt variant="title" tabular style={{ fontSize: 20, fontWeight: '800' }}>
+                    <Txt variant="title" tabular style={{ fontSize: 24, lineHeight: 28 }}>
                       {(stats?.pages_count ?? 0).toLocaleString()}
                     </Txt>
-                    <Txt variant="caption" color="muted" style={{ fontSize: 11 }}>
+                    <Txt variant="caption" color="muted">
                       pages tracked
                     </Txt>
                   </Card>
 
                   <Card style={{ flex: 1, alignItems: 'center', padding: space[3] }}>
-                    <Txt
-                      variant="title"
-                      tabular
-                      style={{ fontSize: 20, fontWeight: '800', color: stats?.avg_rating ? c.accent : c.ink }}
-                    >
-                      {stats?.avg_rating ? `★ ${stats.avg_rating.toFixed(1)}` : '—'}
-                    </Txt>
-                    <Txt variant="caption" color="muted" style={{ fontSize: 11 }}>
+                    <View style={[sheet.row, { gap: space[1] }]}>
+                      {stats?.avg_rating ? <Ionicons name="star" size={16} color={c.star} /> : null}
+                      <Txt variant="title" tabular style={{ fontSize: 24, lineHeight: 28 }}>
+                        {stats?.avg_rating ? stats.avg_rating.toFixed(1) : '—'}
+                      </Txt>
+                    </View>
+                    <Txt variant="caption" color="muted">
                       avg rating
                     </Txt>
                   </Card>
@@ -495,14 +499,14 @@ export default function ProfileScreen() {
               <View style={[sheet.row, { gap: space[2] }]}>
                 {streak && (
                   <Card style={{ flex: 1, padding: space[3], justifyContent: 'center' }}>
-                    <Txt variant="title" tabular style={{ fontSize: 20, fontWeight: '800' }}>
+                    <Txt variant="title" tabular style={{ fontSize: 24, lineHeight: 28 }}>
                       {streak.hero}
                     </Txt>
-                    <Txt variant="caption" color="muted" style={{ fontSize: 11 }}>
+                    <Txt variant="caption" color="muted">
                       {streak.label}
                     </Txt>
                     {streak.detail && (
-                      <Txt variant="caption" color="muted" style={{ fontSize: 11 }}>
+                      <Txt variant="caption" color="muted">
                         {streak.detail}
                       </Txt>
                     )}
@@ -524,8 +528,8 @@ export default function ProfileScreen() {
             {/* 4. CURRENTLY READING SHELF */}
             {currentlyReading.length > 0 && (
               <View style={{ gap: space[2] }}>
-                <Txt variant="caption" color="muted" style={{ fontWeight: '700', letterSpacing: 0.5 }}>
-                  CURRENTLY READING ({currentlyReading.length})
+                <Txt variant="title">
+                  Currently reading <Txt variant="title" color="muted" tabular>{currentlyReading.length}</Txt>
                 </Txt>
 
                 <View style={{ gap: space[2] }}>
@@ -549,7 +553,7 @@ export default function ProfileScreen() {
                             </Txt>
                             <View style={{ marginTop: space[1], gap: 4 }}>
                               <ProgressBar percent={pct} />
-                              <Txt variant="caption" color="muted" style={{ fontSize: 11 }}>
+                              <Txt variant="caption" color="muted">
                                 {r.page ? `Page ${r.page}` : `${pct}% completed`}
                               </Txt>
                             </View>
@@ -566,18 +570,18 @@ export default function ProfileScreen() {
             {finishedReads.length > 0 && (
               <View style={{ gap: space[2] }}>
                 <View style={sheet.rowBetween}>
-                  <Txt variant="caption" color="muted" style={{ fontWeight: '700', letterSpacing: 0.5 }}>
-                    THE WALL ({finishedReads.length})
+                  <Txt variant="title">
+                    The wall <Txt variant="title" color="muted" tabular>{finishedReads.length}</Txt>
                   </Txt>
                   <Pressable
                     onPress={() => {
                       void Haptics.selectionAsync();
                       router.push('/wall' as any);
                     }}
-                    hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                    hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
                   >
-                    <Txt variant="caption" color="accent" style={{ fontWeight: '600' }}>
-                      View Wall →
+                    <Txt variant="caption" color="accent" style={{ fontWeight: '500' }}>
+                      View wall
                     </Txt>
                   </Pressable>
                 </View>
@@ -605,18 +609,18 @@ export default function ProfileScreen() {
             {/* 6. RECENT DIARY PREVIEW */}
             <View style={{ gap: space[2] }}>
               <View style={sheet.rowBetween}>
-                <Txt variant="caption" color="muted" style={{ fontWeight: '700', letterSpacing: 0.5 }}>
-                  READING DIARY
+                <Txt variant="title">
+                  Reading diary
                 </Txt>
                 <Pressable
                   onPress={() => {
                     void Haptics.selectionAsync();
                     router.push('/diary' as any);
                   }}
-                  hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                  hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
                 >
-                  <Txt variant="caption" color="accent" style={{ fontWeight: '600' }}>
-                    Open Diary →
+                  <Txt variant="caption" color="accent" style={{ fontWeight: '500' }}>
+                    Open diary
                   </Txt>
                 </Pressable>
               </View>
@@ -630,16 +634,14 @@ export default function ProfileScreen() {
               >
                 <View style={sheet.rowBetween}>
                   <View style={{ gap: 2 }}>
-                    <Txt variant="title" style={{ fontSize: 15, fontWeight: '700' }}>
-                      Complete Reading Journal
+                    <Txt variant="title" style={{ fontSize: 15, fontWeight: '500' }}>
+                      Reading journal
                     </Txt>
                     <Txt variant="caption" color="muted">
-                      List, monthly poster shelves, and calendar heatmaps.
+                      List, monthly shelves and calendar
                     </Txt>
                   </View>
-                  <Txt variant="title" color="accent">
-                    →
-                  </Txt>
+                  <Ionicons name="chevron-forward" size={18} color={c.muted} />
                 </View>
               </Card>
             </View>
@@ -655,16 +657,14 @@ export default function ProfileScreen() {
               >
                 <View style={sheet.rowBetween}>
                   <View style={{ gap: 2 }}>
-                    <Txt variant="title" style={{ fontSize: 15, fontWeight: '700' }}>
-                      Follow Requests
+                    <Txt variant="title" style={{ fontSize: 15, fontWeight: '500' }}>
+                      Follow requests
                     </Txt>
                     <Txt variant="caption" color="muted">
-                      Inspect and manage incoming follow requests.
+                      Approve or decline who follows you
                     </Txt>
                   </View>
-                  <Txt variant="title" color="accent">
-                    →
-                  </Txt>
+                  <Ionicons name="chevron-forward" size={18} color={c.muted} />
                 </View>
               </Card>
             )}
@@ -679,23 +679,21 @@ export default function ProfileScreen() {
             >
               <View style={sheet.rowBetween}>
                 <View style={{ gap: 2, flex: 1, marginRight: space[2] }}>
-                  <Txt variant="title" style={{ fontSize: 15, fontWeight: '700' }}>
+                  <Txt variant="title" style={{ fontSize: 15, fontWeight: '500' }}>
                     Settings
                   </Txt>
                   <Txt variant="caption" color="muted">
-                    Account, privacy, notifications, blocked and muted, imports, appearance.
+                    Account, privacy, notifications, blocked and muted, imports, appearance
                   </Txt>
                 </View>
-                <Txt variant="title" color="accent">
-                  →
-                </Txt>
+                <Ionicons name="chevron-forward" size={18} color={c.muted} />
               </View>
             </Card>
           </>
         ) : (
           <EmptyState
             title="Sign in to your library"
-            subtitle="Keep your reading diary, curate your 4 defining books, view The Wall, and track your stats across devices."
+            subtitle="Keep your diary, four defining books, the wall and your stats on every device."
             action={
               <Button
                 label="Sign in or create account"
@@ -744,8 +742,8 @@ export default function ProfileScreen() {
                 </Txt>
               </Pressable>
 
-              <Txt variant="title" style={{ fontWeight: '700', fontSize: 17 }}>
-                Edit Profile
+              <Txt variant="title" style={{ fontWeight: '500', fontSize: 17 }}>
+                Edit profile
               </Txt>
 
               <Pressable
@@ -756,7 +754,7 @@ export default function ProfileScreen() {
                 {savingProfile ? (
                   <ActivityIndicator size="small" color={c.accent} />
                 ) : (
-                  <Txt variant="body" color="accent" style={{ fontWeight: '700' }}>
+                  <Txt variant="body" color="accent" style={{ fontWeight: '500' }}>
                     Save
                   </Txt>
                 )}
@@ -767,8 +765,8 @@ export default function ProfileScreen() {
           <ScrollView contentContainerStyle={{ padding: space[4], gap: space[4] }}>
             {/* Display Name */}
             <View style={{ gap: space[1] }}>
-              <Txt variant="caption" color="muted" style={{ fontWeight: '600' }}>
-                Display Name
+              <Txt variant="caption" color="muted" style={{ fontWeight: '500' }}>
+                Display name
               </Txt>
               <TextInput
                 value={editDisplayName}
@@ -785,13 +783,13 @@ export default function ProfileScreen() {
             {/* Bio (<= 160 chars) */}
             <View style={{ gap: space[1] }}>
               <View style={sheet.rowBetween}>
-                <Txt variant="caption" color="muted" style={{ fontWeight: '600' }}>
+                <Txt variant="caption" color="muted" style={{ fontWeight: '500' }}>
                   Bio
                 </Txt>
                 <Txt
                   variant="caption"
                   color={editBio.length > 160 ? 'accent' : 'muted'}
-                  style={{ fontSize: 11 }}
+                  style={{ fontSize: 12 }}
                 >
                   {editBio.length}/160
                 </Txt>
@@ -799,7 +797,7 @@ export default function ProfileScreen() {
               <TextInput
                 value={editBio}
                 onChangeText={setEditBio}
-                placeholder="A brief sentence about what you love to read..."
+                placeholder="What you love to read"
                 placeholderTextColor={c.muted}
                 multiline
                 numberOfLines={3}
@@ -812,7 +810,7 @@ export default function ProfileScreen() {
             </View>
 
             <Txt variant="caption" color="muted">
-              Private account and the other privacy settings are in Settings → Privacy.
+              Private account and other privacy settings are in Settings, Privacy
             </Txt>
           </ScrollView>
         </Screen>
@@ -859,7 +857,7 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
   },
   textInput: {
-    height: 46,
+    height: 48,
     borderRadius: radius.sm,
     borderWidth: 1,
     paddingHorizontal: space[3],

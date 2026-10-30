@@ -240,7 +240,7 @@ export default function DiscoverScreen() {
         }}
       >
         <View style={[sheet.row, { justifyContent: 'space-between' }]}>
-          <Txt variant="displayM">Discover</Txt>
+          <Txt variant="displayL">Discover</Txt>
           <Pressable
             onPress={() => {
               void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
@@ -260,8 +260,8 @@ export default function DiscoverScreen() {
               gap: space[2],
             }}
           >
-            <Ionicons name="barcode-outline" size={20} color={c.accent} />
-            <Txt variant="caption" color="accent" style={{ fontWeight: '600' }}>
+            <Ionicons name="barcode-outline" size={18} color={c.ink2} />
+            <Txt variant="caption" style={{ fontWeight: '500' }}>
               Scan ISBN
             </Txt>
           </Pressable>
@@ -289,7 +289,7 @@ export default function DiscoverScreen() {
           <TextInput
             value={q}
             onChangeText={setQ}
-            placeholder="Search titles, authors, or ISBN..."
+            placeholder="Title, author or ISBN"
             placeholderTextColor={c.muted}
             autoCorrect={false}
             autoCapitalize="none"
@@ -347,8 +347,8 @@ export default function DiscoverScreen() {
                   accessibilityState={{ selected: active }}
                   style={{
                     paddingHorizontal: space[3],
-                    paddingVertical: 4,
-                    borderRadius: radius.pill,
+                    paddingVertical: space[1],
+                    borderRadius: radius.sm,
                     backgroundColor: active ? c.accent : c.surface,
                     borderWidth: 1,
                     borderColor: active ? c.accent : c.line,
@@ -356,8 +356,8 @@ export default function DiscoverScreen() {
                 >
                   <Txt
                     variant="caption"
-                    color={active ? 'ground' : 'ink2'}
-                    style={{ fontWeight: active ? '600' : '400', textTransform: 'capitalize' }}
+                    color={active ? 'onAccent' : 'ink2'}
+                    style={{ fontWeight: active ? '500' : '400', textTransform: 'capitalize' }}
                   >
                     {fmt}
                   </Txt>
@@ -383,7 +383,7 @@ export default function DiscoverScreen() {
             <View style={{ gap: space[3] }}>
               <View style={[sheet.row, { justifyContent: 'space-between' }]}>
                 <Txt variant="micro" color="muted">
-                  RECENT SEARCHES
+                  Recent searches
                 </Txt>
                 <Pressable
                   onPress={handleClearRecents}
@@ -410,13 +410,13 @@ export default function DiscoverScreen() {
                       backgroundColor: c.surface,
                       borderWidth: 1,
                       borderColor: c.line,
-                      borderRadius: radius.pill,
+                      borderRadius: radius.sm,
                       paddingHorizontal: space[3],
                       paddingVertical: space[2],
                       gap: space[2],
                     }}
                   >
-                    <Ionicons name="time-outline" size={14} color={c.muted} />
+                    <Ionicons name="time-outline" size={16} color={c.muted} />
                     <Txt variant="caption" color="ink">
                       {item}
                     </Txt>
@@ -440,7 +440,7 @@ export default function DiscoverScreen() {
               ) : curatedLists.length === 0 ? (
                 <EmptyState
                   title="No community lists yet"
-                  subtitle="Explore lists created by other readers or create your own custom shelf."
+                  subtitle="Lists other readers make show up here. You can start one from Shelves."
                 />
               ) : (
                 <View style={{ gap: space[3] }}>
@@ -496,29 +496,14 @@ export default function DiscoverScreen() {
                                 {shelf.name}
                               </Txt>
                               {shelf.is_ranked && (
-                                <View
-                                  style={{
-                                    backgroundColor: c.accentSoft,
-                                    paddingHorizontal: 6,
-                                    paddingVertical: 1,
-                                    borderRadius: radius.pill,
-                                  }}
-                                >
-                                  <Txt
-                                    style={{
-                                      color: c.accent,
-                                      fontSize: 10,
-                                      fontWeight: '700',
-                                    }}
-                                  >
-                                    Ranked
-                                  </Txt>
-                                </View>
+                                <Txt variant="micro" color="muted">
+                                  Ranked
+                                </Txt>
                               )}
                             </View>
                             <Txt variant="caption" color="muted" numberOfLines={1}>
                               by{' '}
-                              <Txt style={{ color: c.ink, fontWeight: '600' }}>
+                              <Txt style={{ color: c.ink, fontWeight: '500' }}>
                                 {curatorName}
                               </Txt>
                             </Txt>
@@ -565,7 +550,7 @@ export default function DiscoverScreen() {
                       style={{ width: 104, gap: space[2] }}
                     >
                       <Cover coverId={book.cover_id} title={book.title} size="m" />
-                      <Txt variant="caption" numberOfLines={2} style={{ fontWeight: '600' }}>
+                      <Txt variant="caption" numberOfLines={2} style={{ fontWeight: '500' }}>
                         {book.title}
                       </Txt>
                       <Txt variant="micro" color="muted" numberOfLines={1}>
@@ -596,7 +581,7 @@ export default function DiscoverScreen() {
             ) : (
               <EmptyState
                 title={`No lists found for "${q}"`}
-                subtitle="Try checking for typos or searching with different keywords."
+                subtitle="Check the spelling or try other words."
               />
             )
           }
@@ -653,29 +638,14 @@ export default function DiscoverScreen() {
                         {shelf.name}
                       </Txt>
                       {shelf.is_ranked && (
-                        <View
-                          style={{
-                            backgroundColor: c.accentSoft,
-                            paddingHorizontal: 6,
-                            paddingVertical: 1,
-                            borderRadius: radius.pill,
-                          }}
-                        >
-                          <Txt
-                            style={{
-                              color: c.accent,
-                              fontSize: 10,
-                              fontWeight: '700',
-                            }}
-                          >
-                            Ranked
-                          </Txt>
-                        </View>
+                        <Txt variant="micro" color="muted">
+                          Ranked
+                        </Txt>
                       )}
                     </View>
                     <Txt variant="caption" color="muted" numberOfLines={1}>
                       by{' '}
-                      <Txt style={{ color: c.ink, fontWeight: '600' }}>
+                      <Txt style={{ color: c.ink, fontWeight: '500' }}>
                         {curatorName}
                       </Txt>
                     </Txt>
@@ -719,7 +689,7 @@ export default function DiscoverScreen() {
             ) : (
               <EmptyState
                 title={`No results for "${q}"`}
-                subtitle="Try checking for typos or searching by author name or 13-digit ISBN."
+                subtitle="Check the spelling, or search by author or 13-digit ISBN."
                 action={
                   <View style={{ alignItems: 'center' }}>
                   {suggestion && (
@@ -730,7 +700,7 @@ export default function DiscoverScreen() {
                       style={{ marginTop: space[3] }}
                     >
                       <Txt variant="body">
-                        Did you mean <Txt variant="body" color="accent" style={{ fontWeight: '600' }}>{suggestion}</Txt>?
+                        Did you mean <Txt variant="body" color="accent" style={{ fontWeight: '500' }}>{suggestion}</Txt>?
                       </Txt>
                     </Pressable>
                   )}
@@ -742,11 +712,13 @@ export default function DiscoverScreen() {
                       marginTop: space[3],
                       paddingHorizontal: space[4],
                       paddingVertical: space[2],
-                      backgroundColor: c.accentSoft,
+                      backgroundColor: c.surface2,
+                      borderWidth: 1,
+                      borderColor: c.line,
                       borderRadius: radius.md,
                     }}
                   >
-                    <Txt variant="body" color="accent" style={{ fontWeight: '600' }}>
+                    <Txt variant="body" style={{ fontWeight: '500' }}>
                       Scan a barcode instead
                     </Txt>
                   </Pressable>
@@ -802,7 +774,7 @@ export default function DiscoverScreen() {
                       </Pressable>
                     </View>
 
-                    <View style={[sheet.row, { justifyContent: 'space-between', marginTop: 4 }]}>
+                    <View style={[sheet.row, { justifyContent: 'space-between', marginTop: space[1] }]}>
                       <Txt variant="micro" color="muted">
                         {[item.first_publish_year, item.editions?.[0]?.format]
                           .filter(Boolean)
@@ -811,31 +783,32 @@ export default function DiscoverScreen() {
 
                       {/* Reading Status Pill */}
                       {isFinished && (
-                        <View style={[styles.statusPill, { backgroundColor: c.accentSoft }]}>
-                          <Txt variant="micro" color="accent" style={{ fontWeight: '600' }}>
+                        <View style={styles.statusPill}>
+                          <Txt variant="micro" color="ink2">
                             Finished
                           </Txt>
                         </View>
                       )}
                       {isReading && (
-                        <View style={[styles.statusPill, { backgroundColor: c.surface2 }]}>
-                          <Txt variant="micro" color="ink" style={{ fontWeight: '600' }}>
+                        <View style={styles.statusPill}>
+                          <Txt variant="micro" color="ink2">
                             Reading
                           </Txt>
                         </View>
                       )}
                       {/* AC-7 "my status if any": every status, not only finished and reading */}
                       {item.your_read && !isFinished && !isReading && (
-                        <View style={[styles.statusPill, { backgroundColor: c.surface2 }]}>
-                          <Txt variant="micro" color="muted" style={{ fontWeight: '600' }}>
+                        <View style={styles.statusPill}>
+                          <Txt variant="micro" color="ink2">
                             {({ want: 'Want to read', paused: 'Paused', dnf: 'Stopped' } as Record<string, string>)[item.your_read.status] ?? item.your_read.status}
                           </Txt>
                         </View>
                       )}
                       {savedLocally && (
-                        <View style={[styles.statusPill, { backgroundColor: c.accentSoft }]}>
-                          <Txt variant="micro" color="accent" style={{ fontWeight: '600' }}>
-                            Saved ✓
+                        <View style={styles.statusPill}>
+                          <Ionicons name="checkmark" size={16} color={c.ink2} />
+                          <Txt variant="micro" color="ink2">
+                            Saved
                           </Txt>
                         </View>
                       )}
@@ -873,9 +846,10 @@ export default function DiscoverScreen() {
 }
 
 const styles = StyleSheet.create({
+  // Status is a label, not a coloured chip (design.md §2)
   statusPill: {
-    paddingHorizontal: space[2],
-    paddingVertical: 2,
-    borderRadius: radius.pill,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: space[1],
   },
 });
