@@ -71,6 +71,7 @@ import type {
   ResetPasswordRequest,
   Review,
   SearchResponse,
+  AuthorSearchResult,
   Session,
   SessionListResponse,
   StandardResponse,
@@ -427,6 +428,14 @@ export class FlyleafClient {
       method: 'GET',
       ...(sessionId ? { headers: { 'x-flyleaf-session': sessionId } } : {}),
     });
+  }
+
+  /** Authors whose name or an alias matches, for the Authors tab (GET /search/authors). */
+  async searchAuthors(q: string, limit = 20): Promise<AuthorSearchResult[]> {
+    const query = new URLSearchParams({ q, limit: String(limit) });
+    return (await this.request<{ data: AuthorSearchResult[] }>(`/search/authors?${query.toString()}`, {
+      method: 'GET',
+    })).data;
   }
 
   async getWork(id: string): Promise<Work> {

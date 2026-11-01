@@ -341,6 +341,7 @@ export function guestExplorationKey(now = new Date()): string {
 }
 
 import { ActivityService } from '../activity/index.js';
+import { avatarUrl } from '../uploads/index.js';
 
 /** PRD §10.6: no minimum, 10,000 characters. Counted in code points, as char_length() and the schema's maxLength count. */
 function checkBody(body: string): string {
@@ -669,7 +670,7 @@ export class ReviewService {
         id: r.userId,
         username: r.username ?? 'reader',
         display_name: r.displayName,
-        avatar_url: r.avatarKey ? `/avatars/${r.avatarKey}` : null,
+        avatar_url: avatarUrl(r.avatarKey),
       },
       work_title: r.workTitle,
       work_cover_id: r.workCoverId,
@@ -1061,7 +1062,7 @@ export class ReviewService {
           id: r.userId,
           username: r.username ?? 'reader',
           display_name: r.displayName,
-          avatar_url: r.avatarKey ? `/avatars/${r.avatarKey}` : null,
+          avatar_url: avatarUrl(r.avatarKey),
         },
         work_title: r.workTitle,
         work_cover_id: r.workCoverId,

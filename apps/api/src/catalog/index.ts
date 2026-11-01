@@ -648,6 +648,45 @@ export class CatalogService {
    * Takes a viewer because every user-scoped read does, from day one.
    * `null` is a guest and simply gets no `your_read`.
    */
+  /**
+   * Authors whose name (or an alias, 0003) matches, for the Authors tab of
+   * search. The same patterns and the same credited-only index as the author
+   * arm of SEARCH_SQL (has_works, 0019): an exact name first, then a name
+   * that starts with the query, then the most-logged. Counts only works this
+   * viewer may see in search, and an author with none is left out.
+   */
+  async searchAuthors(viewer: string | null, q: string, limit = 20): Promise<{ id: string; name: string; works_count: number }[]> {
+    const raw = cleanQuery(q);
+    if (Array.from(raw).length < 2) return [];
+    const { authorLike, prefix } = buildSearchParams(raw);
+    const allowExplicit = await this.#allowsExplicit(viewer);
+    const n = Math.min(Math.max(Math.trunc(limit) || 20, 1), 50);
+    const patterns = sql`ARRAY[${sql.join(authorLike.map((p) => sql`${p}`), sql`, `)}]::text[]`;
+    const rows = await this.db.execute<{ id: string; name: string; works_count: number }>(sql`
+      WITH matched AS (
+        SELECT a.id, a.name FROM authors a
+        WHERE a.has_works
+          AND flyleaf_author_names(a.name, a.alternate_names) ILIKE ANY (${patterns})
+        -- A bound on the ranking below: two characters match many names.
+        LIMIT 1000
+      )
+      SELECT m.id, m.name, count(w.id)::int AS works_count
+      FROM matched m
+      JOIN work_authors wa ON wa.author_id = m.id
+      JOIN works w ON w.id = wa.work_id
+      WHERE w.merged_into_id IS NULL AND NOT w.is_provisional
+        AND (w.maturity <> 'explicit' OR ${allowExplicit})
+      GROUP BY m.id, m.name
+      ORDER BY lower(m.name) = lower(${raw}) DESC,
+               m.name ILIKE ${prefix} DESC,
+               sum(w.log_count) DESC,
+               count(w.id) DESC,
+               m.name
+      LIMIT ${n}
+    `);
+    return rows.map((r) => ({ id: r.id, name: r.name, works_count: Number(r.works_count) }));
+  }
+
   async getWork(viewer: string | null, id: string): Promise<Work | null> {
     // The non-viewer part of a book page is identical for everyone, so it is
     // cacheable. In-process for a single instance — no network hop, and
@@ -985,6 +1024,8 @@ import {
   isbnParamSchema,
   authorQuerySchema,
   authorDetailSchema,
+  authorSearchQuerySchema,
+  authorSearchResponseSchema,
   seriesDetailSchema,
   errorResponseSchema,
 } from '../contract/schemas.js';
@@ -1028,6 +1069,25 @@ export function catalogRoutes(service: CatalogService) {
       async (req) => {
         const { q, limit } = searchQuery.parse(req.query);
         return service.searchPage(req.viewer, q ?? '', limit, searcherOf(req));
+      },
+    );
+
+    app.get(
+      '/search/authors',
+      {
+        schema: {
+          tags: ['Catalog'],
+          summary: 'Search authors',
+          description: 'Authors whose name or an alias matches, for the Authors tab of search: an exact name first, then names that start with the query, then the most-logged. Guest readable. works_count counts only works this viewer may see in search (explicit works follow PRD §7.8), and an author with none is left out.',
+          querystring: authorSearchQuerySchema,
+          response: {
+            200: authorSearchResponseSchema,
+          },
+        },
+      },
+      async (req) => {
+        const { q, limit } = searchQuery.parse(req.query);
+        return { data: await service.searchAuthors(req.viewer, q ?? '', limit) };
       },
     );
 
