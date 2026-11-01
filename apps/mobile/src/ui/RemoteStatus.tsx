@@ -55,7 +55,11 @@ export function RemoteStatus({
     <Screen>
       <EmptyState
         title={`Couldn’t load this ${noun}`}
-        subtitle="Check your connection and try again."
+        subtitle={
+          remote.state === 'server'
+            ? 'Something went wrong on our side. Try again in a moment.'
+            : 'Check your connection and try again.'
+        }
         action={<Button label="Try again" variant="secondary" onPress={onRetry} />}
       />
     </Screen>

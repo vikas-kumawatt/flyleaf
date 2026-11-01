@@ -21,6 +21,7 @@ import {
   WHAT_STAYS,
 } from '@/lib/accountDeletion';
 import { Button, Card, EmptyState, Field, Screen, Txt, sheet } from '@/ui/components';
+import { ScreenHeader } from '@/ui/ScreenHeader';
 import { space, useTheme } from '@/ui/tokens';
 
 export default function DeleteAccountScreen() {
@@ -64,13 +65,7 @@ export default function DeleteAccountScreen() {
 
   return (
     <Screen style={{ flex: 1, backgroundColor: c.ground }}>
-      <View style={{ paddingTop: insets.top + space[2], paddingHorizontal: space[4], paddingBottom: space[3] }}>
-        <View style={sheet.rowBetween}>
-          <Button label="Back" variant="tertiary" onPress={() => router.back()} />
-          <Txt variant="title">Delete account</Txt>
-          <View style={{ width: 48 }} />
-        </View>
-      </View>
+      <ScreenHeader title="Delete account" />
       <ScrollView contentContainerStyle={{ padding: space[4], paddingBottom: insets.bottom + space[8], gap: space[3] }}>
         {!user ? (
           <EmptyState title="Not signed in" subtitle="Sign in to delete your account" />

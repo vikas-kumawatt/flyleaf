@@ -274,33 +274,24 @@ export default function FavouritesPickerScreen() {
                 return (
                   <Card key={book.id} style={{ padding: space[3] }}>
                     <View style={sheet.rowTop}>
-                      {/* Slot number badge */}
-                      <View
-                        style={[
-                          styles.slotBadge,
-                          { backgroundColor: c.surface, borderColor: c.line },
-                        ]}
-                      >
-                        <Txt variant="micro" color="ink2" tabular>
-                          #{slotIndex + 1}
-                        </Txt>
-                      </View>
-
-                      {/* Cover */}
-                      <Cover coverId={book.cover_id} title={book.title} size="m" />
+                      {/* Cover: the small size leaves the controls room on a 360 dp screen. */}
+                      <Cover coverId={book.cover_id} title={book.title} size="s" />
 
                       {/* Details & actions */}
-                      <View style={{ flex: 1, marginLeft: space[3], gap: 2 }}>
-                        <Txt variant="title" numberOfLines={1} style={{ fontFamily: fontFamilies.displayMedium }}>
+                      <View style={{ flex: 1, marginLeft: space[3], gap: space[1] }}>
+                        <Txt variant="micro" color="muted" tabular>
+                          #{slotIndex + 1}
+                        </Txt>
+                        <Txt variant="title" numberOfLines={2} style={{ fontFamily: fontFamilies.displayMedium }}>
                           {book.title}
                         </Txt>
                         <Txt variant="caption" color="muted" numberOfLines={1}>
                           {book.author_name}
                         </Txt>
 
-                        {/* Controls */}
-                        <View style={[sheet.row, { gap: space[2], marginTop: space[2] }]}>
-<IconButton
+                        {/* Controls: wrap rather than run off a narrow screen. */}
+                        <View style={[sheet.row, { gap: space[2], marginTop: space[2], flexWrap: 'wrap' }]}>
+                          <IconButton
                             icon="chevron-up"
                             label="Move up"
                             disabled={slotIndex === 0}
@@ -321,7 +312,7 @@ export default function FavouritesPickerScreen() {
                               setSearchTargetSlot(slotIndex);
                             }}
                           />
-<IconButton
+                          <IconButton
                             icon="close"
                             label="Remove"
                             onPress={() => removeSlot(slotIndex)}

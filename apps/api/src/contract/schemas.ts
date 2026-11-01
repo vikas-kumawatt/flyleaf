@@ -485,6 +485,33 @@ export const authorDetailSchema = {
   required: ['id', 'name', 'alternate_names', 'bio', 'works_count', 'read_count', 'works'],
 } as const;
 
+export const authorSearchQuerySchema = {
+  type: 'object',
+  properties: {
+    q: { type: 'string', description: 'Name or part of one (minimum 2 characters; anything past 100 is ignored)' },
+    limit: { type: 'integer', minimum: 1, maximum: 50, default: 20 },
+  },
+} as const;
+
+export const authorSearchResponseSchema = {
+  type: 'object',
+  properties: {
+    data: {
+      type: 'array',
+      items: {
+        type: 'object',
+        properties: {
+          id: { type: 'string', format: 'uuid' },
+          name: { type: 'string' },
+          works_count: { type: 'integer', description: 'Works credited to this author that this viewer may see in search.' },
+        },
+        required: ['id', 'name', 'works_count'],
+      },
+    },
+  },
+  required: ['data'],
+} as const;
+
 export const seriesDetailSchema = {
   type: 'object',
   properties: {

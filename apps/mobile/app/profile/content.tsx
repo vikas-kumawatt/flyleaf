@@ -6,19 +6,16 @@
 // enforces all of this; the screen only mirrors it.
 
 import React, { useState } from 'react';
-import { ScrollView, Switch, View } from 'react-native';
-import { useRouter } from 'expo-router';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { ScrollView, View } from 'react-native';
 import * as Haptics from 'expo-haptics';
 import { api, FlyleafApiError } from '@/lib/api';
 import { useSession } from '@/lib/session';
-import { Button, Card, EmptyState, Field, Screen, Txt, sheet } from '@/ui/components';
+import { Button, Card, EmptyState, Field, Screen, Txt, sheet, Toggle } from '@/ui/components';
+import { ScreenHeader } from '@/ui/ScreenHeader';
 import { space, useTheme } from '@/ui/tokens';
 
 export default function ContentSettingsScreen() {
   const c = useTheme();
-  const router = useRouter();
-  const insets = useSafeAreaInsets();
   const { user, refreshUser } = useSession();
 
   const [askingDob, setAskingDob] = useState(false);
@@ -51,13 +48,7 @@ export default function ContentSettingsScreen() {
 
   return (
     <Screen style={{ flex: 1, backgroundColor: c.ground }}>
-      <View style={{ paddingTop: insets.top + space[2], paddingHorizontal: space[4], paddingBottom: space[3] }}>
-        <View style={sheet.rowBetween}>
-          <Button label="Back" variant="tertiary" onPress={() => router.back()} />
-          <Txt variant="title">Content</Txt>
-          <View style={{ width: 48 }} />
-        </View>
-      </View>
+      <ScreenHeader title="Content" />
       <ScrollView contentContainerStyle={{ padding: space[4], gap: space[3] }}>
         {!user?.explicitSettingAvailable ? (
           // Under 18, or no confirmed date of birth: the control does not exist (§7.8).
@@ -73,7 +64,7 @@ export default function ContentSettingsScreen() {
                   Only search changes. Your own diary, shelves and stats always show every book you log.
                 </Txt>
               </View>
-              <Switch
+              <Toggle
                 value={askingDob || Boolean(user.showExplicit)}
                 onValueChange={onToggle}
                 disabled={saving}

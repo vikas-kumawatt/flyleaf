@@ -17,8 +17,7 @@ import {
   KeyboardAvoidingView,
   Platform,
   Alert,
-  Switch,
-} from 'react-native';
+  } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { requestMilestoneCheck } from '@/lib/milestones';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -31,7 +30,7 @@ import { useSession } from '@/lib/session';
 import type { LocalRead } from '@/offline/schema';
 import { budgetTracker } from '@/lib/budgetTracker';
 import { buildReviewPayload, canReview } from '@/lib/reviewPayload';
-import { Button, Card, Cover, Heart, Screen, SegmentedControl, Stars, Txt, sheet } from '@/ui/components';
+import { Button, Card, Cover, Heart, Screen, SegmentedControl, Stars, Txt, sheet, Toggle } from '@/ui/components';
 import { fontFamilies, radius, space, type, useTheme } from '@/ui/tokens';
 
 export default function ReviewComposerScreen() {
@@ -439,13 +438,12 @@ export default function ReviewComposerScreen() {
                   Readers tap to reveal the text
                 </Txt>
               </View>
-              <Switch
+              <Toggle
                 value={hasSpoilers}
                 onValueChange={(val) => {
                   void Haptics.selectionAsync();
                   setHasSpoilers(val);
                 }}
-                trackColor={{ false: c.surface2, true: c.accent }}
               />
             </View>
 

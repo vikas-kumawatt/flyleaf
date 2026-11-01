@@ -144,7 +144,7 @@ export const motion = {
   press: 140,
   menu: 180,
   push: 280,
-  sheet: { damping: 0.8 },
+  sheet: 300,
   progress: 400,
   star: 150,
   like: 200,

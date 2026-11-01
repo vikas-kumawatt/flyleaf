@@ -469,6 +469,14 @@ export interface SearchResponse {
   suggestion: string | null;
 }
 
+/** One row of GET /search/authors. */
+export interface AuthorSearchResult {
+  id: string;
+  name: string;
+  /** Works credited to this author that the viewer may see in search. */
+  works_count: number;
+}
+
 // ---------------------------------------------------------------- Reading
 
 export type ReadStatus = 'want' | 'reading' | 'paused' | 'finished' | 'dnf';

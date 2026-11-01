@@ -159,7 +159,7 @@ Tags 4–6 · controls and inputs 10 · cards 14 · sheets 20 · pill only for a
 Minimum touch target **44 × 44** everywhere, regardless of visual size.
 
 ### Bottom sheets
-The primary modal pattern — logging, progress, DNF, edition picker, share. Detents at 50% and 90% · grabber handle · `overlay` scrim · spring dismissal, velocity-aware.
+The primary modal pattern — logging, progress, DNF, edition picker, share. Detents at 50% and 90% · grabber handle · `overlay` scrim · eased dismissal, velocity-aware.
 
 ### Star rating
 The most-repeated interaction in the product.
@@ -227,7 +227,7 @@ Every gesture has a visible, tappable equivalent. **A gesture is never the only 
 | Interaction | Treatment |
 |---|---|
 | Screen push | 280ms ease-out, shared-element transition on covers |
-| Bottom sheet | Spring, damping 0.8 |
+| Bottom sheet | 300ms ease-out, no spring |
 | **Progress bar change** | **400ms ease-out** — the small reward that makes tracking feel good |
 | Star selection | Scale to 1.15 and back, 150ms, haptic |
 | Like / heart | Scale to 1.1 and back, 200ms, no bounce |
