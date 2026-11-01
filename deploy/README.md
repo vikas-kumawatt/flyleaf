@@ -11,6 +11,7 @@ Everything needed to run Flyleaf on one small Linux server. **The runbook is [`d
 | `Caddyfile.template` | server | HTTPS for the host name; `/<bucket>/…` to MinIO, the rest to the API |
 | `systemd/` | server | API, worker, backup and drill timers, failure mail |
 | `release.sh` | server | Build a commit, migrate, switch, health-check, roll back on failure |
+| `ci-deploy.sh` | server, via SSH | The only thing GitHub's deploy key can run: `release <commit>` or `status` (docs/deploy.md › Automatic deploys) |
 | `db-roles.sh`, `db/roles.sql` | server | The database roles: `flyleaf_owner` owns the schema and runs migrations, `flyleaf_app` (API, worker) has rows only, no DDL |
 | `app.sh` | server | The app's own CLIs (admin accounts, ping, dedupe) as the app user |
 | `catalog/Export-Catalog.ps1` | laptop | Dump the catalog only (no user data) from the local `flyleaf` database |
