@@ -1,10 +1,10 @@
 // LA-02: the pieces every Settings screen is made of. Each control is at
 // least 44pt tall and names itself to a screen reader (LA-10).
 import React from 'react';
-import { Pressable, Switch, View } from 'react-native';
+import { Pressable, View } from 'react-native';
 import * as Haptics from 'expo-haptics';
 import { Ionicons } from '@expo/vector-icons';
-import { Txt, sheet } from './components';
+import { Txt, sheet, Toggle } from './components';
 import { radius, space, useTheme } from './tokens';
 import { HOURS, hourLabel, minuteOptions } from '@/lib/settings';
 
@@ -113,14 +113,13 @@ export function SwitchRow({
           </Txt>
         ) : null}
       </View>
-      <Switch
+      <Toggle
         value={value}
         onValueChange={(v) => {
           void Haptics.selectionAsync();
           onValueChange(v);
         }}
         disabled={disabled}
-        trackColor={{ false: c.lineStrong, true: c.accent }}
         accessibilityLabel={accessibilityLabel ?? label}
         accessibilityHint={detail}
         style={{ minHeight: 44 }}

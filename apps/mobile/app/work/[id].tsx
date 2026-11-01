@@ -40,6 +40,7 @@ import { budgetTracker } from '@/lib/budgetTracker';
 import { useDatabase } from '@/offline/db';
 import { OfflineRepository } from '@/offline/repository';
 import { useRemote } from '@/lib/useRemote';
+import { encodeShareOptions, type ShareOption } from '@/lib/shareCard';
 import { RemoteStatus } from '@/ui/RemoteStatus';
 import {
   Button,
@@ -482,6 +483,15 @@ export default function WorkScreen() {
           <Pressable
             onPress={() => {
               void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+              // A finished read has cards (PRD §6.45): the finish card, and the
+              // review card when there is a review. Otherwise a line of text.
+              const mine = work.your_read;
+              if (mine?.status === 'finished' && mine.id) {
+                const options: ShareOption[] = [{ label: 'Finished', card: { template: 'finish', readId: mine.id } }];
+                if (mine.review_id) options.push({ label: 'Review', card: { template: 'review', reviewId: mine.review_id } });
+                router.push(`/share?options=${encodeURIComponent(encodeShareOptions(options))}` as any);
+                return;
+              }
               void Share.share({
                 title: work.title,
                 message: `${work.title} by ${work.author_name}, on Flyleaf`,

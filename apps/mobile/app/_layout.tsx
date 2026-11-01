@@ -98,9 +98,33 @@ function Nav() {
         <Stack.Screen name="settings/notifications" options={{ presentation: 'card', headerShown: false }} />
         <Stack.Screen name="settings/appearance" options={{ presentation: 'card', headerShown: false }} />
         <Stack.Screen name="settings/about" options={{ presentation: 'card', headerShown: false }} />
+        {/* Screens that draw their own ScreenHeader; without an entry the stack adds a second header named after the route. */}
+        <Stack.Screen name="import/index" options={{ presentation: 'card', headerShown: false }} />
+        <Stack.Screen name="import/unmatched" options={{ presentation: 'card', headerShown: false }} />
+        <Stack.Screen name="licences" options={{ presentation: 'card', headerShown: false }} />
+        <Stack.Screen name="moderation/[id]" options={{ presentation: 'card', headerShown: false }} />
+        <Stack.Screen name="profile/blocked" options={{ presentation: 'card', headerShown: false }} />
+        <Stack.Screen name="profile/content" options={{ presentation: 'card', headerShown: false }} />
+        <Stack.Screen name="profile/delete-account" options={{ presentation: 'card', headerShown: false }} />
+        <Stack.Screen name="profile/muted" options={{ presentation: 'card', headerShown: false }} />
+        <Stack.Screen name="profile/reports" options={{ presentation: 'card', headerShown: false }} />
+        <Stack.Screen name="profile/requests" options={{ presentation: 'card', headerShown: false }} />
+        <Stack.Screen name="share" options={{ presentation: 'card', headerShown: false }} />
+        <Stack.Screen name="u/[username]/index" options={{ presentation: 'card', headerShown: false }} />
+        <Stack.Screen name="user/[id]/followers" options={{ presentation: 'card', headerShown: false }} />
+        <Stack.Screen name="user/[id]/following" options={{ presentation: 'card', headerShown: false }} />
+        <Stack.Screen name="year-in-review" options={{ presentation: 'card', headerShown: false }} />
       </Stack>
     </View>
   );
+}
+
+// Until the fonts are in, the screen is the bare background. Rendering text
+// earlier lets Android measure it in the fallback face and then draw it in
+// Instrument Sans, which is wider, so labels lose their last letters.
+function FontPending() {
+  const c = useTheme();
+  return <View style={{ flex: 1, backgroundColor: c.ground }} />;
 }
 
 function ThemedStatusBar() {
@@ -109,7 +133,7 @@ function ThemedStatusBar() {
 }
 
 export default function RootLayout() {
-  const [fontsLoaded] = useFonts({
+  const [fontsLoaded, fontError] = useFonts({
     Newsreader_400Regular,
     Newsreader_500Medium,
     InstrumentSans_400Regular,
@@ -136,10 +160,17 @@ export default function RootLayout() {
                 <SyncProvider>
                   <ActionGateProvider>
                     <VerifyEmailProvider>
-                      <Nav />
-                      <PushBridge />
-                      <MilestoneBridge />
-                      <ConfirmDobPrompt />
+                      {/* A font that fails to load falls back to the system face rather than blocking the app. */}
+                      {fontsLoaded || fontError ? (
+                        <>
+                          <Nav />
+                          <PushBridge />
+                          <MilestoneBridge />
+                          <ConfirmDobPrompt />
+                        </>
+                      ) : (
+                        <FontPending />
+                      )}
                     </VerifyEmailProvider>
                   </ActionGateProvider>
                 </SyncProvider>

@@ -23,12 +23,14 @@ import {
   StyleSheet,
   RefreshControl,
   Alert,
+  Share,
 } from 'react-native';
 import { useFocusEffect, useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as Haptics from 'expo-haptics';
 import { Image } from 'expo-image';
 import { pickAndUploadAvatar, useAvatarSource, type AvatarSource } from '@/lib/avatar';
+import { encodeShareOptions } from '@/lib/shareCard';
 import { useSession } from '@/lib/session';
 import { profileShareUrl } from '@/lib/followSuggestions';
 import { useDatabase } from '@/offline/db';
@@ -228,7 +230,8 @@ export default function ProfileScreen() {
         contentContainerStyle={{
           padding: space[4],
           paddingBottom: insets.bottom + space[8],
-          gap: space[4],
+          // design.md §4: sections sit 32 apart.
+          gap: space[8],
         }}
         refreshControl={
           <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={c.accent} />
@@ -326,8 +329,8 @@ export default function ProfileScreen() {
                   {profile.bio}
                 </Txt>
               ) : (
-                <Txt variant="caption" color="muted" style={{ fontStyle: 'italic' }}>
-                  No bio yet. Tap Edit profile to add one.
+                <Txt variant="caption" color="muted">
+                  No bio yet · Edit profile to add one
                 </Txt>
               )}
 
@@ -349,8 +352,20 @@ export default function ProfileScreen() {
                   size="sm"
                   onPress={() => {
                     void Haptics.selectionAsync();
-                    // SO-51: <server>/@username, the server-rendered public profile.
-                    Alert.alert('Share profile', profileShareUrl(user.username, PUBLIC_BASE));
+                    // The profile card (PRD §6.45), or the link to the
+                    // server-rendered public profile (SO-51).
+                    const url = profileShareUrl(user.username, PUBLIC_BASE);
+                    Alert.alert('Share profile', url, [
+                      {
+                        text: 'Share card',
+                        onPress: () =>
+                          router.push(
+                            `/share?options=${encodeURIComponent(encodeShareOptions([{ label: 'Profile', card: { template: 'profile', userId: user.id } }]))}` as any,
+                          ),
+                      },
+                      { text: 'Share link', onPress: () => void Share.share({ message: url, url }) },
+                      { text: 'Cancel', style: 'cancel' },
+                    ]);
                   }}
                   style={{ flex: 1 }}
                 />
@@ -403,7 +418,7 @@ export default function ProfileScreen() {
                     hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
                   >
                     <Txt variant="caption" color="accent" style={{ fontWeight: '500' }}>
-                      Edit 4
+                      Edit
                     </Txt>
                   </Pressable>
                 </View>
@@ -420,12 +435,15 @@ export default function ProfileScreen() {
                             void Haptics.selectionAsync();
                             router.push(`/work/${fav.id}` as any);
                           }}
-                          style={styles.favItem}
+                          style={styles.favFilled}
                           accessibilityRole="button"
                           accessibilityLabel={fav.title}
                         >
-                          <Cover coverId={fav.cover_id} title={fav.title} size="fluid" />
-                          <Txt variant="caption" numberOfLines={1} style={{ marginTop: space[1] }}>
+                          {/* The cover keeps the 2:3 box; the title sits under it, inside the row's height. */}
+                          <View style={styles.favCover}>
+                            <Cover coverId={fav.cover_id} title={fav.title} size="fluid" />
+                          </View>
+                          <Txt variant="caption" numberOfLines={1} style={{ marginTop: space[2] }}>
                             {fav.title}
                           </Txt>
                         </Pressable>
@@ -857,10 +875,18 @@ const styles = StyleSheet.create({
   favouritesRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
+    alignItems: 'flex-start',
     gap: space[2],
   },
   favItem: {
     width: '23%',
+    aspectRatio: 2 / 3,
+  },
+  favFilled: {
+    width: '23%',
+  },
+  favCover: {
+    width: '100%',
     aspectRatio: 2 / 3,
   },
   emptyFavSlot: {
