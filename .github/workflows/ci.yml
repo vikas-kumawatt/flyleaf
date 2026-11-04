@@ -7,6 +7,10 @@
 #
 # --strict makes the migration check mandatory. Locally it is skipped when no
 # database is running; here there is always one, so a skip would be a bug.
+#
+# The same steps run as parallel jobs (--part, --shard in scripts/ci.mjs):
+# API checks, three API test shards and the mobile checks side by side, each
+# skipped when its side of the repo did not change. `check` gathers them.
 
 name: CI
 
@@ -26,9 +30,52 @@ permissions:
   contents: read
 
 jobs:
-  check:
+  # What does this change touch? A docs-only change runs nothing below; a
+  # mobile-only change skips the API jobs, and the other way round. Anything
+  # both sides use (packages/, the CI script and this file) runs everything,
+  # as does a manual run or a push with nothing to compare against.
+  changes:
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    timeout-minutes: 5
+    outputs:
+      api: ${{ steps.diff.outputs.api }}
+      mobile: ${{ steps.diff.outputs.mobile }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - id: diff
+        env:
+          EVENT: ${{ github.event_name }}
+          PR_BASE: ${{ github.event.pull_request.base.sha }}
+          PUSH_BEFORE: ${{ github.event.before }}
+        run: |
+          case "$EVENT" in
+            pull_request) base="$PR_BASE" ;;
+            push) base="$PUSH_BEFORE" ;;
+            *) base="" ;;
+          esac
+          if [ -z "$base" ] || ! git cat-file -e "$base^{commit}" 2>/dev/null; then
+            echo "Nothing to compare against ($EVENT): checking everything."
+            { echo "api=true"; echo "mobile=true"; } >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          files="$(git diff --name-only "$base" HEAD)"
+          shared='^(packages/|scripts/ci\.mjs$|\.github/workflows/ci\.yml$)'
+          api=false; mobile=false
+          printf '%s\n' "$files" | grep -qE "$shared|^apps/api/|^deploy/|^db/|^openapi\.yaml$" && api=true
+          printf '%s\n' "$files" | grep -qE "$shared|^apps/mobile/" && mobile=true
+          echo "api=$api mobile=$mobile"
+          { echo "api=$api"; echo "mobile=$mobile"; } >> "$GITHUB_OUTPUT"
+
+  # Everything about the API except its test suite: typecheck, spec, build,
+  # audit, and the two checks that need a real Postgres.
+  api-checks:
+    needs: changes
+    if: needs.changes.outputs.api == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
 
     services:
       postgres:
@@ -60,10 +107,7 @@ jobs:
           # new LTS cannot change the answer without a commit saying so.
           node-version: '22'
           cache: npm
-          # Two independent projects, two lockfiles, no root workspace.
-          cache-dependency-path: |
-            apps/api/package-lock.json
-            apps/mobile/package-lock.json
+          cache-dependency-path: apps/api/package-lock.json
 
       # `npm ci`, not `npm install`: it installs the lockfile exactly and
       # fails if package.json and the lockfile disagree, which is a real
@@ -72,12 +116,76 @@ jobs:
         working-directory: apps/api
         run: npm ci
 
-      # ~600 packages, about three minutes. Worth it: all three bugs found on
-      # device in SK-08 were client-side, and tsc is the only automated check
-      # the mobile app has at all.
+      - name: Checks
+        run: node scripts/ci.mjs --strict --part=api-checks
+
+  # The API test suite, split across runners. Each test file builds its own
+  # in-process database (PGlite), so the shards share nothing and need no
+  # Postgres service; vitest's --shard gives every file to exactly one job.
+  api-tests:
+    needs: changes
+    if: needs.changes.outputs.api == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3]
+    name: api-tests (${{ matrix.shard }}/3)
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: apps/api/package-lock.json
+
+      - name: Install — api
+        working-directory: apps/api
+        run: npm ci
+
+      - name: Tests
+        run: node scripts/ci.mjs --strict --part=api-tests --shard=${{ matrix.shard }}/3
+
+  # ~600 packages, about three minutes to install. Worth it: all three bugs
+  # found on device in SK-08 were client-side, and tsc is the only automated
+  # check the mobile app has at all.
+  mobile:
+    needs: changes
+    if: needs.changes.outputs.mobile == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: apps/mobile/package-lock.json
+
       - name: Install — mobile
         working-directory: apps/mobile
         run: npm ci --no-audit --no-fund
 
       - name: Checks
-        run: node scripts/ci.mjs --strict
+        run: node scripts/ci.mjs --strict --part=mobile
+
+  # One result for branch protection and for the workflows that wait on CI
+  # (Deploy API, EAS update): green when every job that ran passed. A job
+  # skipped because its side did not change counts as passing.
+  check:
+    needs: [changes, api-checks, api-tests, mobile]
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: All jobs passed or were not needed
+        env:
+          RESULTS: ${{ join(needs.*.result, ' ') }}
+        run: |
+          echo "results: $RESULTS"
+          case " $RESULTS " in
+            *" failure "*|*" cancelled "*) echo "::error::A CI job failed or was cancelled"; exit 1 ;;
+          esac
