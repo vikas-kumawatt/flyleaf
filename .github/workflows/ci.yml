@@ -139,11 +139,20 @@ jobs:
         with:
           node-version: '22'
           cache: npm
-          cache-dependency-path: apps/api/package-lock.json
+          cache-dependency-path: |
+            apps/api/package-lock.json
+            apps/mobile/package-lock.json
 
       - name: Install — api
         working-directory: apps/api
         run: npm ci
+
+      # The end-to-end tests drive the app's own client code
+      # (login-after-reset.e2e.test.ts imports apps/mobile/src/lib), and
+      # compiling it needs the mobile tsconfig's base from expo.
+      - name: Install — mobile
+        working-directory: apps/mobile
+        run: npm ci --no-audit --no-fund
 
       - name: Tests
         run: node scripts/ci.mjs --strict --part=api-tests --shard=${{ matrix.shard }}/3
