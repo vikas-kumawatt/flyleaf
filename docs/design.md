@@ -1,7 +1,7 @@
 # Flyleaf — Design System
 
 **Companion to:** `PRD.md` §36–38
-**Version:** 2.0 (unslop redesign, Oct 2026)
+**Version:** 2.0 (redesign, Oct 2026)
 **Platform:** React Native (Expo). Values in dp/pt; both platforms share one scale.
 
 ---
@@ -12,7 +12,7 @@
 
 Book covers are wildly varied and saturated. An interface with its own strong colour fights every single one of them. So Flyleaf is graphite with one ink-blue accent, and the colour in the product comes from the books.
 
-Version 2 is built on [unslop](../.claude/skills/unslop/SKILL.md) by Damir Sokolovsky (@heydamir, CC BY 4.0): quiet chrome, richness only in the moments that matter.
+Version 2 keeps the chrome quiet and puts the richness only in the moments that matter.
 
 ### Direction
 
