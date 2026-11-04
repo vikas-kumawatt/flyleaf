@@ -4,12 +4,19 @@
 # the last one; this job only starts it and links to it.
 #
 # Needed when a change has native parts (a native module, an app.json plugin
-# or permission, intent filters): EAS update holds those back with a warning
-# and says to build a new APK. Uses the same EXPO_TOKEN secret as EAS update.
+# or permission, intent filters): EAS update holds those back. So this also
+# runs by itself after CI passes on main, and builds only when that merge has
+# native parts (scripts/ota-check.mjs, the same check EAS update uses); any
+# other merge does nothing, so no free-tier build is spent on it. Uses the
+# same EXPO_TOKEN secret as EAS update.
 
 name: Build APK
 
 on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches: [main]
   workflow_dispatch:
     inputs:
       profile:
@@ -23,50 +30,86 @@ permissions:
 
 # One build of a profile at a time: two at once would race for versionCode.
 concurrency:
-  group: build-apk-${{ inputs.profile }}
+  group: build-apk-${{ inputs.profile || 'preview' }}
   cancel-in-progress: false
 
 jobs:
   build:
+    # A green CI run of a push to main, or a manual run.
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push')
     runs-on: ubuntu-latest
     timeout-minutes: 20
     defaults:
       run:
         working-directory: apps/mobile
     env:
-      PROFILE: ${{ inputs.profile }}
+      PROFILE: ${{ inputs.profile || 'preview' }}
+      SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
 
     steps:
       - name: Check the Expo token
+        id: token
         working-directory: .
         env:
           EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+          MANUAL: ${{ github.event_name == 'workflow_dispatch' }}
         run: |
-          if [ -z "$EXPO_TOKEN" ]; then
-            echo "::error::Add the EXPO_TOKEN repository secret (expo.dev → Access tokens; GitHub → Settings → Secrets and variables → Actions)."
-            exit 1
-          fi
+          if [ -n "$EXPO_TOKEN" ]; then echo "ready=true" >> "$GITHUB_OUTPUT"; exit 0; fi
+          msg="Add the EXPO_TOKEN repository secret (expo.dev → Access tokens; GitHub → Settings → Secrets and variables → Actions)."
+          if [ "$MANUAL" = true ]; then echo "::error::$msg"; exit 1; fi
+          echo "::notice::$msg Nothing built."
+          echo "ready=false" >> "$GITHUB_OUTPUT"
 
       - uses: actions/checkout@v5
+        if: steps.token.outputs.ready == 'true'
+        with:
+          ref: ${{ env.SHA }}
+          fetch-depth: 0
 
       - uses: actions/setup-node@v5
+        if: steps.token.outputs.ready == 'true'
         with:
           node-version: '22'
           cache: npm
           cache-dependency-path: apps/mobile/package-lock.json
 
-      # eas-cli evaluates app.config.ts, which needs the app's packages.
+      # eas-cli evaluates app.config.ts, which needs the app's packages (and
+      # ota-check reads them to tell native dependencies apart).
       - name: Install — mobile
+        if: steps.token.outputs.ready == 'true'
         run: npm ci --no-audit --no-fund
+
+      # On main: build only when this merge has native parts. The base is main
+      # before the push (first parent), so a merge counts all its commits.
+      - name: Decide
+        id: decide
+        if: steps.token.outputs.ready == 'true'
+        env:
+          AUTO: ${{ github.event_name == 'workflow_run' }}
+        run: |
+          if [ "$AUTO" != true ]; then echo "go=true" >> "$GITHUB_OUTPUT"; exit 0; fi
+          r="$(node scripts/ota-check.mjs "$SHA^1" "$SHA")"
+          echo "$r"
+          n="$(node -p "JSON.parse(process.argv[1]).native.length" "$r")"
+          if [ "$n" = 0 ]; then
+            echo "::notice::No native changes in this merge: EAS update ships it, no APK needed."
+            echo "go=false" >> "$GITHUB_OUTPUT"; exit 0
+          fi
+          echo "Native changes: $(node -p "JSON.parse(process.argv[1]).native.join('; ')" "$r")"
+          echo "go=true" >> "$GITHUB_OUTPUT"
 
       # A broken app should not cost a build slot on the free tier.
       - name: Typecheck and offline tests
+        if: steps.decide.outputs.go == 'true'
         run: |
           npm run build:api-client
           npm run typecheck
           npm test
 
       - uses: expo/expo-github-action@v8
+        if: steps.decide.outputs.go == 'true'
         with:
           eas-version: latest
           token: ${{ secrets.EXPO_TOKEN }}
@@ -74,6 +117,7 @@ jobs:
       # --no-wait: the build queues and runs on EAS (often 10–20 minutes on
       # the free tier); this job ends once it is accepted and leaves the link.
       - name: Start the build
+        if: steps.decide.outputs.go == 'true'
         run: |
           eas build --platform android --profile "$PROFILE" --non-interactive --no-wait \
             --message "$(git log -1 --pretty=%s)" 2>&1 | tee "$RUNNER_TEMP/eas.log"
