@@ -284,6 +284,7 @@ export const PACKAGE_LICENCES: PackageLicence[] = [
   {"name":"expo-dev-launcher","version":"57.0.20","licence":"MIT"},
   {"name":"expo-dev-menu","version":"57.0.18","licence":"MIT"},
   {"name":"expo-dev-menu-interface","version":"57.0.0","licence":"MIT"},
+  {"name":"expo-document-picker","version":"57.0.3","licence":"MIT"},
   {"name":"expo-eas-client","version":"57.0.4","licence":"MIT"},
   {"name":"expo-file-system","version":"57.0.7","licence":"MIT"},
   {"name":"expo-font","version":"57.0.4","licence":"MIT"},

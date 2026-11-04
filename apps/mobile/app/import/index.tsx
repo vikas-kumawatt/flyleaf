@@ -27,6 +27,8 @@ import {
   type ExportFormat,
 } from '@/lib/api';
 import * as Linking from 'expo-linking';
+import * as DocumentPicker from 'expo-document-picker';
+import { File } from 'expo-file-system';
 import { useSession } from '@/lib/session';
 import {
   Button,
@@ -38,6 +40,7 @@ import {
   sheet, SkeletonSettings} from '@/ui/components';
 import { ImportProgressBanner } from '@/ui/ImportProgressBanner';
 import { isExportDownloadable } from '@/lib/exportDownload';
+import { formatBytes, pickedFileProblem, withoutBom } from '@/lib/importFile';
 import { space, radius, useTheme } from '@/ui/tokens';
 
 const PLATFORMS: { id: ImportSource; name: string; desc: string; icon: string }[] = [
@@ -59,7 +62,10 @@ export default function ImportScreen() {
   const { user } = useSession();
 
   const [selectedSource, setSelectedSource] = useState<ImportSource>('goodreads');
-  const [inputMode, setInputMode] = useState<'paste' | 'file'>('paste');
+  // A chosen export file. Held as text, never put in the TextInput: a
+  // Goodreads export runs to megabytes, and a text field that size crawls.
+  const [pickedFile, setPickedFile] = useState<{ name: string; size: number; text: string } | null>(null);
+  const [picking, setPicking] = useState(false);
   const [csvText, setCsvText] = useState('');
   const [uploading, setUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState<number | null>(null);
@@ -119,6 +125,7 @@ export default function ImportScreen() {
     });
     void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     setCsvText('');
+    setPickedFile(null);
     setActiveImportId(result.id);
     void loadImports();
   };
@@ -129,9 +136,9 @@ export default function ImportScreen() {
       return;
     }
 
-    const trimmed = csvText.trim();
+    const trimmed = pickedFile ? pickedFile.text : csvText.trim();
     if (!trimmed) {
-      Alert.alert('Nothing to import', 'Paste your CSV export text before importing.');
+      Alert.alert('Nothing to import', 'Choose your export file, or paste its text, first.');
       return;
     }
 
@@ -142,7 +149,7 @@ export default function ImportScreen() {
 
       const upload = await api.uploadFile(trimmed, {
         contentType: 'text/csv',
-        filename: `${selectedSource}_export.csv`,
+        filename: pickedFile?.name ?? `${selectedSource}_export.csv`,
         onProgress: (sent, total) => setUploadProgress(total > 0 ? Math.round((sent / total) * 100) : null),
       });
       uploadId = upload.id;
@@ -210,18 +217,34 @@ export default function ImportScreen() {
     }
   };
 
-  const handleWebFileSelect = (e: any) => {
-    const file = e.target?.files?.[0];
-    if (!file) return;
-    const reader = new FileReader();
-    reader.onload = (event) => {
-      const content = event.target?.result as string;
-      if (content) {
-        setCsvText(content);
-        setInputMode('paste');
+  const handlePickFile = async () => {
+    try {
+      setPicking(true);
+      // Any type: phones label CSV files inconsistently (text/csv,
+      // text/comma-separated-values, application/octet-stream), so the
+      // extension decides instead (pickedFileProblem).
+      const result = await DocumentPicker.getDocumentAsync({ type: '*/*', copyToCacheDirectory: true, multiple: false });
+      if (result.canceled) return;
+      const asset = result.assets[0];
+      if (!asset) return;
+      const problem = pickedFileProblem({ name: asset.name, size: asset.size });
+      if (problem) {
+        Alert.alert('Can’t use this file', problem);
+        return;
       }
-    };
-    reader.readAsText(file);
+      const text = withoutBom(await new File(asset.uri).text()).trim();
+      if (!text) {
+        Alert.alert('This file is empty', 'Export your library again and choose the new file.');
+        return;
+      }
+      void Haptics.selectionAsync();
+      setPickedFile({ name: asset.name, size: asset.size ?? text.length, text });
+      setCsvText('');
+    } catch (err: any) {
+      Alert.alert('Couldn’t open this file', err?.message || 'Try choosing it again.');
+    } finally {
+      setPicking(false);
+    }
   };
 
   return (
@@ -318,38 +341,75 @@ export default function ImportScreen() {
               Export file
             </Txt>
             <Txt variant="micro" color="muted" tabular>
-              {csvText.length > 0 ? `${csvText.length.toLocaleString()} characters` : 'CSV, UTF-8'}
+              {pickedFile
+                ? formatBytes(pickedFile.size)
+                : csvText.length > 0
+                  ? `${csvText.length.toLocaleString()} characters`
+                  : 'CSV, UTF-8, up to 10 MB'}
             </Txt>
           </View>
 
-          {/* Web file picker shortcut when running on web */}
-          {Platform.OS === 'web' && (
-            <View style={{ marginBottom: space[2] }}>
-              <input
-                type="file"
-                accept=".csv,.txt"
-                onChange={handleWebFileSelect}
-                style={{
-                  color: c.ink,
-                  fontSize: 13,
-                  fontFamily: 'inherit',
-                }}
-              />
+          {pickedFile ? (
+            <View
+              style={[
+                sheet.row,
+                {
+                  gap: space[3],
+                  minHeight: 56,
+                  paddingHorizontal: space[4],
+                  borderRadius: radius.md,
+                  borderWidth: 1,
+                  borderColor: c.line,
+                  backgroundColor: c.surface,
+                },
+              ]}
+            >
+              <Ionicons name="document-text-outline" size={18} color={c.ink2} />
+              <View style={{ flex: 1 }}>
+                <Txt variant="body" numberOfLines={1}>
+                  {pickedFile.name}
+                </Txt>
+                <Txt variant="caption" color="muted" tabular>
+                  {formatBytes(pickedFile.size)}
+                </Txt>
+              </View>
+              <Pressable
+                onPress={() => setPickedFile(null)}
+                disabled={uploading}
+                accessibilityRole="button"
+                accessibilityLabel={`Remove ${pickedFile.name}`}
+                hitSlop={8}
+                style={{ minWidth: 44, minHeight: 44, alignItems: 'center', justifyContent: 'center' }}
+              >
+                <Ionicons name="close" size={18} color={c.muted} />
+              </Pressable>
             </View>
+          ) : (
+            <>
+              <Button
+                label={picking ? 'Opening…' : 'Choose CSV file'}
+                variant="secondary"
+                loading={picking}
+                disabled={picking || uploading}
+                onPress={() => void handlePickFile()}
+              />
+              <Txt variant="caption" color="muted" style={{ textAlign: 'center' }}>
+                or paste its text
+              </Txt>
+              <TextInput
+                value={csvText}
+                onChangeText={setCsvText}
+                placeholder={`Title,Author,My Rating,Exclusive Shelf\nDune,Frank Herbert,5,read`}
+                placeholderTextColor={c.muted}
+                multiline
+                numberOfLines={6}
+                style={[
+                  styles.csvInput,
+                  { backgroundColor: c.surface2, borderColor: c.line, color: c.ink },
+                ]}
+              />
+            </>
           )}
-
-          <TextInput
-            value={csvText}
-            onChangeText={setCsvText}
-            placeholder={`Paste your ${selectedSource} CSV here\nExample:\nTitle,Author,My Rating,Exclusive Shelf\nDune,Frank Herbert,5,read`}
-            placeholderTextColor={c.muted}
-            multiline
-            numberOfLines={6}
-            style={[
-              styles.csvInput,
-              { backgroundColor: c.surface2, borderColor: c.line, color: c.ink },
-            ]}
-          />
 
           <Button
             label={
@@ -361,7 +421,7 @@ export default function ImportScreen() {
             }
             variant="primary"
             loading={uploading}
-            disabled={uploading || csvText.trim().length === 0}
+            disabled={uploading || picking || (!pickedFile && csvText.trim().length === 0)}
             onPress={handleUpload}
           />
         </View>
