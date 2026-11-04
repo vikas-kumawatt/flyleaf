@@ -1,0 +1,90 @@
+# Builds a new APK on Expo's servers, from a phone (docs/mobile-release.md
+# step 5). GitHub → Actions → "Build APK" → Run workflow. The build itself
+# runs on EAS with the app's stored signing key, so every APK installs over
+# the last one; this job only starts it and links to it.
+#
+# Needed when a change has native parts (a native module, an app.json plugin
+# or permission, intent filters): EAS update holds those back with a warning
+# and says to build a new APK. Uses the same EXPO_TOKEN secret as EAS update.
+
+name: Build APK
+
+on:
+  workflow_dispatch:
+    inputs:
+      profile:
+        description: Which build (eas.json profile). preview is the beta APK.
+        type: choice
+        options: [preview, production]
+        default: preview
+
+permissions:
+  contents: read
+
+# One build of a profile at a time: two at once would race for versionCode.
+concurrency:
+  group: build-apk-${{ inputs.profile }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: apps/mobile
+    env:
+      PROFILE: ${{ inputs.profile }}
+
+    steps:
+      - name: Check the Expo token
+        working-directory: .
+        env:
+          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+        run: |
+          if [ -z "$EXPO_TOKEN" ]; then
+            echo "::error::Add the EXPO_TOKEN repository secret (expo.dev → Access tokens; GitHub → Settings → Secrets and variables → Actions)."
+            exit 1
+          fi
+
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: apps/mobile/package-lock.json
+
+      # eas-cli evaluates app.config.ts, which needs the app's packages.
+      - name: Install — mobile
+        run: npm ci --no-audit --no-fund
+
+      # A broken app should not cost a build slot on the free tier.
+      - name: Typecheck and offline tests
+        run: |
+          npm run build:api-client
+          npm run typecheck
+          npm test
+
+      - uses: expo/expo-github-action@v8
+        with:
+          eas-version: latest
+          token: ${{ secrets.EXPO_TOKEN }}
+
+      # --no-wait: the build queues and runs on EAS (often 10–20 minutes on
+      # the free tier); this job ends once it is accepted and leaves the link.
+      - name: Start the build
+        run: |
+          eas build --platform android --profile "$PROFILE" --non-interactive --no-wait \
+            --message "$(git log -1 --pretty=%s)" 2>&1 | tee "$RUNNER_TEMP/eas.log"
+          url="$(grep -oE 'https://expo\.dev/[^ ]*/builds/[0-9a-f-]+' "$RUNNER_TEMP/eas.log" | head -1)"
+          {
+            echo "### Build APK ($PROFILE)"
+            if [ -n "$url" ]; then
+              echo "Started. When it finishes, open this on the phone and tap **Install**:"
+              echo ""
+              echo "$url"
+            else
+              echo "Started. Find it on expo.dev → project **flyleaf** → **Builds**."
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
