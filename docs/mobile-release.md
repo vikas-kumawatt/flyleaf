@@ -96,7 +96,9 @@ npx eas-cli build -p android --profile preview
 - The build log shows `Environment variables loaded from the "preview" build profile "env" configuration: FLYLEAF_API_URL` and the preview environment's variables.
 - It queues on the free tier, then prints a link and a QR code. `Ctrl+C` stops only the log; `npx eas-cli build:list` shows progress.
 
-**Phone-only alternative: expo.dev's GitHub integration.** expo.dev → project → **Project settings** → **GitHub** → connect the `flyleaf` repository and set the **base directory** to `apps/mobile`. Then the project's **Builds** page → **Build from GitHub** (or similar wording) → platform Android, profile `preview`, branch `main`. This was not tried from this repo; whether your plan offers it is shown on that page. If it is not there, use the laptop.
+**From the phone: the Build APK workflow.** GitHub → the repo → **Actions** → **Build APK** → **Run workflow** → profile `preview`. It runs the typecheck and offline tests, then starts the build on EAS with the stored signing key (`.github/workflows/build-apk.yml`, the same `EXPO_TOKEN` secret as EAS update). The run's summary links to the build; open that link on the phone when it finishes and tap **Install**. The very first build of a new app still needs the laptop, because EAS asks to generate the keystore interactively.
+
+**Other phone-only route: expo.dev's GitHub integration.** expo.dev → project → **Project settings** → **GitHub** → connect the `flyleaf` repository and set the **base directory** to `apps/mobile`. Then the project's **Builds** page → **Build from GitHub** (or similar wording) → platform Android, profile `preview`, branch `main`. This was not tried from this repo; whether your plan offers it is shown on that page. If it is not there, use the laptop.
 
 - ✅ The build page says **Finished** and offers **Install** / a download link for the `.apk`.
 
@@ -211,6 +213,6 @@ On the beta APK against `https://<host>`, merged from the phone checks in `docs/
   - 📱 **By hand / to production:** GitHub → the repo → **Actions** → **EAS update** → **Run workflow**, choose the channel, and tap **Run workflow**.
   - 💻 **From the laptop:** `FLYLEAF_API_URL=https://<host> npx eas-cli update --channel preview --environment preview`.
   - **Once, before the first run:** on expo.dev → account → **Access tokens**, create a token. Then on GitHub → the repo → **Settings** → **Secrets and variables** → **Actions** → **New repository secret**, add it as `EXPO_TOKEN`. Both pages work in a phone browser. Until then, runs on `main` stop with a notice and publish nothing.
-- **Native change** (new native module, `app.json` plugin or permission, intent filters): steps 5–6 again. versionCode goes up by itself. Raise `version` (e.g. `0.1.0-beta.2`) when you want testers to see a new number. A new `version` is also a new runtime, so earlier APKs stop receiving updates.
+- **Native change** (new native module, `app.json` plugin or permission, intent filters): steps 5–6 again; from the phone, Actions → **Build APK**. The EAS update run warns when a merge needs this. versionCode goes up by itself. Raise `version` (e.g. `0.1.0-beta.2`) when you want testers to see a new number. A new `version` is also a new runtime, so earlier APKs stop receiving updates.
 - **Real domain later:** deploy.md › *Moving to a real domain*. Add the domain's intent filter and associated domain next to the others (the tests require both platforms to list the same hosts), set `FLYLEAF_API_URL` in `eas.json` to it, rebuild, and keep `ANDROID_CERT_SHA256` the same (same key).
 - **iOS:** not built. `0.1.0-beta.1` is not a valid iOS version string (`CFBundleShortVersionString` takes numbers only), so an iOS build needs `ios.version` or a numeric `version` first.
