@@ -408,6 +408,7 @@ export const api = {
   // The telemetry session id rides along for the zero-result summary (D-10-3).
   search: (q: string) => client.search(q, 20, getSessionId()),
   searchWithSuggestion: (q: string) => client.searchWithSuggestion(q, 20, getSessionId()),
+  searchAuthors: (q: string) => client.searchAuthors(q, 20),
 
   work: (id: string) => client.getWork(id),
 

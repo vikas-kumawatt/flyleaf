@@ -4584,7 +4584,7 @@ The product should feel like **a well-made hardback, not a SaaS dashboard**. Lit
 
 ## 36.2 Colour philosophy
 
-**[ASSUMPTION]** A graphite, cover-forward palette. Book covers are wildly varied and saturated; an interface with its own strong colour fights every one of them. Values are owned by `design.md` §2 (v2, the unslop redesign); this table mirrors them.
+**[ASSUMPTION]** A graphite, cover-forward palette. Book covers are wildly varied and saturated; an interface with its own strong colour fights every one of them. Values are owned by `design.md` §2 (v2, the Oct 2026 redesign); this table mirrors them.
 
 | Token | Light | Dark | Use |
 |---|---|---|---|

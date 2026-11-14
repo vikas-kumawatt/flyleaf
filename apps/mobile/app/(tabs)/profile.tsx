@@ -23,12 +23,14 @@ import {
   StyleSheet,
   RefreshControl,
   Alert,
+  Share,
 } from 'react-native';
 import { useFocusEffect, useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as Haptics from 'expo-haptics';
 import { Image } from 'expo-image';
 import { pickAndUploadAvatar, useAvatarSource, type AvatarSource } from '@/lib/avatar';
+import { encodeShareOptions } from '@/lib/shareCard';
 import { useSession } from '@/lib/session';
 import { profileShareUrl } from '@/lib/followSuggestions';
 import { useDatabase } from '@/offline/db';
@@ -227,7 +229,8 @@ export default function ProfileScreen() {
         contentContainerStyle={{
           padding: space[4],
           paddingBottom: insets.bottom + space[8],
-          gap: space[6],
+          // design.md §4: sections sit 32 apart.
+          gap: space[8],
         }}
         refreshControl={
           <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={c.accent} />
@@ -329,7 +332,7 @@ export default function ProfileScreen() {
                 <Txt variant="body">{profile.bio}</Txt>
               ) : (
                 <Txt variant="caption" color="muted">
-                  No bio yet. Tap Edit profile to add one.
+                  No bio yet · Edit profile to add one
                 </Txt>
               )}
 
@@ -348,8 +351,20 @@ export default function ProfileScreen() {
                   variant="tertiary"
                   onPress={() => {
                     void Haptics.selectionAsync();
-                    // SO-51: <server>/@username, the server-rendered public profile.
-                    Alert.alert('Share profile', profileShareUrl(user.username, PUBLIC_BASE));
+                    // The profile card (PRD §6.45), or the link to the
+                    // server-rendered public profile (SO-51).
+                    const url = profileShareUrl(user.username, PUBLIC_BASE);
+                    Alert.alert('Share profile', url, [
+                      {
+                        text: 'Share card',
+                        onPress: () =>
+                          router.push(
+                            `/share?options=${encodeURIComponent(encodeShareOptions([{ label: 'Profile', card: { template: 'profile', userId: user.id } }]))}` as any,
+                          ),
+                      },
+                      { text: 'Share link', onPress: () => void Share.share({ message: url, url }) },
+                      { text: 'Cancel', style: 'cancel' },
+                    ]);
                   }}
                 />
               </View>
@@ -817,6 +832,7 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   favCover: {
+    width: '100%',
     aspectRatio: 2 / 3,
   },
   emptyFavSlot: {

@@ -2591,6 +2591,59 @@ paths:
                 required:
                   - data
                   - suggestion
+  /search/authors:
+    get:
+      summary: Search authors
+      tags:
+        - Catalog
+      description: "Authors whose name or an alias matches, for the Authors tab of
+        search: an exact name first, then names that start with the query, then
+        the most-logged. Guest readable. works_count counts only works this
+        viewer may see in search (explicit works follow PRD §7.8), and an author
+        with none is left out."
+      parameters:
+        - schema:
+            type: string
+          in: query
+          name: q
+          required: false
+          description: Name or part of one (minimum 2 characters; anything past 100 is
+            ignored)
+        - schema:
+            type: integer
+            minimum: 1
+            maximum: 50
+            default: 20
+          in: query
+          name: limit
+          required: false
+      responses:
+        "200":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: string
+                          format: uuid
+                        name:
+                          type: string
+                        works_count:
+                          type: integer
+                          description: Works credited to this author that this viewer may see in search.
+                      required:
+                        - id
+                        - name
+                        - works_count
+                required:
+                  - data
   /works/{id}:
     get:
       summary: Get book by ID
@@ -20039,11 +20092,10 @@ paths:
       summary: An avatar image
       tags:
         - Uploads
-      description: "Redirects (302) to a short-lived URL for the image, to whoever may
-        see the profile header (PRD §16.3): anyone for a public account,
-        signed-in users for a private one, nobody across a block. Only current
-        avatars of live accounts; anything else is 404. Send the bearer token
-        for a private account."
+      description: "The image itself, to whoever may see the profile header (PRD
+        §16.3): anyone for a public account, signed-in users for a private one,
+        nobody across a block. Only current avatars of live accounts; anything
+        else is 404. Send the bearer token for a private account."
       parameters:
         - schema:
             type: string

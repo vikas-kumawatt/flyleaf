@@ -12,7 +12,6 @@ import {
   ScrollView,
   Pressable,
   TextInput,
-  Switch,
   StyleSheet,
   Alert,
   KeyboardAvoidingView,
@@ -24,7 +23,7 @@ import * as Haptics from 'expo-haptics';
 import { api, type Shelf, type ShelfPrivacy } from '@/lib/api';
 import { validateShelfForm } from '@/lib/shelfValidation';
 import { track } from '@/lib/events';
-import { Button, Field, Screen, Txt, Skeleton } from '@/ui/components';
+import { Button, Field, Screen, Txt, Skeleton, Toggle } from '@/ui/components';
 import { familyFor, radius, space, useTheme } from '@/ui/tokens';
 
 export default function EditShelfScreen() {
@@ -341,11 +340,10 @@ export default function EditShelfScreen() {
                 Books are numbered 1, 2, 3… and can be reordered.
               </Txt>
             </View>
-            <Switch
+            <Toggle
               accessibilityLabel="Ranked"
               value={isRanked}
               onValueChange={handleRankedToggle}
-              trackColor={{ false: c.lineStrong, true: c.accent }}
             />
           </View>
 

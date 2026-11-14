@@ -156,10 +156,7 @@ export const motion = {
   press: 140,
   menu: 180,
   push: 280,
-  // A damping *ratio* with a perceptual duration. Reanimated's plain `damping`
-  // is a physical coefficient (default 10): `damping: 0.8` there bounced every
-  // sheet for about ten seconds.
-  sheet: { duration: 300, dampingRatio: 0.8 },
+  sheet: 300,
   progress: 400,
   star: 150,
   like: 200,

@@ -75,15 +75,24 @@ describe('avatar upload policy', () => {
 });
 
 describe('PUT/DELETE /me/avatar and GET /avatars/…', () => {
-  it('sets the avatar, serves it to a guest by redirect, and the profile carries its URL', async () => {
+  it('sets the avatar, serves its bytes to a guest (no redirect), and the profile carries its URL', async () => {
     const id = await avatar(JPEG, 'image/jpeg');
     const res = await setAvatar(id);
     expect(res.statusCode).toBe(200);
     const url: string = res.json().avatar_url;
     expect(url).toBe(`/v1/avatars/uploads/${alice.id}/${id}`);
     const served = await app.inject({ method: 'GET', url });
-    expect(served.statusCode).toBe(302);
-    expect(served.headers.location).toBeTruthy();
+    // The bytes, not a redirect: a bearer token carried across a same-host
+    // redirect to a presigned URL made object storage refuse the request.
+    expect(served.statusCode).toBe(200);
+    expect(served.headers.location).toBeUndefined();
+    expect(served.headers['content-type']).toBe('image/jpeg');
+    expect(served.headers['cache-control']).toMatch(/^private, max-age=\d+$/);
+    expect(served.rawPayload.equals(JPEG)).toBe(true);
+    // The way the app asks: with a bearer token. Still the bytes.
+    const withToken = await app.inject({ method: 'GET', url, headers: bob.auth });
+    expect(withToken.statusCode).toBe(200);
+    expect(withToken.rawPayload.equals(JPEG)).toBe(true);
     const profile = await app.inject({ method: 'GET', url: `/v1/users/${alice.id}`, headers: bob.auth });
     expect(profile.json().avatarUrl).toBe(url);
     // A replay of the same request is a success.
@@ -141,7 +150,7 @@ describe('PUT/DELETE /me/avatar and GET /avatars/…', () => {
     const guest = await app.inject({ method: 'GET', url });
     expect(guest.statusCode).toBe(404);
     expect(guest.body).toBe(random.body);
-    expect((await app.inject({ method: 'GET', url, headers: stranger.auth })).statusCode).toBe(302);
+    expect((await app.inject({ method: 'GET', url, headers: stranger.auth })).statusCode).toBe(200);
     await block(db, priv.id, stranger.id);
     const blocked = await app.inject({ method: 'GET', url, headers: stranger.auth });
     expect(blocked.statusCode).toBe(404);

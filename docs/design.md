@@ -12,7 +12,7 @@
 
 Flyleaf is paper and ink: warm paper grounds, warm near-black ink, hairline rules where other apps draw boxes, and one oxblood accent. Covers are the only saturated colour on a screen, the way a jacket is the only colour on a shelf of pages.
 
-Version 3 was built with the Appllama app design skill ([`appllama-app-design-skill`](../.claude/skills/appllama-app-design-skill/SKILL.md), MIT) for its native-fidelity, navigation, motion and anti-slop rules. It keeps what version 2 took from [unslop](../.claude/skills/unslop/SKILL.md) (Damir Sokolovsky, CC BY 4.0): quiet chrome, richness only in the moments that matter.
+Version 3 keeps what version 2 established: quiet chrome, richness only in the moments that matter.
 
 ### Direction
 
@@ -162,7 +162,7 @@ Press feedback lands on press-in: filled and outlined buttons dip to 0.97, text 
 Underlined tabs on a rule, like a running head: labels in `ink2`, the selected one in `ink` with a 2pt `accent` underline. Not a boxed track.
 
 ### Bottom sheets
-The primary modal pattern — logging, progress, DNF, edition picker, share. Detents at 50% and 90% · grabber handle · `overlay` scrim · spring dismissal, velocity-aware.
+The primary modal pattern — logging, progress, DNF, edition picker, share. Detents at 50% and 90% · grabber handle · `overlay` scrim · eased dismissal, velocity-aware.
 
 ### Star rating
 The most-repeated interaction in the product.
@@ -233,7 +233,7 @@ Every gesture has a visible, tappable equivalent. **A gesture is never the only 
 | Interaction | Treatment |
 |---|---|
 | Screen push | 280ms ease-out, shared-element transition on covers |
-| Bottom sheet | Spring, damping ratio 0.8 over 300ms, release velocity carried in |
+| Bottom sheet | 300ms ease-out, no spring |
 | **Progress bar change** | **400ms ease-out** — the small reward that makes tracking feel good |
 | Star selection | Scale to 1.15 and back, 150ms, haptic |
 | Like / heart | Scale to 1.1 and back, 200ms, no bounce |

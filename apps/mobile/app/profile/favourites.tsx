@@ -289,7 +289,7 @@ export default function FavouritesPickerScreen() {
                           {book.author_name}
                         </Txt>
 
-                        {/* Controls */}
+                        {/* Controls: wrap rather than run off a narrow screen. */}
                         <View style={[sheet.row, { gap: space[2], marginTop: space[2], flexWrap: 'wrap' }]}>
                           <IconButton
                             icon="chevron-up"

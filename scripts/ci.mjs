@@ -17,6 +17,13 @@
 //
 //   node scripts/ci.mjs            skip the migration check if no database
 //   node scripts/ci.mjs --strict   fail instead of skipping (what CI uses)
+//
+// CI splits the same list across parallel jobs (ci.yml); locally, no flags
+// still means every step:
+//   --part=api-checks   API typecheck, spec, build, audit, migrations, start
+//   --part=api-tests    the API test suite (with --shard=i/n: one slice of it)
+//   --part=mobile       mobile typecheck and offline tests
+//   (comma-separate parts to run several)
 
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
@@ -25,6 +32,21 @@ import path from 'node:path';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const STRICT = process.argv.includes('--strict');
+const flag = (name) => process.argv.find((a) => a.startsWith(`--${name}=`))?.split('=')[1];
+const PARTS = new Set((flag('part') ?? 'api-checks,api-tests,mobile').split(','));
+for (const part of PARTS) {
+  if (!['api-checks', 'api-tests', 'mobile'].includes(part)) {
+    console.error(`unknown --part ${JSON.stringify(part)}: api-checks, api-tests or mobile`);
+    process.exit(2);
+  }
+}
+// vitest's own --shard: the files are split deterministically, so N jobs
+// with 1/N … N/N run every test file exactly once.
+const SHARD = flag('shard');
+if (SHARD !== undefined && !/^[1-9]\d*\/[1-9]\d*$/.test(SHARD)) {
+  console.error(`--shard must look like 2/4, got ${JSON.stringify(SHARD)}`);
+  process.exit(2);
+}
 const DATABASE_URL =
   process.env.DATABASE_URL ?? 'postgres://flyleaf:flyleaf@localhost:5432/flyleaf';
 
@@ -55,23 +77,41 @@ if (TEST_WORKERS !== undefined && !/^[1-9]\d*$/.test(TEST_WORKERS)) {
  */
 const STEPS = [
   {
+    // The API's tests and typecheck import the client's build.
     name: 'api-client · build',
+    parts: ['api-checks', 'api-tests'],
     cwd: 'apps/api',
     args: ['exec', 'tsc', '--', '-p', '../../packages/api-client/tsconfig.json'],
   },
-  { name: 'api · typecheck', cwd: 'apps/api', args: ['run', 'typecheck'] },
-  { name: 'api · spec check', cwd: 'apps/api', args: ['run', 'spec:check'] },
   {
-    name: 'api · tests',
-    cwd: 'apps/api',
-    args: TEST_WORKERS ? ['test', '--', `--maxWorkers=${TEST_WORKERS}`] : ['test'],
+    // The same build with the mobile app's TypeScript, for a job that
+    // installed only the mobile dependencies.
+    name: 'api-client · build (mobile)',
+    parts: ['mobile'],
+    onlyAlone: true,
+    cwd: 'apps/mobile',
+    args: ['run', 'build:api-client'],
   },
-  { name: 'api · build', cwd: 'apps/api', args: ['run', 'build'] },
-  { name: 'api · audit', cwd: 'apps/api', args: ['audit', '--audit-level=high'] },
-  { name: 'mobile · typecheck', cwd: 'apps/mobile', args: ['run', 'typecheck'] },
-  { name: 'mobile · offline tests', cwd: 'apps/mobile', args: ['test'] },
+  { name: 'api · typecheck', parts: ['api-checks'], cwd: 'apps/api', args: ['run', 'typecheck'] },
+  { name: 'api · spec check', parts: ['api-checks'], cwd: 'apps/api', args: ['run', 'spec:check'] },
+  {
+    name: SHARD ? `api · tests (shard ${SHARD})` : 'api · tests',
+    parts: ['api-tests'],
+    cwd: 'apps/api',
+    args: [
+      'test',
+      '--',
+      ...(TEST_WORKERS ? [`--maxWorkers=${TEST_WORKERS}`] : []),
+      ...(SHARD ? [`--shard=${SHARD}`] : []),
+    ],
+  },
+  { name: 'api · build', parts: ['api-checks'], cwd: 'apps/api', args: ['run', 'build'] },
+  { name: 'api · audit', parts: ['api-checks'], cwd: 'apps/api', args: ['audit', '--audit-level=high'] },
+  { name: 'mobile · typecheck', parts: ['mobile'], cwd: 'apps/mobile', args: ['run', 'typecheck'] },
+  { name: 'mobile · offline tests', parts: ['mobile'], cwd: 'apps/mobile', args: ['test'] },
   {
     name: 'api · migrations on a real Postgres',
+    parts: ['api-checks'],
     cwd: 'apps/api',
     args: ['run', 'migrate'],
     // The test suite already applies every migration to an empty PGlite
@@ -87,6 +127,7 @@ const STEPS = [
     // units do, and checks that each refuses a development adapter. After
     // the migrations because /readyz needs the schema.
     name: 'api · production start (compiled)',
+    parts: ['api-checks'],
     cwd: 'apps/api',
     args: ['run', 'start:check'],
     needsDatabase: true,
@@ -125,10 +166,16 @@ function databaseReachable() {
   });
 }
 
+const SELECTED = STEPS.filter(
+  (step) =>
+    step.parts.some((part) => PARTS.has(part)) &&
+    !(step.onlyAlone && (PARTS.has('api-checks') || PARTS.has('api-tests'))),
+);
+
 const results = [];
 const started = Date.now();
 
-for (const step of STEPS) {
+for (const step of SELECTED) {
   if (step.needsDatabase && !(await databaseReachable())) {
     if (STRICT) {
       console.error(
@@ -155,7 +202,7 @@ const ran = new Set(results.map((r) => r.name));
 
 console.log(`\n${'─'.repeat(52)}`);
 for (const r of results) console.log(`  ${mark[r.status]} ${r.name}`);
-for (const s of STEPS) if (!ran.has(s.name)) console.log(`    ${s.name} (not reached)`);
+for (const s of SELECTED) if (!ran.has(s.name)) console.log(`    ${s.name} (not reached)`);
 console.log(`${'─'.repeat(52)}`);
 
 const failed = results.filter((r) => r.status === 'fail');

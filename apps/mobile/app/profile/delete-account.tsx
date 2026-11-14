@@ -21,6 +21,7 @@ import {
   WHAT_STAYS,
 } from '@/lib/accountDeletion';
 import { Button, EmptyState, Field, Screen, Txt, sheet } from '@/ui/components';
+import { ScreenHeader } from '@/ui/ScreenHeader';
 import { space, useTheme } from '@/ui/tokens';
 
 // A section of the page: a hairline rule above, then its own heading and text.
@@ -67,13 +68,7 @@ export default function DeleteAccountScreen() {
 
   return (
     <Screen style={{ flex: 1, backgroundColor: c.ground }}>
-      <View style={{ paddingTop: insets.top + space[2], paddingHorizontal: space[4], paddingBottom: space[3] }}>
-        <View style={sheet.rowBetween}>
-          <Button label="Back" variant="tertiary" onPress={() => router.back()} />
-          <Txt variant="title">Delete account</Txt>
-          <View style={{ width: space[12] }} />
-        </View>
-      </View>
+      <ScreenHeader title="Delete account" />
       <ScrollView contentContainerStyle={{ padding: space[4], paddingBottom: insets.bottom + space[8], gap: space[4] }}>
         {!user ? (
           <EmptyState title="Not signed in" subtitle="Sign in to delete your account" />

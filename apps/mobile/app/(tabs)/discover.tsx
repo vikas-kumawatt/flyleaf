@@ -23,6 +23,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import { api, type Work, type Shelf } from '@/lib/api';
+import type { AuthorSearchResult } from '@flyleaf/api-client';
 import { addRecent, latestOnly } from '@/lib/searchState';
 import { loadRecents, saveRecents } from '@/lib/recentsStore';
 import { useSession } from '@/lib/session';
@@ -34,25 +35,8 @@ import { Button, Chip, Cover, EmptyState, Screen, SegmentedControl, Txt, sheet, 
 import { cover, fontFamilies, space, radius, useTheme } from '@/ui/tokens';
 
 
-const CURATED_SHELVES = [
-  {
-    title: 'Popular this week',
-    books: [
-      { id: 'p-1', title: 'Piranesi', author: 'Susanna Clarke', cover_id: 8231856 },
-      { id: 'p-2', title: 'The Left Hand of Darkness', author: 'Ursula K. Le Guin', cover_id: 8231990 },
-      { id: 'p-3', title: 'Klara and the Sun', author: 'Kazuo Ishiguro', cover_id: 10521270 },
-      { id: 'p-4', title: 'Invisible Cities', author: 'Italo Calvino', cover_id: 3155564 },
-    ],
-  },
-  {
-    title: 'Modern classics',
-    books: [
-      { id: 'mc-1', title: 'Beloved', author: 'Toni Morrison', cover_id: 8231856 },
-      { id: 'mc-2', title: 'Never Let Me Go', author: 'Kazuo Ishiguro', cover_id: 10521270 },
-      { id: 'mc-3', title: 'The Dispossessed', author: 'Ursula K. Le Guin', cover_id: 8231990 },
-    ],
-  },
-];
+/** A book in the empty-search "Popular on Flyleaf" row: real catalog works only. */
+type PopularBook = { id: string; title: string; author: string | null; cover_id: number | null };
 
 export default function DiscoverScreen() {
   const insets = useSafeAreaInsets();
@@ -72,11 +56,40 @@ export default function DiscoverScreen() {
   const [loading, setLoading] = useState(false);
   const [shelfResults, setShelfResults] = useState<Shelf[]>([]);
   const [shelfLoading, setShelfLoading] = useState(false);
+  const [authorResults, setAuthorResults] = useState<AuthorSearchResult[]>([]);
+  const [authorLoading, setAuthorLoading] = useState(false);
   const [curatedLists, setCuratedLists] = useState<Shelf[]>([]);
+  const [popularBooks, setPopularBooks] = useState<PopularBook[]>([]);
   const [curatedListsLoading, setCuratedListsLoading] = useState(false);
   const [recents, setRecents] = useState<string[]>([]);
   // One guard per screen: only the latest request may set results (A-02-017).
   const [guard] = useState(latestOnly);
+  // The empty-search row comes from the popular feed (the same source as Home's
+  // Popular tab): distinct books people are logging now. Hidden when empty.
+  useEffect(() => {
+    let live = true;
+    api.client
+      .getFeed({ tab: 'popular', limit: 40 })
+      .then((page) => {
+        const seen = new Set<string>();
+        const books: PopularBook[] = [];
+        for (const item of page.items) {
+          const w = item.work;
+          if (!w || seen.has(w.id)) continue;
+          seen.add(w.id);
+          books.push({ id: w.id, title: w.title, author: w.author_name, cover_id: w.cover_id });
+          if (books.length === 10) break;
+        }
+        if (live) setPopularBooks(books);
+      })
+      .catch(() => {
+        // Offline or the feed failed: the row simply does not show.
+      });
+    return () => {
+      live = false;
+    };
+  }, []);
+
   useEffect(() => {
     void loadRecents().then(setRecents);
   }, []);
@@ -131,12 +144,34 @@ export default function DiscoverScreen() {
     if (trimmed.length < 2) {
       setResults([]);
       setShelfResults([]);
+      setAuthorResults([]);
       setLoading(false);
       setShelfLoading(false);
+      setAuthorLoading(false);
       return;
     }
 
-    if (activeTab === 'lists') {
+    if (activeTab === 'authors') {
+      setAuthorLoading(true);
+      const timer = setTimeout(async () => {
+        const current = guard.begin();
+        try {
+          const found = await api.searchAuthors(trimmed);
+          if (current()) setAuthorResults(found);
+        } catch {
+          // Includes a server older than GET /search/authors (404): the
+          // empty state, never an error screen.
+          if (current()) setAuthorResults([]);
+        } finally {
+          if (current()) setAuthorLoading(false);
+        }
+      }, 250);
+
+      return () => {
+        clearTimeout(timer);
+        guard.invalidate();
+      };
+    } else if (activeTab === 'lists') {
       setShelfLoading(true);
       const timer = setTimeout(async () => {
         const current = guard.begin();
@@ -485,20 +520,20 @@ export default function DiscoverScreen() {
               )}
             </View>
           ) : (
-            CURATED_SHELVES.map((shelf) => (
-              <View key={shelf.title} style={{ gap: space[3] }}>
-                <Txt variant="displayM">{shelf.title}</Txt>
+            popularBooks.length > 0 ? (
+              <View style={{ gap: space[3] }}>
+                <Txt variant="displayM">Popular on Flyleaf</Txt>
                 <ScrollView
                   horizontal
                   showsHorizontalScrollIndicator={false}
                   contentContainerStyle={{ gap: space[4] }}
                 >
-                  {shelf.books.map((book) => (
+                  {popularBooks.map((book) => (
                     <Pressable
                       key={book.id}
                       onPress={() => router.push(`/work/${book.id}`)}
                       accessibilityRole="button"
-                      accessibilityLabel={`${book.title} by ${book.author}`}
+                      accessibilityLabel={book.author ? `${book.title} by ${book.author}` : book.title}
                       style={({ pressed }) => ({ width: cover[tileCover].width, gap: space[2], opacity: pressed ? 0.7 : 1 })}
                     >
                       <Cover coverId={book.cover_id} title={book.title} size={tileCover} />
@@ -510,17 +545,73 @@ export default function DiscoverScreen() {
                         >
                           {book.title}
                         </Txt>
-                        <Txt variant="micro" color="muted" numberOfLines={1}>
-                          {book.author}
-                        </Txt>
+                        {book.author ? (
+                          <Txt variant="micro" color="muted" numberOfLines={1}>
+                            {book.author}
+                          </Txt>
+                        ) : null}
                       </View>
                     </Pressable>
                   ))}
                 </ScrollView>
               </View>
-            ))
+            ) : null
           )}
         </ScrollView>
+      ) : activeTab === 'authors' ? (
+        <FlatList
+          contentContainerStyle={{ padding: space[4], paddingBottom: space[12] }}
+          data={authorResults}
+          keyExtractor={(item) => item.id}
+          keyboardShouldPersistTaps="handled"
+          ListEmptyComponent={
+            authorLoading ? (
+              <SkeletonList rows={6} lead="avatar" />
+            ) : (
+              <EmptyState
+                title={`No authors match "${q.trim()}"`}
+                subtitle="Check the spelling, or try part of the name."
+              />
+            )
+          }
+          ItemSeparatorComponent={() => <View style={{ height: 1, backgroundColor: c.line }} />}
+          renderItem={({ item: author }) => (
+            <Pressable
+              onPress={() => {
+                void Haptics.selectionAsync();
+                rememberQuery();
+                router.push(`/author/${author.id}` as any);
+              }}
+              accessibilityRole="button"
+              accessibilityLabel={`${author.name}, ${author.works_count} ${author.works_count === 1 ? 'book' : 'books'}`}
+              style={[sheet.row, { minHeight: 56, paddingVertical: space[2], gap: space[3] }]}
+            >
+              <View
+                style={{
+                  width: 40,
+                  height: 40,
+                  borderRadius: 20,
+                  backgroundColor: c.surface2,
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                }}
+              >
+                <Txt variant="title" color="ink2">
+                  {Array.from(author.name.trim())[0]?.toUpperCase() ?? '?'}
+                </Txt>
+              </View>
+              <View style={{ flex: 1, gap: 2 }}>
+                <Txt variant="title" numberOfLines={1}>
+                  {author.name}
+                </Txt>
+                <Txt variant="caption" color="muted" tabular>
+                  {author.works_count} {author.works_count === 1 ? 'book' : 'books'}
+                </Txt>
+              </View>
+              <Ionicons name="chevron-forward" size={18} color={c.muted} />
+            </Pressable>
+          )}
+        />
       ) : activeTab === 'lists' ? (
         // Shelf Search Results
         <FlatList

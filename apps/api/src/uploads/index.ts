@@ -19,6 +19,7 @@
 import { RateLimits } from '../platform/rate-limits.js';
 import crypto from 'node:crypto';
 import path from 'node:path';
+import type { Readable } from 'node:stream';
 import type { FastifyPluginAsync } from 'fastify';
 import { and, eq, inArray, isNotNull, isNull, lt, sql } from 'drizzle-orm';
 import type { Db } from '../platform/index.js';
@@ -419,7 +420,8 @@ export function avatarUrl(key: string | null | undefined): string | null {
 }
 
 /** A served avatar URL is valid for an hour; responses may be cached a little less. */
-const AVATAR_URL_TTL_SECONDS = 60 * 60;
+/** How long a phone may keep an avatar before asking again. */
+const AVATAR_MAX_AGE_SECONDS = 55 * 60;
 
 /**
  * Avatars (PRD §6.7, audit 10 A-07-032). The upload is an ordinary PV-02
@@ -463,13 +465,22 @@ export class AvatarService {
   }
 
   /**
-   * A short-lived URL for a CURRENT avatar of a live account, or null. Only
-   * keys that are some profile's avatar_key are served: the key is built
-   * from the path, and every other upload (import CSVs) shares its shape.
-   * The header rules of PRD §16.3: a private account's avatar does not exist
-   * for a guest, and nobody's exists across a block either way.
+   * The bytes of a CURRENT avatar of a live account, or null. Only keys that
+   * are some profile's avatar_key are served: the key is built from the
+   * path, and every other upload (import CSVs) shares its shape. The header
+   * rules of PRD §16.3: a private account's avatar does not exist for a
+   * guest, and nobody's exists across a block either way.
+   *
+   * Sent through the API rather than as a redirect to a presigned URL: the
+   * app asks with its bearer token, Android keeps that header across a
+   * same-host redirect, and object storage refuses a request that carries
+   * both a token and a presigned signature. The image never loaded.
    */
-  async url(viewer: string | null, userId: string, uploadId: string): Promise<string | null> {
+  async object(
+    viewer: string | null,
+    userId: string,
+    uploadId: string,
+  ): Promise<{ body: Readable; contentType: string; size: number } | null> {
     const rel = await loadRelationship(this.db, viewer, userId);
     if (!rel.ownerExists || rel.isBlocked || (rel.isOwnerPrivate && viewer === null)) return null;
     const key = `uploads/${userId}/${uploadId}`;
@@ -479,7 +490,11 @@ export class AvatarService {
       .innerJoin(users, eq(users.id, profiles.userId))
       .where(and(eq(profiles.userId, userId), eq(profiles.avatarKey, key), isNull(users.deletedAt)));
     if (!row) return null;
-    return this.storage.createDownloadUrl(key, { expiresIn: AVATAR_URL_TTL_SECONDS });
+    const info = await this.storage.head(key);
+    if (!info) return null;
+    const body = await this.storage.getStream(key);
+    if (!body) return null;
+    return { body, contentType: info.contentType ?? 'image/jpeg', size: info.size };
   }
 }
 
@@ -598,7 +613,7 @@ export const uploadsPlugin: FastifyPluginAsync<UploadsPluginOptions> = async (fa
         tags: ['Uploads'],
         summary: 'An avatar image',
         description:
-          'Redirects (302) to a short-lived URL for the image, to whoever may see the profile header (PRD §16.3): ' +
+          'The image itself, to whoever may see the profile header (PRD §16.3): ' +
           'anyone for a public account, signed-in users for a private one, nobody across a block. ' +
           'Only current avatars of live accounts; anything else is 404. Send the bearer token for a private account.',
         params: avatarParamsSchema,
@@ -607,12 +622,14 @@ export const uploadsPlugin: FastifyPluginAsync<UploadsPluginOptions> = async (fa
     },
     async (request, reply) => {
       const { userId, uploadId } = request.params as { userId: string; uploadId: string };
-      const url = await avatars.url(request.viewer, userId, uploadId);
-      if (!url) throw ApiError.notFound('No such avatar.');
+      const avatar = await avatars.object(request.viewer, userId, uploadId);
+      if (!avatar) throw ApiError.notFound('No such avatar.');
       return reply
         // private: whether it may be served depends on the viewer.
-        .header('cache-control', `private, max-age=${AVATAR_URL_TTL_SECONDS - 300}`)
-        .redirect(url, 302);
+        .header('cache-control', `private, max-age=${AVATAR_MAX_AGE_SECONDS}`)
+        .header('content-length', String(avatar.size))
+        .type(avatar.contentType)
+        .send(avatar.body);
     },
   );
 };

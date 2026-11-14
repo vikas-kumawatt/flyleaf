@@ -13,6 +13,8 @@ import {
   Pressable,
   StyleProp,
   StyleSheet,
+  Switch,
+  type SwitchProps,
   Text,
   TextInput,
   TextInputProps,
@@ -27,14 +29,13 @@ import Animated, {
   useAnimatedStyle,
   useSharedValue,
   withSequence,
-  withSpring,
   withTiming,
   withRepeat,
   Easing,
   runOnJS,
   useReducedMotion,
 } from 'react-native-reanimated';
-import { Gesture, GestureDetector } from 'react-native-gesture-handler';
+import { Gesture, GestureDetector, GestureHandlerRootView } from 'react-native-gesture-handler';
 import { decrementRating, incrementRating, starTarget, tapRating } from '../lib/stars';
 import {
   ColorName,
@@ -657,6 +658,23 @@ export function Chip({
   );
 }
 
+// ---------------------------------------------------------------- Toggle
+// Every switch in the app. Track and thumb come from tokens: left to the
+// platform, Android paints the thumb in its own default teal.
+export function Toggle({ value, disabled, ...rest }: SwitchProps) {
+  const c = useTheme();
+  return (
+    <Switch
+      value={value}
+      disabled={disabled}
+      trackColor={{ false: c.lineStrong, true: c.accent }}
+      thumbColor={value ? c.surface : c.ink2}
+      ios_backgroundColor={c.lineStrong}
+      {...rest}
+    />
+  );
+}
+
 // ---------------------------------------------------------------- ProgressBar
 export function ProgressBar({ percent }: { percent: number }) {
   const c = useTheme();
@@ -1077,8 +1095,10 @@ export function BottomSheet({
 
   useEffect(() => {
     if (visible) {
+      // Eased, not a spring: Reanimated's damping is a physical coefficient,
+      // and the 0.8 once used here left the sheet bobbing for seconds.
       // Reduced motion: the sheet is simply there, it does not travel.
-      translateY.value = reduceMotion ? 0 : withSpring(0, motion.sheet);
+      translateY.value = reduceMotion ? 0 : withTiming(0, { duration: motion.sheet, easing: ease });
     } else {
       translateY.value = reduceMotion ? 600 : withTiming(600, { duration: 250, easing: ease });
     }
@@ -1096,8 +1116,7 @@ export function BottomSheet({
         // This callback is a worklet on the UI thread; onClose is JS (audit 09).
         runOnJS(onClose)();
       } else {
-        // Back to rest, carrying the finger's velocity into the spring.
-        translateY.value = withSpring(0, { ...motion.sheet, velocity: e.velocityY });
+        translateY.value = withTiming(0, { duration: motion.sheet, easing: ease });
       }
     });
 
@@ -1109,6 +1128,8 @@ export function BottomSheet({
 
   return (
     <Modal visible={visible} transparent animationType="none" onRequestClose={onClose}>
+      {/* A Modal is its own native root on Android: gestures inside it need their own handler root. */}
+      <GestureHandlerRootView style={{ flex: 1 }}>
       {/* The whole sheet rises above the keyboard, so a focused field inside it stays in view. */}
       <KeyboardAvoidingView behavior="padding" style={{ flex: 1, justifyContent: 'flex-end' }}>
         <Pressable
@@ -1157,6 +1178,7 @@ export function BottomSheet({
           </Animated.View>
         </GestureDetector>
       </KeyboardAvoidingView>
+      </GestureHandlerRootView>
     </Modal>
   );
 }
