@@ -1,13 +1,14 @@
 // Flyleaf Design System Components (design.md §5, PRD §36-38, SL-02).
 //
-// Governed by: "The interface recedes; covers advance."
-// Near-monochrome with one accent. Every colour from tokens.
+// Paper and ink (design.md v3): a printed page. Warm paper, ink, hairline
+// rules, one oxblood accent. Every colour from tokens. Actions are pills.
 // Touch targets >= 44x44 everywhere. Full Reanimated + gesture-handler motion.
 
 import React, { useEffect, useState, useRef } from 'react';
 import {
   ActivityIndicator,
   DimensionValue,
+  KeyboardAvoidingView,
   Modal,
   Pressable,
   StyleProp,
@@ -16,6 +17,7 @@ import {
   type SwitchProps,
   Text,
   TextInput,
+  TextInputProps,
   TextStyle,
   View,
   ViewStyle,
@@ -85,7 +87,7 @@ export function Txt({
   // fontWeight on Android) and anything above 600 is clamped.
   const flat = StyleSheet.flatten([t[variant] as TextStyle, style]);
   const family = String(flat.fontFamily ?? '');
-  const serif = family.startsWith('Newsreader');
+  const serif = family.startsWith('Figtree');
   // A family from outside the type scale (a monospace, say) is kept as given.
   const ours = serif || family.startsWith('InstrumentSans');
   return (
@@ -132,8 +134,8 @@ export function Button({
   const baseStyle: ViewStyle = {
     minHeight: size === 'sm' ? 36 : 48,
     minWidth: 44,
-    paddingHorizontal: size === 'sm' ? space[2] : space[4],
-    borderRadius: radius.md,
+    paddingHorizontal: size === 'sm' ? space[4] : space[6],
+    borderRadius: radius.pill,
     alignItems: 'center',
     justifyContent: 'center',
     flexDirection: 'row',
@@ -147,15 +149,15 @@ export function Button({
     },
     secondary: {
       ...baseStyle,
-      backgroundColor: c.surface2,
+      backgroundColor: 'transparent',
       borderWidth: 1,
-      borderColor: c.line,
+      borderColor: c.lineStrong,
     },
     outline: {
       ...baseStyle,
-      backgroundColor: c.surface2,
+      backgroundColor: 'transparent',
       borderWidth: 1,
-      borderColor: c.line,
+      borderColor: c.lineStrong,
     },
     tertiary: {
       ...baseStyle,
@@ -171,7 +173,7 @@ export function Button({
       ...baseStyle,
       backgroundColor: 'transparent',
       borderWidth: 1,
-      borderColor: c.line,
+      borderColor: c.lineStrong,
     },
   };
 
@@ -193,10 +195,20 @@ export function Button({
         onPress();
       }}
       disabled={disabled || loading}
+      hitSlop={size === 'sm' ? { top: 4, bottom: 4 } : undefined}
       accessibilityRole="button"
       accessibilityLabel={accessibilityLabel ?? label}
       accessibilityState={{ disabled: Boolean(disabled || loading), busy: Boolean(loading) }}
-      style={[variantStyles[variant], style]}
+      // Feedback lands on press-in: filled and outlined buttons dip, text buttons fade.
+      style={({ pressed }) => [
+        variantStyles[variant],
+        style,
+        pressed
+          ? variant === 'tertiary' || variant === 'text'
+            ? { opacity: 0.4 }
+            : { opacity: 0.88, transform: [{ scale: 0.97 }] }
+          : null,
+      ]}
     >
       {loading ? (
         <ActivityIndicator color={fg} size="small" />
@@ -222,9 +234,8 @@ export function Card({
   const c = useTheme();
   const cardStyle: ViewStyle = {
     backgroundColor: c.surface,
-    borderColor: c.line,
-    borderWidth: 1,
     borderRadius: radius.lg,
+    borderCurve: 'continuous',
     padding: space[4],
     gap: space[3],
   };
@@ -246,7 +257,7 @@ export function Card({
         }
       }}
       accessibilityRole="button"
-      style={[cardStyle, style]}
+      style={({ pressed }) => [cardStyle, style, pressed ? { backgroundColor: c.surface2 } : null]}
     >
       {children}
     </Pressable>
@@ -348,6 +359,7 @@ export function Stars({
   const [hoverValue, setHoverValue] = useState<number | null>(null);
   const v = hoverValue ?? value ?? 0;
   const starScale = useSharedValue(1);
+  const reduceMotion = useReducedMotion();
   const lastStep = useRef<number>(Math.round((value ?? 0) * 2));
   const rowWidth = size * 5;
 
@@ -357,10 +369,13 @@ export function Stars({
 
   const handleRate = (target: number | null) => {
     void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    starScale.value = withSequence(
-      withTiming(1.15, { duration: motion.star / 2 }),
-      withTiming(1, { duration: motion.star / 2 }),
-    );
+    // Reduced motion: the haptic and the fill are the feedback, nothing scales.
+    if (!reduceMotion) {
+      starScale.value = withSequence(
+        withTiming(1.15, { duration: motion.star / 2 }),
+        withTiming(1, { duration: motion.star / 2 }),
+      );
+    }
     setHoverValue(null);
     lastStep.current = Math.round((target ?? 0) * 2);
     onChange?.(target);
@@ -532,6 +547,7 @@ export function Heart({
 }) {
   const c = useTheme();
   const scale = useSharedValue(1);
+  const reduceMotion = useReducedMotion();
 
   const animatedStyle = useAnimatedStyle(() => ({
     transform: [{ scale: scale.value }],
@@ -540,10 +556,12 @@ export function Heart({
   const handlePress = () => {
     if (!onToggle) return;
     void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-    scale.value = withSequence(
-      withTiming(1.1, { duration: motion.like / 2, easing: ease }),
-      withTiming(1, { duration: motion.like / 2, easing: ease }),
-    );
+    if (!reduceMotion) {
+      scale.value = withSequence(
+        withTiming(1.1, { duration: motion.like / 2, easing: ease }),
+        withTiming(1, { duration: motion.like / 2, easing: ease }),
+      );
+    }
     onToggle();
   };
 
@@ -567,8 +585,7 @@ export function Heart({
 }
 
 // ---------------------------------------------------------------- RatingMark & HeartMark
-// Read-only rating beside a title: a small gold star and the numeral. The
-// star row's gold appears here and nowhere else (design.md §2).
+// Read-only rating beside a title: a small ink star and the numeral.
 export function RatingMark({ value, size = 12, onCover = false }: { value: number; size?: number; onCover?: boolean }) {
   const c = useTheme();
   return (
@@ -577,7 +594,7 @@ export function RatingMark({ value, size = 12, onCover = false }: { value: numbe
       accessible
       accessibilityLabel={`${value} out of 5 stars`}
     >
-      <Ionicons name="star" size={size} color={c.star} />
+      <Ionicons name="star" size={size} color={onCover ? palette.ink.dark : c.star} />
       {/* On the cover scrim the numeral is always light: the scrim is dark in both themes. */}
       <Txt variant="caption" tabular style={onCover ? { color: palette.ink.dark, fontSize: 12, lineHeight: 16 } : undefined} color="ink2">
         {Number(value).toFixed(1)}
@@ -592,20 +609,23 @@ export function HeartMark({ size = 12 }: { size?: number }) {
 }
 
 // ---------------------------------------------------------------- Chip
-// Filter and choice chips. A control, not a pill: radius.md, 36 tall with a
-// 44pt hit area. Selected is a surface step with a stronger hairline.
+// Filter and choice chips. A control, not an action, so not a pill: radius.md,
+// 36 tall with a 44pt hit area. Selected is a surface step with a stronger hairline.
 export function Chip({
   label,
   selected,
   onPress,
   icon,
   accessibilityLabel,
+  role = 'button',
 }: {
   label: string;
   selected: boolean;
   onPress: () => void;
   icon?: React.ComponentProps<typeof Ionicons>['name'];
   accessibilityLabel?: string;
+  /** 'radio' in a pick-one group, 'checkbox' in a pick-many group. */
+  role?: 'button' | 'radio' | 'checkbox';
 }) {
   const c = useTheme();
   return (
@@ -615,9 +635,9 @@ export function Chip({
         onPress();
       }}
       hitSlop={{ top: 4, bottom: 4 }}
-      accessibilityRole="button"
+      accessibilityRole={role}
       accessibilityLabel={accessibilityLabel ?? label}
-      accessibilityState={{ selected }}
+      accessibilityState={role === 'checkbox' ? { checked: selected } : { selected }}
       style={{
         flexDirection: 'row',
         alignItems: 'center',
@@ -660,12 +680,12 @@ export function ProgressBar({ percent }: { percent: number }) {
   const c = useTheme();
   const clamped = Math.max(0, Math.min(100, percent));
   const animatedWidth = useSharedValue(clamped);
+  const reduceMotion = useReducedMotion();
 
   useEffect(() => {
-    animatedWidth.value = withTiming(clamped, {
-      duration: motion.progress,
-      easing: ease,
-    });
+    animatedWidth.value = reduceMotion
+      ? clamped
+      : withTiming(clamped, { duration: motion.progress, easing: ease });
   }, [clamped]);
 
   const fillStyle = useAnimatedStyle(() => ({
@@ -675,9 +695,9 @@ export function ProgressBar({ percent }: { percent: number }) {
   return (
     <View
       style={{
-        height: 6,
-        borderRadius: radius.pill,
-        backgroundColor: c.surface2,
+        height: 4,
+        borderRadius: radius.xs,
+        backgroundColor: c.line,
         overflow: 'hidden',
       }}
       accessible
@@ -689,7 +709,6 @@ export function ProgressBar({ percent }: { percent: number }) {
           {
             height: '100%',
             backgroundColor: c.accent,
-            borderRadius: radius.pill,
           },
           fillStyle,
         ]}
@@ -848,16 +867,11 @@ export function SkeletonHeader({
   );
 }
 
-/** A settings group: a card of equal rows. */
+/** A settings group: equal rows separated by rules. */
 export function SkeletonSettings({ rows = 3, style }: { rows?: number; style?: StyleProp<ViewStyle> }) {
   const c = useTheme();
   return (
-    <SkeletonFrame
-      style={[
-        { borderRadius: radius.lg, borderWidth: 1, borderColor: c.line, backgroundColor: c.surface, overflow: 'hidden' },
-        style,
-      ]}
-    >
+    <SkeletonFrame style={style}>
       {Array.from({ length: rows }, (_, i) => (
         <View
           key={i}
@@ -933,11 +947,11 @@ export function SegmentedControl<T extends string>({
 
   return (
     <View
+      // Underlined tabs on a rule, like a running head, not a boxed control.
       style={{
         flexDirection: 'row',
-        backgroundColor: c.surface2,
-        borderRadius: radius.md,
-        padding: 2,
+        borderBottomWidth: 1,
+        borderBottomColor: c.line,
       }}
       accessibilityRole="radiogroup"
     >
@@ -954,13 +968,12 @@ export function SegmentedControl<T extends string>({
             accessibilityState={{ selected: isSelected }}
             style={{
               flex: 1,
-              minHeight: 40,
+              minHeight: 44,
               alignItems: 'center',
               justifyContent: 'center',
-              borderRadius: radius.md - 2,
-              backgroundColor: isSelected ? c.surface : 'transparent',
-              borderWidth: isSelected ? 1 : 0,
-              borderColor: isSelected ? c.line : 'transparent',
+              marginBottom: -1,
+              borderBottomWidth: 2,
+              borderBottomColor: isSelected ? c.accent : 'transparent',
             }}
           >
             <Text
@@ -969,7 +982,9 @@ export function SegmentedControl<T extends string>({
                 uiWeight(isSelected ? '500' : '400'),
                 {
                   fontSize: 14,
-                  color: isSelected ? c.ink : c.muted,
+                  color: isSelected ? c.ink : c.ink2,
+                  alignSelf: 'stretch',
+                  textAlign: 'center',
                 },
               ]}
             >
@@ -992,6 +1007,11 @@ export function Field({
   keyboardType,
   error,
   placeholder,
+  maxLength,
+  autoFocus,
+  returnKeyType,
+  autoComplete,
+  textContentType,
 }: {
   label: string;
   value: string;
@@ -1001,14 +1021,32 @@ export function Field({
   keyboardType?: 'default' | 'email-address' | 'number-pad';
   error?: string;
   placeholder?: string;
+  /** With a limit, the label row carries a "12/60" counter. */
+  maxLength?: number;
+  autoFocus?: boolean;
+  returnKeyType?: TextInputProps['returnKeyType'];
+  autoComplete?: TextInputProps['autoComplete'];
+  textContentType?: TextInputProps['textContentType'];
 }) {
   const c = useTheme();
   return (
     <View style={{ gap: space[1] }}>
-      <Txt variant="micro" color="ink2">
-        {label}
-      </Txt>
+      <View style={{ flexDirection: 'row', justifyContent: 'space-between', gap: space[2] }}>
+        <Txt variant="micro" color="ink2">
+          {label}
+        </Txt>
+        {maxLength ? (
+          <Txt variant="micro" color="muted" tabular>
+            {value.length}/{maxLength}
+          </Txt>
+        ) : null}
+      </View>
       <TextInput
+        maxLength={maxLength}
+        autoFocus={autoFocus}
+        returnKeyType={returnKeyType}
+        autoComplete={autoComplete}
+        textContentType={textContentType}
         value={value}
         onChangeText={onChangeText}
         secureTextEntry={secureTextEntry}
@@ -1023,8 +1061,8 @@ export function Field({
           paddingHorizontal: space[3],
           borderRadius: radius.md,
           borderWidth: 1,
-          borderColor: error ? c.critical : c.line,
-          backgroundColor: c.surface2,
+          borderColor: error ? c.critical : c.lineStrong,
+          backgroundColor: c.surface,
           color: c.ink,
           fontFamily: familyFor(false, '400'),
           fontSize: 15,
@@ -1053,14 +1091,16 @@ export function BottomSheet({
 }) {
   const c = useTheme();
   const translateY = useSharedValue(600);
+  const reduceMotion = useReducedMotion();
 
   useEffect(() => {
     if (visible) {
       // Eased, not a spring: Reanimated's damping is a physical coefficient,
       // and the 0.8 once used here left the sheet bobbing for seconds.
-      translateY.value = withTiming(0, { duration: motion.sheet, easing: ease });
+      // Reduced motion: the sheet is simply there, it does not travel.
+      translateY.value = reduceMotion ? 0 : withTiming(0, { duration: motion.sheet, easing: ease });
     } else {
-      translateY.value = withTiming(600, { duration: 250, easing: ease });
+      translateY.value = reduceMotion ? 600 : withTiming(600, { duration: 250, easing: ease });
     }
   }, [visible]);
 
@@ -1089,7 +1129,9 @@ export function BottomSheet({
   return (
     <Modal visible={visible} transparent animationType="none" onRequestClose={onClose}>
       {/* A Modal is its own native root on Android: gestures inside it need their own handler root. */}
-      <GestureHandlerRootView style={{ flex: 1, justifyContent: 'flex-end' }}>
+      <GestureHandlerRootView style={{ flex: 1 }}>
+      {/* The whole sheet rises above the keyboard, so a focused field inside it stays in view. */}
+      <KeyboardAvoidingView behavior="padding" style={{ flex: 1, justifyContent: 'flex-end' }}>
         <Pressable
           onPress={onClose}
           accessibilityLabel="Dismiss sheet"
@@ -1102,8 +1144,7 @@ export function BottomSheet({
                 backgroundColor: c.surface,
                 borderTopLeftRadius: radius.xl,
                 borderTopRightRadius: radius.xl,
-                borderWidth: 1,
-                borderColor: c.line,
+                borderCurve: 'continuous',
                 paddingBottom: space[8],
                 maxHeight: '90%',
               },
@@ -1136,6 +1177,7 @@ export function BottomSheet({
             <View style={{ padding: space[4] }}>{children}</View>
           </Animated.View>
         </GestureDetector>
+      </KeyboardAvoidingView>
       </GestureHandlerRootView>
     </Modal>
   );

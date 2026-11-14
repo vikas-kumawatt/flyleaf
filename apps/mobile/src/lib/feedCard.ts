@@ -278,7 +278,7 @@ export function getSwipeLeftAction(item: FeedActivityItem): SwipeActionConfig | 
 export function getCardBadgeLabel(item: FeedActivityItem): { text: string; variant: 'popular' | 'wait' | 'editorial' } | null {
   const meta = item.metadata ?? {};
   if (meta.is_editorial) {
-    return { text: 'Welcome Card', variant: 'editorial' };
+    return { text: 'From Flyleaf', variant: 'editorial' };
   }
   if (meta.is_blended_popular) {
     if (meta.label === 'While you wait') {

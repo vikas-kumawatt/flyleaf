@@ -75,11 +75,7 @@ export function ActionGateProvider({ children }: { children: React.ReactNode }) 
               <View
                 style={[
                   styles.sheetContent,
-                  {
-                    backgroundColor: c.surface,
-                    borderColor: c.line,
-                    shadowColor: c.ink,
-                  },
+                  { backgroundColor: c.surface },
                 ]}
                 accessibilityRole="alert"
                 accessibilityLiveRegion="assertive"
@@ -91,26 +87,28 @@ export function ActionGateProvider({ children }: { children: React.ReactNode }) 
                   <Txt variant="displayM" style={{ textAlign: 'center' }}>
                     {gateOptions?.title ?? 'Sign up for Flyleaf'}
                   </Txt>
-                  <Txt
-                    variant="body"
-                    color="muted"
-                    style={{ textAlign: 'center' }}
-                  >
-                    {gateOptions?.subtitle ??
-                      'Keep track of your reading, log daily pages, and carry your library across devices.'}
-                  </Txt>
+                  {/* The title names the action (design.md §8); no generic pitch fills in for a missing subtitle. */}
+                  {gateOptions?.subtitle ? (
+                    <Txt
+                      variant="body"
+                      color="ink2"
+                      style={{ textAlign: 'center' }}
+                    >
+                      {gateOptions.subtitle}
+                    </Txt>
+                  ) : null}
                 </View>
 
                 {/* Actions stack */}
-                <View style={{ gap: space[3], marginTop: space[4] }}>
+                <View style={{ gap: space[2], marginTop: space[4] }}>
                   <Button
-                    label="Create an account"
+                    label="Create account"
                     variant="primary"
                     onPress={handleSignUp}
                   />
                   <Button
                     label="Sign in"
-                    variant="secondary"
+                    variant="tertiary"
                     onPress={handleSignIn}
                   />
                   <Button
@@ -144,14 +142,10 @@ const styles = StyleSheet.create({
   sheetContent: {
     borderTopLeftRadius: radius.xl,
     borderTopRightRadius: radius.xl,
-    borderTopWidth: 1,
+    borderCurve: 'continuous',
     paddingHorizontal: space[4],
     paddingTop: space[3],
     paddingBottom: space[8],
-    // Floating sheet: one soft neutral shadow, ink-coloured from the theme.
-    shadowOffset: { width: 0, height: -8 },
-    shadowOpacity: 0.08,
-    shadowRadius: 24,
   },
   dragHandle: {
     width: 36,

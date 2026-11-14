@@ -108,8 +108,8 @@ export function WelcomeCarousel({
 
       {/* Action Buttons */}
       <View style={styles.actionsContainer}>
-        <Button label="Get started" variant="primary" onPress={onGetStarted} />
-        <Button label="I have an account" variant="secondary" onPress={onLogin} />
+        <Button label="Create account" variant="primary" onPress={onGetStarted} />
+        <Button label="Sign in" variant="secondary" onPress={onLogin} />
         <Button
           label="Look around first"
           variant="tertiary"

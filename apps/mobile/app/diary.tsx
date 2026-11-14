@@ -13,7 +13,7 @@ import { OfflineRepository } from '@/offline/repository';
 import type { LocalRead } from '@/offline/schema';
 import { api } from '@/lib/api';
 import { DiaryView } from '@/ui/DiaryView';
-import { Screen, Txt, sheet, SkeletonList } from '@/ui/components';
+import { Button, Screen, Txt, sheet, SkeletonList } from '@/ui/components';
 import { space, useTheme } from '@/ui/tokens';
 import { Ionicons } from '@expo/vector-icons';
 
@@ -91,20 +91,17 @@ export default function DiaryScreen() {
 
           <Txt variant="title">Diary</Txt>
 
-          <Pressable
+          <Button
+            label="Stats"
+            accessibilityLabel="Reading Stats"
+            variant="tertiary"
+            size="sm"
             onPress={() => {
               void Haptics.selectionAsync();
               router.push('/stats' as any);
             }}
-            accessibilityRole="button"
-            accessibilityLabel="Reading Stats"
-            hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
-            style={{ minWidth: 44, minHeight: 44, justifyContent: 'center', alignItems: 'flex-end' }}
-          >
-            <Txt variant="body" color="ink2" style={{ fontWeight: '500' }}>
-              Stats
-            </Txt>
-          </Pressable>
+            style={{ minHeight: 44 }}
+          />
         </View>
       </View>
 

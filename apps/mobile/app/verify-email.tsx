@@ -5,17 +5,17 @@
 // is set up, see the findings). The token is verified once, on arrival.
 
 import React, { useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, View } from 'react-native';
+import { View } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { api, FlyleafApiError } from '@/lib/api';
 import { useSession } from '@/lib/session';
-import { Button, Screen, Txt, sheet } from '@/ui/components';
-import { space, useTheme } from '@/ui/tokens';
+import { Button, Screen, Skeleton, Txt, sheet } from '@/ui/components';
+import { space } from '@/ui/tokens';
+import { ScreenHeader } from '@/ui/ScreenHeader';
 
 type State = 'verifying' | 'verified' | 'expired' | 'error' | 'missing';
 
 export default function VerifyEmailScreen() {
-  const c = useTheme();
   const router = useRouter();
   const { token } = useLocalSearchParams<{ token?: string }>();
   const { user, refreshUser } = useSession();
@@ -53,18 +53,20 @@ export default function VerifyEmailScreen() {
 
   return (
     <Screen>
+      <ScreenHeader title="Verify email" />
       <View style={[sheet.pad, { gap: space[4] }]}>
         {state === 'verifying' && (
-          <View style={{ alignItems: 'center', gap: space[3], marginTop: space[8] }}>
-            <ActivityIndicator color={c.muted} />
-            <Txt variant="body" color="muted">Verifying your email…</Txt>
+          <View accessible accessibilityLabel="Verifying your email" accessibilityState={{ busy: true }} style={{ gap: space[3] }}>
+            <Txt variant="displayM">Verifying your email…</Txt>
+            <Skeleton width="90%" height={14} />
+            <Skeleton width="60%" height={14} />
           </View>
         )}
 
         {state === 'verified' && (
           <>
-            <Txt variant="displayL">Email verified</Txt>
-            <Txt variant="body" color="muted">
+            <Txt variant="displayM">Email verified</Txt>
+            <Txt variant="body" color="ink2">
               You can now post reviews, comment and follow readers.
             </Txt>
             <Button label="Continue" variant="primary" onPress={() => router.replace('/')} />
@@ -73,13 +75,13 @@ export default function VerifyEmailScreen() {
 
         {(state === 'expired' || state === 'missing') && (
           <>
-            <Txt variant="displayL">{state === 'expired' ? 'This link has expired' : 'This link is incomplete'}</Txt>
-            <Txt variant="body" color="muted">
+            <Txt variant="displayM">{state === 'expired' ? 'This link has expired' : 'This link is incomplete'}</Txt>
+            <Txt variant="body" color="ink2">
               {state === 'expired'
                 ? 'Verification links work once and expire after 24 hours. Send yourself a new one.'
                 : 'Open the link from the email again, or send yourself a new one.'}
             </Txt>
-            {notice ? <Txt variant="caption" color="accent">{notice}</Txt> : null}
+            {notice ? <Txt variant="caption" color="ink2">{notice}</Txt> : null}
             <Button
               label={user ? 'Send a new link' : 'Sign in to send a new link'}
               variant="primary"
@@ -90,11 +92,11 @@ export default function VerifyEmailScreen() {
 
         {state === 'error' && (
           <>
-            <Txt variant="displayL">We couldn't verify your email</Txt>
-            <Txt variant="body" color="muted">
+            <Txt variant="displayM">We couldn't verify your email</Txt>
+            <Txt variant="body" color="ink2">
               Check your connection, then open the link again.
             </Txt>
-            <Button label="Go to home" variant="secondary" onPress={() => router.replace('/')} />
+            <Button label="Go to home" variant="primary" onPress={() => router.replace('/')} />
           </>
         )}
       </View>

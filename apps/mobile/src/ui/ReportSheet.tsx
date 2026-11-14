@@ -5,6 +5,7 @@
 import React, { useEffect, useState } from 'react';
 import { Pressable, TextInput, View } from 'react-native';
 import * as Haptics from 'expo-haptics';
+import { Ionicons } from '@expo/vector-icons';
 
 import { BottomSheet, Button, Txt } from './components';
 import { radius, space, useTheme, fontFamilies } from './tokens';
@@ -58,30 +59,41 @@ export function ReportSheet({ target, onClose }: { target: ReportTarget | null; 
           <Button label="Done" onPress={onClose} />
         </View>
       ) : (
-        <View style={{ gap: space[2], paddingBottom: space[4] }}>
+        <View style={{ gap: space[3], paddingBottom: space[4] }}>
           <Txt variant="caption" color="muted">Why are you reporting this?</Txt>
-          {target &&
-            reasonsFor(target.type).map((r) => (
-              <Pressable
-                key={r.key}
-                onPress={() => {
-                  void Haptics.selectionAsync();
-                  setReason(r.key);
-                }}
-                accessibilityRole="radio"
-                accessibilityState={{ selected: reason === r.key }}
-                style={{
-                  paddingVertical: space[3],
-                  paddingHorizontal: space[3],
-                  borderRadius: radius.md,
-                  borderWidth: 1,
-                  borderColor: reason === r.key ? c.accent : c.line,
-                  backgroundColor: reason === r.key ? c.accentSoft : c.surface,
-                }}
-              >
-                <Txt variant="body">{r.label}</Txt>
-              </Pressable>
-            ))}
+          {/* Reasons are ruled rows with a radio mark, not boxed options. */}
+          <View>
+            {target &&
+              reasonsFor(target.type).map((r, i) => (
+                <Pressable
+                  key={r.key}
+                  onPress={() => {
+                    void Haptics.selectionAsync();
+                    setReason(r.key);
+                  }}
+                  accessibilityRole="radio"
+                  accessibilityState={{ selected: reason === r.key }}
+                  style={{
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                    gap: space[3],
+                    minHeight: 48,
+                    paddingVertical: space[2],
+                    borderTopWidth: i ? 1 : 0,
+                    borderTopColor: c.line,
+                  }}
+                >
+                  <Ionicons
+                    name={reason === r.key ? 'radio-button-on' : 'radio-button-off'}
+                    size={20}
+                    color={reason === r.key ? c.accent : c.muted}
+                  />
+                  <View style={{ flex: 1 }}>
+                    <Txt variant="body">{r.label}</Txt>
+                  </View>
+                </Pressable>
+              ))}
+          </View>
           <TextInput
             value={detail}
             onChangeText={(t) => setDetail(t.slice(0, REPORT_DETAIL_MAX))}
@@ -94,7 +106,7 @@ export function ReportSheet({ target, onClose }: { target: ReportTarget | null; 
               fontFamily: fontFamilies.uiRegular,
               borderRadius: radius.md,
               borderWidth: 1,
-              borderColor: c.line,
+              borderColor: c.lineStrong,
               padding: space[3],
               color: c.ink,
               backgroundColor: c.surface2,

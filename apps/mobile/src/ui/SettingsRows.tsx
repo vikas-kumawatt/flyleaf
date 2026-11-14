@@ -18,12 +18,12 @@ export function SectionTitle({ children }: { children: string }) {
   );
 }
 
-/** A grouped block of rows with hairlines between them. */
+/** A grouped block of rows with hairlines between them: a page of entries, not a card. */
 export function Group({ children }: { children: React.ReactNode }) {
   const c = useTheme();
   const items = React.Children.toArray(children).filter(Boolean);
   return (
-    <View style={{ backgroundColor: c.surface, borderColor: c.line, borderWidth: 1, borderRadius: radius.lg, overflow: 'hidden' }}>
+    <View>
       {items.map((child, i) => (
         <View key={i} style={i > 0 ? { borderTopWidth: 1, borderTopColor: c.line } : undefined}>
           {child}
@@ -144,7 +144,7 @@ function Chip({ label, a11y, selected, onPress }: { label: string; a11y: string;
         minWidth: 52,
         minHeight: 44,
         paddingHorizontal: space[2],
-        borderRadius: radius.sm,
+        borderRadius: radius.md,
         borderWidth: 1,
         borderColor: selected ? c.accent : c.line,
         backgroundColor: selected ? c.accentSoft : c.surface2,

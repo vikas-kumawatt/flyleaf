@@ -5,8 +5,9 @@
 
 import React, { useEffect, useRef, useState } from 'react';
 import { AccessibilityInfo, Animated, Pressable, View } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 import type { StatCardView } from '@/lib/statCards';
-import { Card, Cover, Txt, sheet } from './components';
+import { Button, Card, Cover, Txt, sheet } from './components';
 import { motion, radius, space, useTheme } from './tokens';
 
 function Bar({ fill, reduce }: { fill: number; reduce: boolean }) {
@@ -20,15 +21,54 @@ function Bar({ fill, reduce }: { fill: number; reduce: boolean }) {
     Animated.timing(width, { toValue: fill, duration: motion.statsReveal, useNativeDriver: false }).start();
   }, [fill, reduce, width]);
   return (
-    <View style={{ flex: 1, height: 6, borderRadius: radius.xs, backgroundColor: c.surface2, overflow: 'hidden' }}>
+    <View style={{ height: 4, borderRadius: radius.xs, backgroundColor: c.line, overflow: 'hidden' }}>
       <Animated.View
         style={{
-          // One accent per chart: the leading bar; the rest sit in neutral.
-          height: '100%', borderRadius: radius.xs, backgroundColor: fill >= 100 ? c.accent : c.muted,
+          // Ink and one accent: the leading bar takes the accent, the rest are ink.
+          height: '100%', borderRadius: radius.xs, backgroundColor: fill >= 100 ? c.accent : c.ink,
           width: width.interpolate({ inputRange: [0, 100], outputRange: ['0%', '100%'] }),
         }}
       />
     </View>
+  );
+}
+
+/** The figures on a profile: large serif numerals with direct labels, on one card. */
+export function StatStrip({
+  figures,
+  trailing,
+  onPress,
+}: {
+  figures: { value: string; label: string; detail?: string; star?: boolean }[];
+  /** Something that sits beside the figures, such as the goal ring. */
+  trailing?: React.ReactNode;
+  onPress?: () => void;
+}) {
+  const c = useTheme();
+  return (
+    <Card onPress={onPress}>
+      <View style={{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: space[4] }}>
+        {figures.map((f) => (
+          <View key={f.label} style={{ flexGrow: 1, flexBasis: 88, gap: space[1] }}>
+            <View style={[sheet.row, { gap: space[1] }]}>
+              {f.star ? <Ionicons name="star" size={16} color={c.star} /> : null}
+              <Txt variant="displayM" tabular>
+                {f.value}
+              </Txt>
+            </View>
+            <Txt variant="caption" color="ink2">
+              {f.label}
+            </Txt>
+            {f.detail ? (
+              <Txt variant="caption" color="muted">
+                {f.detail}
+              </Txt>
+            ) : null}
+          </View>
+        ))}
+        {trailing}
+      </View>
+    </Card>
   );
 }
 
@@ -44,21 +84,18 @@ export function StatCard({ card, onShare, onOpenBook }: { card: StatCardView; on
   return (
     <Card style={{ padding: space[4], gap: space[2] }}>
       <View style={sheet.rowBetween}>
-        <Txt variant="micro" color="muted">
+        <Txt variant="body" color="ink2" style={{ flex: 1 }}>
           {card.title}
         </Txt>
         {onShare && (
-          <Pressable
-            onPress={onShare}
-            accessibilityRole="button"
+          <Button
+            label="Share"
+            variant="tertiary"
+            size="sm"
             accessibilityLabel={`Share ${card.title}`}
-            hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
-            style={{ minWidth: 44, minHeight: 44, alignItems: 'flex-end', justifyContent: 'center' }}
-          >
-            <Txt variant="caption" color="accent" style={{ fontWeight: '500' }}>
-              Share
-            </Txt>
-          </Pressable>
+            onPress={onShare}
+            style={{ minHeight: 44 }}
+          />
         )}
       </View>
 
@@ -75,7 +112,7 @@ export function StatCard({ card, onShare, onOpenBook }: { card: StatCardView; on
           </Pressable>
         )}
         <View style={{ flex: 1, gap: space[1] }}>
-          <Txt variant="title" tabular style={{ fontSize: 32, lineHeight: 36 }}>
+          <Txt variant="displayL" tabular>
             {card.hero}
           </Txt>
           {card.caption && <Txt variant="bodyL">{card.caption}</Txt>}
@@ -88,16 +125,20 @@ export function StatCard({ card, onShare, onOpenBook }: { card: StatCardView; on
       </Pressable>
 
       {card.bars.length > 0 && (
-        <View style={{ gap: space[1], marginTop: space[1] }}>
+        <View style={{ gap: space[3], marginTop: space[2] }}>
           {card.bars.map((b) => (
-            <View key={b.label} style={[sheet.row, { gap: space[2] }]}>
-              <Txt variant="caption" style={{ width: 88 }} numberOfLines={1}>
-                {b.label}
-              </Txt>
+            // Label and figure share a line and the bar runs the full width
+            // beneath, so no label sits in a fixed-width column.
+            <View key={b.label} style={{ gap: space[1] }}>
+              <View style={[sheet.rowBetween, { gap: space[3] }]}>
+                <Txt variant="caption" style={{ flexShrink: 1 }}>
+                  {b.label}
+                </Txt>
+                <Txt variant="caption" color="ink2" tabular>
+                  {b.text}
+                </Txt>
+              </View>
               <Bar fill={(b.value / max) * 100} reduce={reduce} />
-              <Txt variant="caption" color="muted" tabular style={{ minWidth: 28, textAlign: 'right' }}>
-                {b.text}
-              </Txt>
             </View>
           ))}
         </View>

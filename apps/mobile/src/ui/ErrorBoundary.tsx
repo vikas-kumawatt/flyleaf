@@ -59,7 +59,7 @@ function Fallback({ message, onReset }: { message?: string; onReset: () => void 
   const c = useTheme();
   return (
     <View style={[styles.container, { backgroundColor: c.ground }]}>
-      <View style={[styles.card, { backgroundColor: c.surface, borderColor: c.line }]}>
+      <View style={[styles.card, { backgroundColor: c.surface }]}>
         <Txt variant="displayM" style={styles.center}>
           Something went wrong
         </Txt>
@@ -68,7 +68,7 @@ function Fallback({ message, onReset }: { message?: string; onReset: () => void 
         </Txt>
 
         {message ? (
-          <View style={[styles.devBox, { backgroundColor: c.surface2, borderColor: c.line }]}>
+          <View style={[styles.devBox, { backgroundColor: c.surface2 }]}>
             <Txt variant="caption" color="critical" style={styles.devText} numberOfLines={4}>
               {message}
             </Txt>
@@ -94,9 +94,9 @@ const styles = StyleSheet.create({
     width: '100%',
     maxWidth: 400,
     borderRadius: radius.lg,
+    borderCurve: 'continuous',
     padding: space[6],
     gap: space[3],
-    borderWidth: 1,
   },
   center: {
     textAlign: 'center',
@@ -104,7 +104,6 @@ const styles = StyleSheet.create({
   devBox: {
     borderRadius: radius.md,
     padding: space[3],
-    borderWidth: 1,
   },
   devText: {
     fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',

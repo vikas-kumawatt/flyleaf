@@ -27,7 +27,6 @@ import {
   EmptyState,
   HeartMark,
   RatingMark,
-  SegmentedControl,
   Txt,
   sheet,
 } from './components';
@@ -35,6 +34,12 @@ import { fontFamilies, radius, space, useTheme } from './tokens';
 import { diaryPages, groupDiary } from '@/lib/diaryGroups';
 
 export type DiaryViewMode = 'list' | 'grid' | 'calendar';
+
+const VIEW_MODES: { value: DiaryViewMode; label: string; icon: React.ComponentProps<typeof Ionicons>['name'] }[] = [
+  { value: 'list', label: 'List', icon: 'list-outline' },
+  { value: 'grid', label: 'Grid', icon: 'grid-outline' },
+  { value: 'calendar', label: 'Calendar', icon: 'calendar-outline' },
+];
 
 export interface DiaryViewProps {
   reads: LocalRead[];
@@ -193,38 +198,37 @@ export function DiaryView({
     <View style={[{ gap: space[4] }, style]}>
       {showHeaderControls && (
         <View style={{ gap: space[3] }}>
-          {/* Top Row: View Mode Switcher + Hearted Toggle */}
-          <View style={[sheet.rowBetween, { gap: space[2] }]}>
-            <View style={{ width: 220 }}>
-              <SegmentedControl
-                options={[
-                  { value: 'list', label: 'List' },
-                  { value: 'grid', label: 'Grid' },
-                  { value: 'calendar', label: 'Calendar' },
-                ]}
-                value={viewMode}
-                onChange={(val) => {
-                  void Haptics.selectionAsync();
-                  setViewMode(val as DiaryViewMode);
-                }}
+          {/* View mode: radio chips. The Reading tab above already draws
+              underlined tabs, and two rows of them read as two navigations. */}
+          <View accessibilityRole="radiogroup" style={{ flexDirection: 'row', flexWrap: 'wrap', gap: space[2] }}>
+            {VIEW_MODES.map((m) => (
+              <Chip
+                key={m.value}
+                label={m.label}
+                icon={m.icon}
+                role="radio"
+                selected={viewMode === m.value}
+                onPress={() => setViewMode(m.value)}
               />
-            </View>
-
-            <Chip
-              label={heartedOnly ? 'Hearted' : 'All'}
-              icon={heartedOnly ? 'heart' : 'heart-outline'}
-              selected={heartedOnly}
-              onPress={() => setHeartedOnly(!heartedOnly)}
-              accessibilityLabel="Show hearted books only"
-            />
+            ))}
           </View>
 
           {/* Filter Bar: Year Jump & Format & Rating */}
           <ScrollView
             horizontal
             showsHorizontalScrollIndicator={false}
-            contentContainerStyle={{ gap: space[2], paddingVertical: 2 }}
+            contentContainerStyle={{ gap: space[2], paddingVertical: space[1] / 2 }}
           >
+            <Chip
+              label="Hearted"
+              icon={heartedOnly ? 'heart' : 'heart-outline'}
+              selected={heartedOnly}
+              onPress={() => setHeartedOnly(!heartedOnly)}
+              accessibilityLabel="Show hearted books only"
+            />
+
+            <View style={{ width: 1, backgroundColor: c.line, marginHorizontal: space[1] }} />
+
             {/* Year Selector */}
             <Chip label="All time" selected={selectedYear === 'all'} onPress={() => setSelectedYear('all')} />
 
@@ -264,11 +268,10 @@ export function DiaryView({
               style={[
                 sheet.rowBetween,
                 {
-                  backgroundColor: c.surface,
-                  paddingHorizontal: space[3],
+                  gap: space[3],
                   paddingVertical: space[2],
-                  borderRadius: radius.md,
-                  borderWidth: 1,
+                  borderTopWidth: 1,
+                  borderBottomWidth: 1,
                   borderColor: c.line,
                 },
               ]}
@@ -276,7 +279,7 @@ export function DiaryView({
               <Txt variant="caption" color="muted">
                 {selectedYear === 'all' ? 'All time' : `${selectedYear}`}
               </Txt>
-              <Txt variant="caption" color="ink" tabular style={{ fontWeight: '500' }}>
+              <Txt variant="caption" color="ink" tabular style={{ fontWeight: '500', flexShrink: 1, textAlign: 'right' }}>
                 {summaryStats.totalBooks} {summaryStats.totalBooks === 1 ? 'book' : 'books'}
                 {summaryStats.totalPages > 0 ? ` · ${summaryStats.totalPages.toLocaleString()} pages` : ''}
                 {summaryStats.avgRating ? ` · ${summaryStats.avgRating} average` : ''}
@@ -289,17 +292,17 @@ export function DiaryView({
       {/* EMPTY STATE */}
       {filteredReads.length === 0 && (
         <EmptyState
-          title="No books match your filters"
+          title={finishedReads.length === 0 ? 'Your diary starts with the first book you finish' : 'No books match your filters'}
           subtitle={
             finishedReads.length === 0
-              ? 'Your diary starts with the first book you finish.'
+              ? undefined
               : 'Try clearing some of your filters to see more of your reading history.'
           }
           action={
             finishedReads.length > 0 && (
               <Button
                 label="Reset filters"
-                variant="outline"
+                variant="secondary"
                 onPress={() => {
                   void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
                   setSelectedYear('all');
@@ -317,11 +320,11 @@ export function DiaryView({
       {/* 1. LIST VIEW                                                              */}
       {/* ========================================================================= */}
       {viewMode === 'list' && filteredReads.length > 0 && (
-        <View style={{ gap: space[4] }}>
+        <View style={{ gap: space[6] }}>
           {groupedReads.map((group) => (
             <View key={group.monthKey} style={{ gap: space[2] }}>
-              <View style={[sheet.rowBetween, { paddingHorizontal: space[1] }]}>
-                <Txt variant="displayM" style={{ fontSize: 20, lineHeight: 26 }}>
+              <View style={[sheet.rowBetween, { gap: space[3] }]}>
+                <Txt variant="displayM" style={{ flexShrink: 1 }}>
                   {group.monthLabel}
                 </Txt>
                 <Txt variant="caption" color="muted" tabular>
@@ -329,7 +332,7 @@ export function DiaryView({
                 </Txt>
               </View>
 
-              <View style={{ gap: space[2] }}>
+              <View>
                 {group.reads.map((r) => {
                   const finishFormatted = r.finished_at
                     ? new Date(r.finished_at).toLocaleDateString(undefined, {
@@ -340,35 +343,45 @@ export function DiaryView({
                     : 'Finished';
 
                   return (
-                    <Card
+                    <Pressable
                       key={r.id}
                       onPress={() => handleSelectBook(r.work_id)}
-                      style={{ padding: space[3] }}
+                      accessibilityRole="button"
+                      style={({ pressed }) => [
+                        sheet.rowTop,
+                        {
+                          gap: space[3],
+                          paddingVertical: space[3],
+                          borderTopWidth: 1,
+                          borderTopColor: c.line,
+                          backgroundColor: pressed ? c.surface2 : 'transparent',
+                        },
+                      ]}
                     >
-                      <View style={sheet.rowTop}>
-                        <Cover coverId={r.cover_id} title={r.title ?? ''} size="m" />
-                        <View style={{ flex: 1, gap: space[1] }}>
-                          <View style={[sheet.rowBetween, { gap: space[2] }]}>
-                            <Txt variant="title" numberOfLines={1} style={{ flex: 1, fontFamily: fontFamilies.displayMedium }}>
+                      <Cover coverId={r.cover_id} title={r.title ?? ''} author={r.author_name ?? undefined} size="s" />
+                      <View style={{ flex: 1, gap: space[1] }}>
+                        <View style={[sheet.rowTop, { gap: space[2] }]}>
+                          <View style={{ flex: 1 }}>
+                            <Txt variant="title" numberOfLines={2}>
                               {r.title}
                             </Txt>
-                            {Boolean(r.hearted) && <HeartMark size={14} />}
                           </View>
+                          {Boolean(r.hearted) && <HeartMark size={14} />}
+                        </View>
 
-                          <Txt variant="caption" color="muted" numberOfLines={1}>
-                            {r.author_name}
+                        <Txt variant="caption" color="ink2" numberOfLines={1}>
+                          {r.author_name}
+                        </Txt>
+
+                        <View style={[sheet.row, { gap: space[2], flexWrap: 'wrap' }]}>
+                          {r.rating !== null && r.rating !== undefined && <RatingMark value={Number(r.rating)} />}
+                          <Txt variant="caption" color="muted" tabular>
+                            {finishFormatted}
+                            {r.format_override ? ` · ${r.format_override}` : ''}
                           </Txt>
-
-                          <View style={[sheet.row, { gap: space[2], marginTop: space[1] }]}>
-                            {r.rating !== null && r.rating !== undefined && <RatingMark value={Number(r.rating)} />}
-                            <Txt variant="caption" color="muted" tabular>
-                              {finishFormatted}
-                              {r.format_override ? ` · ${r.format_override}` : ''}
-                            </Txt>
-                          </View>
                         </View>
                       </View>
-                    </Card>
+                    </Pressable>
                   );
                 })}
               </View>
@@ -381,11 +394,11 @@ export function DiaryView({
       {/* 2. GRID VIEW (Monthly Poster Shelves)                                     */}
       {/* ========================================================================= */}
       {viewMode === 'grid' && filteredReads.length > 0 && (
-        <View style={{ gap: space[4] }}>
+        <View style={{ gap: space[6] }}>
           {groupedReads.map((group) => (
             <View key={group.monthKey} style={{ gap: space[2] }}>
-              <View style={[sheet.rowBetween, { paddingHorizontal: space[1] }]}>
-                <Txt variant="displayM" style={{ fontSize: 20, lineHeight: 26 }}>
+              <View style={[sheet.rowBetween, { gap: space[3] }]}>
+                <Txt variant="displayM" style={{ flexShrink: 1 }}>
                   {group.monthLabel}
                 </Txt>
                 <Txt variant="caption" color="muted" tabular>
@@ -482,6 +495,9 @@ export function DiaryView({
                 return (
                   <Pressable
                     key={item.dateKey}
+                    accessibilityRole="button"
+                    accessibilityLabel={`${calendarDate.toLocaleDateString(undefined, { month: 'long' })} ${item.day}${hasFinished ? `, ${item.reads.length} finished` : ''}`}
+                    accessibilityState={{ selected: isSelected }}
                     onPress={() => {
                       void Haptics.selectionAsync();
                       setSelectedCalendarDay(isSelected ? null : item.dateKey);
@@ -538,29 +554,39 @@ export function DiaryView({
                   No books finished this day
                 </Txt>
               ) : (
-                selectedDayReads.map((r) => (
-                  <Card
-                    key={r.id}
-                    onPress={() => handleSelectBook(r.work_id)}
-                    style={{ padding: space[3] }}
-                  >
-                    <View style={[sheet.rowTop, { gap: space[3] }]}>
-                      <Cover coverId={r.cover_id} title={r.title ?? ''} size="m" />
+                <View>
+                  {selectedDayReads.map((r, index) => (
+                    <Pressable
+                      key={r.id}
+                      onPress={() => handleSelectBook(r.work_id)}
+                      accessibilityRole="button"
+                      style={({ pressed }) => [
+                        sheet.rowTop,
+                        {
+                          gap: space[3],
+                          paddingVertical: space[3],
+                          borderTopWidth: index ? 1 : 0,
+                          borderTopColor: c.line,
+                          backgroundColor: pressed ? c.surface2 : 'transparent',
+                        },
+                      ]}
+                    >
+                      <Cover coverId={r.cover_id} title={r.title ?? ''} author={r.author_name ?? undefined} size="s" />
                       <View style={{ flex: 1, gap: space[1] }}>
-                        <Txt variant="title" numberOfLines={1} style={{ fontFamily: fontFamilies.displayMedium }}>
+                        <Txt variant="title" numberOfLines={2}>
                           {r.title}
                         </Txt>
-                        <Txt variant="caption" color="muted">
+                        <Txt variant="caption" color="ink2" numberOfLines={1}>
                           {r.author_name}
                         </Txt>
-                        <View style={[sheet.row, { gap: space[2], marginTop: space[1] }]}>
+                        <View style={[sheet.row, { gap: space[2] }]}>
                           {r.rating !== null && r.rating !== undefined && <RatingMark value={Number(r.rating)} />}
                           {Boolean(r.hearted) && <HeartMark />}
                         </View>
                       </View>
-                    </View>
-                  </Card>
-                ))
+                    </Pressable>
+                  ))}
+                </View>
               )}
             </View>
           )}
@@ -619,7 +645,7 @@ const styles = StyleSheet.create({
   },
   calCell: {
     width: '14.28%',
-    height: 40,
+    height: 44,
     alignItems: 'center',
     justifyContent: 'center',
     position: 'relative',

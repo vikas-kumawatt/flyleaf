@@ -131,27 +131,27 @@ ${image ? `<meta name="twitter:image" content="${e(image)}">\n` : ''}<meta prope
 <meta property="al:android:package" content="${ANDROID_PACKAGE}">
 <meta property="al:android:app_name" content="Flyleaf">
 <style>
-  :root { color-scheme: light dark; --ground: #FAFAFA; --card: #FFFFFF; --raised: #F4F4F5; --ink: #171717; --ink2: #525252; --muted: #737373; --accent: #3355C4; --on-accent: #FFFFFF; --line: rgba(23,23,23,.08); }
-  @media (prefers-color-scheme: dark) { :root { --ground: #141415; --card: #19191B; --raised: #232325; --ink: #EDEDED; --ink2: #A1A1A6; --muted: #85858B; --accent: #8DA6EE; --on-accent: #141415; --line: rgba(237,237,237,.08); } }
+  :root { color-scheme: light dark; --ground: #F4EEE2; --card: #FBF6EC; --raised: #EBE3D3; --ink: #211C16; --ink2: #5C5347; --muted: #6B6155; --accent: #8C2F2A; --on-accent: #FBF6EC; --line: rgba(33,28,22,.12); }
+  @media (prefers-color-scheme: dark) { :root { --ground: #17130F; --card: #1E1A15; --raised: #2A251E; --ink: #EDE6D8; --ink2: #B3A998; --muted: #948A7A; --accent: #E08A7E; --on-accent: #17130F; --line: rgba(237,230,216,.12); } }
   * { box-sizing: border-box; }
   body { margin: 0; background: var(--ground); color: var(--ink); font: 15px/1.5 "Instrument Sans", system-ui, -apple-system, "Segoe UI", sans-serif; }
   main { max-width: 40rem; margin: 0 auto; padding: 32px 16px 48px; }
   a { color: var(--accent); text-underline-offset: 2px; }
-  h1 { font: 400 32px/1.15 Newsreader, Georgia, serif; margin: 0 0 4px; overflow-wrap: anywhere; }
-  h2 { font: 500 20px/1.3 Newsreader, Georgia, serif; margin: 32px 0 12px; }
+  h1 { font: 600 32px/1.15 Figtree, system-ui, sans-serif; letter-spacing: -0.02em; margin: 0 0 4px; overflow-wrap: anywhere; }
+  h2 { font: 600 20px/1.3 Figtree, system-ui, sans-serif; letter-spacing: -0.01em; margin: 32px 0 12px; }
   .muted { color: var(--muted); font-size: 13px; }
   .head { display: flex; gap: 20px; align-items: flex-start; }
-  .cover { width: 120px; aspect-ratio: 2 / 3; object-fit: cover; border-radius: 6px; border: 1px solid var(--line); background: var(--raised); flex: none; }
+  .cover { width: 120px; aspect-ratio: 2 / 3; object-fit: cover; border-radius: 2px; border: 1px solid var(--line); background: var(--raised); flex: none; }
   .avatar { width: 80px; height: 80px; border-radius: 50%; object-fit: cover; border: 1px solid var(--line); flex: none; }
   .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(88px, 1fr)); gap: 12px; padding: 0; list-style: none; margin: 0; }
-  .grid img { width: 100%; aspect-ratio: 2 / 3; object-fit: cover; border-radius: 4px; border: 1px solid var(--line); background: var(--raised); }
+  .grid img { width: 100%; aspect-ratio: 2 / 3; object-fit: cover; border-radius: 2px; border: 1px solid var(--line); background: var(--raised); }
   .grid span { display: block; font-size: 13px; line-height: 1.35; margin-top: 4px; overflow-wrap: anywhere; }
-  .placeholder { display: flex; align-items: center; justify-content: center; aspect-ratio: 2 / 3; border-radius: 4px; border: 1px solid var(--line); background: var(--raised); color: var(--muted); font: 400 13px/1.3 Newsreader, Georgia, serif; padding: 8px; text-align: center; }
+  .placeholder { display: flex; align-items: center; justify-content: center; aspect-ratio: 2 / 3; border-radius: 2px; border: 1px solid var(--line); background: var(--raised); color: var(--muted); font: 500 13px/1.3 Figtree, system-ui, sans-serif; padding: 8px; text-align: center; }
   .list { list-style: none; padding: 0; margin: 0; }
-  .list li { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 16px 20px; margin: 0 0 12px; }
+  .list li { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 16px 20px; margin: 0 0 12px; }
   .list p { margin: 4px 0 0; color: var(--ink2); overflow-wrap: anywhere; }
   .desc { white-space: pre-line; color: var(--ink2); overflow-wrap: anywhere; }
-  .app { display: inline-flex; align-items: center; height: 44px; margin-top: 24px; padding: 0 20px; border-radius: 10px; background: var(--accent); color: var(--on-accent); font-weight: 500; text-decoration: none; transition: opacity 140ms cubic-bezier(0.22, 1, 0.36, 1); }
+  .app { display: inline-flex; align-items: center; height: 44px; margin-top: 24px; padding: 0 20px; border-radius: 999px; background: var(--accent); color: var(--on-accent); font-weight: 500; text-decoration: none; transition: opacity 140ms cubic-bezier(0.22, 1, 0.36, 1); }
   .app:hover { opacity: .9; }
   .app:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
   footer { margin-top: 40px; font-size: 13px; color: var(--muted); }
@@ -174,11 +174,11 @@ export const NOT_FOUND_PAGE = `<!doctype html>
 <meta name="robots" content="noindex">
 <title>Not found · Flyleaf</title>
 <style>
-  :root { color-scheme: light dark; --ground: #FAFAFA; --ink: #171717; --ink2: #525252; --accent: #3355C4; }
-  @media (prefers-color-scheme: dark) { :root { --ground: #141415; --ink: #EDEDED; --ink2: #A1A1A6; --accent: #8DA6EE; } }
+  :root { color-scheme: light dark; --ground: #F4EEE2; --ink: #211C16; --ink2: #5C5347; --accent: #8C2F2A; }
+  @media (prefers-color-scheme: dark) { :root { --ground: #17130F; --ink: #EDE6D8; --ink2: #B3A998; --accent: #E08A7E; } }
   body { margin: 0; background: var(--ground); color: var(--ink); font: 15px/1.5 "Instrument Sans", system-ui, sans-serif; }
   main { max-width: 26rem; margin: 0 auto; padding: 48px 16px; }
-  h1 { font: 400 28px/1.2 Newsreader, Georgia, serif; margin: 0 0 12px; }
+  h1 { font: 600 28px/1.2 Figtree, system-ui, sans-serif; letter-spacing: -0.02em; margin: 0 0 12px; }
   p { color: var(--ink2); }
   a { color: var(--accent); }
 </style>

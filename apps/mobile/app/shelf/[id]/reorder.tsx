@@ -17,7 +17,6 @@ import {
   ScrollView,
   Pressable,
   TextInput,
-  ActivityIndicator,
   StyleSheet,
   Alert,
   Modal,
@@ -32,7 +31,7 @@ import * as Haptics from 'expo-haptics';
 import { api, type Shelf, type ShelfItem } from '@/lib/api';
 import { moveItemInArray, repositionItem, formatShelfRank, fetchAllShelfItems } from '@/lib/shelfValidation';
 import { track } from '@/lib/events';
-import { Button, Cover, Screen, Txt, SkeletonList, Skeleton } from '@/ui/components';
+import { Button, Cover, EmptyState, Screen, Txt, SkeletonList, Skeleton } from '@/ui/components';
 import { fontFamilies, motion, radius, space, useTheme } from '@/ui/tokens';
 
 interface ReorderRowProps {
@@ -111,41 +110,40 @@ function ReorderRow({
       style={[
         styles.rowCard,
         {
-          backgroundColor: c.surface,
-          borderColor: c.line,
+          // Opaque so a dragged row covers the rules beneath it
+          backgroundColor: c.ground,
+          borderBottomColor: c.line,
           transform: [{ translateY: panY }],
         },
       ]}
     >
-      {/* Rank Badge / Move to Position trigger */}
+      {/* Rank / Move to Position trigger */}
       <Pressable
         accessibilityRole="button"
         accessibilityLabel={`Rank ${index + 1}. Tap to move to position.`}
         accessibilityHint="Opens a dialog to type a new rank number"
         hitSlop={8}
         onPress={() => onOpenMoveToModal(index)}
-        style={[styles.rankBadge, { backgroundColor: c.surface2, borderColor: c.lineStrong }]}
+        style={styles.rankBadge}
       >
-        <Txt tabular style={[styles.rankText, { color: c.ink2 }]}>#{index + 1}</Txt>
-        <Ionicons name="pencil" size={12} color={c.muted} />
+        <Txt variant="caption" color="ink2" tabular>#{index + 1}</Txt>
+        <Ionicons name="pencil-outline" size={12} color={c.muted} />
       </Pressable>
 
       {/* Book Cover */}
-      <View style={styles.coverWrapper}>
-        <Cover
-          coverId={item.work.cover_id}
-          title={item.work.title}
-          author={item.work.author_name}
-          size="xs"
-        />
-      </View>
+      <Cover
+        coverId={item.work.cover_id}
+        title={item.work.title}
+        author={item.work.author_name}
+        size="xs"
+      />
 
       {/* Book Details */}
       <View style={styles.detailsWrapper}>
-        <Txt numberOfLines={1} style={[styles.bookTitle, { color: c.ink }]}>
+        <Txt variant="title" numberOfLines={2}>
           {item.work.title}
         </Txt>
-        <Txt numberOfLines={1} style={[styles.bookAuthor, { color: c.muted }]}>
+        <Txt variant="caption" color="muted" numberOfLines={1}>
           {item.work.author_name}
         </Txt>
       </View>
@@ -157,7 +155,6 @@ function ReorderRow({
           accessibilityRole="button"
           accessibilityLabel={`Move ${item.work.title} up to position ${index}`}
           disabled={isFirst}
-          hitSlop={6}
           onPress={() => onMoveUp(index)}
           style={[styles.stepButton, { opacity: isFirst ? 0.25 : 1 }]}
         >
@@ -169,7 +166,6 @@ function ReorderRow({
           accessibilityRole="button"
           accessibilityLabel={`Move ${item.work.title} down to position ${index + 2}`}
           disabled={isLast}
-          hitSlop={6}
           onPress={() => onMoveDown(index)}
           style={[styles.stepButton, { opacity: isLast ? 0.25 : 1 }]}
         >
@@ -354,76 +350,46 @@ export default function ReorderShelfScreen() {
   const selectedItem = targetItemIndex !== null ? items[targetItemIndex] : null;
 
   return (
-    <Screen style={{ flex: 1, backgroundColor: c.ground }}>
-      {/* Navigation Top Bar */}
-      <View
-        style={[
-          styles.navBar,
-          {
-            paddingTop: Math.max(insets.top, space[3]),
-            borderBottomColor: c.line,
-            backgroundColor: c.ground,
-          },
-        ]}
-      >
-        <Pressable
-          accessibilityRole="button"
+    <Screen>
+      {/* Top bar: the way out on the left, the one primary action on the right */}
+      <View style={[styles.navBar, { paddingTop: Math.max(insets.top, space[3]) }]}>
+        <Button
+          label="Cancel"
+          variant="tertiary"
           accessibilityLabel="Cancel reordering"
-          hitSlop={12}
           onPress={handleCancel}
-          style={styles.navButton}
-        >
-          <Txt variant="body" color="ink2">Cancel</Txt>
-        </Pressable>
-
-        <View style={styles.navTitleContainer}>
-          <Txt numberOfLines={1} style={[styles.navTitle, { color: c.ink }]}>
-            Reorder
-          </Txt>
-          {shelf?.name && (
-            <Txt variant="micro" numberOfLines={1} color="muted">
-              {shelf.name}
-            </Txt>
-          )}
-        </View>
-
-        <Pressable
-          accessibilityRole="button"
+        />
+        <Button
+          label="Save"
+          size="sm"
           accessibilityLabel="Save new shelf order"
           disabled={!isDirty || saving}
-          hitSlop={12}
+          loading={saving}
           onPress={handleSave}
-          style={[styles.navButton, { opacity: !isDirty || saving ? 0.35 : 1 }]}
-        >
-          {saving ? (
-            <ActivityIndicator size="small" color={c.muted} />
-          ) : (
-            <Txt variant="body" color="accent" style={{ fontWeight: '500' }}>Save</Txt>
-          )}
-        </Pressable>
+        />
       </View>
 
-      {/* Instructions & Status Bar */}
-      <View style={[styles.statusBar, { borderBottomColor: c.line }]}>
-        <View style={{ flex: 1 }}>
-          <Txt style={[styles.statusText, { color: c.muted }]}>
-            Drag a handle, use the arrows, or tap a number to type a position
+      {/* Title, instructions and status */}
+      <View style={styles.header}>
+        <Txt variant="displayL">Reorder</Txt>
+        {shelf?.name ? (
+          <Txt variant="body" color="ink2" numberOfLines={1}>
+            {shelf.name}
           </Txt>
-        </View>
-
+        ) : null}
+        <Txt variant="caption" color="muted">
+          Drag a handle, use the arrows, or tap a number to type a position
+        </Txt>
         {isDirty && (
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: space[2] }}>
-            <Txt style={[styles.dirtyPillText, { color: c.muted }]}>Unsaved</Txt>
-            <Pressable
-              accessibilityRole="button"
+          <View style={styles.dirtyRow}>
+            <Txt variant="caption" color="muted">Unsaved changes</Txt>
+            <Button
+              label="Reset"
+              variant="tertiary"
+              size="sm"
               accessibilityLabel="Reset to original order"
-              hitSlop={8}
               onPress={handleResetOrder}
-            >
-              <Txt variant="caption" color="ink2" style={{ fontWeight: '500' }}>
-                Reset
-              </Txt>
-            </Pressable>
+            />
           </View>
         )}
       </View>
@@ -436,9 +402,7 @@ export default function ReorderShelfScreen() {
         ]}
       >
         {items.length === 0 ? (
-          <View style={styles.emptyContainer}>
-            <Txt style={{ color: c.muted }}>No books to reorder</Txt>
-          </View>
+          <EmptyState title="No books to reorder" />
         ) : (
           items.map((item, index) => (
             <ReorderRow
@@ -468,21 +432,14 @@ export default function ReorderShelfScreen() {
             onPress={() => setModalVisible(false)}
             accessibilityLabel="Close dialog"
           />
-          <View
-            style={[
-              styles.modalCard,
-              { backgroundColor: c.surface, borderColor: c.line },
-            ]}
-          >
-            <View style={styles.modalHeader}>
-              <Txt style={[styles.modalTitle, { color: c.ink }]}>Move to position</Txt>
-            </View>
+          <View style={[styles.modalCard, { backgroundColor: c.surface }]}>
+            <Txt variant="title">Move to position</Txt>
 
             {selectedItem && (
               <View style={[styles.modalBookRow, { borderBottomColor: c.line }]}>
                 <Cover coverId={selectedItem.work.cover_id} size="xs" />
-                <View style={{ flex: 1, marginLeft: space[3] }}>
-                  <Txt numberOfLines={1} style={[styles.modalBookTitle, { color: c.ink }]}>
+                <View style={{ flex: 1, gap: space[1] }}>
+                  <Txt variant="title" numberOfLines={2}>
                     {selectedItem.work.title}
                   </Txt>
                   <Txt variant="caption" color="muted" tabular>
@@ -493,62 +450,66 @@ export default function ReorderShelfScreen() {
             )}
 
             {/* Quick jump presets */}
-            <Txt style={[styles.presetLabel, { color: c.muted }]}>Jump to</Txt>
-            <View style={styles.presetsRow}>
-              <Button
-                variant="outline"
-                size="sm"
-                label="Top"
-                onPress={() => handleApplyPositionJump(1)}
-                style={{ flex: 1 }}
-              />
-              {items.length > 2 && (
+            <View style={{ gap: space[1] }}>
+              <Txt variant="micro" color="ink2">Jump to</Txt>
+              <View style={styles.presetsRow}>
                 <Button
-                  variant="outline"
+                  variant="secondary"
                   size="sm"
-                  label={`Middle · ${Math.ceil(items.length / 2)}`}
-                  onPress={() => handleApplyPositionJump(Math.ceil(items.length / 2))}
+                  label="Top"
+                  onPress={() => handleApplyPositionJump(1)}
                   style={{ flex: 1 }}
                 />
-              )}
-              <Button
-                variant="outline"
-                size="sm"
-                label={`Bottom · ${items.length}`}
-                onPress={() => handleApplyPositionJump(items.length)}
-                style={{ flex: 1 }}
-              />
+                {items.length > 2 && (
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    label={`Middle · ${Math.ceil(items.length / 2)}`}
+                    onPress={() => handleApplyPositionJump(Math.ceil(items.length / 2))}
+                    style={{ flex: 1 }}
+                  />
+                )}
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  label={`Bottom · ${items.length}`}
+                  onPress={() => handleApplyPositionJump(items.length)}
+                  style={{ flex: 1 }}
+                />
+              </View>
             </View>
 
-            {/* Custom rank input */}
-            <Txt style={[styles.presetLabel, { color: c.muted, marginTop: space[3] }]}>
-              Position, 1 to {items.length}
-            </Txt>
-            <TextInput
-              keyboardType="number-pad"
-              value={targetPositionText}
-              onChangeText={(txt) => {
-                setTargetPositionText(txt);
-                setModalError(null);
-              }}
-              placeholder={`1..${items.length}`}
-              placeholderTextColor={c.muted}
-              style={[
-                styles.modalInput,
-                {
-                  color: c.ink,
-                  backgroundColor: c.surface2,
-                  borderColor: modalError ? c.critical : c.line,
-                },
-              ]}
-              autoFocus
-            />
-
-            {modalError && (
-              <Txt variant="micro" style={{ color: c.critical, marginTop: space[1] }}>
-                {modalError}
+            {/* Custom rank input: Field has no autoFocus, so this matches its label and box */}
+            <View style={{ gap: space[1] }}>
+              <Txt variant="micro" color="ink2">
+                Position, 1 to {items.length}
               </Txt>
-            )}
+              <TextInput
+                keyboardType="number-pad"
+                value={targetPositionText}
+                onChangeText={(txt) => {
+                  setTargetPositionText(txt);
+                  setModalError(null);
+                }}
+                accessibilityLabel={`Position, 1 to ${items.length}`}
+                placeholder={`1..${items.length}`}
+                placeholderTextColor={c.muted}
+                style={[
+                  styles.modalInput,
+                  {
+                    color: c.ink,
+                    backgroundColor: c.surface,
+                    borderColor: modalError ? c.critical : c.lineStrong,
+                  },
+                ]}
+                autoFocus
+              />
+              {modalError && (
+                <Txt variant="caption" color="critical">
+                  {modalError}
+                </Txt>
+              )}
+            </View>
 
             {/* Action buttons */}
             <View style={styles.modalActionRow}>
@@ -577,103 +538,54 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: space[4],
-    paddingBottom: space[3],
-    borderBottomWidth: 1,
-  },
-  navButton: {
-    minWidth: 60,
-    minHeight: 44,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  navTitleContainer: {
-    flex: 1,
-    alignItems: 'center',
     paddingHorizontal: space[2],
   },
-  navTitle: {
-    fontSize: 17,
-    fontWeight: '500',
+  header: {
+    paddingHorizontal: space[4],
+    paddingBottom: space[3],
+    gap: space[1],
   },
-  statusBar: {
+  dirtyRow: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: space[4],
-    paddingVertical: space[2],
-    borderBottomWidth: 1,
-  },
-  statusText: {
-    fontSize: 13,
-    lineHeight: 20,
-  },
-  dirtyPillText: {
-    fontSize: 12,
   },
   listContent: {
-    padding: space[4],
-    gap: space[2],
-  },
-  emptyContainer: {
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: space[8],
+    paddingHorizontal: space[4],
   },
   rowCard: {
     flexDirection: 'row',
     alignItems: 'center',
-    padding: space[3],
-    borderRadius: radius.lg,
-    borderWidth: 1,
+    gap: space[2],
+    paddingVertical: space[3],
+    borderBottomWidth: 1,
   },
   rankBadge: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: space[1],
-    paddingHorizontal: space[2],
-    minHeight: 32,
-    borderRadius: radius.sm,
-    borderWidth: 1,
-    marginRight: space[3],
-    minWidth: 44,
     justifyContent: 'center',
-  },
-  rankText: {
-    fontSize: 13,
-    fontWeight: '500',
-  },
-  coverWrapper: {
-    marginRight: space[3],
+    gap: space[1],
+    minWidth: 44,
+    minHeight: 44,
   },
   detailsWrapper: {
     flex: 1,
     justifyContent: 'center',
-    marginRight: space[2],
-  },
-  bookTitle: {
-    fontFamily: fontFamilies.displayMedium,
-    fontSize: 15,
-    lineHeight: 20,
-  },
-  bookAuthor: {
-    fontSize: 13,
+    gap: space[1],
   },
   rowControls: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: space[1],
   },
   stepButton: {
-    width: 36,
-    height: 36,
+    width: 44,
+    height: 44,
     alignItems: 'center',
     justifyContent: 'center',
-    borderRadius: radius.md,
   },
   dragHandle: {
-    width: 36,
-    height: 36,
+    width: 44,
+    height: 44,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -687,42 +599,23 @@ const styles = StyleSheet.create({
     width: '100%',
     maxWidth: 400,
     borderRadius: radius.lg,
-    borderWidth: 1,
+    borderCurve: 'continuous',
     padding: space[4],
-  },
-  modalHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: space[2],
-    marginBottom: space[3],
-  },
-  modalTitle: {
-    fontSize: 18,
-    fontWeight: '500',
+    gap: space[4],
   },
   modalBookRow: {
     flexDirection: 'row',
     alignItems: 'center',
+    gap: space[3],
     paddingBottom: space[3],
     borderBottomWidth: 1,
-    marginBottom: space[3],
-  },
-  modalBookTitle: {
-    fontFamily: fontFamilies.displayMedium,
-    fontSize: 16,
-  },
-  presetLabel: {
-    fontSize: 12,
-    fontWeight: '500',
-    marginBottom: space[2],
   },
   presetsRow: {
     flexDirection: 'row',
     gap: space[2],
-    marginBottom: space[2],
   },
   modalInput: {
-    height: 44,
+    minHeight: 48,
     borderWidth: 1,
     borderRadius: radius.md,
     paddingHorizontal: space[3],
@@ -733,6 +626,5 @@ const styles = StyleSheet.create({
   modalActionRow: {
     flexDirection: 'row',
     gap: space[3],
-    marginTop: space[4],
   },
 });

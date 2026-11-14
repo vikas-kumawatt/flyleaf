@@ -24,7 +24,7 @@ import {
   type NotificationRow,
 } from '@/lib/notifications';
 import { enablePush, pushPermissionGranted } from '@/lib/push';
-import { EmptyState, Screen, Txt, sheet, SkeletonList } from '@/ui/components';
+import { Button, EmptyState, Screen, Txt, sheet, SkeletonList } from '@/ui/components';
 import { radius, space, useTheme } from '@/ui/tokens';
 import { Ionicons } from '@expo/vector-icons';
 
@@ -148,7 +148,7 @@ export default function NotificationsScreen() {
         accessibilityLabel={`${n.read ? '' : 'Unread. '}${n.text}`}
         style={({ pressed }) => [
           styles.row,
-          { backgroundColor: pressed ? c.surface2 : n.read ? c.ground : c.surface, borderBottomColor: c.line },
+          { backgroundColor: pressed ? c.surface2 : c.ground, borderBottomColor: c.line },
         ]}
       >
         <View style={[styles.avatar, { backgroundColor: c.surface2, borderColor: c.line }]}>
@@ -165,7 +165,7 @@ export default function NotificationsScreen() {
           )}
         </View>
         <View style={{ flex: 1, gap: 2 }}>
-          <Txt variant="body" numberOfLines={3}>
+          <Txt variant="body" numberOfLines={3} style={n.read ? undefined : { fontWeight: '500' }}>
             {n.text}
           </Txt>
           <Txt variant="caption" color="muted">
@@ -216,15 +216,17 @@ export default function NotificationsScreen() {
       </View>
 
       {pushOff ? (
-        <Pressable
-          onPress={async () => setPushOff(!(await enablePush()))}
-          accessibilityRole="button"
-          style={[styles.banner, { backgroundColor: c.surface2 }]}
-        >
-          <Txt variant="caption" color="ink2">
-            Push notifications are off on this device. Tap to turn them on.
+        <View style={[styles.banner, { backgroundColor: c.surface2 }]}>
+          <Txt variant="caption" color="ink2" style={{ flex: 1 }}>
+            Push notifications are off on this device.
           </Txt>
-        </Pressable>
+          <Button
+            label="Turn on"
+            variant="secondary"
+            size="sm"
+            onPress={async () => setPushOff(!(await enablePush()))}
+          />
+        </View>
       ) : null}
 
       {loading ? (
@@ -232,7 +234,8 @@ export default function NotificationsScreen() {
       ) : error && items.length === 0 ? (
         <EmptyState
           title="Couldn't load notifications"
-          subtitle="Check your connection and pull to try again"
+          subtitle="Check your connection and try again."
+          action={<Button label="Try again" variant="secondary" onPress={() => void load()} />}
         />
       ) : (
         <FlashList
@@ -276,13 +279,13 @@ const styles = StyleSheet.create({
     gap: space[3],
     paddingHorizontal: space[4],
     paddingVertical: space[3],
-    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomWidth: 1,
     minHeight: 64,
   },
   avatar: {
     width: 40,
     height: 40,
-    borderRadius: 20,
+    borderRadius: radius.pill,
     borderWidth: 1,
     alignItems: 'center',
     justifyContent: 'center',
@@ -290,5 +293,11 @@ const styles = StyleSheet.create({
   },
   avatarImage: { width: 40, height: 40 },
   dot: { width: 8, height: 8, borderRadius: radius.pill },
-  banner: { paddingHorizontal: space[4], paddingVertical: space[3] },
+  banner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: space[3],
+    paddingHorizontal: space[4],
+    paddingVertical: space[2],
+  },
 });

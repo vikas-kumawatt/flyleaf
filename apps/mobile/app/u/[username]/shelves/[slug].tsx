@@ -5,13 +5,12 @@
 // 3. Gracefully handles 404 / private accounts with clear error state.
 
 import React, { useEffect, useState } from 'react';
-import { View, StyleSheet, Pressable } from 'react-native';
+import { StyleSheet } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { Ionicons } from '@expo/vector-icons';
 import { api } from '@/lib/api';
-import { Screen, Txt, Button, SkeletonHeader, SkeletonList } from '@/ui/components';
-import { useTheme, space, radius } from '@/ui/tokens';
+import { Screen, Button, EmptyState, SkeletonHeader, SkeletonList } from '@/ui/components';
+import { useTheme, space } from '@/ui/tokens';
 
 export default function UserShelfDeepLinkScreen() {
   const c = useTheme();
@@ -71,21 +70,18 @@ export default function UserShelfDeepLinkScreen() {
 
   return (
     <Screen style={[styles.center, { backgroundColor: c.ground, padding: space[4] }]}>
-      <View style={[styles.errorCard, { backgroundColor: c.surface, borderColor: c.line }]}>
-        <Ionicons name="book-outline" size={32} color={c.muted} style={{ marginBottom: space[3] }} />
-        <Txt variant="title" style={{ color: c.ink, textAlign: 'center', marginBottom: space[2] }}>
-          Shelf not available
-        </Txt>
-        <Txt style={{ color: c.muted, textAlign: 'center', marginBottom: space[4] }}>
-          {error}
-        </Txt>
-        <Button
-          variant="primary"
-          label="Browse shelves"
-          onPress={() => router.replace('/(tabs)/shelves' as any)}
-          style={{ width: '100%' }}
-        />
-      </View>
+      {/* What happened, and one way on: no card around it, the page is the frame */}
+      <EmptyState
+        title="Shelf not available"
+        subtitle={error ?? undefined}
+        action={
+          <Button
+            variant="primary"
+            label="Browse shelves"
+            onPress={() => router.replace('/(tabs)/shelves' as any)}
+          />
+        }
+      />
     </Screen>
   );
 }
@@ -95,13 +91,5 @@ const styles = StyleSheet.create({
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
-  },
-  errorCard: {
-    width: '100%',
-    maxWidth: 400,
-    padding: space[6],
-    borderRadius: radius.lg,
-    borderWidth: 1,
-    alignItems: 'center',
   },
 });

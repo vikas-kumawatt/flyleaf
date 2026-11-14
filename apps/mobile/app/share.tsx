@@ -6,7 +6,7 @@
 // Opened with ?options=<JSON ShareOption[]> (src/lib/shareCard.ts).
 
 import React, { useEffect, useMemo, useState } from 'react';
-import { ActivityIndicator, Image, Pressable, ScrollView, View } from 'react-native';
+import { Image, Pressable, ScrollView, View } from 'react-native';
 import { useLocalSearchParams } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as Haptics from 'expo-haptics';
@@ -15,7 +15,7 @@ import { File, Paths } from 'expo-file-system';
 import { api } from '@/lib/api';
 import { track } from '@/lib/events';
 import { cardFileName, parseShareOptions, pngBytes, shareErrorMessage, shareEvents } from '@/lib/shareCard';
-import { Button, Screen, Txt } from '@/ui/components';
+import { Button, Screen, Skeleton, Txt } from '@/ui/components';
 import { ScreenHeader } from '@/ui/ScreenHeader';
 import { radius, space, useTheme } from '@/ui/tokens';
 
@@ -93,8 +93,8 @@ export default function SharePreviewScreen() {
                 accessibilityRole="tab"
                 accessibilityState={{ selected: i === index }}
                 style={{
-                  paddingHorizontal: space[3], minHeight: 36, justifyContent: 'center', borderRadius: radius.sm, borderWidth: 1,
-                  backgroundColor: i === index ? c.surface : c.surface2, borderColor: i === index ? c.lineStrong : c.line,
+                  paddingHorizontal: space[3], minHeight: 44, justifyContent: 'center', borderRadius: radius.md, borderWidth: 1,
+                  backgroundColor: i === index ? c.surface2 : 'transparent', borderColor: i === index ? c.lineStrong : c.line,
                 }}
               >
                 <Txt variant="caption" color={i === index ? 'ink' : 'ink2'} style={{ fontWeight: i === index ? '500' : '400' }}>
@@ -109,11 +109,14 @@ export default function SharePreviewScreen() {
         <View
           style={{
             width: '86%', aspectRatio: 1080 / 1920, borderRadius: radius.lg, overflow: 'hidden',
-            backgroundColor: c.surface2, borderWidth: 1, borderColor: c.line, alignItems: 'center', justifyContent: 'center',
+            backgroundColor: c.surface2, alignItems: 'center', justifyContent: 'center',
           }}
         >
           {loading ? (
-            <ActivityIndicator color={c.muted} />
+            // Card-shaped placeholder: the pulse stands in for the image.
+            <View accessible accessibilityLabel="Loading" accessibilityState={{ busy: true }} style={{ alignSelf: 'stretch', flex: 1 }}>
+              <Skeleton width="100%" height={0} borderRadius={0} style={{ flex: 1 }} />
+            </View>
           ) : uri ? (
             <Image source={{ uri }} style={{ width: '100%', height: '100%' }} resizeMode="contain" accessibilityLabel="The card you are about to share" />
           ) : (
@@ -126,7 +129,7 @@ export default function SharePreviewScreen() {
         <Txt variant="caption" color="muted" style={{ textAlign: 'center', maxWidth: 320 }}>
           Cards count your public reads only, so a figure here can be smaller than the one on your screen.
         </Txt>
-        <Button label="Share" onPress={share} disabled={!uri || sharing} loading={sharing} />
+        <Button label="Share" onPress={share} disabled={!uri || sharing} loading={sharing} style={{ alignSelf: 'stretch' }} />
       </ScrollView>
     </Screen>
   );

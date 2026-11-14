@@ -15,7 +15,6 @@ import {
   Pressable,
   TextInput,
   KeyboardAvoidingView,
-  Platform,
   Alert,
   } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
@@ -30,8 +29,8 @@ import { useSession } from '@/lib/session';
 import type { LocalRead } from '@/offline/schema';
 import { budgetTracker } from '@/lib/budgetTracker';
 import { buildReviewPayload, canReview } from '@/lib/reviewPayload';
-import { Button, Card, Cover, Heart, Screen, SegmentedControl, Stars, Txt, sheet, Toggle } from '@/ui/components';
-import { fontFamilies, radius, space, type, useTheme } from '@/ui/tokens';
+import { Button, Cover, Heart, Screen, SegmentedControl, Stars, Txt, sheet, Toggle } from '@/ui/components';
+import { radius, space, type, useTheme } from '@/ui/tokens';
 
 export default function ReviewComposerScreen() {
   const c = useTheme();
@@ -269,8 +268,8 @@ export default function ReviewComposerScreen() {
             await SecureStore.deleteItemAsync(draftKey).catch(() => {});
             router.back();
           }},
-          { text: 'Keep Draft & Exit', onPress: () => router.back() },
-          { text: 'Continue Writing', style: 'cancel' },
+          { text: 'Keep draft and exit', onPress: () => router.back() },
+          { text: 'Continue writing', style: 'cancel' },
         ],
       );
     } else {
@@ -290,7 +289,7 @@ export default function ReviewComposerScreen() {
     <Screen>
       <KeyboardAvoidingView
         style={{ flex: 1 }}
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        behavior="padding"
       >
         {/* Header bar */}
         <View
@@ -310,15 +309,15 @@ export default function ReviewComposerScreen() {
             onPress={handleCancel}
             accessibilityRole="button"
             accessibilityLabel="Close composer"
-            hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+            style={{ minHeight: 44, minWidth: 64, justifyContent: 'center' }}
           >
-            <Txt variant="body" color="muted">
+            <Txt variant="body" color="ink2">
               Cancel
             </Txt>
           </Pressable>
 
-          <View style={{ alignItems: 'center' }}>
-            <Txt variant="body" style={{ fontWeight: '500' }}>
+          <View style={{ alignItems: 'center', flexShrink: 1 }}>
+            <Txt variant="title" numberOfLines={1}>
               {editing ? 'Edit review' : 'Write a review'}
             </Txt>
             {draftSavedToast && (
@@ -331,6 +330,7 @@ export default function ReviewComposerScreen() {
           <Button
             label="Post"
             variant="primary"
+            size="sm"
             onPress={handlePost}
             loading={submitting}
             disabled={submitting || body.trim().length === 0 || isOver}
@@ -345,8 +345,19 @@ export default function ReviewComposerScreen() {
           }}
           keyboardShouldPersistTaps="handled"
         >
-          {/* 1. Book Context Strip */}
-          <Card style={{ flexDirection: 'row', alignItems: 'center', gap: space[3] }}>
+          {/* 1. Book Context Strip: a ruled row, not a card */}
+          <View
+            style={[
+              sheet.row,
+              {
+                gap: space[3],
+                paddingVertical: space[3],
+                borderTopWidth: 1,
+                borderBottomWidth: 1,
+                borderColor: c.line,
+              },
+            ]}
+          >
             <Cover
               coverId={displayCoverId}
               title={displayTitle}
@@ -354,7 +365,7 @@ export default function ReviewComposerScreen() {
               size="s"
             />
             <View style={{ flex: 1, gap: space[1] }}>
-              <Txt variant="title" style={{ fontFamily: fontFamilies.displayMedium }} numberOfLines={2}>
+              <Txt variant="title" numberOfLines={2}>
                 {displayTitle}
               </Txt>
               {displayAuthor ? (
@@ -363,7 +374,7 @@ export default function ReviewComposerScreen() {
                 </Txt>
               ) : null}
             </View>
-          </Card>
+          </View>
 
           {!loading && (!readId || !canReview(readStatus)) && (
             <Txt variant="caption" color="critical">
@@ -372,8 +383,8 @@ export default function ReviewComposerScreen() {
           )}
 
           {/* 2. Rating & Heart Row (SL-60, SL-61) */}
-          <Card style={{ gap: space[2] }}>
-            <Txt variant="micro" color="muted">
+          <View style={{ gap: space[2] }}>
+            <Txt variant="micro" color="ink2">
               Rating and heart
             </Txt>
             <View style={[sheet.row, { justifyContent: 'space-between' }]}>
@@ -394,12 +405,12 @@ export default function ReviewComposerScreen() {
                 size={32}
               />
             </View>
-          </Card>
+          </View>
 
           {/* 3. Review Body Input with character counter */}
-          <Card style={{ gap: space[2] }}>
+          <View style={{ gap: space[2] }}>
             <View style={[sheet.row, { justifyContent: 'space-between' }]}>
-              <Txt variant="micro" color="muted">
+              <Txt variant="micro" color="ink2">
                 Your review
               </Txt>
               <Txt
@@ -420,20 +431,24 @@ export default function ReviewComposerScreen() {
               textAlignVertical="top"
               style={{
                 minHeight: 180,
+                paddingHorizontal: space[3],
+                paddingVertical: space[3],
+                borderRadius: radius.md,
+                borderWidth: 1,
+                borderColor: c.lineStrong,
+                backgroundColor: c.surface,
                 ...type.bodyL,
                 color: c.ink,
               }}
               accessibilityLabel="Review text body"
             />
-          </Card>
+          </View>
 
           {/* 4. Spoiler Gate (PRD §6.27, §10.6) */}
-          <Card style={{ gap: space[3] }}>
+          <View style={{ gap: space[3], paddingTop: space[3], borderTopWidth: 1, borderTopColor: c.line }}>
             <View style={[sheet.row, { justifyContent: 'space-between' }]}>
               <View style={{ flex: 1, gap: space[1] }}>
-                <Txt variant="body" style={{ fontWeight: '500' }}>
-                  Contains spoilers
-                </Txt>
+                <Txt variant="body">Contains spoilers</Txt>
                 <Txt variant="caption" color="muted">
                   Readers tap to reveal the text
                 </Txt>
@@ -450,15 +465,13 @@ export default function ReviewComposerScreen() {
             {hasSpoilers && (
               <View
                 style={{
-                  borderTopWidth: 1,
-                  borderTopColor: c.line,
-                  paddingTop: space[3],
                   flexDirection: 'row',
                   alignItems: 'center',
                   justifyContent: 'space-between',
+                  gap: space[3],
                 }}
               >
-                <Txt variant="caption" color="muted">
+                <Txt variant="caption" color="muted" style={{ flex: 1 }}>
                   Spoilers start after page
                 </Txt>
                 <TextInput
@@ -469,23 +482,24 @@ export default function ReviewComposerScreen() {
                   keyboardType="number-pad"
                   style={{
                     borderWidth: 1,
-                    borderColor: c.line,
-                    borderRadius: radius.sm,
+                    borderColor: c.lineStrong,
+                    borderRadius: radius.md,
                     paddingHorizontal: space[3],
-                    paddingVertical: space[1],
+                    minHeight: 44,
                     color: c.ink,
-                    width: 88,
+                    width: 96,
                     textAlign: 'center',
-                    backgroundColor: c.surface2,
+                    backgroundColor: c.surface,
+                    ...type.body,
                   }}
                 />
               </View>
             )}
-          </Card>
+          </View>
 
           {/* 5. Visibility Selector (PRD §10.5) */}
-          <Card style={{ gap: space[3] }}>
-            <Txt variant="micro" color="muted">
+          <View style={{ gap: space[3], paddingTop: space[3], borderTopWidth: 1, borderTopColor: c.line }}>
+            <Txt variant="micro" color="ink2">
               Visibility
             </Txt>
             <SegmentedControl
@@ -498,14 +512,14 @@ export default function ReviewComposerScreen() {
                 private: 'Private',
               }}
             />
-            <Txt variant="micro" color="muted">
+            <Txt variant="caption" color="muted">
               {visibility === 'public'
                 ? 'Anyone can see it on the book page and in feeds'
                 : visibility === 'followers'
                 ? 'Only people who follow you can see it'
                 : 'Only you can see it, never in feeds or on book pages'}
             </Txt>
-          </Card>
+          </View>
         </ScrollView>
       </KeyboardAvoidingView>
     </Screen>

@@ -16,7 +16,6 @@ import * as Haptics from 'expo-haptics';
 import { api, type PendingFollowRequest } from '@/lib/api';
 import {
   Button,
-  Card,
   EmptyState,
   Screen,
   Txt,
@@ -31,6 +30,7 @@ export default function FollowRequestsScreen() {
 
   const [requests, setRequests] = useState<PendingFollowRequest[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadFailed, setLoadFailed] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [processingId, setProcessingId] = useState<string | null>(null);
 
@@ -39,8 +39,10 @@ export default function FollowRequestsScreen() {
       setLoading(true);
       const res = await api.getPendingFollowRequests();
       setRequests(res.requests);
+      setLoadFailed(false);
     } catch {
-      // Ignore network errors on pull
+      // Network errors keep the list as it was; the error state below offers a retry when it is empty.
+      setLoadFailed(true);
     } finally {
       setLoading(false);
     }
@@ -130,16 +132,31 @@ export default function FollowRequestsScreen() {
       >
         {loading && requests.length === 0 ? (
           <SkeletonList lead="avatar" style={{ paddingHorizontal: 0, paddingTop: 0 }} />
+        ) : requests.length === 0 && loadFailed ? (
+          <EmptyState
+            title="Could not load follow requests"
+            subtitle="Check your connection and try again."
+            action={<Button label="Try again" variant="primary" onPress={() => void fetchRequests()} />}
+          />
         ) : requests.length === 0 ? (
           <EmptyState
             title="No pending requests"
             subtitle="When people request to follow your account, their requests will show up here"
           />
         ) : (
-          requests.map((item) => {
+          <View>
+          {requests.map((item, index) => {
             const isBusy = processingId === item.id;
             return (
-              <Card key={item.id} style={{ padding: space[4], gap: space[3] }}>
+              <View
+                key={item.id}
+                style={{
+                  paddingVertical: space[4],
+                  gap: space[3],
+                  borderTopWidth: index ? 1 : 0,
+                  borderTopColor: c.line,
+                }}
+              >
                 <View style={[sheet.rowTop, { gap: space[3] }]}>
                   {/* Avatar */}
                   <Pressable
@@ -208,9 +225,10 @@ export default function FollowRequestsScreen() {
                     disabled={isBusy}
                   />
                 </View>
-              </Card>
+              </View>
             );
-          })
+          })}
+          </View>
         )}
       </ScrollView>
     </Screen>
@@ -221,7 +239,7 @@ const styles = StyleSheet.create({
   avatar: {
     width: 44,
     height: 44,
-    borderRadius: 22,
+    borderRadius: radius.pill,
     alignItems: 'center',
     justifyContent: 'center',
     borderWidth: 1,

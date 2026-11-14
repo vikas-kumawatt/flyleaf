@@ -43,11 +43,12 @@ import {
   type ReadingStats,
   type GoalResponse,
 } from '@/lib/api';
-import { Button, Card, Cover, EmptyState, ProgressBar, Screen, Txt, sheet, Skeleton } from '@/ui/components';
-import { radius, space, useTheme } from '@/ui/tokens';
+import { Button, Cover, EmptyState, ProgressBar, Screen, Txt, sheet, Skeleton } from '@/ui/components';
+import { familyFor, fontFamilies, radius, space, useTheme } from '@/ui/tokens';
 import { Ionicons } from '@expo/vector-icons';
 import { GoalRing } from '@/ui/GoalRing';
 import { GoalSheet } from '@/ui/GoalSheet';
+import { StatStrip } from '@/ui/StatCard';
 import { deviceTimeZone, goalRingModel, streakCopy } from '@/lib/statsView';
 
 export default function ProfileScreen() {
@@ -209,9 +210,7 @@ export default function ProfileScreen() {
         }}
       >
         <View style={sheet.rowBetween}>
-          <Txt variant="displayL">
-            Profile
-          </Txt>
+          <Txt variant="displayL">Profile</Txt>
           <Button
             label="Settings"
             variant="tertiary"
@@ -269,87 +268,87 @@ export default function ProfileScreen() {
                 </Pressable>
 
                 {/* Identity Info */}
-                <View style={{ flex: 1, gap: 2 }}>
-                  <View style={sheet.row}>
-                    <Txt variant="title" style={{ fontSize: 17, fontWeight: '500' }} numberOfLines={1}>
-                      {profile?.displayName || user.username}
-                    </Txt>
+                <View style={{ flex: 1, gap: space[1] }}>
+                  <View style={[sheet.row, { gap: space[2] }]}>
+                    <View style={{ flexShrink: 1 }}>
+                      <Txt variant="displayM" numberOfLines={2}>
+                        {profile?.displayName || user.username}
+                      </Txt>
+                    </View>
                     {profile?.isPrivate && (
                       <Ionicons
                         name="lock-closed-outline"
                         size={16}
                         color={c.muted}
-                        style={{ marginLeft: space[2] }}
                         accessibilityLabel="Private account"
                       />
                     )}
                   </View>
 
-                  <Txt variant="caption" color="muted">
+                  <Txt variant="caption" color="muted" numberOfLines={1}>
                     @{user.username}
                   </Txt>
-
-                  {/* Follower / Following count */}
-                  <View style={[sheet.row, { gap: space[3], marginTop: space[1] }]}>
-                    <Pressable
-                      onPress={() => {
-                        if (user?.id) {
-                          router.push(`/user/${user.id}/followers` as any);
-                        }
-                      }}
-                    >
-                      <Txt variant="caption">
-                        <Txt variant="caption" style={{ fontWeight: '500' }}>
-                          {profile?.followerCount ?? 0}
-                        </Txt>{' '}
-                        followers
-                      </Txt>
-                    </Pressable>
-                    <Pressable
-                      onPress={() => {
-                        if (user?.id) {
-                          router.push(`/user/${user.id}/following` as any);
-                        }
-                      }}
-                    >
-                      <Txt variant="caption">
-                        <Txt variant="caption" style={{ fontWeight: '500' }}>
-                          {profile?.followingCount ?? 0}
-                        </Txt>{' '}
-                        following
-                      </Txt>
-                    </Pressable>
-                  </View>
                 </View>
+              </View>
+
+              {/* Counts */}
+              <View style={[sheet.row, { gap: space[6], flexWrap: 'wrap' }]}>
+                <Pressable
+                  onPress={() => {
+                    if (user?.id) {
+                      router.push(`/user/${user.id}/followers` as any);
+                    }
+                  }}
+                  accessibilityRole="button"
+                  style={[sheet.row, { gap: space[1], minHeight: 44 }]}
+                >
+                  <Txt variant="body" tabular style={{ fontWeight: '500' }}>
+                    {profile?.followerCount ?? 0}
+                  </Txt>
+                  <Txt variant="body" color="ink2">
+                    followers
+                  </Txt>
+                </Pressable>
+                <Pressable
+                  onPress={() => {
+                    if (user?.id) {
+                      router.push(`/user/${user.id}/following` as any);
+                    }
+                  }}
+                  accessibilityRole="button"
+                  style={[sheet.row, { gap: space[1], minHeight: 44 }]}
+                >
+                  <Txt variant="body" tabular style={{ fontWeight: '500' }}>
+                    {profile?.followingCount ?? 0}
+                  </Txt>
+                  <Txt variant="body" color="ink2">
+                    following
+                  </Txt>
+                </Pressable>
               </View>
 
               {/* Bio */}
               {profile?.bio ? (
-                <Txt variant="body" style={{ lineHeight: 20 }}>
-                  {profile.bio}
-                </Txt>
+                <Txt variant="body">{profile.bio}</Txt>
               ) : (
                 <Txt variant="caption" color="muted">
                   No bio yet · Edit profile to add one
                 </Txt>
               )}
 
-              {/* Action Bar */}
-              <View style={[sheet.row, { gap: space[2] }]}>
+              {/* One action: edit. Sharing is a quiet text action beside it. */}
+              <View style={[sheet.row, { gap: space[2], flexWrap: 'wrap' }]}>
                 <Button
                   label="Edit profile"
-                  variant="outline"
-                  size="sm"
+                  variant="secondary"
                   onPress={() => {
                     void Haptics.selectionAsync();
                     setEditModalVisible(true);
                   }}
-                  style={{ flex: 1 }}
                 />
                 <Button
                   label="Share profile"
-                  variant="outline"
-                  size="sm"
+                  variant="tertiary"
                   onPress={() => {
                     void Haptics.selectionAsync();
                     // The profile card (PRD §6.45), or the link to the
@@ -367,7 +366,6 @@ export default function ProfileScreen() {
                       { text: 'Cancel', style: 'cancel' },
                     ]);
                   }}
-                  style={{ flex: 1 }}
                 />
               </View>
             </View>
@@ -375,13 +373,13 @@ export default function ProfileScreen() {
             {loading && !profile ? (
               // First load: favourites and stats as their shapes (design.md §5).
               <View
-                style={{ gap: space[4] }}
+                style={{ gap: space[6] }}
                 accessible
                 accessibilityLabel="Loading your profile"
                 accessibilityState={{ busy: true }}
               >
-                <View style={{ gap: space[2] }}>
-                  <Skeleton width={140} height={16} />
+                <View style={{ gap: space[3] }}>
+                  <Skeleton width={140} height={24} />
                   <View style={{ flexDirection: 'row', gap: space[2] }}>
                     {[0, 1, 2, 3].map((k) => (
                       <View key={k} style={{ flex: 1, aspectRatio: 2 / 3 }}>
@@ -390,246 +388,178 @@ export default function ProfileScreen() {
                     ))}
                   </View>
                 </View>
-                <View style={{ gap: space[2] }}>
-                  <Skeleton width={120} height={16} />
-                  <View style={{ flexDirection: 'row', gap: space[3] }}>
-                    {[0, 1, 2].map((k) => (
-                      <View key={k} style={{ flex: 1, padding: space[4], gap: space[2], borderRadius: radius.lg, borderWidth: 1, borderColor: c.line }}>
-                        <Skeleton width={40} height={24} />
-                        <Skeleton width="70%" height={12} />
-                      </View>
-                    ))}
-                  </View>
+                <View style={{ gap: space[3] }}>
+                  <Skeleton width={120} height={24} />
+                  <Skeleton width="100%" height={72} borderRadius={radius.lg} />
                 </View>
               </View>
             ) : (
               <>
-              {/* 2. FAVOURITES SECTION (Taste before volume) */}
-              <View style={{ gap: space[2] }}>
-                <View style={sheet.rowBetween}>
-                  <Txt variant="title">
-                    Defining favourites
-                  </Txt>
-                  <Pressable
-                    onPress={() => {
+                {/* 2. FAVOURITES (taste before volume) */}
+                <Section
+                  title="Favourites"
+                  action={{
+                    label: 'Edit',
+                    accessibilityLabel: 'Edit favourites',
+                    onPress: () => {
                       void Haptics.selectionAsync();
                       router.push('/profile/favourites' as any);
-                    }}
-                    hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
-                  >
-                    <Txt variant="caption" color="accent" style={{ fontWeight: '500' }}>
-                      Edit
-                    </Txt>
-                  </Pressable>
-                </View>
+                    },
+                  }}
+                >
+                  <View style={styles.favouritesRow}>
+                    {[0, 1, 2, 3].map((idx) => {
+                      const fav = profile?.favourites?.[idx];
+                      if (fav) {
+                        return (
+                          <Pressable
+                            key={fav.id}
+                            onPress={() => {
+                              void Haptics.selectionAsync();
+                              router.push(`/work/${fav.id}` as any);
+                            }}
+                            style={styles.favItem}
+                            accessibilityRole="button"
+                            accessibilityLabel={fav.title}
+                          >
+                            <View style={styles.favCover}>
+                              <Cover coverId={fav.cover_id} title={fav.title} size="fluid" />
+                            </View>
+                            <Txt
+                              variant="caption"
+                              numberOfLines={2}
+                              style={{ fontFamily: fontFamilies.displayRegular, marginTop: space[1] }}
+                            >
+                              {fav.title}
+                            </Txt>
+                          </Pressable>
+                        );
+                      }
 
-                {/* 4 Favourite book covers */}
-                <View style={styles.favouritesRow}>
-                  {[0, 1, 2, 3].map((idx) => {
-                    const fav = profile?.favourites?.[idx];
-                    if (fav) {
                       return (
                         <Pressable
-                          key={fav.id}
+                          key={`empty-${idx}`}
                           onPress={() => {
                             void Haptics.selectionAsync();
-                            router.push(`/work/${fav.id}` as any);
+                            router.push('/profile/favourites' as any);
                           }}
-                          style={styles.favFilled}
+                          style={styles.favItem}
                           accessibilityRole="button"
-                          accessibilityLabel={fav.title}
+                          accessibilityLabel="Add favourite book"
                         >
-                          {/* The cover keeps the 2:3 box; the title sits under it, inside the row's height. */}
-                          <View style={styles.favCover}>
-                            <Cover coverId={fav.cover_id} title={fav.title} size="fluid" />
+                          <View style={[styles.favCover, styles.emptyFavSlot, { backgroundColor: c.surface2 }]}>
+                            <Ionicons name="add-outline" size={22} color={c.muted} />
                           </View>
-                          <Txt variant="caption" numberOfLines={1} style={{ marginTop: space[2] }}>
-                            {fav.title}
-                          </Txt>
                         </Pressable>
                       );
-                    }
+                    })}
+                  </View>
+                </Section>
 
-                    return (
-                      <Pressable
-                        key={`empty-${idx}`}
-                        onPress={() => {
-                          void Haptics.selectionAsync();
-                          router.push('/profile/favourites' as any);
-                        }}
-                        style={[
-                          styles.favItem,
-                          styles.emptyFavSlot,
-                          { borderColor: c.line, backgroundColor: c.surface },
-                        ]}
-                        accessibilityRole="button"
-                        accessibilityLabel="Add favourite book"
-                      >
-                        <Txt variant="title" color="muted" style={{ fontSize: 17 }}>
-                          +
-                        </Txt>
-                        <Txt variant="caption" color="muted">
-                          Slot {idx + 1}
-                        </Txt>
-                      </Pressable>
-                    );
-                  })}
-                </View>
-              </View>
-
-              {/* 3. READING STATS STRIP */}
-              <View style={{ gap: space[2] }}>
-                <View style={sheet.rowBetween}>
-                  <Txt variant="title">
-                    {stats?.year ? `Reading in ${stats.year}` : 'Reading stats'}
-                  </Txt>
-                  <Pressable
+                {/* 3. READING STATS STRIP */}
+                <Section
+                  title={stats?.year ? `Reading in ${stats.year}` : 'Reading stats'}
+                  action={{
+                    label: 'Full stats',
+                    onPress: () => {
+                      void Haptics.selectionAsync();
+                      router.push('/stats' as any);
+                    },
+                  }}
+                >
+                  <StatStrip
                     onPress={() => {
                       void Haptics.selectionAsync();
                       router.push('/stats' as any);
                     }}
-                    hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
-                  >
-                    <Txt variant="caption" color="accent" style={{ fontWeight: '500' }}>
-                      Full stats
-                    </Txt>
-                  </Pressable>
-                </View>
+                    figures={[
+                      { value: String(stats?.books_count ?? finishedReads.length), label: (stats?.books_count ?? finishedReads.length) === 1 ? 'book read' : 'books read' },
+                      { value: (stats?.pages_count ?? 0).toLocaleString(), label: 'pages tracked' },
+                      {
+                        value: stats?.avg_rating ? stats.avg_rating.toFixed(1) : '—',
+                        label: 'avg rating',
+                        star: Boolean(stats?.avg_rating),
+                      },
+                    ]}
+                  />
 
-                <Pressable
-                  onPress={() => {
-                    void Haptics.selectionAsync();
-                    router.push('/stats' as any);
-                  }}
-                >
-                  <View style={[sheet.row, { gap: space[2] }]}>
-                    <Card style={{ flex: 1, alignItems: 'center', padding: space[3] }}>
-                      <Txt variant="title" tabular style={{ fontSize: 24, lineHeight: 28 }}>
-                        {stats?.books_count ?? finishedReads.length}
-                      </Txt>
-                      <Txt variant="caption" color="muted">
-                        books read
-                      </Txt>
-                    </Card>
-
-                    <Card style={{ flex: 1, alignItems: 'center', padding: space[3] }}>
-                      <Txt variant="title" tabular style={{ fontSize: 24, lineHeight: 28 }}>
-                        {(stats?.pages_count ?? 0).toLocaleString()}
-                      </Txt>
-                      <Txt variant="caption" color="muted">
-                        pages tracked
-                      </Txt>
-                    </Card>
-
-                    <Card style={{ flex: 1, alignItems: 'center', padding: space[3] }}>
-                      <View style={[sheet.row, { gap: space[1] }]}>
-                        {stats?.avg_rating ? <Ionicons name="star" size={16} color={c.star} /> : null}
-                        <Txt variant="title" tabular style={{ fontSize: 24, lineHeight: 28 }}>
-                          {stats?.avg_rating ? stats.avg_rating.toFixed(1) : '—'}
-                        </Txt>
-                      </View>
-                      <Txt variant="caption" color="muted">
-                        avg rating
-                      </Txt>
-                    </Card>
-                  </View>
-                </Pressable>
-
-                {/* Streak (§8.7: a broken one shows as the longest, never as a loss; nothing at all
-                    for a reader who never logs progress) and the goal ring (§8.6). */}
-                <View style={[sheet.row, { gap: space[2] }]}>
-                  {streak && (
-                    <Card style={{ flex: 1, padding: space[3], justifyContent: 'center' }}>
-                      <Txt variant="title" tabular style={{ fontSize: 24, lineHeight: 28 }}>
-                        {streak.hero}
-                      </Txt>
-                      <Txt variant="caption" color="muted">
-                        {streak.label}
-                      </Txt>
-                      {streak.detail && (
-                        <Txt variant="caption" color="muted">
-                          {streak.detail}
-                        </Txt>
-                      )}
-                    </Card>
-                  )}
-                  <Card style={{ padding: space[3], alignItems: 'center', justifyContent: 'center' }}>
-                    <GoalRing
-                      model={goalRingModel(goal)}
-                      emptyLabel="Set goal"
-                      onPress={() => {
-                        void Haptics.selectionAsync();
-                        setGoalSheetVisible(true);
-                      }}
-                    />
-                  </Card>
-                </View>
-              </View>
-
+                  {/* Streak (§8.7: a broken one shows as the longest, never as a loss; nothing at all
+                      for a reader who never logs progress) and the goal ring (§8.6). */}
+                  <StatStrip
+                    figures={streak ? [{ value: streak.hero, label: streak.label, detail: streak.detail ?? undefined }] : []}
+                    trailing={
+                      <GoalRing
+                        model={goalRingModel(goal)}
+                        emptyLabel="Set goal"
+                        onPress={() => {
+                          void Haptics.selectionAsync();
+                          setGoalSheetVisible(true);
+                        }}
+                      />
+                    }
+                  />
+                </Section>
               </>
             )}
 
-            {/* 4. CURRENTLY READING SHELF */}
+            {/* 4. CURRENTLY READING */}
             {currentlyReading.length > 0 && (
-              <View style={{ gap: space[2] }}>
-                <Txt variant="title">
-                  Currently reading <Txt variant="title" color="muted" tabular>{currentlyReading.length}</Txt>
-                </Txt>
-
-                <View style={{ gap: space[2] }}>
-                  {currentlyReading.slice(0, 2).map((r) => {
+              <Section title="Currently reading" count={currentlyReading.length}>
+                <View>
+                  {currentlyReading.slice(0, 2).map((r, index) => {
                     const pct = r.percent ?? (r.page && r.page_count ? Math.round((r.page / r.page_count) * 100) : 0);
 
                     return (
-                      <Card
+                      <Pressable
                         key={r.id}
                         onPress={() => router.push(`/work/${r.work_id}` as any)}
-                        style={{ padding: space[3] }}
+                        accessibilityRole="button"
+                        style={({ pressed }) => [
+                          sheet.rowTop,
+                          {
+                            gap: space[3],
+                            paddingVertical: space[3],
+                            borderTopWidth: index ? 1 : 0,
+                            borderTopColor: c.line,
+                            backgroundColor: pressed ? c.surface2 : 'transparent',
+                          },
+                        ]}
                       >
-                        <View style={sheet.rowTop}>
-                          <Cover coverId={r.cover_id} title={r.title ?? ''} size="m" />
-                          <View style={{ flex: 1, marginLeft: space[3], gap: 4 }}>
-                            <Txt variant="title" numberOfLines={1}>
-                              {r.title}
+                        <Cover coverId={r.cover_id} title={r.title ?? ''} author={r.author_name ?? undefined} size="s" />
+                        <View style={{ flex: 1, gap: space[1] }}>
+                          <Txt variant="title" numberOfLines={2}>
+                            {r.title}
+                          </Txt>
+                          <Txt variant="caption" color="ink2" numberOfLines={1}>
+                            {r.author_name}
+                          </Txt>
+                          <View style={{ marginTop: space[1], gap: space[1] }}>
+                            <ProgressBar percent={pct} />
+                            <Txt variant="caption" color="muted" tabular>
+                              {r.page ? `Page ${r.page}` : `${pct}% completed`}
                             </Txt>
-                            <Txt variant="caption" color="muted" numberOfLines={1}>
-                              {r.author_name}
-                            </Txt>
-                            <View style={{ marginTop: space[1], gap: 4 }}>
-                              <ProgressBar percent={pct} />
-                              <Txt variant="caption" color="muted">
-                                {r.page ? `Page ${r.page}` : `${pct}% completed`}
-                              </Txt>
-                            </View>
                           </View>
                         </View>
-                      </Card>
+                      </Pressable>
                     );
                   })}
                 </View>
-              </View>
+              </Section>
             )}
 
             {/* 5. THE WALL PREVIEW */}
             {finishedReads.length > 0 && (
-              <View style={{ gap: space[2] }}>
-                <View style={sheet.rowBetween}>
-                  <Txt variant="title">
-                    The wall <Txt variant="title" color="muted" tabular>{finishedReads.length}</Txt>
-                  </Txt>
-                  <Pressable
-                    onPress={() => {
-                      void Haptics.selectionAsync();
-                      router.push('/wall' as any);
-                    }}
-                    hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
-                  >
-                    <Txt variant="caption" color="accent" style={{ fontWeight: '500' }}>
-                      View wall
-                    </Txt>
-                  </Pressable>
-                </View>
-
+              <Section
+                title="The wall"
+                count={finishedReads.length}
+                action={{
+                  label: 'View wall',
+                  onPress: () => {
+                    void Haptics.selectionAsync();
+                    router.push('/wall' as any);
+                  },
+                }}
+              >
                 {/* 6-poster preview grid */}
                 <View style={styles.wallPreviewGrid}>
                   {finishedReads.slice(0, 6).map((r) => (
@@ -647,107 +577,66 @@ export default function ProfileScreen() {
                     </Pressable>
                   ))}
                 </View>
-              </View>
+              </Section>
             )}
 
-            {/* 6. RECENT DIARY PREVIEW */}
-            <View style={{ gap: space[2] }}>
-              <View style={sheet.rowBetween}>
-                <Txt variant="title">
-                  Reading diary
-                </Txt>
-                <Pressable
-                  onPress={() => {
-                    void Haptics.selectionAsync();
-                    router.push('/diary' as any);
-                  }}
-                  hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
-                >
-                  <Txt variant="caption" color="accent" style={{ fontWeight: '500' }}>
-                    Open diary
-                  </Txt>
-                </Pressable>
-              </View>
-
-              <Card
+            {/* 6. DIARY */}
+            <Section
+              title="Diary"
+              action={{
+                label: 'Open diary',
+                onPress: () => {
+                  void Haptics.selectionAsync();
+                  router.push('/diary' as any);
+                },
+              }}
+            >
+              <LinkRow
+                title="Reading journal"
+                subtitle="List, monthly shelves and calendar"
                 onPress={() => {
                   void Haptics.selectionAsync();
                   router.push('/diary' as any);
                 }}
-                style={{ padding: space[3] }}
-              >
-                <View style={sheet.rowBetween}>
-                  <View style={{ gap: 2 }}>
-                    <Txt variant="title" style={{ fontSize: 15, fontWeight: '500' }}>
-                      Reading journal
-                    </Txt>
-                    <Txt variant="caption" color="muted">
-                      List, monthly shelves and calendar
-                    </Txt>
-                  </View>
-                  <Ionicons name="chevron-forward" size={18} color={c.muted} />
-                </View>
-              </Card>
-            </View>
+              />
+            </Section>
 
-            {/* 7. FOLLOW REQUESTS (SO-02, SO-03) */}
-            {profile?.isPrivate && (
-              <Card
-                onPress={() => {
-                  void Haptics.selectionAsync();
-                  router.push('/profile/requests' as any);
-                }}
-                style={{ padding: space[3] }}
-              >
-                <View style={sheet.rowBetween}>
-                  <View style={{ gap: 2 }}>
-                    <Txt variant="title" style={{ fontSize: 15, fontWeight: '500' }}>
-                      Follow requests
-                    </Txt>
-                    <Txt variant="caption" color="muted">
-                      Approve or decline who follows you
-                    </Txt>
-                  </View>
-                  <Ionicons name="chevron-forward" size={18} color={c.muted} />
-                </View>
-              </Card>
-            )}
-
-            {/* 8. SETTINGS (LA-02): everything that used to be listed here. */}
-            <Card
-              onPress={() => {
-                void Haptics.selectionAsync();
-                router.push('/settings' as any);
-              }}
-              style={{ padding: space[3] }}
-            >
-              <View style={sheet.rowBetween}>
-                <View style={{ gap: 2, flex: 1, marginRight: space[2] }}>
-                  <Txt variant="title" style={{ fontSize: 15, fontWeight: '500' }}>
-                    Settings
-                  </Txt>
-                  <Txt variant="caption" color="muted">
-                    Account, privacy, notifications, blocked and muted, imports, appearance
-                  </Txt>
-                </View>
-                <Ionicons name="chevron-forward" size={18} color={c.muted} />
+            {/* 7. FOLLOW REQUESTS (SO-02, SO-03) and SETTINGS (LA-02) */}
+            <Section title="Account">
+              <View>
+                {profile?.isPrivate && (
+                  <LinkRow
+                    title="Follow requests"
+                    subtitle="Approve or decline who follows you"
+                    onPress={() => {
+                      void Haptics.selectionAsync();
+                      router.push('/profile/requests' as any);
+                    }}
+                  />
+                )}
+                <LinkRow
+                  title="Settings"
+                  subtitle="Account, privacy, notifications, blocked and muted, imports, appearance"
+                  onPress={() => {
+                    void Haptics.selectionAsync();
+                    router.push('/settings' as any);
+                  }}
+                />
               </View>
-            </Card>
+            </Section>
           </>
         ) : (
           <EmptyState
             title="Sign in to your library"
             subtitle="Keep your diary, four defining books, the wall and your stats on every device."
             action={
-              <Button
-                label="Sign in or create account"
-                variant="primary"
-                onPress={() => router.push('/auth')}
-              />
+              <View style={{ gap: space[2], alignItems: 'center' }}>
+                <Button label="Create account" variant="primary" onPress={() => router.push('/auth')} />
+                <Button label="Sign in" variant="secondary" onPress={() => router.push('/auth')} />
+              </View>
             }
           />
         )}
-
       </ScrollView>
 
       <GoalSheet
@@ -777,39 +666,31 @@ export default function ProfileScreen() {
             }}
           >
             <View style={sheet.rowBetween}>
-              <Pressable
+              <Button
+                label="Cancel"
+                variant="tertiary"
+                size="sm"
                 onPress={() => setEditModalVisible(false)}
-                style={{ minWidth: 44, minHeight: 44, justifyContent: 'center' }}
-              >
-                <Txt variant="body" color="muted">
-                  Cancel
-                </Txt>
-              </Pressable>
+                style={{ minHeight: 44 }}
+              />
 
-              <Txt variant="title" style={{ fontWeight: '500', fontSize: 17 }}>
-                Edit profile
-              </Txt>
+              <Txt variant="title">Edit profile</Txt>
 
-              <Pressable
+              <Button
+                label="Save"
+                variant="tertiary"
+                size="sm"
                 onPress={handleSaveProfile}
-                disabled={savingProfile}
-                style={{ minWidth: 44, minHeight: 44, justifyContent: 'center', alignItems: 'flex-end' }}
-              >
-                {savingProfile ? (
-                  <ActivityIndicator size="small" color={c.muted} />
-                ) : (
-                  <Txt variant="body" color="accent" style={{ fontWeight: '500' }}>
-                    Save
-                  </Txt>
-                )}
-              </Pressable>
+                loading={savingProfile}
+                style={{ minHeight: 44 }}
+              />
             </View>
           </View>
 
           <ScrollView contentContainerStyle={{ padding: space[4], gap: space[4] }}>
             {/* Display Name */}
             <View style={{ gap: space[1] }}>
-              <Txt variant="caption" color="muted" style={{ fontWeight: '500' }}>
+              <Txt variant="micro" color="ink2">
                 Display name
               </Txt>
               <TextInput
@@ -817,9 +698,10 @@ export default function ProfileScreen() {
                 onChangeText={setEditDisplayName}
                 placeholder="Your name"
                 placeholderTextColor={c.muted}
+                accessibilityLabel="Display name"
                 style={[
                   styles.textInput,
-                  { backgroundColor: c.surface, borderColor: c.line, color: c.ink },
+                  { backgroundColor: c.surface, borderColor: c.lineStrong, color: c.ink, fontFamily: familyFor(false, '400') },
                 ]}
               />
             </View>
@@ -827,14 +709,10 @@ export default function ProfileScreen() {
             {/* Bio (<= 160 chars) */}
             <View style={{ gap: space[1] }}>
               <View style={sheet.rowBetween}>
-                <Txt variant="caption" color="muted" style={{ fontWeight: '500' }}>
+                <Txt variant="micro" color="ink2">
                   Bio
                 </Txt>
-                <Txt
-                  variant="caption"
-                  color={editBio.length > 160 ? 'accent' : 'muted'}
-                  style={{ fontSize: 12 }}
-                >
+                <Txt variant="micro" color={editBio.length > 160 ? 'accent' : 'muted'} tabular>
                   {editBio.length}/160
                 </Txt>
               </View>
@@ -843,12 +721,13 @@ export default function ProfileScreen() {
                 onChangeText={setEditBio}
                 placeholder="What you love to read"
                 placeholderTextColor={c.muted}
+                accessibilityLabel="Bio"
                 multiline
                 numberOfLines={3}
                 maxLength={160}
                 style={[
                   styles.textArea,
-                  { backgroundColor: c.surface, borderColor: c.line, color: c.ink },
+                  { backgroundColor: c.surface, borderColor: c.lineStrong, color: c.ink, fontFamily: familyFor(false, '400') },
                 ]}
               />
             </View>
@@ -863,39 +742,103 @@ export default function ProfileScreen() {
   );
 }
 
+// A section of the page: a hairline rule, then a serif heading with an optional
+// count and one quiet action (design.md §10, Profile).
+function Section({
+  title,
+  count,
+  action,
+  children,
+}: {
+  title: string;
+  count?: number;
+  action?: { label: string; accessibilityLabel?: string; onPress: () => void };
+  children: React.ReactNode;
+}) {
+  const c = useTheme();
+  return (
+    <View style={{ gap: space[3], paddingTop: space[4], borderTopWidth: 1, borderTopColor: c.line }}>
+      <View style={[sheet.rowBetween, { gap: space[3] }]}>
+        <View style={[sheet.row, { gap: space[2], flexShrink: 1 }]}>
+          <Txt variant="displayM" style={{ flexShrink: 1 }}>
+            {title}
+          </Txt>
+          {count !== undefined ? (
+            <Txt variant="body" color="muted" tabular>
+              {count}
+            </Txt>
+          ) : null}
+        </View>
+        {action ? (
+          <Button
+            label={action.label}
+            accessibilityLabel={action.accessibilityLabel}
+            variant="tertiary"
+            size="sm"
+            onPress={action.onPress}
+            style={{ minHeight: 44 }}
+          />
+        ) : null}
+      </View>
+      {children}
+    </View>
+  );
+}
+
+// A ruled row that opens another screen.
+function LinkRow({ title, subtitle, onPress }: { title: string; subtitle: string; onPress: () => void }) {
+  const c = useTheme();
+  return (
+    <Pressable
+      onPress={onPress}
+      accessibilityRole="button"
+      style={({ pressed }) => [
+        sheet.row,
+        {
+          gap: space[3],
+          minHeight: 44,
+          paddingVertical: space[3],
+          borderTopWidth: 1,
+          borderTopColor: c.line,
+          backgroundColor: pressed ? c.surface2 : 'transparent',
+        },
+      ]}
+    >
+      <View style={{ flex: 1, gap: space[1] }}>
+        <Txt variant="title">{title}</Txt>
+        <Txt variant="caption" color="muted">
+          {subtitle}
+        </Txt>
+      </View>
+      <Ionicons name="chevron-forward" size={18} color={c.muted} />
+    </Pressable>
+  );
+}
+
 const styles = StyleSheet.create({
   avatar: {
-    width: 68,
-    height: 68,
-    borderRadius: 34,
+    width: 72,
+    height: 72,
+    borderRadius: 36,
     alignItems: 'center',
     justifyContent: 'center',
-    borderWidth: 1.5,
+    borderWidth: 1,
   },
   favouritesRow: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'flex-start',
     gap: space[2],
   },
   favItem: {
-    width: '23%',
-    aspectRatio: 2 / 3,
-  },
-  favFilled: {
-    width: '23%',
+    flex: 1,
   },
   favCover: {
     width: '100%',
     aspectRatio: 2 / 3,
   },
   emptyFavSlot: {
-    borderRadius: radius.sm,
-    borderWidth: 1.5,
-    borderStyle: 'dashed',
+    borderRadius: radius.xs,
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 2,
   },
   wallPreviewGrid: {
     flexDirection: 'row',
@@ -905,19 +848,19 @@ const styles = StyleSheet.create({
   wallPreviewItem: {
     width: '31.3%',
     aspectRatio: 2 / 3,
-    borderRadius: radius.sm,
+    borderRadius: radius.xs,
     overflow: 'hidden',
   },
   textInput: {
-    height: 48,
-    borderRadius: radius.sm,
+    minHeight: 48,
+    borderRadius: radius.md,
     borderWidth: 1,
     paddingHorizontal: space[3],
     fontSize: 15,
   },
   textArea: {
-    height: 84,
-    borderRadius: radius.sm,
+    minHeight: 96,
+    borderRadius: radius.md,
     borderWidth: 1,
     paddingHorizontal: space[3],
     paddingTop: space[2],

@@ -9,23 +9,23 @@
 // before it got here (service.ts). A template never invents a figure: when
 // a model field is null, its line is left out.
 
-import { CARD_HEIGHT, CARD_WIDTH, SANS_STACK, SERIF_STACK, h, type CardChild, type CardNode } from './render.js';
+import { CARD_HEIGHT, CARD_WIDTH, SANS_STACK, DISPLAY_STACK, h, type CardChild, type CardNode } from './render.js';
 import { bidiLayout, hasRtl } from './text.js';
 
 /** design.md §2, light. Tokens only: no colour literal outside this table.
- *  Hairlines are solid here (ink at 8% over ground) because a PNG has no page beneath it. */
+ *  Hairlines are solid here (ink at 12% and 24% over ground) because a PNG has no page beneath it. */
 export const C = {
-  ground: '#FAFAFA',
-  surface: '#FFFFFF',
-  surface2: '#F4F4F5',
-  ink: '#171717',
-  ink2: '#525252',
-  muted: '#737373',
-  line: '#E8E8E8',
-  lineStrong: '#D4D4D4',
-  accent: '#3355C4',
-  star: '#B07F14',
-  heart: '#B4423A',
+  ground: '#F4EEE2',
+  surface: '#FBF6EC',
+  surface2: '#EBE3D3',
+  ink: '#211C16',
+  ink2: '#5C5347',
+  muted: '#6B6155',
+  line: '#DBD5CA',
+  lineStrong: '#C1BCB1',
+  accent: '#8C2F2A',
+  star: '#211C16',
+  heart: '#8C2F2A',
 } as const;
 
 export interface CardImage {
@@ -211,7 +211,7 @@ function heart(size: number): CardNode {
 
 /** A cover, or a typographic poster in its place so a grid never has a hole (PRD §6.37a). */
 export function poster(p: Poster, w: number, hgt: number, key?: string): CardNode {
-  const box = { width: w, height: hgt, borderRadius: Math.max(4, Math.round(w * 0.03)), flexShrink: 0 };
+  const box = { width: w, height: hgt, borderRadius: Math.max(2, Math.round(w * 0.015)), flexShrink: 0 };
   if (p.cover) {
     return h('img', { key, src: p.cover.uri, width: w, height: hgt, style: { ...box, objectFit: 'cover', border: `1px solid ${C.line}` } });
   }
@@ -224,7 +224,7 @@ export function poster(p: Poster, w: number, hgt: number, key?: string): CardNod
       backgroundColor: C.surface2, border: `1px solid ${C.lineStrong}`, padding: Math.round(w * 0.09), overflow: 'hidden',
     },
   },
-  textBlock(p.title, { fontFamily: SERIF_STACK, fontWeight: 500, fontSize: titleSize, color: C.ink },
+  textBlock(p.title, { fontFamily: DISPLAY_STACK, fontWeight: 600, fontSize: titleSize, color: C.ink },
     { lines: 5, lineHeight: Math.round(titleSize * 1.2) }),
   p.author ? textBlock(p.author, { fontSize: authorSize, color: C.ink2 }, { lines: 2, lineHeight: Math.round(authorSize * 1.3) }) : null);
 }
@@ -241,7 +241,7 @@ function footer(handle: string, note?: string | null): CardNode {
   note ? h('div', { style: { display: 'flex', fontSize: 24, color: C.muted } }, note) : null,
   h('div', { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center' } },
     h('div', { style: { display: 'flex', fontSize: 36, fontWeight: 500, color: C.ink } }, `@${handle}`),
-    h('div', { style: { display: 'flex', fontFamily: SERIF_STACK, fontSize: 34, fontWeight: 500, color: C.accent } }, 'flyleaf.app')));
+    h('div', { style: { display: 'flex', fontFamily: DISPLAY_STACK, fontSize: 34, fontWeight: 600, color: C.accent } }, 'flyleaf.app')));
 }
 
 // ---------------------------------------------------------------------------
@@ -254,7 +254,7 @@ export function finishCard(m: FinishModel): CardNode {
     h('div', { style: { display: 'flex', justifyContent: 'center', marginTop: 56 } },
       poster({ title: m.title, author: m.author, cover: m.cover }, 560, 840)),
     h('div', { style: { display: 'flex', flexDirection: 'column', alignItems: 'center', marginTop: 56, gap: 20 } },
-      textBlock(m.title, { fontFamily: SERIF_STACK, fontWeight: 500, fontSize: 64, color: C.ink, width: '100%' },
+      textBlock(m.title, { fontFamily: DISPLAY_STACK, fontWeight: 600, fontSize: 64, color: C.ink, width: '100%' },
         { lines: 3, lineHeight: 78, align: 'center' }),
       m.author
         ? textBlock(m.author, { fontSize: 36, color: C.ink2, width: '100%' }, { lines: 1, lineHeight: 46, align: 'center' })
@@ -274,15 +274,15 @@ export function reviewCard(m: ReviewModel): CardNode {
       poster({ title: m.title, author: m.author, cover: m.cover }, 220, 330),
       h('div', { style: { display: 'flex', flexDirection: 'column', gap: 16, flexGrow: 1, flexShrink: 1, width: 0 } },
         label('Review'),
-        textBlock(m.title, { fontFamily: SERIF_STACK, fontWeight: 500, fontSize: 52, color: C.ink }, { lines: 3, lineHeight: 64 }),
+        textBlock(m.title, { fontFamily: DISPLAY_STACK, fontWeight: 600, fontSize: 52, color: C.ink }, { lines: 3, lineHeight: 64 }),
         m.author ? textBlock(m.author, { fontSize: 32, color: C.ink2 }, { lines: 1, lineHeight: 42 }) : null,
         m.rating !== null ? h('div', { style: { display: 'flex', marginTop: 8 } }, ratingRow(m.rating, 44)) : null)),
     h('div', { style: { display: 'flex', flexDirection: 'column', marginTop: 72, flexGrow: 1 } },
       m.quote !== null
         ? h('div', { style: { display: 'flex', flexDirection: 'column' } },
-            h('div', { style: { display: 'flex', fontFamily: SERIF_STACK, fontSize: 160, lineHeight: '120px', height: 100, color: C.lineStrong } }, '“'),
-            textBlock(m.quote, { fontFamily: SERIF_STACK, fontSize: 44, color: C.ink }, { lines: 15, lineHeight: 64 }))
-        : h('div', { style: { display: 'flex', fontFamily: SERIF_STACK, fontSize: 44, lineHeight: '60px', color: C.ink2 } },
+            h('div', { style: { display: 'flex', fontFamily: DISPLAY_STACK, fontSize: 160, lineHeight: '120px', height: 100, color: C.lineStrong } }, '“'),
+            textBlock(m.quote, { fontFamily: SANS_STACK, fontSize: 44, color: C.ink }, { lines: 15, lineHeight: 64 }))
+        : h('div', { style: { display: 'flex', fontFamily: SANS_STACK, fontSize: 44, lineHeight: '60px', color: C.ink2 } },
             'This review contains spoilers. Read it on Flyleaf.')),
     footer(m.handle, `— ${m.name}`),
   );
@@ -292,16 +292,16 @@ export function statCard(m: StatModel): CardNode {
   const max = Math.max(1, ...m.bars.map((b) => b.value));
   return frame(
     label(m.period),
-    h('div', { style: { display: 'flex', fontFamily: SERIF_STACK, fontWeight: 500, fontSize: 64, lineHeight: '78px', marginTop: 24 } }, m.heading),
+    h('div', { style: { display: 'flex', fontFamily: DISPLAY_STACK, fontWeight: 600, fontSize: 64, lineHeight: '78px', marginTop: 24 } }, m.heading),
     h('div', { style: { display: 'flex', flexDirection: 'column', marginTop: 48, gap: 8 } },
       h('div', { style: { display: 'flex', fontSize: m.value.length > 6 ? 150 : 220, fontWeight: 500, lineHeight: 1, color: C.ink } }, m.value),
-      m.caption ? textBlock(m.caption, { fontFamily: SERIF_STACK, fontWeight: 500, fontSize: 56, color: C.ink }, { lines: 2, lineHeight: 70 }) : null,
+      m.caption ? textBlock(m.caption, { fontFamily: DISPLAY_STACK, fontWeight: 600, fontSize: 56, color: C.ink }, { lines: 2, lineHeight: 70 }) : null,
       m.detail ? h('div', { style: { display: 'flex', fontSize: 36, color: C.ink2, marginTop: 8 } }, m.detail) : null),
     m.poster
       ? h('div', { style: { display: 'flex', gap: 40, marginTop: 64, alignItems: 'flex-end' } },
           poster(m.poster, 320, 480),
           h('div', { style: { display: 'flex', flexDirection: 'column', gap: 12, flexGrow: 1, flexShrink: 1, width: 0 } },
-            textBlock(m.poster.title, { fontFamily: SERIF_STACK, fontWeight: 500, fontSize: 48, color: C.ink }, { lines: 4, lineHeight: 60 }),
+            textBlock(m.poster.title, { fontFamily: DISPLAY_STACK, fontWeight: 600, fontSize: 48, color: C.ink }, { lines: 4, lineHeight: 60 }),
             m.poster.author ? textBlock(m.poster.author, { fontSize: 32, color: C.ink2 }, { lines: 2, lineHeight: 42 }) : null))
       : null,
     m.bars.length > 0
@@ -326,12 +326,12 @@ export function profileCard(m: ProfileModel): CardNode {
         : h('div', {
             style: {
               display: 'flex', width: AVATAR, height: AVATAR, borderRadius: AVATAR / 2, backgroundColor: C.surface2,
-              alignItems: 'center', justifyContent: 'center', fontFamily: SERIF_STACK, fontSize: 96, fontWeight: 500, color: C.ink2,
+              alignItems: 'center', justifyContent: 'center', fontFamily: DISPLAY_STACK, fontSize: 96, fontWeight: 600, color: C.ink2,
             },
           }, m.initials),
-      textBlock(m.name, { fontFamily: SERIF_STACK, fontWeight: 500, fontSize: 72, color: C.ink, width: '100%' }, { lines: 2, lineHeight: 86, align: 'center' }),
+      textBlock(m.name, { fontFamily: DISPLAY_STACK, fontWeight: 600, fontSize: 72, color: C.ink, width: '100%' }, { lines: 2, lineHeight: 86, align: 'center' }),
       h('div', { style: { display: 'flex', fontSize: 36, color: C.muted } }, `@${m.handle}`),
-      m.bio ? textBlock(m.bio, { fontFamily: SERIF_STACK, fontSize: 34, color: C.ink2, width: '100%' }, { lines: 3, lineHeight: 48, align: 'center' }) : null),
+      m.bio ? textBlock(m.bio, { fontFamily: SANS_STACK, fontSize: 34, color: C.ink2, width: '100%' }, { lines: 3, lineHeight: 48, align: 'center' }) : null),
     m.favourites.length > 0
       ? h('div', { style: { display: 'flex', flexDirection: 'column', marginTop: 64, gap: 24 } },
           label('Four favourites'),
@@ -373,7 +373,7 @@ export function wallCard(m: WallModel): CardNode {
   return frame(
     label(m.year ? `The Wall · ${m.year}` : 'The Wall'),
     h('div', { style: { display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', marginTop: 16, gap: 24 } },
-      textBlock(m.name, { fontFamily: SERIF_STACK, fontWeight: 500, fontSize: 60, color: C.ink, flexShrink: 1 }, { lines: 1, lineHeight: 74 }),
+      textBlock(m.name, { fontFamily: DISPLAY_STACK, fontWeight: 600, fontSize: 60, color: C.ink, flexShrink: 1 }, { lines: 1, lineHeight: 74 }),
       h('div', { style: { display: 'flex', fontSize: 36, color: C.ink2, flexShrink: 0 } }, `${m.count.toLocaleString('en-GB')} ${m.count === 1 ? 'book' : 'books'}`)),
     h('div', { style: { display: 'flex', flexDirection: 'column', gap: GAP, marginTop: 40 } }, ...rowNodes),
     footer(m.handle, 'Public reads only.'),
@@ -390,7 +390,7 @@ function calendarGrid(rows: number[][]): CardNode {
       h('div', { style: { display: 'flex', width: 32, fontSize: 22, color: C.muted } }, MONTH_INITIALS[m]!),
       ...days.map((on, d) => h('div', {
         key: `d${d}`,
-        style: { display: 'flex', width: CELL, height: CELL, borderRadius: 4, backgroundColor: on ? C.accent : C.surface2 },
+        style: { display: 'flex', width: CELL, height: CELL, borderRadius: 2, backgroundColor: on ? C.accent : C.surface2 },
       })))));
 }
 
@@ -398,13 +398,13 @@ export function yearCard(m: YearModel): CardNode {
   const one = m.posters.length === 1;
   return frame(
     label(`${m.year} · Year in review`),
-    textBlock(m.heading, { fontFamily: SERIF_STACK, fontWeight: 500, fontSize: 64, color: C.ink, marginTop: 24 }, { lines: 2, lineHeight: 78 }),
+    textBlock(m.heading, { fontFamily: DISPLAY_STACK, fontWeight: 600, fontSize: 64, color: C.ink, marginTop: 24 }, { lines: 2, lineHeight: 78 }),
     m.value !== null || m.caption !== null || m.detail !== null
       ? h('div', { style: { display: 'flex', flexDirection: 'column', marginTop: 40, gap: 8 } },
           m.value !== null
             ? h('div', { style: { display: 'flex', fontSize: m.value.length > 6 ? 150 : 200, fontWeight: 500, lineHeight: 1, color: C.ink } }, m.value)
             : null,
-          m.caption ? textBlock(m.caption, { fontFamily: SERIF_STACK, fontWeight: 500, fontSize: 52, color: C.ink }, { lines: 3, lineHeight: 66 }) : null,
+          m.caption ? textBlock(m.caption, { fontFamily: DISPLAY_STACK, fontWeight: 600, fontSize: 52, color: C.ink }, { lines: 3, lineHeight: 66 }) : null,
           m.detail ? textBlock(m.detail, { fontSize: 34, color: C.ink2 }, { lines: 2, lineHeight: 44 }) : null)
       : null,
     m.posters.length > 0

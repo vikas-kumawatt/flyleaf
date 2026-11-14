@@ -1,18 +1,18 @@
 # Flyleaf — Design System
 
 **Companion to:** `PRD.md` §36–38
-**Version:** 2.0 (redesign, Oct 2026)
+**Version:** 3.0 (Paper and ink, Nov 2026)
 **Platform:** React Native (Expo). Values in dp/pt; both platforms share one scale.
 
 ---
 
 ## 1. The governing idea
 
-> **The interface recedes; covers advance.**
+> **The app is a printed page.**
 
-Book covers are wildly varied and saturated. An interface with its own strong colour fights every single one of them. So Flyleaf is graphite with one ink-blue accent, and the colour in the product comes from the books.
+Flyleaf is paper and ink: warm paper grounds, warm near-black ink, hairline rules where other apps draw boxes, and one oxblood accent. Covers are the only saturated colour on a screen, the way a jacket is the only colour on a shelf of pages.
 
-Version 2 keeps the chrome quiet and puts the richness only in the moments that matter.
+Version 3 keeps what version 2 established: quiet chrome, richness only in the moments that matter.
 
 ### Direction
 
@@ -21,8 +21,8 @@ Version 2 keeps the chrome quiet and puts the richness only in the moments that 
 | **Product** | A reading tracker where people log what they read, rate it in half-stars, and keep a diary and a wall of covers |
 | **Character** | Bookish, unhurried, exact |
 | **World** | A well-made hardback: paper, ink and cloth, often read at night |
-| **Moments** | The covers themselves (Wall, reading card, book hero), and the progress bar and goal ring filling |
-| **Signature** | The gold half-star row with its numeral. Gold appears nowhere else |
+| **Moments** | The covers themselves (Wall, reading card, book hero), and the progress rule and goal ring filling |
+| **Signature** | Firm Figtree headings on warm paper, separated by hairline rules, with one oxblood mark per screen |
 
 The product should feel like **a well-made hardback, not a SaaS dashboard.** Literary but modern, expressive but calm, premium through restraint rather than ornament.
 
@@ -32,37 +32,37 @@ The product should feel like **a well-made hardback, not a SaaS dashboard.** Lit
 
 ## 2. Colour
 
-Graphite surfaces, one ink-blue accent for interaction. Stars and the heart are the only other coloured elements.
+Paper surfaces, ink text, one oxblood accent. One grey family, and it is warm.
 
 ### Tokens
 
 | Token | Light | Dark | Use |
 |---|---|---|---|
-| `ground` | `#FAFAFA` | `#141415` | App background |
-| `surface` | `#FFFFFF` | `#19191B` | Cards, sheets |
-| `surface2` | `#F4F4F5` | `#232325` | Raised: inputs, active rows, segmented tracks |
-| `ink` | `#171717` | `#EDEDED` | Primary text |
-| `ink2` | `#525252` | `#A1A1A6` | Secondary text |
-| `muted` | `#737373` | `#85858B` | Meta, captions, icons |
-| `line` | ink at 8% | ink at 8% | Hairlines |
-| `lineStrong` | ink at 16% | ink at 16% | Emphasised hairlines, empty stars |
-| `accent` | `#3355C4` | `#8DA6EE` | Primary action, links, selection (6.5:1 / 7.7:1) |
-| `onAccent` | `#FFFFFF` | `#141415` | Text and icons on an accent fill |
-| `accentSoft` | `#EEF2FC` | `#1B2133` | Selected backgrounds |
-| `star` | `#B07F14` | `#E0AF45` | **Rating stars only** |
-| `heart` | `#B4423A` | `#E5726A` | The heart (§9.4) |
-| `positive` | `#16A34A` | `#4CC38A` | Success |
-| `critical` | `#DC2626` | `#E5484D` | Destructive, errors |
-| `overlay` | black 40% | black 60% | Sheet scrims |
+| `ground` | `#F4EEE2` | `#17130F` | App background (the page) |
+| `surface` | `#FBF6EC` | `#1E1A15` | Cards, sheets, inputs, the tab bar |
+| `surface2` | `#EBE3D3` | `#2A251E` | Pressed and selected fills, skeletons, cover placeholders |
+| `ink` | `#211C16` | `#EDE6D8` | Primary text |
+| `ink2` | `#5C5347` | `#B3A998` | Secondary text |
+| `muted` | `#6B6155` | `#948A7A` | Meta, captions, icons |
+| `line` | ink at 12% | ink at 12% | Rules and hairlines |
+| `lineStrong` | ink at 24% | ink at 24% | Outlined buttons, input borders, empty stars |
+| `accent` | `#8C2F2A` | `#E08A7E` | Primary action, links, selection, progress (about 7:1 on `ground` in both themes) |
+| `onAccent` | `#FBF6EC` | `#17130F` | Text and icons on an accent fill |
+| `accentSoft` | `#F0DDD6` | `#33201C` | Selected backgrounds |
+| `star` | same as `ink` | same as `ink` | Rating stars. Ink, not a second accent |
+| `heart` | same as `accent` | same as `accent` | The heart (§9.4) |
+| `positive` | `#2F6B3F` | `#7FBF8B` | Success |
+| `critical` | `#B3261E` | `#F0796E` | Destructive, errors |
+| `overlay` | warm black 40% | black 60% | Sheet scrims |
 | `scrim` | black 64% | black 64% | Badges drawn over cover art |
 
 ### Rules
 
-1. **Dark mode is a first-class design, not an inversion.** This audience reads at night. Depth in dark comes from surface steps and hairlines, never shadows.
+1. **Dark mode is a first-class design, not an inversion.** This audience reads at night. Dark is warm espresso, not grey. Depth in both themes comes from surface steps and rules, never shadows.
 2. **Never hardcode a colour.** Every value comes from a token. A literal in a component is a bug.
-3. **Accent restraint.** The accent covers a few percent of a screen: the primary action, the selection, a link. Tab bar and filter chips stay neutral.
+3. **One accent, locked.** Oxblood is the only accent on every screen: the primary action, the selected tab's underline, the progress fill, the heart, the Log action. Nothing else takes a hue.
 4. **Colour is never the sole carrier of meaning.** Ratings show a numeral, statuses show text, charts carry direct labels rather than a colour legend (§38).
-5. **No gradients, glows or coloured shadows.** Light mode may use one soft neutral shadow on floating things (the FAB), nothing else.
+5. **No gradients, glows or shadows.** Nothing floats; the Log action sits in the tab bar.
 
 ### Status colours — deliberately absent
 
@@ -74,27 +74,27 @@ Want / Reading / Finished / DNF are **not** colour-coded chips. They are labelle
 
 | Role | Face | Fallback | Why |
 |---|---|---|---|
-| **Display** — screen titles, book titles, review body | **Newsreader** | Georgia, serif | A text serif drawn for long reading on screens. Book titles and reviews should feel like reading |
-| **UI** — labels, buttons, navigation, metadata | **Instrument Sans** | system sans | Warm, legible at 12–15, gets out of the way |
+| **Display** — screen titles, section headings, book titles, card titles | **Figtree** (500 and 600) | system sans | A friendly, open sans. Set firm and slightly tightened so a heading stands apart from the sans body (owner decision, Nov 2026, replacing Newsreader) |
+| **UI** — labels, buttons, navigation, metadata | **Instrument Sans** | system sans | Warm, legible at 12–15, gets out of the way. Never used for a title |
 | **Numerals** — statistics, page counts | Instrument Sans, `tabular-nums` | — | Digits must align in columns |
 
-Weights are 400 and 500, with 600 for rare emphasis. **No 700+ anywhere.** Hierarchy comes from size and colour. Custom fonts ignore `fontWeight` on Android, so `Txt` maps a weight to its family (`familyFor` in `tokens.ts`).
+Body weights are 400 and 500; headings are Figtree at 600 (500 where a heading is set small). **No 700+ anywhere.** Hierarchy comes from size and colour. Custom fonts ignore `fontWeight` on Android, so `Txt` maps a weight to its family (`familyFor` in `tokens.ts`).
 
-**Sentence case everywhere.** No uppercase tracked labels, no italic for emphasis, no negative letter spacing below 16.
+**Sentence case everywhere.** No uppercase tracked labels, no italic for emphasis, no negative letter spacing below 16. Headings at 17 and above are tightened slightly (−0.2 to −0.6) because Figtree reads loose at display sizes.
 
 ### Scale
 
 | Name | Size / line height | Weight | Use |
 |---|---|---|---|
-| `displayL` | 32 / 38 | 400 serif | Screen titles |
-| `displayM` | 24 / 30 | 500 serif | Section headings, book title on detail |
-| `title` | 17 / 24 | 500 | Card titles |
-| `bodyL` | 17 / 26 | 400 serif | **Review body** |
+| `displayL` | 32 / 38, −0.6 | 600 Figtree | Screen titles |
+| `displayM` | 22 / 28, −0.3 | 600 Figtree | Section headings, book title on detail |
+| `title` | 17 / 23, −0.2 | 600 Figtree | Card, sheet and empty-state titles |
+| `bodyL` | 17 / 26 | 400 Instrument Sans | **Review body**: the reading face at a reading size and leading |
 | `body` | 15 / 22 | 400 | Standard UI text |
 | `caption` | 13 / 20 | 400 | Metadata |
 | `micro` | 12 / 16 | 500 | Section labels and meta, sentence case, no tracking |
 
-Book titles use the display serif everywhere they appear — cards, rows, detail. It is the single most repeated element in the product and the main carrier of the literary feel.
+Book titles use the display face everywhere they appear — cards, rows, detail. It is the single most repeated element in the product and the main carrier of the product's voice.
 
 **Dynamic type: support to 200%.** No fixed-height text containers anywhere. Every layout is tested at maximum scale as part of done.
 
@@ -133,7 +133,7 @@ Everything must work at **360 dp** (Android) and **375 pt** (iPhone SE). Where i
 | Surface | Constraint |
 |---|---|
 | The Wall, 3-column 2:3 | ~104 dp per cover after gutters. Verify legibility; **drop to 2 columns below 340 dp** rather than shrinking |
-| Tab bar, 5 tabs + FAB | ~60 dp per target. Labels must not truncate — if they do, the tab names are too long |
+| Tab bar, 5 tabs + Log | ~60 dp per target. Labels must not truncate — if they do, the tab names are too long |
 | Half-star control | Ten touch zones across the width. The tightest control in the product; verify its extra hit area *here* specifically |
 | Feed cards, Diary rows | Must not truncate title **and** author **and** rating |
 
@@ -142,21 +142,24 @@ Everything must work at **360 dp** (Android) and **375 pt** (iPhone SE). Where i
 ## 5. Components
 
 ### Radius
-Tags 4–6 · controls and inputs 10 · cards 14 · sheets 20 · pill only for avatars, the progress track and toggles. Nested radius: inner = outer − padding, never below 4.
+One scale, one rule: **covers 2** (books have corners) · **inputs and chips 8** · **cards 12** · **sheets 20** · **every action is a pill**. Rounded rectangles use continuous corners. Nested radius: inner = outer − padding, never below 2.
 
 ### Cards
-14pt radius · 1pt `line` hairline · **no drop shadow** — elevation comes from surface steps, which is quieter and reads better against cover art.
+`surface` fill on the `ground`, 12pt radius, **no border and no shadow**. Prefer a hairline rule between rows over a card around each one: a list is a page of entries, not a stack of boxes. Reach for a card only when a block needs to read as one object.
 
 ### Buttons
 
 | Variant | Spec |
 |---|---|
-| Primary | Filled `accent`, `onAccent` text, 48pt height (36 small), 10pt radius, `body` weight 500 |
-| Secondary | `surface2` fill, 1pt `line` hairline, `ink` text |
+| Primary | Filled `accent`, `onAccent` text, 48pt height (36 small), pill, `body` weight 500 |
+| Secondary | No fill, 1pt `lineStrong` outline, `ink` text, pill |
 | Tertiary | Text only, `accent` |
-| Destructive | `critical` text with a hairline; filled only on the confirmation step |
+| Destructive | `critical` text with an outline; filled only on the confirmation step |
 
-Minimum touch target **44 × 44** everywhere, regardless of visual size.
+Press feedback lands on press-in: filled and outlined buttons dip to 0.97, text buttons fade. Minimum touch target **44 × 44** everywhere, regardless of visual size.
+
+### Segmented control
+Underlined tabs on a rule, like a running head: labels in `ink2`, the selected one in `ink` with a 2pt `accent` underline. Not a boxed track.
 
 ### Bottom sheets
 The primary modal pattern — logging, progress, DNF, edition picker, share. Detents at 50% and 90% · grabber handle · `overlay` scrim · eased dismissal, velocity-aware.
@@ -172,13 +175,16 @@ The most-repeated interaction in the product.
 - A numeral always accompanies the stars
 
 ### The heart
-Outline → filled, `heart` token, scale bounce 200ms, haptic. Sits beside the star row, never inside it — they are different statements (§9.4).
+Outline → filled, `heart` token (the accent), scale to 1.1 and back in 200ms, haptic. Sits beside the star row, never inside it — they are different statements (§9.4).
 
 ### Progress bar
-6pt height, fully rounded, `accent` fill, animates over 400ms on change. **That animation is the reward for the core daily action** — do not shorten it.
+A 4pt rule: `line` track, `accent` fill, animates over 400ms on change. **That animation is the reward for the core daily action** — do not shorten it.
 
 ### Tab bar
-5 tabs plus a central FAB. Outline icons with labels, hairline top border. Active state in `ink`, inactive `muted`; the accent is kept for actions. The bar never disappears except in full-screen modals (log sheet, scanner, share preview).
+5 tabs plus a central **Log** action, which is a labelled item like its neighbours, drawn in the accent, not a floating button. Outline icons with labels, hairline top border. Active state in `ink`, inactive `muted`; the accent is kept for the action. The bar never disappears except in full-screen modals (log sheet, scanner, share preview).
+
+### Headers
+Every screen draws its own header: the shared `ScreenHeader` (back chevron, centred display title, optional action) or its own row. The navigator's native header is off by default, so no screen can show two. The verify-email and sync banners sit above the navigator and take the status-bar inset when they show.
 
 ### Empty states
 **Always an illustration or real content, a warm line of copy, and one concrete action. Never a shrug.**
@@ -192,7 +198,7 @@ Outline → filled, `heart` token, scale bounce 200ms, haptic. Sits beside the s
 | Stats, <3 books | "Finish a few books and your stats will appear" + preview illustration |
 
 ### Icons
-Ionicons outline, 16 or 18 inline (22 in the tab bar), coloured by their text role. **No emoji in the interface.** Stars and hearts are icons in `star` / `heart`, never typed glyphs.
+Ionicons outline, 16 or 18 inline (22 in the tab bar), coloured by their text role. **No emoji in the interface.** Stars and hearts take the `star` / `heart` tokens.
 
 ### Skeletons
 Shape-matched to real content, subtle shimmer. **Never a centred spinner on a full screen.**
@@ -293,7 +299,7 @@ Layout intent for the screens that carry the product. Full specs in `PRD.md` §6
 Segmented **Reading / Want to read / Diary**. Cards at `coverL` with a progress bar, "page 210 of 480", and a predicted finish date. The slider **auto-saves on release — no confirm button**. Budget: 5 seconds from app open to saved progress. Optimistic always; a progress write never shows a spinner.
 
 ### Book detail
-`coverXL` hero with parallax. Title in display serif. The **status control is the largest element after the cover**. Rating distribution as a histogram. **Friends' ratings above strangers'.** Tabs: Reviews / Editions / Your history. "Where to read" below the fold, library links first.
+`coverXL` hero with parallax. Title in the display face. The **status control is the largest element after the cover**. Rating distribution as a histogram. **Friends' ratings above strangers'.** Tabs: Reviews / Editions / Your history. "Where to read" below the fold, library links first.
 
 ### Finish flow
 Cover, "Finished", **star row already visible and interactive**, heart, date, format chips, review field collapsed to one tap. Skip is visible and unambiguous. Whole flow under 20 seconds.
@@ -314,7 +320,7 @@ Segmented Friends / Popular. Reviewed and finished cards are largest. Review exc
 
 ## 11. Tokens as code
 
-`apps/mobile/src/ui/tokens.ts` is the only place literals are permitted and the source of truth for every value in §2–§7: `palette`, `space`, `radius` (`xs 4 · sm 6 · md 10 · lg 14 · xl 20 · pill`), `cover`, `fontFamilies`, `familyFor`, `type`, `motion`. The web pages (`apps/api/src/web`, `identity/link-pages.ts`) and the admin console mirror the same palette as CSS variables; the share cards (`apps/api/src/cards/templates.ts`) mirror the light palette and use the same two faces.
+`apps/mobile/src/ui/tokens.ts` is the only place literals are permitted and the source of truth for every value in §2–§7: `palette`, `space`, `radius` (`xs 2 · sm 2 · md 8 · lg 12 · xl 20 · pill`), `cover`, `fontFamilies`, `familyFor`, `type`, `motion`. The web pages (`apps/api/src/web`, `identity/link-pages.ts`) and the admin console mirror the same palette as CSS variables; the share cards (`apps/api/src/cards/templates.ts`) mirror the light palette and use the same two faces.
 
 ---
 

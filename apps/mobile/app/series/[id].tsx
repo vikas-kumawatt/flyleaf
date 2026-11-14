@@ -29,12 +29,14 @@ import {
   Txt,
   sheet,
 } from '@/ui/components';
-import { fontFamilies, space, useTheme } from '@/ui/tokens';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { space, useTheme } from '@/ui/tokens';
 
 export default function SeriesScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
   const c = useTheme();
+  const insets = useSafeAreaInsets();
 
   const remote = useRemote(id ? () => api.series(id) : null, [id]);
   if (remote.state !== 'ready') {
@@ -53,30 +55,31 @@ export default function SeriesScreen() {
       <View
         style={{
           flexDirection: 'row',
-          alignItems: 'center',
-          paddingHorizontal: space[4],
-          paddingTop: space[4],
+          alignItems: 'flex-start',
+          paddingLeft: space[2],
+          paddingRight: space[4],
+          paddingTop: Math.max(insets.top, space[4]),
           paddingBottom: space[3],
           backgroundColor: c.ground,
           borderBottomWidth: 1,
           borderBottomColor: c.line,
-          gap: space[3],
+          gap: space[1],
         }}
       >
         <Pressable
           onPress={() => router.back()}
           accessibilityRole="button"
           accessibilityLabel="Back"
-          hitSlop={8}
+          style={{ minWidth: 44, minHeight: 44, alignItems: 'center', justifyContent: 'center' }}
         >
           <Ionicons name="chevron-back" size={24} color={c.ink} />
         </Pressable>
-        <View style={{ flex: 1 }}>
-          <Txt variant="displayM" numberOfLines={1}>
+        <View style={{ flex: 1, paddingTop: space[2] }}>
+          <Txt variant="displayM" numberOfLines={2}>
             {series.name}
           </Txt>
           {series.entries[0] ? (
-            <Txt variant="caption" color="muted">
+            <Txt variant="caption" color="ink2" numberOfLines={1}>
               by {series.entries[0].author_name}
             </Txt>
           ) : null}
@@ -90,9 +93,9 @@ export default function SeriesScreen() {
           gap: space[6],
         }}
       >
-        {/* Series Progress Card (PRD §6.30) */}
+        {/* Series Progress (PRD §6.30): a summary, so one card */}
         <Card style={{ gap: space[3] }}>
-          <View style={[sheet.row, { justifyContent: 'space-between' }]}>
+          <View style={[sheet.row, { justifyContent: 'space-between', flexWrap: 'wrap', gap: space[2] }]}>
             <Txt variant="micro" color="muted">
               Your progress
             </Txt>
@@ -103,7 +106,7 @@ export default function SeriesScreen() {
           <ProgressBar percent={percent} />
         </Card>
 
-        {/* Next In Series Card */}
+        {/* Next In Series */}
         {next ? (
         <Card
           onPress={() => router.push(`/work/${next.work_id}`)}
@@ -112,18 +115,18 @@ export default function SeriesScreen() {
           <Txt variant="micro" color="muted">
             Up next
           </Txt>
-          <View style={sheet.rowTop}>
-            <Cover coverId={next.cover_id} title={next.title} size="s" />
-            <View style={{ flex: 1, marginLeft: space[3], justifyContent: 'center' }}>
+          <View style={[sheet.rowTop, { gap: space[3] }]}>
+            <Cover coverId={next.cover_id} title={next.title} author={next.author_name} size="s" />
+            <View style={{ flex: 1, gap: 2, justifyContent: 'center' }}>
               {next.position != null ? (
                 <Txt variant="micro" color="muted" tabular>
                   Book {next.position}
                 </Txt>
               ) : null}
-              <Txt variant="title" style={{ fontFamily: fontFamilies.displayMedium }}>
+              <Txt variant="title" numberOfLines={2}>
                 {next.title}
               </Txt>
-              <Txt variant="caption" color="muted">
+              <Txt variant="caption" color="ink2" numberOfLines={1}>
                 {next.author_name}
               </Txt>
             </View>
@@ -131,82 +134,71 @@ export default function SeriesScreen() {
         </Card>
         ) : null}
 
-        {/* Ordered Series Book List */}
-        <View style={{ gap: space[3] }}>
+        {/* Ordered Series Book List: ruled rows with the position as a numeral */}
+        <View style={{ gap: space[2] }}>
           <Txt variant="title">Books in the series</Txt>
-          <View style={{ gap: space[3] }}>
-            {series.entries.map((entry) => {
+          <View>
+            {series.entries.map((entry, index) => {
               const isFinished = entry.your_status === 'finished';
               const isReading = entry.your_status === 'reading';
               const isWant = entry.your_status === 'want';
 
               return (
-                <Card
+                <Pressable
                   key={entry.work_id}
-                  onPress={() => router.push(`/work/${entry.work_id}`)}
-                  style={{ padding: space[3] }}
+                  onPress={() => {
+                    void Haptics.selectionAsync();
+                    router.push(`/work/${entry.work_id}`);
+                  }}
+                  accessibilityRole="button"
+                  style={({ pressed }) => [
+                    sheet.rowTop,
+                    {
+                      paddingVertical: space[3],
+                      borderTopWidth: index ? 1 : 0,
+                      borderTopColor: c.line,
+                      backgroundColor: pressed ? c.surface2 : 'transparent',
+                    },
+                  ]}
                 >
-                  <View style={sheet.rowTop}>
-                    {/* Position Number Pill */}
-                    <View
-                      style={{
-                        width: 32,
-                        height: 32,
-                        borderRadius: 16,
-                        backgroundColor: c.surface2,
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        marginRight: space[3],
-                      }}
-                    >
-                      <Txt variant="caption" color="ink2" tabular style={{ fontWeight: '500' }}>
-                        {entry.position != null ? entry.position : '–'}
-                      </Txt>
-                    </View>
+                  {/* Position number */}
+                  <Txt variant="caption" color="ink2" tabular style={{ minWidth: 24, fontWeight: '500' }}>
+                    {entry.position != null ? entry.position : '–'}
+                  </Txt>
 
-                    <Cover coverId={entry.cover_id} title={entry.title} size="s" />
+                  <Cover coverId={entry.cover_id} title={entry.title} author={entry.author_name} size="s" />
 
-                    <View
-                      style={{
-                        flex: 1,
-                        marginLeft: space[3],
-                        justifyContent: 'space-between',
-                        gap: space[1],
-                      }}
-                    >
-                      <View>
-                        <Txt variant="title" style={{ fontFamily: fontFamilies.displayMedium }} numberOfLines={2}>
-                          {entry.title}
-                        </Txt>
-                        <Txt variant="caption" color="muted">
-                          {entry.author_name}
-                        </Txt>
-                      </View>
+                  <View style={{ flex: 1, gap: space[1] }}>
+                    <Txt variant="title" numberOfLines={2}>
+                      {entry.title}
+                    </Txt>
+                    <Txt variant="caption" color="ink2" numberOfLines={1}>
+                      {entry.author_name}
+                    </Txt>
 
-                      {/* Status Tag */}
-                      <View style={[sheet.row, { gap: space[1], marginTop: space[1] }]}>
-                        {isFinished && (
-                          <>
-                            <Ionicons name="checkmark" size={14} color={c.ink2} />
-                            <Txt variant="micro" color="ink2">
-                              Finished
-                            </Txt>
-                          </>
-                        )}
-                        {isReading && (
+                    {/* Status label */}
+                    <View style={[sheet.row, { gap: space[1] }]}>
+                      {isFinished && (
+                        <>
+                          <Ionicons name="checkmark" size={14} color={c.ink2} />
                           <Txt variant="micro" color="ink2">
-                            Reading
+                            Finished
                           </Txt>
-                        )}
-                        {isWant && (
-                          <Txt variant="micro" color="muted">
-                            Want to read
-                          </Txt>
-                        )}
-                      </View>
+                        </>
+                      )}
+                      {isReading && (
+                        <Txt variant="micro" color="ink2">
+                          Reading
+                        </Txt>
+                      )}
+                      {isWant && (
+                        <Txt variant="micro" color="muted">
+                          Want to read
+                        </Txt>
+                      )}
                     </View>
                   </View>
-                </Card>
+                </Pressable>
               );
             })}
           </View>
@@ -215,4 +207,3 @@ export default function SeriesScreen() {
     </Screen>
   );
 }
-

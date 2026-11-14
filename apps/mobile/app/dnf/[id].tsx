@@ -14,7 +14,6 @@ import {
   Pressable,
   TextInput,
   KeyboardAvoidingView,
-  Platform,
   Alert,
 } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
@@ -24,7 +23,7 @@ import { useDatabase } from '@/offline/db';
 import { OfflineRepository } from '@/offline/repository';
 import { useSession } from '@/lib/session';
 import type { LocalRead } from '@/offline/schema';
-import { Button, Card, Cover, Screen, Stars, Txt, sheet } from '@/ui/components';
+import { Button, Chip, Cover, Screen, Skeleton, Stars, Txt, sheet } from '@/ui/components';
 import { radius, space, type, useTheme } from '@/ui/tokens';
 
 const DNF_REASONS = [
@@ -103,6 +102,18 @@ export default function DnfScreen() {
     }
   };
 
+  // Inputs: surface fill, strong hairline, radius.md (design.md §5).
+  const inputStyle = {
+    minHeight: 48,
+    paddingHorizontal: space[3],
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: c.lineStrong,
+    backgroundColor: c.surface,
+    color: c.ink,
+    ...type.body,
+  } as const;
+
   return (
     <Screen>
       {/* Header bar */}
@@ -123,41 +134,32 @@ export default function DnfScreen() {
           onPress={() => router.back()}
           accessibilityRole="button"
           accessibilityLabel="Cancel"
-          style={{ minHeight: 44, justifyContent: 'center' }}
+          style={{ minHeight: 44, minWidth: 64, justifyContent: 'center' }}
         >
-          <Txt variant="body" color="muted">
+          <Txt variant="body" color="ink2">
             Cancel
           </Txt>
         </Pressable>
 
         <Txt variant="title">Stopped reading</Txt>
 
-        <Pressable
-          onPress={handleSaveDnf}
-          disabled={submitting}
-          accessibilityRole="button"
-          accessibilityLabel="Save"
-          style={{ minHeight: 44, justifyContent: 'center' }}
-        >
-          <Txt variant="body" color="accent" style={{ fontWeight: '500' }}>
-            Save
-          </Txt>
-        </Pressable>
+        {/* Balances Cancel so the title stays centred. */}
+        <View style={{ minWidth: 64 }} />
       </View>
 
       <KeyboardAvoidingView
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        behavior="padding"
         style={{ flex: 1 }}
       >
         <ScrollView
           contentContainerStyle={{
             padding: space[4],
-            paddingBottom: space[12],
+            paddingBottom: space[8],
             gap: space[6],
           }}
           keyboardShouldPersistTaps="handled"
         >
-          {/* Header & Respectful Copy */}
+          {/* Cover and a warm line */}
           <View style={{ alignItems: 'center', gap: space[3], marginTop: space[2] }}>
             <Cover
               coverId={read?.cover_id}
@@ -165,19 +167,28 @@ export default function DnfScreen() {
               author={read?.author_name ?? ''}
               size="m"
             />
-            <View style={{ alignItems: 'center', gap: space[1] }}>
+            {loading ? (
+              <View
+                style={{ alignItems: 'center', gap: space[2] }}
+                accessible
+                accessibilityLabel="Loading"
+                accessibilityState={{ busy: true }}
+              >
+                <Skeleton width={200} height={24} />
+              </View>
+            ) : (
               <Txt variant="displayM" style={{ textAlign: 'center' }}>
                 {read?.title ?? 'This book'}
               </Txt>
-              <Txt variant="body" color="muted" style={{ textAlign: 'center', maxWidth: 280 }}>
-                Not every book is for every reader, and that's okay.
-              </Txt>
-            </View>
+            )}
+            <Txt variant="body" color="ink2" style={{ textAlign: 'center', maxWidth: 280 }}>
+              Not every book is for every reader, and that's okay.
+            </Txt>
           </View>
 
-          {/* Page Reached Input */}
+          {/* Page reached */}
           <View style={{ gap: space[2] }}>
-            <Txt variant="micro" color="muted">
+            <Txt variant="micro" color="ink2">
               Page reached
             </Txt>
             <TextInput
@@ -187,63 +198,31 @@ export default function DnfScreen() {
               keyboardType="number-pad"
               placeholderTextColor={c.muted}
               accessibilityLabel="Page reached"
-              style={{
-                minHeight: 44,
-                paddingHorizontal: space[3],
-                borderRadius: radius.md,
-                borderWidth: 1,
-                borderColor: c.line,
-                backgroundColor: c.surface2,
-                color: c.ink,
-                ...type.body,
-              }}
+              style={inputStyle}
             />
           </View>
 
-          {/* Reason Chips */}
+          {/* Reason chips */}
           <View style={{ gap: space[2] }}>
-            <Txt variant="micro" color="muted">
+            <Txt variant="micro" color="ink2">
               Reason, if you want one
             </Txt>
             <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: space[2] }}>
-              {DNF_REASONS.map((reason) => {
-                const selected = selectedReason === reason;
-                return (
-                  <Pressable
-                    key={reason}
-                    onPress={() => {
-                      void Haptics.selectionAsync();
-                      setSelectedReason(selected ? null : reason);
-                    }}
-                    accessibilityRole="checkbox"
-                    accessibilityState={{ checked: selected }}
-                    accessibilityLabel={reason}
-                    style={{
-                      minHeight: 36,
-                      justifyContent: 'center',
-                      paddingHorizontal: space[3],
-                      borderRadius: radius.sm,
-                      backgroundColor: selected ? c.surface : c.surface2,
-                      borderWidth: 1,
-                      borderColor: selected ? c.lineStrong : c.line,
-                    }}
-                  >
-                    <Txt
-                      variant="caption"
-                      color={selected ? 'ink' : 'ink2'}
-                      style={{ fontWeight: selected ? '500' : '400' }}
-                    >
-                      {reason}
-                    </Txt>
-                  </Pressable>
-                );
-              })}
+              {DNF_REASONS.map((reason) => (
+                <Chip
+                  key={reason}
+                  label={reason}
+                  selected={selectedReason === reason}
+                  role="checkbox"
+                  onPress={() => setSelectedReason(selectedReason === reason ? null : reason)}
+                />
+              ))}
             </View>
           </View>
 
-          {/* Optional Note */}
+          {/* Optional note */}
           <View style={{ gap: space[2] }}>
-            <Txt variant="micro" color="muted">
+            <Txt variant="micro" color="ink2">
               Private note
             </Txt>
             <TextInput
@@ -254,78 +233,61 @@ export default function DnfScreen() {
               multiline
               numberOfLines={3}
               accessibilityLabel="Private DNF note"
-              style={{
-                minHeight: 72,
-                paddingHorizontal: space[3],
-                paddingVertical: space[2],
-                borderRadius: radius.md,
-                borderWidth: 1,
-                borderColor: c.line,
-                backgroundColor: c.surface2,
-                color: c.ink,
-                ...type.body,
-                textAlignVertical: 'top',
-              }}
+              style={[
+                inputStyle,
+                { minHeight: 96, paddingVertical: space[3], textAlignVertical: 'top' },
+              ]}
             />
           </View>
 
-          {/* Optional Rating */}
-          <Card style={{ alignItems: 'center', gap: space[2], paddingVertical: space[3] }}>
-            <Txt variant="micro" color="muted">
+          {/* Optional rating */}
+          <View style={{ gap: space[2] }}>
+            <Txt variant="micro" color="ink2">
               Rate what you read, if you like
             </Txt>
-            <Stars value={rating} onChange={(val) => setRating(val)} size={32} />
-          </Card>
-
-          {/* Visibility */}
-          <View style={{ gap: space[2] }}>
-            <Txt variant="micro" color="muted">
-              Visibility
-            </Txt>
-            <View style={[sheet.row, { gap: space[2] }]}>
-              {(['public', 'followers', 'private'] as const).map((v) => (
-                <Pressable
-                  key={v}
-                  onPress={() => {
-                    void Haptics.selectionAsync();
-                    setVisibility(v);
-                  }}
-                  accessibilityRole="radio"
-                  accessibilityState={{ selected: visibility === v }}
-                  accessibilityLabel={`Visibility: ${v}`}
-                  style={{
-                    flex: 1,
-                    minHeight: 40,
-                    borderRadius: radius.sm,
-                    backgroundColor: visibility === v ? c.surface : c.surface2,
-                    borderWidth: 1,
-                    borderColor: visibility === v ? c.lineStrong : c.line,
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                  }}
-                >
-                  <Txt
-                    variant="caption"
-                    color={visibility === v ? 'ink' : 'muted'}
-                    style={{ fontWeight: visibility === v ? '500' : '400' }}
-                  >
-                    {v.charAt(0).toUpperCase() + v.slice(1)}
-                  </Txt>
-                </Pressable>
-              ))}
+            <View style={{ alignSelf: 'flex-start' }}>
+              <Stars value={rating} onChange={(val) => setRating(val)} size={32} />
             </View>
           </View>
 
-          {/* Primary Action Button */}
-          <View style={{ marginTop: space[3] }}>
-            <Button
-              label={submitting ? 'Saving…' : 'Save and close'}
-              variant="primary"
-              onPress={handleSaveDnf}
-              disabled={submitting}
-            />
+          {/* Visibility */}
+          <View style={{ gap: space[2] }}>
+            <Txt variant="micro" color="ink2">
+              Visibility
+            </Txt>
+            <View style={[sheet.row, { gap: space[2], flexWrap: 'wrap' }]}>
+              {(['public', 'followers', 'private'] as const).map((v) => (
+                <Chip
+                  key={v}
+                  label={v.charAt(0).toUpperCase() + v.slice(1)}
+                  selected={visibility === v}
+                  accessibilityLabel={`Visibility: ${v}`}
+                  role="radio"
+                  onPress={() => setVisibility(v)}
+                />
+              ))}
+            </View>
           </View>
         </ScrollView>
+
+        {/* The one primary action, pinned so it is always in reach */}
+        <View
+          style={{
+            borderTopWidth: 1,
+            borderTopColor: c.line,
+            backgroundColor: c.ground,
+            paddingHorizontal: space[4],
+            paddingTop: space[3],
+            paddingBottom: Math.max(insets.bottom, space[4]),
+          }}
+        >
+          <Button
+            label={submitting ? 'Saving…' : 'Save'}
+            variant="primary"
+            onPress={handleSaveDnf}
+            disabled={submitting}
+          />
+        </View>
       </KeyboardAvoidingView>
     </Screen>
   );

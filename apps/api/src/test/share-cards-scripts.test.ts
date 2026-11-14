@@ -11,13 +11,13 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 
-import { CARD_HEIGHT, CARD_WIDTH, SANS_STACK, SERIF_STACK, h, toPng, toSvg } from '../cards/render.js';
+import { CARD_HEIGHT, CARD_WIDTH, SANS_STACK, DISPLAY_STACK, h, toPng, toSvg } from '../cards/render.js';
 import { finishCard } from '../cards/templates.js';
 import { decodePng, diffRatio, pixelsNot } from './png.js';
 import { finishModel } from './card-fixtures.js';
 
 const GOLDEN_DIR = new URL('./fixtures/cards/', import.meta.url);
-const GROUND: [number, number, number] = [0xf7, 0xf7, 0xf5];
+const GROUND: [number, number, number] = [0xf4, 0xee, 0xe2];
 
 /** Real titles, so the shaping (conjuncts, stacks, medial forms) is exercised. */
 export const SCRIPT_TITLES: Record<string, { title: string; author: string }> = {
@@ -42,7 +42,7 @@ describe('fonts for six more scripts: each draws its glyphs', () => {
     // A line of 4–6 letters at 72 px covers thousands of pixels; nothing
     // drawn is 0.
     expect(await ink(title, SANS_STACK)).toBeGreaterThan(1500);
-    expect(await ink(title, SERIF_STACK)).toBeGreaterThan(1500);
+    expect(await ink(title, DISPLAY_STACK)).toBeGreaterThan(1500);
   });
 });
 

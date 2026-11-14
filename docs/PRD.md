@@ -4608,7 +4608,7 @@ The product should feel like **a well-made hardback, not a SaaS dashboard**. Lit
 
 | Role | Direction | Rationale |
 |---|---|---|
-| **Display** — book titles, headings, review body | **Newsreader** (design.md §3), a text serif drawn for reading on screens | Signals literary without costume; serif for review bodies makes long text feel like reading, which is thematically exact |
+| **Display** — book titles, headings | **Figtree** (design.md §3), a friendly open sans set firm (owner decision, Nov 2026, replacing Newsreader) | Warm and modern; review bodies use the UI face at a reading size |
 | **UI** — labels, buttons, navigation, metadata | **Instrument Sans** (design.md §3), warm and legible at small sizes | Legible at small sizes, gets out of the way |
 | **Numerals** — statistics | Tabular figures from the UI face | Numbers must align in columns |
 

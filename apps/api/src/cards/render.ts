@@ -3,7 +3,7 @@
 // resvg → PNG, in this process, with nothing fetched while it runs.
 //
 //   Fonts      assets/fonts, read once (scripts/build-card-fonts.sh; OFL,
-//              licences beside them). Newsreader for titles and quotes,
+//              licences beside them). Figtree for titles and headings,
 //              Instrument Sans for labels and numbers, Noto for Arabic, Hebrew, the main Indic
 //              scripts, Thai, Chinese/Japanese (Noto Sans SC), Hangul, and
 //              (Phase 5 C) Sinhala, Odia, Tibetan, Ethiopic, Khmer, Myanmar.
@@ -42,12 +42,12 @@ export const CARD_WIDTH = 1080;
 export const CARD_HEIGHT = 1920;
 
 /** Bump when any template's drawing changes, so cached PNGs of the old design are not served. */
-export const TEMPLATE_VERSION = 'st-d.1';
+export const TEMPLATE_VERSION = 'st-d.2';
 
 const FONT_DIR = new URL('../../assets/fonts/', import.meta.url);
 
 /** Family names the templates use. */
-export const SERIF = 'Newsreader';
+export const DISPLAY = 'Figtree';
 export const SANS = 'Instrument Sans';
 
 /** Fallbacks for scripts the two faces lack, in the order satori tries them. */
@@ -58,12 +58,12 @@ const FALLBACKS = [
   // Owner decision on Phase 5 B, built in 5 C.
   'Noto Sans Sinhala', 'Noto Sans Oriya', 'Noto Serif Tibetan', 'Noto Sans Ethiopic', 'Noto Sans Khmer', 'Noto Sans Myanmar',
 ];
-export const SERIF_STACK = [SERIF, ...FALLBACKS].map((f) => `"${f}"`).join(', ');
+export const DISPLAY_STACK = [DISPLAY, ...FALLBACKS].map((f) => `"${f}"`).join(', ');
 export const SANS_STACK = [SANS, ...FALLBACKS].map((f) => `"${f}"`).join(', ');
 
 const FONT_FILES: Array<[name: string, file: string, weight: 400 | 500 | 600]> = [
-  ['Newsreader', 'Newsreader-Regular.ttf', 400],
-  ['Newsreader', 'Newsreader-Medium.ttf', 500],
+  ['Figtree', 'Figtree-Medium.ttf', 500],
+  ['Figtree', 'Figtree-SemiBold.ttf', 600],
   ['Instrument Sans', 'InstrumentSans-Regular.ttf', 400],
   ['Instrument Sans', 'InstrumentSans-Medium.ttf', 500],
   ['Noto Sans Arabic', 'NotoSansArabic-Regular.ttf', 400],

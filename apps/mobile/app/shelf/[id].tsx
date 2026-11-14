@@ -2,11 +2,11 @@
 //
 // Features:
 // - Header: title, description, owner row, privacy & ranked badges, save count
-// - 4-Cover mosaic preview card (cover_ids / cover_work_ids)
+// - A strip of up to four covers (cover_ids)
 // - Action row: Edit shelf (if owner), Save/Bookmark toggle (if reader), Share
 // - Ranked numbering (#1, #2, #3...) when is_ranked === true
-// - Book rows with covers, authors, ratings, and log counts
-// - Per-entry notes displayed in styled annotation callouts with quote styling (PRD §15.2)
+// - A ruled list of book rows with covers, authors, ratings, and log counts
+// - Per-entry notes set in the serif under a rule (PRD §15.2)
 // - Empty states with contextual prompts for owner vs visitor
 
 import React, { useEffect, useState, useCallback } from 'react';
@@ -14,7 +14,6 @@ import {
   View,
   ScrollView,
   Pressable,
-  Share,
   StyleSheet,
   Alert,
   RefreshControl,
@@ -28,10 +27,10 @@ import { useSession } from '@/lib/session';
 import { ReportSheet, type ReportTarget } from '@/ui/ReportSheet';
 import { useActionGate } from '@/ui/ActionGate';
 import { track } from '@/lib/events';
-import { Button, Card, Cover, Screen, Stars, Txt, Skeleton, SkeletonHeader, SkeletonList } from '@/ui/components';
+import { Button, Cover, EmptyState, RatingMark, Screen, Txt, Skeleton, SkeletonHeader, SkeletonList } from '@/ui/components';
 import { ShareShelfModal } from '@/ui/ShareShelfModal';
 import { SHELF_ITEMS_PAGE } from '@/lib/shelfValidation';
-import { fontFamilies, radius, space, useTheme } from '@/ui/tokens';
+import { radius, space, useTheme } from '@/ui/tokens';
 
 export default function ShelfDetailScreen() {
   const c = useTheme();
@@ -170,34 +169,23 @@ export default function ShelfDetailScreen() {
     return null;
   }
 
-  // Covers for the mosaic preview
+  // Covers for the strip under the title
   const coverIds = (shelf.cover_ids || []).filter((id): id is number => id !== null);
+  const ownerName = shelf.owner.displayName || shelf.owner.username;
 
   return (
-    <Screen style={{ flex: 1, backgroundColor: c.ground }}>
-      {/* Navigation Top Bar */}
-      <View
-        style={[
-          styles.navBar,
-          {
-            paddingTop: Math.max(insets.top, space[3]),
-            borderBottomColor: c.line,
-          },
-        ]}
-      >
+    <Screen>
+      {/* Navigation top bar: back on the left, share and edit on the right */}
+      <View style={[styles.navBar, { paddingTop: Math.max(insets.top, space[3]) }]}>
         <Pressable
           accessibilityRole="button"
           accessibilityLabel="Go back"
           hitSlop={12}
           onPress={() => router.back()}
-          style={styles.backButton}
+          style={styles.iconButton}
         >
           <Ionicons name="chevron-back" size={24} color={c.ink} />
         </Pressable>
-
-        <Txt numberOfLines={1} style={[styles.navTitle, { color: c.ink }]}>
-          {shelf.name}
-        </Txt>
 
         <View style={styles.navActions}>
           <Pressable
@@ -229,68 +217,47 @@ export default function ShelfDetailScreen() {
           <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={c.accent} />
         }
       >
-        {/* Shelf Header Banner */}
-        <View style={[styles.headerCard, { backgroundColor: c.surface, borderColor: c.line }]}>
-          {/* Mosaic Cover / Visual Hero */}
-          <View style={styles.mosaicRow}>
-            {coverIds.length >= 4 ? (
-              <View style={styles.mosaicGrid}>
-                {coverIds.slice(0, 4).map((cid, i) => (
-                  <View key={i} style={styles.mosaicCell}>
-                    <Cover coverId={cid} size="xs" />
-                  </View>
-                ))}
-              </View>
-            ) : coverIds.length > 0 ? (
-              <View style={styles.mosaicSimple}>
-                {coverIds.map((cid, i) => (
-                  <View key={i} style={{ marginRight: -space[2], zIndex: 10 - i }}>
-                    <Cover coverId={cid} size="s" />
-                  </View>
-                ))}
-              </View>
-            ) : (
-              <View style={[styles.mosaicEmpty, { backgroundColor: c.surface2, borderColor: c.line }]}>
-                <Ionicons name="albums-outline" size={32} color={c.muted} />
-              </View>
-            )}
+        {/* Shelf header: a title page, not a card */}
+        <View style={styles.header}>
+          <Txt variant="displayL">{shelf.name}</Txt>
 
-            <View style={{ flex: 1, marginLeft: space[3], justifyContent: 'center' }}>
-              <Txt style={[styles.title, { color: c.ink }]}>{shelf.name}</Txt>
-
-              {/* Owner Row */}
-              <Pressable
-                accessibilityRole="link"
-                accessibilityLabel={`View ${shelf.owner.displayName || shelf.owner.username}'s profile`}
-                onPress={() => {
-                  if (isOwner) {
-                    router.push('/profile' as any);
-                  } else {
-                    router.push(`/user/${shelf.user_id}` as any);
-                  }
-                }}
-                style={styles.ownerRow}
-              >
-                <View style={[styles.ownerAvatar, { backgroundColor: c.surface2 }]}>
-                  <Txt style={{ color: c.ink2, fontWeight: '500', fontSize: 12 }}>
-                    {(shelf.owner.displayName || shelf.owner.username).charAt(0).toUpperCase()}
-                  </Txt>
-                </View>
-                <Txt style={[styles.ownerName, { color: c.muted }]}>
-                  by <Txt style={{ color: c.ink, fontWeight: '500' }}>{shelf.owner.displayName || shelf.owner.username}</Txt>
-                </Txt>
-              </Pressable>
+          {/* A strip of covers */}
+          {coverIds.length > 0 ? (
+            <View style={styles.coverStrip}>
+              {coverIds.slice(0, 4).map((cid, i) => (
+                <Cover key={i} coverId={cid} size="s" />
+              ))}
             </View>
-          </View>
-
-          {/* Shelf Description */}
-          {shelf.description ? (
-            <Txt style={[styles.description, { color: c.ink }]}>{shelf.description}</Txt>
           ) : null}
 
-          {/* Badges / Metadata Strip */}
+          {/* Owner row */}
+          <Pressable
+            accessibilityRole="link"
+            accessibilityLabel={`View ${ownerName}'s profile`}
+            onPress={() => {
+              if (isOwner) {
+                router.push('/profile' as any);
+              } else {
+                router.push(`/user/${shelf.user_id}` as any);
+              }
+            }}
+            style={styles.ownerRow}
+          >
+            <View style={[styles.ownerAvatar, { backgroundColor: c.surface2 }]}>
+              <Txt variant="micro" color="ink2">
+                {ownerName.charAt(0).toUpperCase()}
+              </Txt>
+            </View>
+            <Txt variant="caption" color="muted" numberOfLines={1} style={{ flex: 1 }}>
+              by <Txt variant="caption" color="ink">{ownerName}</Txt>
+            </Txt>
+          </Pressable>
+
+          {/* Shelf description */}
+          {shelf.description ? <Txt variant="bodyL">{shelf.description}</Txt> : null}
+
+          {/* Metadata */}
           <View style={styles.badgesRow}>
-            {/* Privacy Badge */}
             <View style={styles.badge}>
               <Ionicons
                 name={
@@ -300,10 +267,10 @@ export default function ShelfDetailScreen() {
                     ? 'people-outline'
                     : 'lock-closed-outline'
                 }
-                size={13}
+                size={14}
                 color={c.muted}
               />
-              <Txt style={[styles.badgeText, { color: c.muted }]}>
+              <Txt variant="caption" color="muted">
                 {shelf.privacy === 'public'
                   ? 'Public'
                   : shelf.privacy === 'followers'
@@ -312,34 +279,31 @@ export default function ShelfDetailScreen() {
               </Txt>
             </View>
 
-            {/* Ranked Badge */}
             {shelf.is_ranked && (
               <View style={styles.badge}>
-                <Ionicons name="list" size={13} color={c.muted} />
-                <Txt style={[styles.badgeText, { color: c.muted }]}>
+                <Ionicons name="list-outline" size={14} color={c.muted} />
+                <Txt variant="caption" color="muted">
                   Ranked
                 </Txt>
               </View>
             )}
 
-            {/* Item Count */}
             <View style={styles.badge}>
-              <Ionicons name="book-outline" size={13} color={c.muted} />
-              <Txt tabular style={[styles.badgeText, { color: c.muted }]}>
+              <Ionicons name="book-outline" size={14} color={c.muted} />
+              <Txt variant="caption" color="muted" tabular>
                 {shelf.item_count} {shelf.item_count === 1 ? 'book' : 'books'}
               </Txt>
             </View>
 
-            {/* Save Count */}
             <View style={styles.badge}>
-              <Ionicons name="bookmark-outline" size={13} color={c.muted} />
-              <Txt tabular style={[styles.badgeText, { color: c.muted }]}>
+              <Ionicons name="bookmark-outline" size={14} color={c.muted} />
+              <Txt variant="caption" color="muted" tabular>
                 {saveCount} {saveCount === 1 ? 'save' : 'saves'}
               </Txt>
             </View>
           </View>
 
-          {/* Primary Action Button (Save for visitor / Edit for owner) */}
+          {/* One primary action: save for a visitor, edit for the owner */}
           <View style={styles.actionButtonRow}>
             {!isOwner ? (
               <Button
@@ -349,22 +313,21 @@ export default function ShelfDetailScreen() {
                 style={{ flex: 1 }}
               />
             ) : (
-              <View style={{ flex: 1, flexDirection: 'row', gap: space[2] }}>
+              <>
                 <Button
-                  variant="secondary"
+                  variant="primary"
                   label="Edit shelf"
                   onPress={() => router.push(`/shelf/${shelf.id}/edit` as any)}
                   style={{ flex: 1 }}
                 />
                 {items.length >= 2 && (
                   <Button
-                    variant="outline"
+                    variant="secondary"
                     label="Reorder"
                     onPress={() => router.push(`/shelf/${shelf.id}/reorder` as any)}
-                    style={{ paddingHorizontal: space[3] }}
                   />
                 )}
-              </View>
+              </>
             )}
             {user && !isOwner && (
               <Button
@@ -376,56 +339,43 @@ export default function ShelfDetailScreen() {
           </View>
         </View>
 
-        {/* Shelf Books Section */}
+        {/* Shelf books: a ruled list */}
         <View style={styles.itemsSection}>
           <View style={styles.sectionHeader}>
-            <Txt style={[styles.sectionTitle, { color: c.ink }]}>Books on this shelf</Txt>
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: space[3] }}>
-              {isOwner && items.length >= 2 && (
-                <Pressable
-                  accessibilityRole="button"
-                  accessibilityLabel="Reorder books"
-                  hitSlop={8}
-                  onPress={() => router.push(`/shelf/${shelf.id}/reorder` as any)}
-                  style={{ flexDirection: 'row', alignItems: 'center', gap: space[1] }}
-                >
-                  <Ionicons name="swap-vertical" size={16} color={c.ink2} />
-                  <Txt variant="caption" color="ink2" style={{ fontWeight: '500' }}>Reorder</Txt>
-                </Pressable>
-              )}
-              <Txt variant="caption" color="muted" tabular>
-                {items.length} of {shelf.item_count}
-              </Txt>
-            </View>
+            <Txt variant="displayM">Books on this shelf</Txt>
+            <Txt variant="caption" color="muted" tabular>
+              {items.length} of {shelf.item_count}
+            </Txt>
           </View>
 
           {items.length === 0 ? (
-            <View style={[styles.emptyCard, { backgroundColor: c.surface, borderColor: c.line }]}>
-              <Ionicons name="book-outline" size={40} color={c.muted} />
-              <Txt style={[styles.emptyTitle, { color: c.ink }]}>This shelf is empty</Txt>
-              <Txt style={[styles.emptyDesc, { color: c.muted }]}>
-                {isOwner
+            <EmptyState
+              title="This shelf is empty"
+              subtitle={
+                isOwner
                   ? 'Add books, and a note on why each one belongs here'
-                  : 'Nothing has been added to this shelf yet'}
-              </Txt>
-              {isOwner && (
-                <Button
-                  label="Find books to add"
-                  onPress={() => router.push('/(tabs)/discover' as any)}
-                  style={{ marginTop: space[3] }}
-                />
-              )}
-            </View>
+                  : 'Nothing has been added to this shelf yet'
+              }
+              action={
+                isOwner ? (
+                  <Button
+                    label="Find books to add"
+                    variant="secondary"
+                    onPress={() => router.push('/(tabs)/discover' as any)}
+                  />
+                ) : undefined
+              }
+            />
           ) : (
-            <View style={styles.itemsList}>
+            <View>
               {items.map((item, index) => {
                 const rankNumber = shelf.is_ranked ? item.position || index + 1 : null;
                 return (
                   <View
                     key={item.work_id}
                     style={[
-                      styles.itemCard,
-                      { backgroundColor: c.surface, borderColor: c.line },
+                      styles.itemRow,
+                      { borderTopWidth: index ? 1 : 0, borderTopColor: c.line },
                     ]}
                   >
                     <Pressable
@@ -434,52 +384,50 @@ export default function ShelfDetailScreen() {
                       onPress={() => router.push(`/work/${item.work.id}` as any)}
                       style={styles.bookRow}
                     >
-                      {/* Rank Number if Ranked Shelf */}
+                      {/* Rank number if ranked shelf */}
                       {rankNumber !== null && (
                         <View style={styles.rankPill}>
-                          <Txt tabular style={[styles.rankNumber, { color: c.muted }]}>
+                          <Txt variant="caption" color="muted" tabular>
                             #{rankNumber}
                           </Txt>
                         </View>
                       )}
 
-                      {/* Book Cover */}
-                      <Cover coverId={item.work.cover_id} size="s" />
+                      {/* Book cover */}
+                      <Cover
+                        coverId={item.work.cover_id}
+                        title={item.work.title}
+                        author={item.work.author_name}
+                        size="s"
+                      />
 
-                      {/* Book Details */}
+                      {/* Book details */}
                       <View style={styles.bookInfo}>
-                        <Txt numberOfLines={2} style={[styles.bookTitle, { color: c.ink }]}>
+                        <Txt variant="title" numberOfLines={2}>
                           {item.work.title}
                         </Txt>
-                        <Txt numberOfLines={1} style={[styles.bookAuthor, { color: c.muted }]}>
+                        <Txt variant="caption" color="muted" numberOfLines={1}>
                           {item.work.author_name}
                         </Txt>
 
                         <View style={styles.bookMetaRow}>
-                          {item.work.rating ? (
-                            <View style={styles.ratingRow}>
-                              <Ionicons name="star" size={13} color={c.star} />
-                              <Txt tabular style={[styles.ratingText, { color: c.ink }]}>
-                                {item.work.rating.toFixed(1)}
-                              </Txt>
-                            </View>
-                          ) : null}
+                          {item.work.rating ? <RatingMark value={item.work.rating} /> : null}
                           {item.work.first_publish_year ? (
-                            <Txt style={[styles.metaDot, { color: c.muted }]}>
+                            <Txt variant="caption" color="muted" tabular>
                               {item.work.first_publish_year}
                             </Txt>
                           ) : null}
-                          <Txt style={[styles.metaDot, { color: c.muted }]}>
-                            {item.work.log_count} logs
+                          <Txt variant="caption" color="muted" tabular>
+                            {item.work.log_count} {item.work.log_count === 1 ? 'log' : 'logs'}
                           </Txt>
                         </View>
                       </View>
                     </Pressable>
 
-                    {/* Per-Entry Note (PRD §15.2: "The feature that turns a list into content") */}
+                    {/* Per-entry note (PRD §15.2: "The feature that turns a list into content") */}
                     {item.note ? (
                       <View style={[styles.noteCallout, { borderLeftColor: c.lineStrong }]}>
-                        <Txt style={[styles.noteText, { color: c.ink2 }]}>
+                        <Txt variant="bodyL" color="ink2">
                           {item.note}
                         </Txt>
                       </View>
@@ -493,7 +441,7 @@ export default function ShelfDetailScreen() {
                   variant="secondary"
                   onPress={() => void loadMoreItems()}
                   disabled={loadingMore}
-                  style={{ marginTop: space[3] }}
+                  style={{ marginTop: space[4] }}
                 />
               )}
             </View>
@@ -519,20 +467,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingHorizontal: space[3],
-    paddingBottom: space[2],
-    borderBottomWidth: StyleSheet.hairlineWidth,
-  },
-  backButton: {
-    minWidth: 44,
-    minHeight: 44,
-    justifyContent: 'center',
-  },
-  navTitle: {
-    flex: 1,
-    fontSize: 15,
-    fontWeight: '500',
-    textAlign: 'center',
-    marginHorizontal: space[2],
   },
   navActions: {
     flexDirection: 'row',
@@ -547,69 +481,27 @@ const styles = StyleSheet.create({
   },
   scrollContent: {
     padding: space[4],
-    gap: space[4],
+    gap: space[8],
   },
-  headerCard: {
-    padding: space[4],
-    borderRadius: radius.lg,
-    borderWidth: 1,
+  header: {
     gap: space[3],
   },
-  mosaicRow: {
+  coverStrip: {
     flexDirection: 'row',
-    alignItems: 'center',
-  },
-  mosaicGrid: {
-    width: 68,
-    height: 100,
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    borderRadius: radius.sm,
-    overflow: 'hidden',
-    gap: 2,
-  },
-  mosaicCell: {
-    width: 33,
-    height: 49,
-    overflow: 'hidden',
-  },
-  mosaicSimple: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  mosaicEmpty: {
-    width: 68,
-    height: 100,
-    borderRadius: radius.sm,
-    borderWidth: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  title: {
-    fontFamily: fontFamilies.displayMedium,
-    fontSize: 24,
-    lineHeight: 30,
+    gap: space[2],
   },
   ownerRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginTop: space[2],
+    gap: space[2],
+    minHeight: 44,
   },
   ownerAvatar: {
     width: 24,
     height: 24,
-    borderRadius: 12,
+    borderRadius: radius.pill,
     alignItems: 'center',
     justifyContent: 'center',
-    marginRight: space[2],
-  },
-  ownerName: {
-    fontSize: 13,
-  },
-  description: {
-    fontFamily: fontFamilies.displayRegular,
-    fontSize: 16,
-    lineHeight: 24,
   },
   badgesRow: {
     flexDirection: 'row',
@@ -621,9 +513,6 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: space[1],
-  },
-  badgeText: {
-    fontSize: 13,
   },
   actionButtonRow: {
     flexDirection: 'row',
@@ -638,38 +527,10 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'baseline',
-    paddingHorizontal: space[1],
-  },
-  sectionTitle: {
-    fontSize: 17,
-    fontWeight: '500',
-  },
-  emptyCard: {
-    padding: space[8],
-    borderRadius: radius.lg,
-    borderWidth: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: space[2],
-  },
-  emptyTitle: {
-    fontSize: 16,
-    fontWeight: '500',
-    marginTop: space[2],
-  },
-  emptyDesc: {
-    fontSize: 13,
-    textAlign: 'center',
-    lineHeight: 20,
-    maxWidth: 260,
-  },
-  itemsList: {
     gap: space[3],
   },
-  itemCard: {
-    borderRadius: radius.lg,
-    borderWidth: 1,
-    padding: space[3],
+  itemRow: {
+    paddingVertical: space[3],
     gap: space[2],
   },
   bookRow: {
@@ -678,51 +539,22 @@ const styles = StyleSheet.create({
     gap: space[3],
   },
   rankPill: {
-    width: 28,
+    width: 32,
     alignItems: 'flex-end',
-  },
-  rankNumber: {
-    fontSize: 15,
-    fontWeight: '500',
   },
   bookInfo: {
     flex: 1,
     gap: space[1],
   },
-  bookTitle: {
-    fontFamily: fontFamilies.displayMedium,
-    fontSize: 16,
-    lineHeight: 22,
-  },
-  bookAuthor: {
-    fontSize: 13,
-  },
   bookMetaRow: {
     flexDirection: 'row',
+    flexWrap: 'wrap',
     alignItems: 'center',
-    gap: space[2],
-    marginTop: space[1],
-  },
-  ratingRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: space[1],
-  },
-  ratingText: {
-    fontSize: 12,
-    fontWeight: '500',
-  },
-  metaDot: {
-    fontSize: 12,
+    columnGap: space[3],
+    rowGap: space[1],
   },
   noteCallout: {
     paddingLeft: space[3],
     borderLeftWidth: 2,
-    marginTop: space[1],
-  },
-  noteText: {
-    fontFamily: fontFamilies.displayRegular,
-    fontSize: 15,
-    lineHeight: 22,
   },
 });

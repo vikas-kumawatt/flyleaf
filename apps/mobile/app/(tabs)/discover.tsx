@@ -16,6 +16,7 @@ import {
   View,
   ScrollView,
   StyleSheet,
+  useWindowDimensions,
 } from 'react-native';
 import { useFocusEffect, useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -30,8 +31,8 @@ import { useGuestShelf } from '@/lib/guest';
 import { useActionGate } from '@/ui/ActionGate';
 import { AddToShelfSheet, type AddToShelfWork } from '@/ui/AddToShelfSheet';
 import { budgetTracker } from '@/lib/budgetTracker';
-import { Card, Cover, EmptyState, Screen, SegmentedControl, Txt, sheet, SkeletonList } from '@/ui/components';
-import { space, radius, useTheme } from '@/ui/tokens';
+import { Button, Chip, Cover, EmptyState, Screen, SegmentedControl, Txt, sheet, SkeletonList } from '@/ui/components';
+import { cover, fontFamilies, space, radius, useTheme } from '@/ui/tokens';
 
 
 /** A book in the empty-search "Popular on Flyleaf" row: real catalog works only. */
@@ -39,6 +40,9 @@ type PopularBook = { id: string; title: string; author: string | null; cover_id:
 
 export default function DiscoverScreen() {
   const insets = useSafeAreaInsets();
+  // Large text needs a wider tile, or titles break mid-word under the cover.
+  const { fontScale } = useWindowDimensions();
+  const tileCover = fontScale >= 1.3 ? 'l' : 'm';
   const router = useRouter();
   const c = useTheme();
   const { user } = useSession();
@@ -251,17 +255,95 @@ export default function DiscoverScreen() {
     }, []),
   );
 
+  // A community list as a ruled row: lead cover, serif name, curator, counts.
+  const renderShelfRow = (shelf: Shelf, index: number) => {
+    const coverIds = (shelf.cover_ids || []).filter(
+      (cid): cid is number => cid !== null,
+    );
+    const curatorName =
+      shelf.owner?.displayName || shelf.owner?.username || 'Curator';
+    return (
+      <Pressable
+        key={shelf.id}
+        onPress={() => {
+          void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+          router.push(`/shelf/${shelf.id}` as any);
+        }}
+        accessibilityRole="button"
+        style={({ pressed }) => [
+          sheet.rowTop,
+          {
+            paddingVertical: space[3],
+            borderTopWidth: index ? 1 : 0,
+            borderTopColor: c.line,
+            backgroundColor: pressed ? c.surface2 : 'transparent',
+          },
+        ]}
+      >
+        {coverIds.length > 0 ? (
+          <Cover coverId={coverIds[0]} title={shelf.name} size="s" />
+        ) : (
+          <View
+            style={{
+              ...cover.s,
+              borderRadius: radius.xs,
+              backgroundColor: c.surface2,
+              borderWidth: 1,
+              borderColor: c.line,
+              alignItems: 'center',
+              justifyContent: 'center',
+            }}
+          >
+            <Ionicons name="albums-outline" size={22} color={c.muted} />
+          </View>
+        )}
+        <View style={{ flex: 1, gap: space[1] }}>
+          <View style={[sheet.rowTop, { justifyContent: 'space-between', gap: space[2] }]}>
+            <Txt variant="title" numberOfLines={2} style={{ flex: 1 }}>
+              {shelf.name}
+            </Txt>
+            {shelf.is_ranked && (
+              <Txt variant="micro" color="muted" style={{ paddingTop: 2 }}>
+                Ranked
+              </Txt>
+            )}
+          </View>
+          <Txt variant="caption" color="muted" numberOfLines={1}>
+            by{' '}
+            <Txt variant="caption" style={{ fontWeight: '500' }}>
+              {curatorName}
+            </Txt>
+          </Txt>
+          {shelf.description ? (
+            <Txt variant="caption" color="ink2" numberOfLines={2}>
+              {shelf.description}
+            </Txt>
+          ) : null}
+          <View style={[sheet.row, { gap: space[3], flexWrap: 'wrap' }]}>
+            <Txt variant="micro" color="muted" tabular>
+              {shelf.item_count}{' '}
+              {shelf.item_count === 1 ? 'book' : 'books'}
+            </Txt>
+            {shelf.save_count > 0 && (
+              <Txt variant="micro" color="muted" tabular>
+                {shelf.save_count}{' '}
+                {shelf.save_count === 1 ? 'save' : 'saves'}
+              </Txt>
+            )}
+          </View>
+        </View>
+      </Pressable>
+    );
+  };
+
   return (
     <Screen>
-      {/* Search Header */}
+      {/* Search Header: the segmented control draws the bottom rule */}
       <View
         style={{
           paddingTop: Math.max(insets.top, space[4]),
           paddingHorizontal: space[4],
-          paddingBottom: space[3],
           gap: space[3],
-          borderBottomWidth: 1,
-          borderBottomColor: c.line,
           backgroundColor: c.ground,
         }}
       >
@@ -274,20 +356,18 @@ export default function DiscoverScreen() {
             }}
             accessibilityRole="button"
             accessibilityLabel="Scan barcode"
-            style={{
-              flexDirection: 'row',
-              alignItems: 'center',
-              backgroundColor: c.surface,
-              paddingHorizontal: space[3],
-              paddingVertical: space[2],
-              borderRadius: radius.md,
-              borderWidth: 1,
-              borderColor: c.line,
-              gap: space[2],
-            }}
+            style={({ pressed }) => [
+              sheet.row,
+              {
+                gap: space[1],
+                minHeight: 44,
+                paddingLeft: space[2],
+                opacity: pressed ? 0.4 : 1,
+              },
+            ]}
           >
-            <Ionicons name="barcode-outline" size={18} color={c.ink2} />
-            <Txt variant="caption" style={{ fontWeight: '500' }}>
+            <Ionicons name="barcode-outline" size={18} color={c.accent} />
+            <Txt variant="body" color="accent" style={{ fontWeight: '500' }}>
               Scan ISBN
             </Txt>
           </Pressable>
@@ -300,15 +380,16 @@ export default function DiscoverScreen() {
             alignItems: 'center',
             backgroundColor: c.surface,
             borderRadius: radius.md,
+            borderCurve: 'continuous',
             borderWidth: 1,
-            borderColor: c.line,
-            paddingHorizontal: space[3],
+            borderColor: c.lineStrong,
+            paddingLeft: space[3],
             minHeight: 48,
           }}
         >
           <Ionicons
             name="search-outline"
-            size={20}
+            size={18}
             color={loading ? c.accent : c.muted}
             style={{ marginRight: space[2] }}
           />
@@ -325,6 +406,7 @@ export default function DiscoverScreen() {
             style={{
               flex: 1,
               color: c.ink,
+              fontFamily: fontFamilies.uiRegular,
               fontSize: 15,
               minHeight: 44,
             }}
@@ -334,9 +416,9 @@ export default function DiscoverScreen() {
               onPress={() => setQ('')}
               accessibilityRole="button"
               accessibilityLabel="Clear search"
-              hitSlop={8}
+              style={{ minWidth: 44, minHeight: 44, alignItems: 'center', justifyContent: 'center' }}
             >
-              <Ionicons name="close-circle" size={18} color={c.muted} />
+              <Ionicons name="close-circle-outline" size={18} color={c.muted} />
             </Pressable>
           )}
         </View>
@@ -352,61 +434,43 @@ export default function DiscoverScreen() {
             lists: 'Lists',
           }}
         />
+      </View>
 
-        {/* Format filter chips when searching books */}
-        {q.trim().length >= 2 && activeTab === 'books' && (
+      {/* Format filter chips when searching books, below the rule */}
+      {q.trim().length >= 2 && activeTab === 'books' && (
+        <View>
           <ScrollView
             horizontal
             showsHorizontalScrollIndicator={false}
-            contentContainerStyle={{ gap: space[2], paddingVertical: 2 }}
+            keyboardShouldPersistTaps="handled"
+            contentContainerStyle={{ gap: space[2], paddingHorizontal: space[4], paddingTop: space[3] }}
           >
-            {(['all', 'print', 'ebook', 'audio'] as const).map((fmt) => {
-              const active = formatFilter === fmt;
-              return (
-                <Pressable
-                  key={fmt}
-                  onPress={() => {
-                    void Haptics.selectionAsync();
-                    setFormatFilter(fmt);
-                  }}
-                  accessibilityRole="button"
-                  accessibilityState={{ selected: active }}
-                  style={{
-                    paddingHorizontal: space[3],
-                    paddingVertical: space[1],
-                    borderRadius: radius.sm,
-                    backgroundColor: active ? c.accent : c.surface,
-                    borderWidth: 1,
-                    borderColor: active ? c.accent : c.line,
-                  }}
-                >
-                  <Txt
-                    variant="caption"
-                    color={active ? 'onAccent' : 'ink2'}
-                    style={{ fontWeight: active ? '500' : '400', textTransform: 'capitalize' }}
-                  >
-                    {fmt}
-                  </Txt>
-                </Pressable>
-              );
-            })}
+            {(['all', 'print', 'ebook', 'audio'] as const).map((fmt) => (
+              <Chip
+                key={fmt}
+                label={fmt.charAt(0).toUpperCase() + fmt.slice(1)}
+                selected={formatFilter === fmt}
+                onPress={() => setFormatFilter(fmt)}
+              />
+            ))}
           </ScrollView>
-        )}
-      </View>
+        </View>
+      )}
 
       {/* Main Content Area */}
       {q.trim().length < 2 ? (
         // Browse State with Recents & Shelves
         <ScrollView
+          keyboardShouldPersistTaps="handled"
           contentContainerStyle={{
             padding: space[4],
             paddingBottom: space[12],
-            gap: space[6],
+            gap: space[8],
           }}
         >
           {/* Recents Section */}
           {recents.length > 0 && (
-            <View style={{ gap: space[3] }}>
+            <View style={{ gap: space[2] }}>
               <View style={[sheet.row, { justifyContent: 'space-between' }]}>
                 <Txt variant="micro" color="muted">
                   Recent searches
@@ -415,9 +479,9 @@ export default function DiscoverScreen() {
                   onPress={handleClearRecents}
                   accessibilityRole="button"
                   accessibilityLabel="Clear recent searches"
-                  hitSlop={8}
+                  style={{ minHeight: 44, justifyContent: 'center', paddingLeft: space[2] }}
                 >
-                  <Txt variant="caption" color="muted">
+                  <Txt variant="caption" color="ink2">
                     Clear all
                   </Txt>
                 </Pressable>
@@ -425,28 +489,14 @@ export default function DiscoverScreen() {
 
               <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: space[2] }}>
                 {recents.map((item) => (
-                  <Pressable
+                  <Chip
                     key={item}
+                    label={item}
+                    icon="time-outline"
+                    selected={false}
                     onPress={() => handleSelectRecent(item)}
-                    accessibilityRole="button"
                     accessibilityLabel={`Search for ${item}`}
-                    style={{
-                      flexDirection: 'row',
-                      alignItems: 'center',
-                      backgroundColor: c.surface,
-                      borderWidth: 1,
-                      borderColor: c.line,
-                      borderRadius: radius.sm,
-                      paddingHorizontal: space[3],
-                      paddingVertical: space[2],
-                      gap: space[2],
-                    }}
-                  >
-                    <Ionicons name="time-outline" size={16} color={c.muted} />
-                    <Txt variant="caption" color="ink">
-                      {item}
-                    </Txt>
-                  </Pressable>
+                  />
                 ))}
               </View>
             </View>
@@ -454,8 +504,8 @@ export default function DiscoverScreen() {
 
           {/* Curated Community Lists or Books */}
           {activeTab === 'lists' ? (
-            <View style={{ gap: space[3] }}>
-              <Txt variant="title">Featured Community Lists</Txt>
+            <View style={{ gap: space[2] }}>
+              <Txt variant="displayM">Featured community lists</Txt>
               {curatedListsLoading && curatedLists.length === 0 ? (
                 <SkeletonList rows={4} lead="cover" style={{ paddingHorizontal: 0 }} />
               ) : curatedLists.length === 0 ? (
@@ -464,99 +514,15 @@ export default function DiscoverScreen() {
                   subtitle="Lists other readers make show up here. You can start one from Shelves."
                 />
               ) : (
-                <View style={{ gap: space[3] }}>
-                  {curatedLists.map((shelf) => {
-                    const coverIds = (shelf.cover_ids || []).filter(
-                      (cid): cid is number => cid !== null,
-                    );
-                    const curatorName =
-                      shelf.owner?.displayName || shelf.owner?.username || 'Curator';
-                    return (
-                      <Card
-                        key={shelf.id}
-                        onPress={() => {
-                          void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                          router.push(`/shelf/${shelf.id}` as any);
-                        }}
-                        style={{ padding: space[3] }}
-                      >
-                        <View style={sheet.rowTop}>
-                          <View
-                            style={{
-                              width: 52,
-                              height: 72,
-                              borderRadius: radius.sm,
-                              backgroundColor: c.surface2,
-                              borderWidth: 1,
-                              borderColor: c.line,
-                              alignItems: 'center',
-                              justifyContent: 'center',
-                              overflow: 'hidden',
-                            }}
-                          >
-                            {coverIds.length > 0 ? (
-                              <Cover coverId={coverIds[0]} size="xs" />
-                            ) : (
-                              <Ionicons name="albums-outline" size={24} color={c.muted} />
-                            )}
-                          </View>
-                          <View
-                            style={{
-                              flex: 1,
-                              marginLeft: space[3],
-                              justifyContent: 'space-between',
-                              gap: space[1],
-                            }}
-                          >
-                            <View style={[sheet.row, { justifyContent: 'space-between' }]}>
-                              <Txt
-                                variant="title"
-                                numberOfLines={1}
-                                style={{ flex: 1, marginRight: space[2] }}
-                              >
-                                {shelf.name}
-                              </Txt>
-                              {shelf.is_ranked && (
-                                <Txt variant="micro" color="muted">
-                                  Ranked
-                                </Txt>
-                              )}
-                            </View>
-                            <Txt variant="caption" color="muted" numberOfLines={1}>
-                              by{' '}
-                              <Txt style={{ color: c.ink, fontWeight: '500' }}>
-                                {curatorName}
-                              </Txt>
-                            </Txt>
-                            {shelf.description ? (
-                              <Txt variant="caption" color="muted" numberOfLines={2}>
-                                {shelf.description}
-                              </Txt>
-                            ) : null}
-                            <View style={[sheet.row, { gap: space[3], marginTop: 2 }]}>
-                              <Txt variant="micro" color="muted">
-                                {shelf.item_count}{' '}
-                                {shelf.item_count === 1 ? 'book' : 'books'}
-                              </Txt>
-                              {shelf.save_count > 0 && (
-                                <Txt variant="micro" color="muted">
-                                  {shelf.save_count}{' '}
-                                  {shelf.save_count === 1 ? 'save' : 'saves'}
-                                </Txt>
-                              )}
-                            </View>
-                          </View>
-                        </View>
-                      </Card>
-                    );
-                  })}
+                <View>
+                  {curatedLists.map((shelf, index) => renderShelfRow(shelf, index))}
                 </View>
               )}
             </View>
           ) : (
             popularBooks.length > 0 ? (
               <View style={{ gap: space[3] }}>
-                <Txt variant="title">Popular on Flyleaf</Txt>
+                <Txt variant="displayM">Popular on Flyleaf</Txt>
                 <ScrollView
                   horizontal
                   showsHorizontalScrollIndicator={false}
@@ -568,17 +534,23 @@ export default function DiscoverScreen() {
                       onPress={() => router.push(`/work/${book.id}`)}
                       accessibilityRole="button"
                       accessibilityLabel={book.author ? `${book.title} by ${book.author}` : book.title}
-                      style={{ width: 104, gap: space[2] }}
+                      style={({ pressed }) => ({ width: cover[tileCover].width, gap: space[2], opacity: pressed ? 0.7 : 1 })}
                     >
-                      <Cover coverId={book.cover_id} title={book.title} size="m" />
-                      <Txt variant="caption" numberOfLines={2} style={{ fontWeight: '500' }}>
-                        {book.title}
-                      </Txt>
-                      {book.author ? (
-                        <Txt variant="micro" color="muted" numberOfLines={1}>
-                          {book.author}
+                      <Cover coverId={book.cover_id} title={book.title} size={tileCover} />
+                      <View style={{ gap: 2 }}>
+                        <Txt
+                          variant="caption"
+                          numberOfLines={2}
+                          style={{ fontFamily: fontFamilies.displayMedium, fontSize: 15 }}
+                        >
+                          {book.title}
                         </Txt>
-                      ) : null}
+                        {book.author ? (
+                          <Txt variant="micro" color="muted" numberOfLines={1}>
+                            {book.author}
+                          </Txt>
+                        ) : null}
+                      </View>
                     </Pressable>
                   ))}
                 </ScrollView>
@@ -649,100 +621,15 @@ export default function DiscoverScreen() {
           keyboardShouldPersistTaps="handled"
           ListEmptyComponent={
             shelfLoading ? (
-              <SkeletonList rows={4} lead="cover" />
+              <SkeletonList rows={4} lead="cover" style={{ paddingHorizontal: 0, paddingTop: 0 }} />
             ) : (
               <EmptyState
-                title={`No lists found for "${q}"`}
+                title={`No lists found for “${q}”`}
                 subtitle="Check the spelling or try other words."
               />
             )
           }
-          renderItem={({ item: shelf }) => {
-            const coverIds = (shelf.cover_ids || []).filter(
-              (cid): cid is number => cid !== null,
-            );
-            const curatorName =
-              shelf.owner?.displayName || shelf.owner?.username || 'Curator';
-
-            return (
-              <Card
-                key={shelf.id}
-                onPress={() => {
-                  void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                  router.push(`/shelf/${shelf.id}` as any);
-                }}
-                style={{ marginBottom: space[3], padding: space[3] }}
-              >
-                <View style={sheet.rowTop}>
-                  <View
-                    style={{
-                      width: 52,
-                      height: 72,
-                      borderRadius: radius.sm,
-                      backgroundColor: c.surface2,
-                      borderWidth: 1,
-                      borderColor: c.line,
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      overflow: 'hidden',
-                    }}
-                  >
-                    {coverIds.length > 0 ? (
-                      <Cover coverId={coverIds[0]} size="xs" />
-                    ) : (
-                      <Ionicons name="albums-outline" size={24} color={c.muted} />
-                    )}
-                  </View>
-                  <View
-                    style={{
-                      flex: 1,
-                      marginLeft: space[3],
-                      justifyContent: 'space-between',
-                      gap: space[1],
-                    }}
-                  >
-                    <View style={[sheet.row, { justifyContent: 'space-between' }]}>
-                      <Txt
-                        variant="title"
-                        numberOfLines={1}
-                        style={{ flex: 1, marginRight: space[2] }}
-                      >
-                        {shelf.name}
-                      </Txt>
-                      {shelf.is_ranked && (
-                        <Txt variant="micro" color="muted">
-                          Ranked
-                        </Txt>
-                      )}
-                    </View>
-                    <Txt variant="caption" color="muted" numberOfLines={1}>
-                      by{' '}
-                      <Txt style={{ color: c.ink, fontWeight: '500' }}>
-                        {curatorName}
-                      </Txt>
-                    </Txt>
-                    {shelf.description ? (
-                      <Txt variant="caption" color="muted" numberOfLines={2}>
-                        {shelf.description}
-                      </Txt>
-                    ) : null}
-                    <View style={[sheet.row, { gap: space[3], marginTop: 2 }]}>
-                      <Txt variant="micro" color="muted">
-                        {shelf.item_count}{' '}
-                        {shelf.item_count === 1 ? 'book' : 'books'}
-                      </Txt>
-                      {shelf.save_count > 0 && (
-                        <Txt variant="micro" color="muted">
-                          {shelf.save_count}{' '}
-                          {shelf.save_count === 1 ? 'save' : 'saves'}
-                        </Txt>
-                      )}
-                    </View>
-                  </View>
-                </View>
-              </Card>
-            );
-          }}
+          renderItem={({ item: shelf, index }) => renderShelfRow(shelf, index)}
         />
       ) : (
         // Results State
@@ -753,155 +640,143 @@ export default function DiscoverScreen() {
           keyboardShouldPersistTaps="handled"
           ListEmptyComponent={
             loading ? (
-              <View style={{ paddingVertical: space[8], alignItems: 'center' }}>
-                <Txt variant="body" color="muted">
-                  Searching catalog…
-                </Txt>
-              </View>
+              <SkeletonList rows={5} lead="cover" style={{ paddingHorizontal: 0, paddingTop: 0 }} />
             ) : (
               <EmptyState
-                title={`No results for "${q}"`}
+                title={`No results for “${q}”`}
                 subtitle="Check the spelling, or search by author or 13-digit ISBN."
                 action={
-                  <View style={{ alignItems: 'center' }}>
+                  <View style={{ alignItems: 'center', gap: space[3] }}>
                   {suggestion && (
                     <Pressable
                       onPress={() => setQ(suggestion)}
                       accessibilityRole="button"
                       accessibilityLabel={`Search for ${suggestion} instead`}
-                      style={{ marginTop: space[3] }}
+                      style={{ minHeight: 44, justifyContent: 'center' }}
                     >
-                      <Txt variant="body">
+                      <Txt variant="body" style={{ textAlign: 'center' }}>
                         Did you mean <Txt variant="body" color="accent" style={{ fontWeight: '500' }}>{suggestion}</Txt>?
                       </Txt>
                     </Pressable>
                   )}
-                  <Pressable
-                    onPress={() => router.push('/scanner' as any)}
-                    accessibilityRole="button"
+                  <Button
+                    label="Scan a barcode instead"
+                    variant="secondary"
                     accessibilityLabel="Scan barcode instead"
-                    style={{
-                      marginTop: space[3],
-                      paddingHorizontal: space[4],
-                      paddingVertical: space[2],
-                      backgroundColor: c.surface2,
-                      borderWidth: 1,
-                      borderColor: c.line,
-                      borderRadius: radius.md,
-                    }}
-                  >
-                    <Txt variant="body" style={{ fontWeight: '500' }}>
-                      Scan a barcode instead
-                    </Txt>
-                  </Pressable>
+                    onPress={() => router.push('/scanner' as any)}
+                  />
                   </View>
                 }
               />
             )
           }
-          renderItem={({ item }) => {
+          renderItem={({ item, index }) => {
             const savedLocally = isSaved(item.id);
             const isFinished = item.your_read?.status === 'finished';
             const isReading = item.your_read?.status === 'reading';
 
             return (
-              <Card
+              <Pressable
                 onPress={() => {
+                  void Haptics.selectionAsync();
                   rememberQuery();
                   budgetTracker.searchRowOpened(item.id);
                   router.push(`/work/${item.id}`);
                 }}
-                onLongPress={() => handleOpenShelf(item)}
-                style={{ marginBottom: space[3], padding: space[3] }}
+                onLongPress={() => {
+                  void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+                  handleOpenShelf(item);
+                }}
+                accessibilityRole="button"
+                style={({ pressed }) => [
+                  sheet.rowTop,
+                  {
+                    paddingVertical: space[3],
+                    borderTopWidth: index ? 1 : 0,
+                    borderTopColor: c.line,
+                    backgroundColor: pressed ? c.surface2 : 'transparent',
+                  },
+                ]}
               >
-                <View style={sheet.rowTop}>
-                  <Cover coverId={item.cover_id} title={item.title} size="s" />
-                  <View
-                    style={{
-                      flex: 1,
-                      marginLeft: space[3],
-                      justifyContent: 'space-between',
-                      gap: space[1],
-                    }}
-                  >
-                    <View>
-                      <Txt variant="title" numberOfLines={2}>
-                        {item.title}
+                <Cover coverId={item.cover_id} title={item.title} author={item.author_name} size="s" />
+                <View style={{ flex: 1, gap: space[1] }}>
+                  <View style={{ gap: 2 }}>
+                    <Txt variant="title" numberOfLines={2}>
+                      {item.title}
+                    </Txt>
+                    <Pressable
+                      onPress={(e) => {
+                        e.stopPropagation();
+                        // The author page takes an author id (SL-43); search
+                        // results carry the name only, so ask the work.
+                        void api.work(item.id).then((w) => {
+                          const authorId = w.authors?.[0]?.id;
+                          router.push((authorId ? `/author/${authorId}` : `/work/${item.id}`) as any);
+                        }).catch(() => router.push(`/work/${item.id}` as any));
+                      }}
+                      hitSlop={{ top: 12, bottom: 12, left: 0, right: 8 }}
+                      style={{ alignSelf: 'flex-start' }}
+                    >
+                      <Txt variant="caption" color="ink2" numberOfLines={1}>
+                        {item.author_name}
                       </Txt>
-                      <Pressable
-                        onPress={(e) => {
-                          e.stopPropagation();
-                          // The author page takes an author id (SL-43); search
-                          // results carry the name only, so ask the work.
-                          void api.work(item.id).then((w) => {
-                            const authorId = w.authors?.[0]?.id;
-                            router.push((authorId ? `/author/${authorId}` : `/work/${item.id}`) as any);
-                          }).catch(() => router.push(`/work/${item.id}` as any));
-                        }}
-                        hitSlop={4}
-                      >
-                        <Txt variant="caption" color="muted">
-                          {item.author_name}
+                    </Pressable>
+                  </View>
+
+                  <View style={[sheet.row, { gap: space[3], flexWrap: 'wrap' }]}>
+                    <Txt variant="micro" color="muted" tabular>
+                      {[item.first_publish_year, item.editions?.[0]?.format]
+                        .filter(Boolean)
+                        .join(' · ')}
+                    </Txt>
+
+                    {/* Reading Status label */}
+                    {isFinished && (
+                      <View style={styles.statusPill}>
+                        <Txt variant="micro" color="ink2">
+                          Finished
                         </Txt>
-                      </Pressable>
-                    </View>
-
-                    <View style={[sheet.row, { justifyContent: 'space-between', marginTop: space[1] }]}>
-                      <Txt variant="micro" color="muted">
-                        {[item.first_publish_year, item.editions?.[0]?.format]
-                          .filter(Boolean)
-                          .join(' · ')}
-                      </Txt>
-
-                      {/* Reading Status Pill */}
-                      {isFinished && (
-                        <View style={styles.statusPill}>
-                          <Txt variant="micro" color="ink2">
-                            Finished
-                          </Txt>
-                        </View>
-                      )}
-                      {isReading && (
-                        <View style={styles.statusPill}>
-                          <Txt variant="micro" color="ink2">
-                            Reading
-                          </Txt>
-                        </View>
-                      )}
-                      {/* AC-7 "my status if any": every status, not only finished and reading */}
-                      {item.your_read && !isFinished && !isReading && (
-                        <View style={styles.statusPill}>
-                          <Txt variant="micro" color="ink2">
-                            {({ want: 'Want to read', paused: 'Paused', dnf: 'Stopped' } as Record<string, string>)[item.your_read.status] ?? item.your_read.status}
-                          </Txt>
-                        </View>
-                      )}
-                      {savedLocally && (
-                        <View style={styles.statusPill}>
-                          <Ionicons name="checkmark" size={16} color={c.ink2} />
-                          <Txt variant="micro" color="ink2">
-                            Saved
-                          </Txt>
-                        </View>
-                      )}
-
-                      {/* Add to Shelf quick action (SH-04) */}
-                      <Pressable
-                        onPress={(e) => {
-                          e.stopPropagation();
-                          handleOpenShelf(item);
-                        }}
-                        hitSlop={8}
-                        accessibilityRole="button"
-                        accessibilityLabel={`Add ${item.title} to shelf`}
-                        style={{ padding: 2, marginLeft: 'auto' }}
-                      >
-                        <Ionicons name="bookmark-outline" size={18} color={c.muted} />
-                      </Pressable>
-                    </View>
+                      </View>
+                    )}
+                    {isReading && (
+                      <View style={styles.statusPill}>
+                        <Txt variant="micro" color="ink2">
+                          Reading
+                        </Txt>
+                      </View>
+                    )}
+                    {/* AC-7 "my status if any": every status, not only finished and reading */}
+                    {item.your_read && !isFinished && !isReading && (
+                      <View style={styles.statusPill}>
+                        <Txt variant="micro" color="ink2">
+                          {({ want: 'Want to read', paused: 'Paused', dnf: 'Stopped' } as Record<string, string>)[item.your_read.status] ?? item.your_read.status}
+                        </Txt>
+                      </View>
+                    )}
+                    {savedLocally && (
+                      <View style={styles.statusPill}>
+                        <Ionicons name="checkmark" size={16} color={c.ink2} />
+                        <Txt variant="micro" color="ink2">
+                          Saved
+                        </Txt>
+                      </View>
+                    )}
                   </View>
                 </View>
-              </Card>
+
+                {/* Add to Shelf quick action (SH-04) */}
+                <Pressable
+                  onPress={(e) => {
+                    e.stopPropagation();
+                    handleOpenShelf(item);
+                  }}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Add ${item.title} to shelf`}
+                  style={{ minWidth: 44, minHeight: 44, alignItems: 'center', justifyContent: 'center' }}
+                >
+                  <Ionicons name="bookmark-outline" size={18} color={c.muted} />
+                </Pressable>
+              </Pressable>
             );
           }}
         />

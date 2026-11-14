@@ -29,14 +29,23 @@ const MONTHS = ['J', 'F', 'M', 'A', 'M', 'J', 'J', 'A', 'S', 'O', 'N', 'D'];
 function Calendar({ rows }: { rows: number[][] }) {
   const c = useTheme();
   return (
-    <View style={{ gap: 3 }} accessibilityLabel="Reading calendar: one square per day, filled on days with reading">
+    <View style={{ gap: space[1] }} accessibilityLabel="Reading calendar: one square per day, filled on days with reading">
       {rows.map((days, m) => (
-        <View key={m} style={[sheet.row, { gap: 3 }]}>
-          <Txt variant="micro" color="muted" style={{ width: 12 }}>
+        <View key={m} style={[sheet.row, { gap: space[1] / 2 }]}>
+          <Txt variant="micro" color="muted" style={{ width: space[4] }}>
             {MONTHS[m]}
           </Txt>
-          {days.map((on, d) => (
-            <View key={d} style={{ width: 7, height: 7, borderRadius: 2, backgroundColor: on ? c.accent : c.surface2 }} />
+          {/* Every row is padded to 31 cells so the squares line up month to month. */}
+          {Array.from({ length: 31 }, (_, d) => (
+            <View
+              key={d}
+              style={{
+                flex: 1,
+                aspectRatio: 1,
+                borderRadius: radius.xs,
+                backgroundColor: d >= days.length ? 'transparent' : days[d] ? c.accent : c.surface2,
+              }}
+            />
           ))}
         </View>
       ))}
@@ -68,27 +77,33 @@ function StoryCard({ card, height, onShare }: { card: YearInReviewCard; height: 
           ))}
         </View>
       )}
-      {card.bars.map((b, i) => (
-        <View key={b.label} style={[sheet.row, { gap: space[2] }]}>
-          <Txt variant="caption" style={{ width: 96 }} numberOfLines={1}>
-            {b.label}
-          </Txt>
-          {/* One accent per chart: the leading bar; the rest sit in a neutral step. */}
-          <View style={{ flex: 1, height: 8, borderRadius: radius.pill, backgroundColor: c.surface2 }}>
-            <View
-              style={{
-                width: `${(b.value / max) * 100}%`,
-                height: '100%',
-                borderRadius: radius.pill,
-                backgroundColor: i === 0 ? c.accent : c.muted,
-              }}
-            />
-          </View>
-          <Txt variant="caption" color="muted" tabular>
-            {b.text}
-          </Txt>
+      {card.bars.length > 0 && (
+        <View style={{ gap: space[3] }}>
+          {card.bars.map((b, i) => (
+            <View key={b.label} style={{ gap: space[1] }}>
+              <View style={[sheet.rowBetween, { gap: space[3] }]}>
+                <Txt variant="caption" style={{ flexShrink: 1 }}>
+                  {b.label}
+                </Txt>
+                <Txt variant="caption" color="ink2" tabular>
+                  {b.text}
+                </Txt>
+              </View>
+              {/* Ink and one accent per chart: the leading bar takes the accent. */}
+              <View style={{ height: 4, borderRadius: radius.xs, backgroundColor: c.line }}>
+                <View
+                  style={{
+                    width: `${(b.value / max) * 100}%`,
+                    height: '100%',
+                    borderRadius: radius.xs,
+                    backgroundColor: i === 0 ? c.accent : c.ink,
+                  }}
+                />
+              </View>
+            </View>
+          ))}
         </View>
-      ))}
+      )}
       {card.calendar && <Calendar rows={card.calendar} />}
       {card.note && (
         <Txt variant="caption" color="muted">

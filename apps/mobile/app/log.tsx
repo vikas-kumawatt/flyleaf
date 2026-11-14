@@ -9,8 +9,8 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { api, type Work } from '@/lib/api';
 import { budgetTracker } from '@/lib/budgetTracker';
-import { Button, Cover, Screen, Txt, sheet } from '@/ui/components';
-import { fontFamilies, radius, space, type, useTheme } from '@/ui/tokens';
+import { Button, Cover, Screen, SkeletonList, Txt, sheet } from '@/ui/components';
+import { radius, space, type, useTheme } from '@/ui/tokens';
 
 export default function LogScreen() {
   const c = useTheme();
@@ -79,8 +79,9 @@ export default function LogScreen() {
             alignItems: 'center',
             backgroundColor: c.surface,
             borderRadius: radius.md,
+            borderCurve: 'continuous',
             borderWidth: 1,
-            borderColor: c.line,
+            borderColor: c.lineStrong,
             paddingHorizontal: space[3],
             minHeight: 48,
           }}
@@ -109,22 +110,31 @@ export default function LogScreen() {
         data={results}
         keyExtractor={(item) => item.id}
         keyboardShouldPersistTaps="handled"
-        ItemSeparatorComponent={() => <View style={{ height: space[3] }} />}
         ListEmptyComponent={
-          <View style={{ alignItems: 'center', paddingVertical: space[8], gap: space[3] }}>
-            <Txt variant="body" color="muted">
-              {q.trim().length < 2
-                ? 'Type a title to log progress or a finish'
-                : loading
-                ? 'Searching the catalog…'
-                : 'No books match that search'}
-            </Txt>
-          </View>
+          q.trim().length >= 2 && loading ? (
+            <SkeletonList rows={5} lead="cover" style={{ paddingHorizontal: 0, paddingTop: 0 }} />
+          ) : (
+            <View style={{ alignItems: 'center', paddingVertical: space[8], gap: space[3] }}>
+              <Txt variant="body" color="muted" style={{ textAlign: 'center' }}>
+                {q.trim().length < 2
+                  ? 'Type a title to log progress or a finish'
+                  : 'No books match that search'}
+              </Txt>
+            </View>
+          )
         }
-        renderItem={({ item }) => (
+        renderItem={({ item, index }) => (
           <Pressable
             onPress={() => open(item.id)}
-            style={sheet.rowTop}
+            style={({ pressed }) => [
+              sheet.rowTop,
+              {
+                paddingVertical: space[3],
+                borderTopWidth: index ? 1 : 0,
+                borderTopColor: c.line,
+                backgroundColor: pressed ? c.surface2 : 'transparent',
+              },
+            ]}
             accessibilityRole="button"
             accessibilityLabel={`Log ${item.title}`}
           >
@@ -135,10 +145,10 @@ export default function LogScreen() {
               size="s"
             />
             <View style={{ flex: 1, gap: space[1] }}>
-              <Txt variant="title" style={{ fontFamily: fontFamilies.displayMedium }} numberOfLines={2}>
+              <Txt variant="title" numberOfLines={2}>
                 {item.title}
               </Txt>
-              <Txt variant="caption" color="muted">
+              <Txt variant="caption" color="ink2" numberOfLines={1}>
                 {item.author_name}
               </Txt>
               {item.first_publish_year ? (
@@ -150,8 +160,8 @@ export default function LogScreen() {
             <Button
               label="Select"
               variant="secondary"
+              size="sm"
               onPress={() => open(item.id)}
-              style={{ minHeight: 36, paddingHorizontal: space[3] }}
             />
           </Pressable>
         )}

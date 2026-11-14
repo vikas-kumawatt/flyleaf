@@ -15,7 +15,6 @@ import {
   Pressable,
   TextInput,
   KeyboardAvoidingView,
-  Platform,
   Alert,
 } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
@@ -29,7 +28,7 @@ import { useSession } from '@/lib/session';
 import type { LocalRead } from '@/offline/schema';
 import { budgetTracker } from '@/lib/budgetTracker';
 import { localDate } from '@/lib/readingRules';
-import { Button, Card, Cover, Heart, Screen, Stars, Txt, sheet } from '@/ui/components';
+import { Button, Chip, Cover, Heart, Screen, Skeleton, Stars, Txt, sheet } from '@/ui/components';
 import { radius, space, type, useTheme } from '@/ui/tokens';
 import { Ionicons } from '@expo/vector-icons';
 
@@ -173,6 +172,18 @@ export default function FinishScreen() {
     }
   };
 
+  // Inputs: surface fill, strong hairline, radius.md (design.md §5).
+  const inputStyle = {
+    minHeight: 48,
+    paddingHorizontal: space[3],
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: c.lineStrong,
+    backgroundColor: c.surface,
+    color: c.ink,
+    ...type.body,
+  } as const;
+
   return (
     <Screen>
       {/* Header bar */}
@@ -193,41 +204,32 @@ export default function FinishScreen() {
           onPress={() => router.back()}
           accessibilityRole="button"
           accessibilityLabel="Close finish flow"
-          style={{ minHeight: 44, justifyContent: 'center' }}
+          style={{ minHeight: 44, minWidth: 64, justifyContent: 'center' }}
         >
-          <Txt variant="body" color="muted">
+          <Txt variant="body" color="ink2">
             Cancel
           </Txt>
         </Pressable>
 
         <Txt variant="title">Finished</Txt>
 
-        <Pressable
-          onPress={handleFinish}
-          disabled={submitting}
-          accessibilityRole="button"
-          accessibilityLabel="Done"
-          style={{ minHeight: 44, justifyContent: 'center' }}
-        >
-          <Txt variant="body" color="accent" style={{ fontWeight: '500' }}>
-            Done
-          </Txt>
-        </Pressable>
+        {/* Balances Cancel so the title stays centred. */}
+        <View style={{ minWidth: 64 }} />
       </View>
 
       <KeyboardAvoidingView
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        behavior="padding"
         style={{ flex: 1 }}
       >
         <ScrollView
           contentContainerStyle={{
             padding: space[4],
-            paddingBottom: space[12],
+            paddingBottom: space[8],
             gap: space[6],
           }}
           keyboardShouldPersistTaps="handled"
         >
-          {/* Hero Celebration Card */}
+          {/* Cover and title */}
           <View style={{ alignItems: 'center', gap: space[3], marginTop: space[2] }}>
             <Cover
               coverId={read?.cover_id}
@@ -235,24 +237,36 @@ export default function FinishScreen() {
               author={read?.author_name ?? ''}
               size="l"
             />
-            <View style={{ alignItems: 'center', gap: space[1] }}>
-              <Txt variant="displayM" style={{ textAlign: 'center' }}>
-                {read?.title ?? 'This book'}
-              </Txt>
-              <Txt variant="caption" color="muted">
-                {read?.author_name ?? ''}
-                {read && read.attempt_no > 1 ? ` · Re-read #${read.attempt_no}` : ''}
-              </Txt>
-            </View>
+            {loading ? (
+              <View
+                style={{ alignItems: 'center', gap: space[2] }}
+                accessible
+                accessibilityLabel="Loading"
+                accessibilityState={{ busy: true }}
+              >
+                <Skeleton width={200} height={24} />
+                <Skeleton width={120} height={16} />
+              </View>
+            ) : (
+              <View style={{ alignItems: 'center', gap: space[1] }}>
+                <Txt variant="displayM" style={{ textAlign: 'center' }}>
+                  {read?.title ?? 'This book'}
+                </Txt>
+                <Txt variant="caption" color="muted" style={{ textAlign: 'center' }}>
+                  {read?.author_name ?? ''}
+                  {read && read.attempt_no > 1 ? ` · Re-read ${read.attempt_no}` : ''}
+                </Txt>
+              </View>
+            )}
           </View>
 
-          {/* Rating & Heart Row (Immediately visible and interactive) */}
-          <Card style={{ alignItems: 'center', gap: space[3], paddingVertical: space[4] }}>
+          {/* Rating and heart: visible and interactive straight away */}
+          <View style={{ alignItems: 'center', gap: space[2] }}>
             <Txt variant="micro" color="muted">
               Tap to rate, if you like
             </Txt>
 
-            <View style={[sheet.row, { gap: space[4], alignItems: 'center' }]}>
+            <View style={[sheet.row, { gap: space[3], justifyContent: 'center' }]}>
               <Stars value={rating} onChange={(val) => setRating(val)} size={40} />
               <Heart hearted={hearted} onToggle={() => setHearted(!hearted)} size={32} />
             </View>
@@ -265,65 +279,45 @@ export default function FinishScreen() {
                 }}
                 accessibilityRole="button"
                 accessibilityLabel="Clear rating"
+                style={{ minHeight: 44, justifyContent: 'center', paddingHorizontal: space[3] }}
               >
-                <Txt variant="caption" color="muted">
+                <Txt variant="caption" color="ink2">
                   Clear rating
                 </Txt>
               </Pressable>
             )}
-          </Card>
+          </View>
 
-          {/* Format Chips (Print · Ebook · Audio) */}
+          {/* Format chips */}
           <View style={{ gap: space[2] }}>
-            <Txt variant="micro" color="muted">
+            <Txt variant="micro" color="ink2">
               Format
             </Txt>
-            <View style={[sheet.row, { gap: space[2] }]}>
+            <View style={[sheet.row, { gap: space[2], flexWrap: 'wrap' }]}>
               {(['print', 'ebook', 'audiobook'] as const).map((fmt) => {
-                const selected = format === fmt;
                 const label = fmt === 'audiobook' ? 'Audio' : fmt === 'ebook' ? 'Ebook' : 'Print';
                 return (
-                  <Pressable
+                  <Chip
                     key={fmt}
-                    onPress={() => {
-                      void Haptics.selectionAsync();
-                      setFormat(fmt);
-                    }}
-                    accessibilityRole="radio"
-                    accessibilityState={{ selected }}
+                    label={label}
+                    selected={format === fmt}
                     accessibilityLabel={`Format: ${label}`}
-                    style={{
-                      flex: 1,
-                      minHeight: 40,
-                      borderRadius: radius.sm,
-                      backgroundColor: selected ? c.surface : c.surface2,
-                      borderWidth: 1,
-                      borderColor: selected ? c.lineStrong : c.line,
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                    }}
-                  >
-                    <Txt
-                      variant="caption"
-                      color={selected ? 'ink' : 'ink2'}
-                      style={{ fontWeight: selected ? '500' : '400' }}
-                    >
-                      {label}
-                    </Txt>
-                  </Pressable>
+                    role="radio"
+                    onPress={() => setFormat(fmt)}
+                  />
                 );
               })}
             </View>
           </View>
 
-          {/* Finish Date */}
+          {/* Finish date */}
           <View style={{ gap: space[2] }}>
-            <View style={[sheet.row, { justifyContent: 'space-between' }]}>
-              <Txt variant="micro" color="muted">
+            <View style={[sheet.row, { justifyContent: 'space-between', flexWrap: 'wrap' }]}>
+              <Txt variant="micro" color="ink2">
                 Finished on
               </Txt>
               {read?.started_at && (
-                <Txt variant="micro" color="muted">
+                <Txt variant="micro" color="muted" tabular>
                   Started {read.started_at}
                 </Txt>
               )}
@@ -334,20 +328,11 @@ export default function FinishScreen() {
               placeholder="YYYY-MM-DD"
               placeholderTextColor={c.muted}
               accessibilityLabel="Finish date YYYY-MM-DD"
-              style={{
-                minHeight: 44,
-                paddingHorizontal: space[3],
-                borderRadius: radius.md,
-                borderWidth: 1,
-                borderColor: c.line,
-                backgroundColor: c.surface2,
-                color: c.ink,
-                ...type.body,
-              }}
+              style={inputStyle}
             />
           </View>
 
-          {/* Review Field (Collapsed by default, expands on tap) */}
+          {/* Review field: one tap away */}
           <View style={{ gap: space[2] }}>
             {!reviewExpanded ? (
               <Pressable
@@ -357,18 +342,10 @@ export default function FinishScreen() {
                 }}
                 accessibilityRole="button"
                 accessibilityLabel="Add a review"
-                style={{
-                  minHeight: 48,
-                  paddingHorizontal: space[3],
-                  borderRadius: radius.md,
-                  borderWidth: 1,
-                  borderColor: c.line,
-                  backgroundColor: c.surface2,
-                  justifyContent: 'center',
-                }}
+                style={[inputStyle, { justifyContent: 'center' }]}
               >
                 <View style={[sheet.row, { gap: space[2] }]}>
-                  <Ionicons name="add" size={18} color={c.muted} />
+                  <Ionicons name="create-outline" size={18} color={c.muted} />
                   <Txt variant="body" color="muted">
                     Add a review or notes
                   </Txt>
@@ -376,8 +353,8 @@ export default function FinishScreen() {
               </Pressable>
             ) : (
               <View style={{ gap: space[3] }}>
-                <View style={[sheet.row, { justifyContent: 'space-between' }]}>
-                  <Txt variant="micro" color="muted">
+                <View style={[sheet.row, { justifyContent: 'space-between', flexWrap: 'wrap' }]}>
+                  <Txt variant="micro" color="ink2">
                     Review, saved as you type
                   </Txt>
                   <Pressable
@@ -388,17 +365,16 @@ export default function FinishScreen() {
                     accessibilityRole="checkbox"
                     accessibilityState={{ checked: hasSpoilers }}
                     accessibilityLabel="Contains spoilers"
+                    style={[sheet.row, { gap: space[1], minHeight: 44 }]}
                   >
-                    <View style={[sheet.row, { gap: space[1], minHeight: 32 }]}>
-                      <Ionicons
-                        name={hasSpoilers ? 'alert-circle' : 'alert-circle-outline'}
-                        size={16}
-                        color={hasSpoilers ? c.ink : c.muted}
-                      />
-                      <Txt variant="caption" color={hasSpoilers ? 'ink' : 'muted'}>
-                        {hasSpoilers ? 'Contains spoilers' : 'Mark spoilers'}
-                      </Txt>
-                    </View>
+                    <Ionicons
+                      name={hasSpoilers ? 'alert-circle' : 'alert-circle-outline'}
+                      size={16}
+                      color={hasSpoilers ? c.ink : c.muted}
+                    />
+                    <Txt variant="caption" color={hasSpoilers ? 'ink' : 'muted'}>
+                      {hasSpoilers ? 'Contains spoilers' : 'Mark spoilers'}
+                    </Txt>
                   </Pressable>
                 </View>
 
@@ -411,69 +387,58 @@ export default function FinishScreen() {
                   numberOfLines={4}
                   autoFocus
                   accessibilityLabel="Review text"
-                  style={{
-                    minHeight: 96,
-                    paddingHorizontal: space[3],
-                    paddingVertical: space[2],
-                    borderRadius: radius.md,
-                    borderWidth: 1,
-                    borderColor: c.line,
-                    backgroundColor: c.surface2,
-                    color: c.ink,
-                    ...type.bodyL,
-                    textAlignVertical: 'top',
-                  }}
+                  style={[
+                    inputStyle,
+                    {
+                      minHeight: 120,
+                      paddingVertical: space[3],
+                      ...type.bodyL,
+                      textAlignVertical: 'top',
+                    },
+                  ]}
                 />
 
                 {/* Visibility selector */}
-                <View style={[sheet.row, { gap: space[2] }]}>
-                  <Txt variant="micro" color="muted">
+                <View style={{ gap: space[2] }}>
+                  <Txt variant="micro" color="ink2">
                     Visible to
                   </Txt>
-                  {(['public', 'followers', 'private'] as const).map((v) => (
-                    <Pressable
-                      key={v}
-                      onPress={() => {
-                        void Haptics.selectionAsync();
-                        setVisibility(v);
-                      }}
-                      accessibilityRole="radio"
-                      accessibilityState={{ selected: visibility === v }}
-                      accessibilityLabel={`Visibility: ${v}`}
-                      style={{
-                        minHeight: 32,
-                        justifyContent: 'center',
-                        paddingHorizontal: space[2],
-                        borderRadius: radius.sm,
-                        backgroundColor: visibility === v ? c.surface : 'transparent',
-                        borderWidth: visibility === v ? 1 : 0,
-                        borderColor: c.line,
-                      }}
-                    >
-                      <Txt
-                        variant="caption"
-                        color={visibility === v ? 'ink' : 'muted'}
-                        style={{ fontWeight: visibility === v ? '500' : '400' }}
-                      >
-                        {v.charAt(0).toUpperCase() + v.slice(1)}
-                      </Txt>
-                    </Pressable>
-                  ))}
+                  <View style={[sheet.row, { gap: space[2], flexWrap: 'wrap' }]}>
+                    {(['public', 'followers', 'private'] as const).map((v) => (
+                      <Chip
+                        key={v}
+                        label={v.charAt(0).toUpperCase() + v.slice(1)}
+                        selected={visibility === v}
+                        accessibilityLabel={`Visibility: ${v}`}
+                        role="radio"
+                        onPress={() => setVisibility(v)}
+                      />
+                    ))}
+                  </View>
                 </View>
               </View>
             )}
           </View>
-
-          {/* Primary Action Button */}
-          <View style={{ marginTop: space[4], gap: space[2] }}>
-            <Button
-              label={submitting ? 'Saving…' : 'Done'}
-              variant="primary"
-              onPress={handleFinish}
-              disabled={submitting}
-            />
-          </View>
         </ScrollView>
+
+        {/* The one primary action, pinned so it is always in reach */}
+        <View
+          style={{
+            borderTopWidth: 1,
+            borderTopColor: c.line,
+            backgroundColor: c.ground,
+            paddingHorizontal: space[4],
+            paddingTop: space[3],
+            paddingBottom: Math.max(insets.bottom, space[4]),
+          }}
+        >
+          <Button
+            label={submitting ? 'Saving…' : 'Done'}
+            variant="primary"
+            onPress={handleFinish}
+            disabled={submitting}
+          />
+        </View>
       </KeyboardAvoidingView>
     </Screen>
   );

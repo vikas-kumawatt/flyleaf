@@ -31,9 +31,9 @@ export const ASSET_CREDITS: AssetCredit[] = [
     url: 'https://creativecommons.org/licenses/by/4.0/',
   },
   {
-    name: 'Newsreader',
-    usedFor: 'Book titles, screen titles and reviews in the app and on share cards',
-    notice: 'Copyright 2020 The Newsreader Project Authors (http://github.com/productiontype/Newsreader).',
+    name: 'Figtree',
+    usedFor: 'Headings, book titles and card titles in the app and on share cards',
+    notice: 'Copyright 2022 The Figtree Project Authors (https://github.com/erikdkennedy/figtree).',
     licence: 'SIL Open Font License 1.1',
     url: 'https://openfontlicense.org',
   },

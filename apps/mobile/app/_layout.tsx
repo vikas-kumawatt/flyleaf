@@ -1,10 +1,10 @@
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { View } from 'react-native';
 import { Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
-import { SafeAreaProvider } from 'react-native-safe-area-context';
-import { useFonts, Newsreader_400Regular, Newsreader_500Medium } from '@expo-google-fonts/newsreader';
+import { SafeAreaInsetsContext, SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useFonts, Figtree_500Medium, Figtree_600SemiBold } from '@expo-google-fonts/figtree';
 import {
   InstrumentSans_400Regular,
   InstrumentSans_500Medium,
@@ -26,26 +26,41 @@ import { initMobileSentry } from '@/lib/sentry';
 
 function Nav() {
   const c = useTheme();
+  const insets = useSafeAreaInsets();
+  // The banners sit above the navigator, so when one is showing it is the
+  // thing under the status bar: it takes the top inset, and the screens below
+  // are told there is none, or every header would be pushed down twice.
+  const [bannerHeight, setBannerHeight] = useState(0);
+  const bannerShown = bannerHeight > 0;
   return (
-    <View style={{ flex: 1 }}>
-      <SyncIndicator />
-      <VerifyEmailBanner />
+    <View style={{ flex: 1, backgroundColor: c.ground }}>
+      <View style={{ paddingTop: bannerShown ? insets.top : 0 }}>
+        <View onLayout={(e) => setBannerHeight(e.nativeEvent.layout.height)}>
+          <SyncIndicator />
+          <VerifyEmailBanner />
+        </View>
+      </View>
+      <SafeAreaInsetsContext.Provider value={bannerShown ? { ...insets, top: 0 } : insets}>
       <Stack
         screenOptions={{
+          // Every screen draws its own header (ScreenHeader or its own row).
+          // Off by default, so a route that is not listed below cannot pick up
+          // a second, native header titled with its file path.
+          headerShown: false,
           headerStyle: { backgroundColor: c.ground },
           headerTintColor: c.ink,
-          headerTitleStyle: { fontSize: 17, fontFamily: fontFamilies.uiMedium },
+          headerTitleStyle: { fontSize: 18, fontFamily: fontFamilies.displayMedium },
           headerShadowVisible: false,
           contentStyle: { backgroundColor: c.ground },
         }}
       >
         <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
-        <Stack.Screen name="auth" options={{ title: 'Sign in', presentation: 'modal' }} />
+        <Stack.Screen name="auth" options={{ presentation: 'modal', headerShown: false }} />
         <Stack.Screen
           name="log"
           options={{ title: 'Log a book', presentation: 'modal', headerShown: false }}
         />
-        <Stack.Screen name="work/[id]" options={{ title: '' }} />
+        <Stack.Screen name="work/[id]" options={{ headerShown: false }} />
         <Stack.Screen
           name="work/[id]/editions"
           options={{ title: 'Choose edition', presentation: 'modal', headerShown: false }}
@@ -80,7 +95,7 @@ function Nav() {
         <Stack.Screen name="profile/favourites" options={{ presentation: 'modal', headerShown: false }} />
         <Stack.Screen name="shelf/[id]" options={{ presentation: 'card', headerShown: false }} />
         <Stack.Screen name="shelf/create" options={{ presentation: 'modal', headerShown: false }} />
-        <Stack.Screen name="shelf/deleted" options={{ title: 'Recently deleted' }} />
+        <Stack.Screen name="shelf/deleted" options={{ headerShown: false }} />
         <Stack.Screen name="shelf/[id]/edit" options={{ presentation: 'modal', headerShown: false }} />
         <Stack.Screen name="shelf/[id]/reorder" options={{ presentation: 'modal', headerShown: false }} />
         <Stack.Screen name="user/[id]" options={{ presentation: 'card', headerShown: false }} />
@@ -89,8 +104,8 @@ function Nav() {
         <Stack.Screen name="notifications" options={{ presentation: 'card', headerShown: false }} />
         <Stack.Screen name="u/[username]/shelves/[slug]" options={{ presentation: 'card', headerShown: false }} />
         <Stack.Screen name="sync-issues" options={{ presentation: 'card', headerShown: false }} />
-        <Stack.Screen name="verify-email" options={{ title: 'Verify email' }} />
-        <Stack.Screen name="reset-password" options={{ title: 'New password' }} />
+        <Stack.Screen name="verify-email" options={{ headerShown: false }} />
+        <Stack.Screen name="reset-password" options={{ headerShown: false }} />
         {/* LA-02 Settings: each screen draws its own header (ScreenHeader). */}
         <Stack.Screen name="settings/index" options={{ presentation: 'card', headerShown: false }} />
         <Stack.Screen name="settings/account" options={{ presentation: 'card', headerShown: false }} />
@@ -115,6 +130,7 @@ function Nav() {
         <Stack.Screen name="user/[id]/following" options={{ presentation: 'card', headerShown: false }} />
         <Stack.Screen name="year-in-review" options={{ presentation: 'card', headerShown: false }} />
       </Stack>
+      </SafeAreaInsetsContext.Provider>
     </View>
   );
 }
@@ -134,8 +150,8 @@ function ThemedStatusBar() {
 
 export default function RootLayout() {
   const [fontsLoaded, fontError] = useFonts({
-    Newsreader_400Regular,
-    Newsreader_500Medium,
+    Figtree_500Medium,
+    Figtree_600SemiBold,
     InstrumentSans_400Regular,
     InstrumentSans_500Medium,
     InstrumentSans_600SemiBold,
@@ -160,7 +176,10 @@ export default function RootLayout() {
                 <SyncProvider>
                   <ActionGateProvider>
                     <VerifyEmailProvider>
-                      {/* A font that fails to load falls back to the system face rather than blocking the app. */}
+                      {/* Text laid out before the fonts arrive is measured in the
+                          fallback face and stays clipped, so nothing renders until
+                          they are in. A font that fails to load falls back to the
+                          system face rather than blocking the app. */}
                       {fontsLoaded || fontError ? (
                         <>
                           <Nav />

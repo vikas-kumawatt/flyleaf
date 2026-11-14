@@ -12,20 +12,19 @@ import {
   ScrollView,
   Pressable,
   TextInput,
-  ActivityIndicator,
   StyleSheet,
   Alert,
   KeyboardAvoidingView,
-  Platform,
 } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import { api, type Shelf, type ShelfPrivacy } from '@/lib/api';
 import { validateShelfForm } from '@/lib/shelfValidation';
 import { track } from '@/lib/events';
-import { Button, Screen, Txt, Skeleton, Toggle } from '@/ui/components';
-import { radius, space, useTheme } from '@/ui/tokens';
+import { Button, Field, Screen, Txt, Skeleton, Toggle } from '@/ui/components';
+import { familyFor, radius, space, useTheme } from '@/ui/tokens';
 
 export default function EditShelfScreen() {
   const c = useTheme();
@@ -91,7 +90,7 @@ export default function EditShelfScreen() {
             onPress: () => setIsRanked(true),
           },
           {
-            text: 'Make Unranked',
+            text: 'Make unranked',
             style: 'destructive',
             onPress: () => {
               void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
@@ -218,98 +217,43 @@ export default function EditShelfScreen() {
   }
 
   return (
-    <Screen style={{ flex: 1, backgroundColor: c.ground }}>
-      {/* Top App Bar */}
-      <View
-        style={[
-          styles.header,
-          {
-            paddingTop: Math.max(insets.top, space[3]),
-            borderBottomColor: c.line,
-          },
-        ]}
-      >
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel="Cancel"
-          hitSlop={12}
-          onPress={() => router.back()}
-        >
-          <Txt variant="body" color="ink2">Cancel</Txt>
-        </Pressable>
-
-        <Txt variant="title">Edit shelf</Txt>
-
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel="Save changes"
-          disabled={saving || (nameTouched && !validation.isValid)}
-          hitSlop={12}
-          onPress={handleSave}
-        >
-          {saving ? (
-            <ActivityIndicator size="small" color={c.muted} />
-          ) : (
-            <Txt
-              style={{
-                color: nameTouched && !validation.isValid ? c.muted : c.accent,
-                fontSize: 15,
-                fontWeight: '500',
-              }}
-            >
-              Save
-            </Txt>
-          )}
-        </Pressable>
+    <Screen>
+      {/* Top bar: just the way out; the title is the page's first line */}
+      <View style={[styles.topBar, { paddingTop: Math.max(insets.top, space[3]) }]}>
+        <Button label="Cancel" variant="tertiary" onPress={() => router.back()} />
       </View>
 
       <KeyboardAvoidingView
         style={{ flex: 1 }}
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        behavior="padding"
       >
         <ScrollView
           contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + space[6] }]}
           keyboardShouldPersistTaps="handled"
         >
-          {/* Name Field */}
-          <View style={styles.section}>
-            <View style={styles.labelRow}>
-              <Txt style={[styles.label, { color: c.ink }]}>Name</Txt>
-              <Txt style={[styles.counter, { color: c.muted }]}>
-                {name.length}/60
-              </Txt>
-            </View>
-            <TextInput
-              style={[
-                styles.input,
-                {
-                  backgroundColor: c.surface,
-                  borderColor: nameTouched && validation.errors.name ? c.critical : c.line,
-                  color: c.ink,
-                },
-              ]}
-              placeholder="Comfort reads"
-              placeholderTextColor={c.muted}
-              value={name}
-              maxLength={60}
-              onChangeText={(t) => {
-                setName(t);
-                if (!nameTouched) setNameTouched(true);
-              }}
-              returnKeyType="next"
-            />
-            {nameTouched && validation.errors.name && (
-              <Txt style={[styles.errorText, { color: c.critical }]}>
-                {validation.errors.name}
-              </Txt>
-            )}
-          </View>
+          <Txt variant="displayL">Edit shelf</Txt>
 
-          {/* Description Field */}
-          <View style={styles.section}>
+          <Field
+            label="Name"
+            value={name}
+            onChangeText={(t) => {
+              setName(t);
+              if (!nameTouched) setNameTouched(true);
+            }}
+            autoCapitalize="sentences"
+            placeholder="Comfort reads"
+            maxLength={60}
+            returnKeyType="next"
+            error={nameTouched ? validation.errors.name : undefined}
+          />
+
+          {/* Description: Field has no multiline, so this matches its label and box */}
+          <View style={{ gap: space[1] }}>
             <View style={styles.labelRow}>
-              <Txt style={[styles.label, { color: c.ink }]}>Description (optional)</Txt>
-              <Txt style={[styles.counter, { color: c.muted }]}>
+              <Txt variant="micro" color="ink2">
+                Description (optional)
+              </Txt>
+              <Txt variant="micro" color="muted" tabular>
                 {description.length}/2000
               </Txt>
             </View>
@@ -318,10 +262,12 @@ export default function EditShelfScreen() {
                 styles.textArea,
                 {
                   backgroundColor: c.surface,
-                  borderColor: c.line,
+                  borderColor: validation.errors.description ? c.critical : c.lineStrong,
                   color: c.ink,
+                  fontFamily: familyFor(false, '400'),
                 },
               ]}
+              accessibilityLabel="Description"
               placeholder="What ties these books together"
               placeholderTextColor={c.muted}
               value={description}
@@ -331,13 +277,23 @@ export default function EditShelfScreen() {
               textAlignVertical="top"
               onChangeText={setDescription}
             />
+            {validation.errors.description ? (
+              <Txt variant="caption" color="critical">
+                {validation.errors.description}
+              </Txt>
+            ) : null}
           </View>
 
-          {/* Privacy Selector */}
-          <View style={styles.section}>
-            <Txt style={[styles.label, { color: c.ink, marginBottom: space[2] }]}>Privacy</Txt>
-            <View style={{ gap: space[2] }}>
-              {privacyOptions.map((opt) => {
+          {/* Privacy: ruled radio rows */}
+          <View style={{ gap: space[1] }}>
+            <Txt variant="micro" color="ink2">
+              Privacy
+            </Txt>
+            <View
+              accessibilityRole="radiogroup"
+              style={{ borderTopWidth: 1, borderBottomWidth: 1, borderColor: c.line }}
+            >
+              {privacyOptions.map((opt, index) => {
                 const selected = privacy === opt.id;
                 return (
                   <Pressable
@@ -348,85 +304,61 @@ export default function EditShelfScreen() {
                       void Haptics.selectionAsync();
                       setPrivacy(opt.id);
                     }}
-                    style={[
-                      styles.optionCard,
+                    style={({ pressed }) => [
+                      styles.optionRow,
                       {
-                        backgroundColor: c.surface,
-                        borderColor: selected ? c.lineStrong : c.line,
+                        borderTopWidth: index ? 1 : 0,
+                        borderTopColor: c.line,
+                        backgroundColor: pressed ? c.surface2 : 'transparent',
                       },
                     ]}
                   >
-                    <View style={styles.optionHeader}>
-                      <Txt
-                        style={[
-                          styles.optionTitle,
-                          { color: c.ink, fontWeight: selected ? '500' : '400' },
-                        ]}
-                      >
+                    <View style={{ flex: 1, gap: space[1] }}>
+                      <Txt variant="body" style={{ fontWeight: selected ? '500' : '400' }}>
                         {opt.label}
                       </Txt>
-                      <View
-                        style={[
-                          styles.radioCircle,
-                          {
-                            borderColor: selected ? c.accent : c.lineStrong,
-                            backgroundColor: selected ? c.accent : 'transparent',
-                          },
-                        ]}
-                      >
-                        {selected && <View style={[styles.radioInner, { backgroundColor: c.onAccent }]} />}
-                      </View>
+                      <Txt variant="caption" color="muted">
+                        {opt.description}
+                      </Txt>
                     </View>
-                    <Txt style={[styles.optionDesc, { color: c.muted }]}>
-                      {opt.description}
-                    </Txt>
+                    <Ionicons
+                      name={selected ? 'radio-button-on' : 'radio-button-off'}
+                      size={22}
+                      color={selected ? c.accent : c.muted}
+                    />
                   </Pressable>
                 );
               })}
             </View>
           </View>
 
-          {/* Ranked Toggle */}
-          <View style={styles.section}>
-            <View
-              style={[
-                styles.switchCard,
-                {
-                  backgroundColor: c.surface,
-                  borderColor: c.line,
-                },
-              ]}
-            >
-              <View style={{ flex: 1, paddingRight: space[3] }}>
-                <Txt style={[styles.switchTitle, { color: c.ink }]}>Ranked</Txt>
-                <Txt style={[styles.switchDesc, { color: c.muted }]}>
-                  Items are numbered sequentially (1, 2, 3...) and can be reordered.
-                </Txt>
-              </View>
-              <Toggle
-                value={isRanked}
-                onValueChange={handleRankedToggle}
-              />
+          {/* Ranked toggle */}
+          <View style={[styles.switchRow, { borderColor: c.line }]}>
+            <View style={{ flex: 1, gap: space[1] }}>
+              <Txt variant="body">Ranked</Txt>
+              <Txt variant="caption" color="muted">
+                Books are numbered 1, 2, 3… and can be reordered.
+              </Txt>
             </View>
-          </View>
-
-          {/* Bottom Save Button */}
-          <View style={{ marginTop: space[3] }}>
-            <Button
-              label="Save changes"
-              onPress={handleSave}
-              disabled={saving || (nameTouched && !validation.isValid)}
-              loading={saving}
-              style={{ width: '100%' }}
+            <Toggle
+              accessibilityLabel="Ranked"
+              value={isRanked}
+              onValueChange={handleRankedToggle}
             />
           </View>
 
-          {/* Danger Zone: Delete Shelf */}
-          <View style={[styles.dangerZone, { borderColor: c.line, backgroundColor: c.surface }]}>
-            <Txt style={[styles.dangerTitle, { color: c.ink }]}>
-              Delete shelf
-            </Txt>
-            <Txt style={[styles.dangerDesc, { color: c.muted }]}>
+          {/* The one primary action */}
+          <Button
+            label="Save"
+            onPress={handleSave}
+            disabled={saving || (nameTouched && !validation.isValid)}
+            loading={saving}
+          />
+
+          {/* Delete: a ruled section, outlined destructive action */}
+          <View style={[styles.dangerZone, { borderTopColor: c.line }]}>
+            <Txt variant="title">Delete shelf</Txt>
+            <Txt variant="caption" color="muted">
               The shelf disappears from view straight away. You can restore it for 30 days, then it is deleted for good.
             </Txt>
             <Button
@@ -435,7 +367,6 @@ export default function EditShelfScreen() {
               onPress={handleDelete}
               disabled={deleting}
               loading={deleting}
-              style={{ width: '100%', marginTop: space[2] }}
             />
           </View>
         </ScrollView>
@@ -445,113 +376,47 @@ export default function EditShelfScreen() {
 }
 
 const styles = StyleSheet.create({
-  header: {
+  topBar: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: space[4],
-    paddingBottom: space[3],
-    borderBottomWidth: StyleSheet.hairlineWidth,
+    paddingHorizontal: space[2],
   },
   content: {
     padding: space[4],
-    gap: space[4],
-  },
-  section: {
-    gap: space[1],
+    gap: space[6],
   },
   labelRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'baseline',
-    marginBottom: space[1],
-  },
-  label: {
-    fontSize: 14,
-    fontWeight: '500',
-  },
-  counter: {
-    fontSize: 12,
-  },
-  input: {
-    height: 48,
-    borderRadius: radius.md,
-    borderWidth: 1,
-    paddingHorizontal: space[3],
-    fontSize: 16,
   },
   textArea: {
-    height: 104,
+    minHeight: 104,
     borderRadius: radius.md,
     borderWidth: 1,
     paddingHorizontal: space[3],
-    paddingVertical: space[2],
+    paddingVertical: space[3],
     fontSize: 15,
   },
-  errorText: {
-    fontSize: 12,
-    marginTop: space[1],
-  },
-  optionCard: {
-    padding: space[3],
-    borderRadius: radius.md,
-    borderWidth: 1,
-    gap: space[1],
-  },
-  optionHeader: {
+  optionRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
+    gap: space[3],
+    minHeight: 48,
+    paddingVertical: space[3],
   },
-  optionTitle: {
-    fontSize: 15,
-  },
-  optionDesc: {
-    fontSize: 13,
-  },
-  radioCircle: {
-    width: 20,
-    height: 20,
-    borderRadius: 10,
-    borderWidth: 2,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  radioInner: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-  },
-  switchCard: {
+  switchRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
-    padding: space[3],
-    borderRadius: radius.lg,
-    borderWidth: 1,
-  },
-  switchTitle: {
-    fontSize: 15,
-    fontWeight: '500',
-    marginBottom: space[1],
-  },
-  switchDesc: {
-    fontSize: 13,
-    lineHeight: 20,
+    gap: space[3],
+    minHeight: 48,
+    paddingVertical: space[3],
+    borderTopWidth: 1,
+    borderBottomWidth: 1,
   },
   dangerZone: {
-    marginTop: space[4],
-    padding: space[4],
-    borderRadius: radius.lg,
-    borderWidth: 1,
     gap: space[2],
-  },
-  dangerTitle: {
-    fontSize: 15,
-    fontWeight: '500',
-  },
-  dangerDesc: {
-    fontSize: 13,
-    lineHeight: 20,
+    paddingTop: space[6],
+    borderTopWidth: 1,
   },
 });

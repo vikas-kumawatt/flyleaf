@@ -27,16 +27,18 @@ import { useSession } from '@/lib/session';
 import { useActionGate } from '@/ui/ActionGate';
 import { useDatabase } from '@/offline/db';
 import { OfflineRepository } from '@/offline/repository';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
   Button,
-  Card,
+  Chip,
   Cover,
   EmptyState,
   Screen,
+  Skeleton,
   Txt,
   sheet,
 } from '@/ui/components';
-import { space, radius, useTheme } from '@/ui/tokens';
+import { cover, space, radius, useTheme } from '@/ui/tokens';
 
 export interface DisplayEdition extends Edition {
   publisher?: string;
@@ -51,6 +53,7 @@ export default function EditionPickerScreen() {
   const { user } = useSession();
   const { promptAuth } = useActionGate();
   const db = useDatabase();
+  const insets = useSafeAreaInsets();
 
   const [work, setWork] = useState<Work | null>(null);
   const [selectedEditionId, setSelectedEditionId] = useState<string | null>(null);
@@ -73,10 +76,22 @@ export default function EditionPickerScreen() {
   }, [id]);
 
   if (!work) {
+    // Shape-matched to the header and the edition rows below (design.md §5).
     return (
       <Screen>
-        <View style={sheet.pad}>
-          <Txt color="muted">Loading editions…</Txt>
+        <View accessible accessibilityLabel="Loading editions" accessibilityState={{ busy: true }} style={{ padding: space[4], gap: space[4] }}>
+          <Skeleton width="60%" height={30} />
+          <Skeleton width="90%" height={14} />
+          {[0, 1, 2].map((i) => (
+            <View key={i} style={[sheet.rowTop, { gap: space[4], paddingTop: space[4] }]}>
+              <Skeleton width={cover.l.width} height={cover.l.height} borderRadius={radius.xs} />
+              <View style={{ flex: 1, gap: space[2] }}>
+                <Skeleton width="40%" height={12} />
+                <Skeleton width="80%" height={18} />
+                <Skeleton width="50%" height={12} />
+              </View>
+            </View>
+          ))}
         </View>
       </Screen>
     );
@@ -126,6 +141,8 @@ export default function EditionPickerScreen() {
     }, addedToWant ? 1800 : 600);
   };
 
+  const capitalize = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
+
   return (
     <Screen>
       {toast ? (
@@ -140,7 +157,8 @@ export default function EditionPickerScreen() {
             backgroundColor: c.ink,
             paddingHorizontal: space[4],
             paddingVertical: space[3],
-            borderRadius: radius.md,
+            borderRadius: radius.lg,
+            borderCurve: 'continuous',
             flexDirection: 'row',
             alignItems: 'center',
             gap: space[2],
@@ -165,17 +183,17 @@ export default function EditionPickerScreen() {
         }}
       >
         <View style={[sheet.row, { justifyContent: 'space-between' }]}>
-          <Txt variant="displayM">Choose your cover</Txt>
+          <Txt variant="displayM" style={{ flex: 1 }}>Choose your cover</Txt>
           <Pressable
             onPress={() => router.back()}
             accessibilityRole="button"
             accessibilityLabel="Close"
-            hitSlop={8}
+            style={{ minWidth: 44, minHeight: 44, alignItems: 'flex-end', justifyContent: 'center' }}
           >
             <Ionicons name="close" size={24} color={c.ink} />
           </Pressable>
         </View>
-        <Txt variant="body" color="muted">
+        <Txt variant="body" color="ink2">
           Pick the edition you own. Its cover stands for {work.title} in your diary, on your wall and in your reading.
         </Txt>
 
@@ -185,126 +203,97 @@ export default function EditionPickerScreen() {
           showsHorizontalScrollIndicator={false}
           contentContainerStyle={{ gap: space[2], paddingTop: space[2] }}
         >
-          {(['all', 'paperback', 'hardcover', 'ebook', 'audiobook'] as const).map((fmt) => {
-            const active = formatFilter === fmt;
-            return (
-              <Pressable
-                key={fmt}
-                onPress={() => {
-                  void Haptics.selectionAsync();
-                  setFormatFilter(fmt);
-                }}
-                accessibilityRole="button"
-                accessibilityState={{ selected: active }}
-                style={{
-                  minHeight: 32,
-                  justifyContent: 'center',
-                  paddingHorizontal: space[3],
-                  borderRadius: radius.sm,
-                  backgroundColor: active ? c.surface : c.surface2,
-                  borderWidth: 1,
-                  borderColor: active ? c.lineStrong : c.line,
-                }}
-              >
-                <Txt
-                  variant="caption"
-                  color={active ? 'ink' : 'ink2'}
-                  style={{ fontWeight: active ? '500' : '400', textTransform: 'capitalize' }}
-                >
-                  {fmt}
-                </Txt>
-              </Pressable>
-            );
-          })}
+          {(['all', 'paperback', 'hardcover', 'ebook', 'audiobook'] as const).map((fmt) => (
+            <Chip
+              key={fmt}
+              label={capitalize(fmt)}
+              selected={formatFilter === fmt}
+              onPress={() => setFormatFilter(fmt)}
+            />
+          ))}
         </ScrollView>
       </View>
 
-      {/* Editions List */}
+      {/* Editions List: ruled rows, the cover dominant */}
       <ScrollView
+        style={{ flex: 1 }}
         contentContainerStyle={{
-          padding: space[4],
-          paddingBottom: space[16],
-          gap: space[4],
+          paddingHorizontal: space[4],
+          paddingBottom: space[6],
         }}
       >
-        {filteredEditions.map((ed) => {
+        {filteredEditions.map((ed, index) => {
           const isSelected = selectedEditionId === ed.id;
+          const year = ed.publish_year ?? work.first_publish_year;
 
           return (
-            <Card
+            <Pressable
               key={ed.id}
               onPress={() => handleSelectEdition(ed.id)}
-              style={{
-                borderWidth: 1,
-                borderColor: isSelected ? c.accent : c.line,
-                padding: space[4],
-              }}
+              accessibilityRole="radio"
+              accessibilityState={{ selected: isSelected }}
+              style={({ pressed }) => [
+                sheet.rowTop,
+                {
+                  gap: space[4],
+                  paddingVertical: space[4],
+                  borderTopWidth: index ? 1 : 0,
+                  borderTopColor: c.line,
+                  backgroundColor: pressed ? c.surface2 : 'transparent',
+                },
+              ]}
             >
-              <View style={sheet.rowTop}>
-                {/* Large Cover Image (dominant per PRD §6.31) */}
-                <Cover coverId={ed.cover_id} title={work.title} size="l" />
+              {/* Large Cover Image (dominant per PRD §6.31) */}
+              <Cover coverId={ed.cover_id} title={work.title} author={work.author_name} size="l" />
 
-                <View
-                  style={{
-                    flex: 1,
-                    marginLeft: space[4],
-                    justifyContent: 'space-between',
-                    gap: space[2],
-                  }}
-                >
-                  <View style={{ gap: space[1] }}>
-                    <View style={[sheet.row, { justifyContent: 'space-between' }]}>
-                      <Txt
-                        variant="micro"
-                        color="muted"
-                        style={{ textTransform: 'capitalize' }}
-                      >
-                        {ed.format}
-                      </Txt>
-                      {ed.is_canonical && (
-                        <Txt variant="micro" color="muted">
-                          Most common
-                        </Txt>
-                      )}
-                    </View>
-
-                    <Txt variant="title" numberOfLines={1}>
-                      {ed.publisher ?? 'Standard edition'}
+              <View style={{ flex: 1, minHeight: 180, justifyContent: 'space-between', gap: space[2] }}>
+                <View style={{ gap: space[1] }}>
+                  <View style={[sheet.row, { justifyContent: 'space-between', flexWrap: 'wrap', gap: space[2] }]}>
+                    <Txt variant="micro" color="muted">
+                      {capitalize(ed.format)}
                     </Txt>
-                    <Txt variant="caption" color="muted">
-                      Published {ed.publish_year ?? work.first_publish_year}
-                    </Txt>
-                  </View>
-
-                  <View style={{ gap: space[1] }}>
-                    <Txt variant="caption" color="ink2" tabular>
-                      {ed.page_count ? `${ed.page_count} pages` : 'Page count not set'}
-                    </Txt>
-                    {ed.isbn13 && (
-                      <Txt variant="micro" color="muted" tabular>
-                        ISBN {ed.isbn13}
+                    {ed.is_canonical && (
+                      <Txt variant="micro" color="muted">
+                        Most common
                       </Txt>
                     )}
                   </View>
 
-                  {/* Selection Indicator */}
-                  <View style={[sheet.row, { marginTop: space[2] }]}>
-                    <Ionicons
-                      name={isSelected ? 'radio-button-on' : 'radio-button-off'}
-                      size={20}
-                      color={isSelected ? c.accent : c.muted}
-                    />
-                    <Txt
-                      variant="caption"
-                      color={isSelected ? 'ink' : 'muted'}
-                      style={{ marginLeft: space[2], fontWeight: isSelected ? '500' : '400' }}
-                    >
-                      {isSelected ? 'Selected cover' : 'Tap to choose'}
+                  <Txt variant="title" numberOfLines={2}>
+                    {ed.publisher ?? 'Standard edition'}
+                  </Txt>
+                  {year ? (
+                    <Txt variant="caption" color="ink2" tabular>
+                      Published {year}
                     </Txt>
-                  </View>
+                  ) : null}
+                  <Txt variant="caption" color="ink2" tabular>
+                    {ed.page_count ? `${ed.page_count} pages` : 'Page count not set'}
+                  </Txt>
+                  {ed.isbn13 && (
+                    <Txt variant="micro" color="muted" tabular>
+                      ISBN {ed.isbn13}
+                    </Txt>
+                  )}
+                </View>
+
+                {/* Selection Indicator */}
+                <View style={[sheet.row, { gap: space[2] }]}>
+                  <Ionicons
+                    name={isSelected ? 'radio-button-on' : 'radio-button-off'}
+                    size={20}
+                    color={isSelected ? c.accent : c.muted}
+                  />
+                  <Txt
+                    variant="caption"
+                    color={isSelected ? 'ink' : 'muted'}
+                    style={{ fontWeight: isSelected ? '500' : '400' }}
+                  >
+                    {isSelected ? 'Selected cover' : 'Tap to choose'}
+                  </Txt>
                 </View>
               </View>
-            </Card>
+            </Pressable>
           );
         })}
 
@@ -316,19 +305,15 @@ export default function EditionPickerScreen() {
         )}
       </ScrollView>
 
-      {/* Bottom Floating Bar: Confirm "The copy I own" */}
+      {/* Bottom bar: confirm "The copy I own". In the layout, not floating, so it never covers a row. */}
       <View
         style={{
-          position: 'absolute',
-          bottom: 0,
-          left: 0,
-          right: 0,
-          backgroundColor: c.surface,
+          backgroundColor: c.ground,
           borderTopWidth: 1,
           borderTopColor: c.line,
           paddingHorizontal: space[4],
           paddingTop: space[3],
-          paddingBottom: space[6],
+          paddingBottom: Math.max(insets.bottom, space[6]),
         }}
       >
         <Button

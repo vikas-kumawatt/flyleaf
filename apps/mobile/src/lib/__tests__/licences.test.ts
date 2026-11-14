@@ -33,7 +33,7 @@ describe('licences screen', () => {
     assert.ok(families.length >= 21);
     const credit = (fam: string) =>
       fam === 'notosanssc' || fam === 'notosanskr' ? 'Noto Sans CJK (SC, KR)'
-        : fam.startsWith('noto') ? 'Noto Sans and Noto Serif' : fam === 'newsreader' ? 'Newsreader' : fam === 'instrumentsans' ? 'Instrument Sans' : null;
+        : fam.startsWith('noto') ? 'Noto Sans and Noto Serif' : fam === 'figtree' ? 'Figtree' : fam === 'instrumentsans' ? 'Instrument Sans' : null;
     for (const fam of families) {
       const name = credit(fam);
       assert.ok(name, `no credit for ${fam}`);

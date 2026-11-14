@@ -19,7 +19,7 @@ import { HARD_STRINGS, cover, finishModel, profileModel, reviewModel, statExtrem
 
 const cp = (...points: number[]) => String.fromCodePoint(...points);
 const GOLDEN_DIR = new URL('./fixtures/cards/', import.meta.url);
-const GROUND: [number, number, number] = [0xf7, 0xf7, 0xf5];
+const GROUND: [number, number, number] = [0xf4, 0xee, 0xe2];
 
 async function pixels(node: ReturnType<typeof finishCard>): Promise<Pixels> {
   return decodePng(toPng(await toSvg(node)));
@@ -258,5 +258,5 @@ describe('ST-07: the render cache', () => {
 
 // Keep the palette honest: the card background the margin checks assume.
 it('the card ground is design.md ground', () => {
-  expect(C.ground.toLowerCase()).toBe('#fafafa');
+  expect(C.ground.toLowerCase()).toBe('#f4eee2');
 });

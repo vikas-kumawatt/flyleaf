@@ -174,7 +174,8 @@ describe('replies push at most once per thread per hour', () => {
     const push = new MemoryPushSender();
     const clock = new Date('2026-10-12T14:00:00Z');
     const deps = { db, push, limiter: new PgRollingRateLimiter(db), queue, now: () => clock };
-    await db.update(users).set({ createdAt: new Date(Date.now() - 30 * 86_400_000) });
+    // Aged against the pinned clock, not the wall clock (see notify-delivery's aged()).
+    await db.update(users).set({ createdAt: new Date(Math.min(clock.getTime(), Date.now()) - 30 * 86_400_000) });
     await db.execute(sql`INSERT INTO push_tokens (token, user_id, platform) VALUES ('ExponentPushToken[bob]', ${bob.id}::uuid, 'android')`);
     await comment(bob);
     queue.jobs.splice(0);

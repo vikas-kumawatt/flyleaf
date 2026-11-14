@@ -17,6 +17,7 @@ import {
   View,
   TextInput,
   Pressable,
+  ScrollView,
   StyleSheet,
   ActivityIndicator,
 } from 'react-native';
@@ -32,7 +33,7 @@ import {
   Txt,
   sheet,
 } from '@/ui/components';
-import { palette, space, radius, useTheme } from '@/ui/tokens';
+import { fontFamilies, palette, space, radius, useTheme } from '@/ui/tokens';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 // The viewfinder sits over a live camera feed, so it always uses the dark
@@ -124,11 +125,11 @@ export default function ScannerScreen() {
       <Screen>
         <View style={{ flex: 1, padding: space[6], justifyContent: 'center', gap: space[6] }}>
           <View style={{ alignItems: 'center', gap: space[3] }}>
-            <Ionicons name="eye-off-outline" size={36} color={c.accent} />
+            <Ionicons name="eye-off-outline" size={36} color={c.ink2} />
             <Txt variant="displayM" style={{ textAlign: 'center' }}>
               Explicit content
             </Txt>
-            <Txt variant="body" color="muted" style={{ textAlign: 'center', lineHeight: 22 }}>
+            <Txt variant="body" color="ink2" style={{ textAlign: 'center' }}>
               {warning.title} is marked explicit. Your content settings hide it from search, but you
               can still open it and log it.
             </Txt>
@@ -161,7 +162,17 @@ export default function ScannerScreen() {
   if (!permission || !permission.granted) {
     return (
       <Screen>
-        <View style={{ flex: 1, padding: space[6], justifyContent: 'center', gap: space[6] }}>
+        <ScrollView
+          keyboardShouldPersistTaps="handled"
+          contentContainerStyle={{
+            flexGrow: 1,
+            padding: space[6],
+            paddingTop: Math.max(insets.top, space[6]),
+            paddingBottom: Math.max(insets.bottom, space[6]),
+            justifyContent: 'center',
+            gap: space[6],
+          }}
+        >
           <View style={{ alignItems: 'center', gap: space[3] }}>
             <View
               style={{
@@ -180,7 +191,7 @@ export default function ScannerScreen() {
             </Txt>
             <Txt
               variant="body"
-              color="muted"
+              color="ink2"
               style={{ textAlign: 'center' }}
             >
               Flyleaf uses the camera to read the ISBN barcode on the back of a book, so you can log it
@@ -207,7 +218,7 @@ export default function ScannerScreen() {
           </View>
 
           {manualMode && (
-            <Card style={{ gap: space[3], marginTop: space[4] }}>
+            <Card style={{ gap: space[3] }}>
               <Txt variant="title">Enter an ISBN</Txt>
               <TextInput
                 value={manualIsbn}
@@ -215,14 +226,17 @@ export default function ScannerScreen() {
                 placeholder="e.g. 9780571353408"
                 placeholderTextColor={c.muted}
                 keyboardType="numeric"
+                accessibilityLabel="ISBN"
                 style={{
                   minHeight: 48,
                   borderWidth: 1,
-                  borderColor: c.line,
+                  borderColor: c.lineStrong,
                   borderRadius: radius.md,
                   paddingHorizontal: space[3],
                   color: c.ink,
                   backgroundColor: c.surface,
+                  fontFamily: fontFamilies.uiRegular,
+                  fontSize: 15,
                 }}
               />
               {errorMessage && (
@@ -230,15 +244,16 @@ export default function ScannerScreen() {
                   {errorMessage}
                 </Txt>
               )}
+              {/* The camera button above is this view's one filled action. */}
               <Button
                 label={loading ? 'Searching…' : 'Look up'}
-                variant="primary"
+                variant="secondary"
                 disabled={loading || manualIsbn.length < 10}
                 onPress={() => handleLookupIsbn(manualIsbn)}
               />
             </Card>
           )}
-        </View>
+        </ScrollView>
       </Screen>
     );
   }
@@ -266,7 +281,7 @@ export default function ScannerScreen() {
           <Ionicons name="close" size={24} color={cam.ink} />
         </Pressable>
 
-        <Txt variant="title" style={{ color: cam.ink }}>
+        <Txt variant="title" numberOfLines={1} style={{ color: cam.ink, flex: 1, textAlign: 'center' }}>
           Scan a barcode
         </Txt>
 
@@ -303,37 +318,41 @@ export default function ScannerScreen() {
           )}
         </View>
 
-        <Txt variant="caption" style={{ color: cam.ink, marginTop: space[4], textAlign: 'center' }}>
-          Fit the barcode on the back cover inside the frame
-        </Txt>
+        {/* Text over a live image sits on the scrim so it reads on any frame. */}
+        <View style={[styles.scrimLabel, { marginTop: space[4] }]}>
+          <Txt variant="caption" style={{ color: cam.ink, textAlign: 'center' }}>
+            Fit the barcode on the back cover inside the frame
+          </Txt>
+        </View>
 
         {errorMessage && (
-          <View
-            style={{
-              backgroundColor: cam.scrim,
-              paddingHorizontal: space[3],
-              paddingVertical: space[2],
-              borderRadius: radius.md,
-              marginTop: space[3],
-            }}
-          >
-            <Txt variant="caption" style={{ color: cam.critical }}>
+          <View style={[styles.scrimLabel, { marginTop: space[3] }]} accessibilityLiveRegion="polite">
+            <Txt variant="caption" style={{ color: cam.critical, textAlign: 'center' }}>
               {errorMessage}
             </Txt>
           </View>
         )}
       </View>
 
-      {/* Bottom Manual Entry Shortcut */}
+      {/* Bottom Manual Entry Shortcut: an outlined pill in the camera's own dark values */}
       <View style={[styles.bottomOverlay, { paddingBottom: insets.bottom + space[6] }]}>
-        <Button
-          label="Enter ISBN manually"
-          variant="secondary"
+        <Pressable
           onPress={() => {
+            void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
             setManualMode(true);
             setScanned(true);
           }}
-        />
+          accessibilityRole="button"
+          accessibilityLabel="Enter ISBN manually"
+          style={({ pressed }) => [
+            styles.camButton,
+            pressed ? { opacity: 0.88, transform: [{ scale: 0.97 }] } : null,
+          ]}
+        >
+          <Txt variant="body" style={{ color: cam.ink, fontWeight: '500' }}>
+            Enter ISBN manually
+          </Txt>
+        </Pressable>
       </View>
 
       {/* Manual Input Dialog when triggered */}
@@ -347,9 +366,9 @@ export default function ScannerScreen() {
                   setManualMode(false);
                   setScanned(false);
                 }}
-                hitSlop={8}
                 accessibilityRole="button"
                 accessibilityLabel="Close"
+                style={{ minWidth: 44, minHeight: 44, alignItems: 'flex-end', justifyContent: 'center' }}
               >
                 <Ionicons name="close" size={22} color={c.muted} />
               </Pressable>
@@ -362,14 +381,17 @@ export default function ScannerScreen() {
               placeholderTextColor={c.muted}
               keyboardType="numeric"
               autoFocus
+              accessibilityLabel="ISBN"
               style={{
                 minHeight: 48,
                 borderWidth: 1,
-                borderColor: c.line,
+                borderColor: c.lineStrong,
                 borderRadius: radius.md,
                 paddingHorizontal: space[3],
                 color: c.ink,
                 backgroundColor: c.surface,
+                fontFamily: fontFamilies.uiRegular,
+                fontSize: 15,
               }}
             />
 
@@ -408,8 +430,25 @@ const styles = StyleSheet.create({
   iconCircle: {
     width: 44,
     height: 44,
-    borderRadius: 22,
+    borderRadius: radius.pill,
     backgroundColor: cam.raised,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  scrimLabel: {
+    backgroundColor: cam.scrim,
+    paddingHorizontal: space[3],
+    paddingVertical: space[2],
+    borderRadius: radius.md,
+    borderCurve: 'continuous',
+    maxWidth: 320,
+  },
+  camButton: {
+    minHeight: 48,
+    paddingHorizontal: space[6],
+    borderRadius: radius.pill,
+    borderWidth: 1,
+    borderColor: cam.line,
     alignItems: 'center',
     justifyContent: 'center',
   },

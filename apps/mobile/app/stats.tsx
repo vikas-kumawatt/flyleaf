@@ -102,20 +102,17 @@ export default function StatsScreen() {
             <Ionicons name="chevron-back" size={24} color={c.ink} />
           </Pressable>
           <Txt variant="title">Stats</Txt>
-          <Pressable
+          <Button
+            label="The wall"
+            accessibilityLabel="The Wall"
+            variant="tertiary"
+            size="sm"
             onPress={() => {
               void Haptics.selectionAsync();
               router.push('/wall' as any);
             }}
-            accessibilityRole="button"
-            accessibilityLabel="The Wall"
-            hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
-            style={{ minWidth: 44, minHeight: 44, justifyContent: 'center', alignItems: 'flex-end' }}
-          >
-            <Txt variant="body" color="ink2" style={{ fontWeight: '500' }}>
-              The Wall
-            </Txt>
-          </Pressable>
+            style={{ minHeight: 44 }}
+          />
         </View>
 
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: space[2], marginTop: space[3] }}>

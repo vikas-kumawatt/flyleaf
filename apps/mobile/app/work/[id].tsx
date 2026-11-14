@@ -45,17 +45,22 @@ import { RemoteStatus } from '@/ui/RemoteStatus';
 import {
   Button,
   Card,
+  Chip,
   Cover,
   EmptyState,
   Heart,
+  HeartMark,
   ProgressBar,
+  RatingMark,
   Screen,
   SegmentedControl,
+  SkeletonList,
   Stars,
   Txt,
   sheet,
 } from '@/ui/components';
-import { space, radius, useTheme } from '@/ui/tokens';
+import { fontFamilies, space, radius, useTheme } from '@/ui/tokens';
+import { ScreenHeader } from '@/ui/ScreenHeader';
 
 const STATUSES: { key: string; label: string }[] = [
   { key: 'want', label: 'Want to read' },
@@ -64,24 +69,46 @@ const STATUSES: { key: string; label: string }[] = [
   { key: 'dnf', label: 'Stopped' },
 ];
 
+// An edition with no known format says nothing, not "Unknown".
 const formatLabel = (f?: string | null) =>
-  f ? f.charAt(0).toUpperCase() + f.slice(1) : null;
+  f && f !== 'unknown' ? f.charAt(0).toUpperCase() + f.slice(1) : null;
+
+const pagesLabel = (n: number) => `${n.toLocaleString()} ${n === 1 ? 'page' : 'pages'}`;
+
+/**
+ * Catalogue descriptions arrive as light Markdown (bold, italics, links). The
+ * page shows them as plain prose, so the markers are dropped and the words kept.
+ */
+const plainDescription = (text: string) =>
+  text
+    .replace(/\[([^\]]+)\]\([^)]*\)/g, '$1')
+    .replace(/(\*\*|__)(.+?)\1/g, '$2')
+    .replace(/(^|[^\w*])[*_]([^*_\r\n]+)[*_](?=[^\w*]|$)/g, '$1$2')
+    .replace(/^#{1,6}\s+/gm, '');
 
 /** PRD §9.4: the heart count sits next to the rating count ("2,847 ratings · 1,203 hearts"). */
 const heartsLabel = (n: number) => `${n.toLocaleString()} ${n === 1 ? 'heart' : 'hearts'}`;
 
-/** Filter chip: raised neutral, the selected one a step lighter with a stronger hairline. */
-function useChip() {
+/** A section of the page: a hairline rule above, a serif heading, no box (design.md §5). */
+function Section({
+  title,
+  aside,
+  children,
+}: {
+  title: string;
+  aside?: React.ReactNode;
+  children: React.ReactNode;
+}) {
   const c = useTheme();
-  return (selected: boolean) => ({
-    minHeight: 32,
-    paddingHorizontal: space[3],
-    justifyContent: 'center' as const,
-    borderRadius: radius.sm,
-    borderWidth: 1,
-    borderColor: selected ? c.lineStrong : c.line,
-    backgroundColor: selected ? c.surface : c.surface2,
-  });
+  return (
+    <View style={{ gap: space[3], paddingTop: space[6], borderTopWidth: 1, borderTopColor: c.line }}>
+      <View style={[sheet.row, { justifyContent: 'space-between', flexWrap: 'wrap' }]}>
+        <Txt variant="title">{title}</Txt>
+        {aside}
+      </View>
+      {children}
+    </View>
+  );
 }
 
 export default function WorkScreen() {
@@ -93,7 +120,6 @@ export default function WorkScreen() {
   const { isSaved, addBook, removeBook } = useGuestShelf();
   const router = useRouter();
   const c = useTheme();
-  const chip = useChip();
 
   const db = useDatabase();
   const remote = useRemote(id ? () => api.work(id) : null, [id, user?.id]);
@@ -167,11 +193,15 @@ export default function WorkScreen() {
     }, [id]),
   );
 
-  useEffect(() => {
-    if (activeTab === 'reviews' && id) {
-      loadReviews().catch(() => {});
-    }
-  }, [id, activeTab, reviewSort, ratingFilter]);
+  // On focus as well as on a change of tab, sort or filter: coming back from
+  // the composer has to show the review that was just posted.
+  useFocusEffect(
+    useCallback(() => {
+      if (activeTab === 'reviews' && id) {
+        loadReviews().catch(() => {});
+      }
+    }, [id, activeTab, reviewSort, ratingFilter]),
+  );
 
   const toggleReviewLike = async (review: Review) => {
     if (!user) {
@@ -227,6 +257,7 @@ export default function WorkScreen() {
   if (work.content_warning && acknowledged !== true) {
     return (
       <Screen>
+        <ScreenHeader title="" />
         <EmptyState
           title="This book is marked explicit"
           subtitle="It is hidden from your search results. You can still open it, log it and rate it."
@@ -381,14 +412,45 @@ export default function WorkScreen() {
     }
   };
 
+  // The status control carries the page's one filled action: the current
+  // status when there is one, otherwise the first step (Want to read).
+  const currentStatus = user ? work.your_read?.status : savedInGuestShelf ? 'want' : undefined;
+  const suggestedStatus = currentStatus === 'paused' ? 'reading' : 'want';
+  const statusLine = currentStatus
+    ? STATUSES.find((s) => s.key === currentStatus)?.label ?? formatLabel(currentStatus)
+    : 'Not in your library yet';
+
+  const openReviewComposer = () => {
+    if (!user) {
+      promptAuth({
+        title: 'Sign up to write a review',
+        subtitle: 'Share your thoughts and ratings with other readers.',
+      });
+      return;
+    }
+    const targetId = work.your_read?.id ?? work.id;
+    router.push(`/review/compose/${targetId}` as any);
+  };
+
+  const iconButton = (active = false) =>
+    ({ pressed }: { pressed: boolean }) => ({
+      minWidth: 44,
+      minHeight: 44,
+      borderRadius: radius.pill,
+      alignItems: 'center' as const,
+      justifyContent: 'center' as const,
+      backgroundColor: pressed || active ? c.surface2 : 'transparent',
+    });
+
   return (
     <Screen>
+      <ScreenHeader title="" />
       <ScrollView contentContainerStyle={{ padding: space[4], paddingBottom: space[16], gap: space[6] }}>
-        {/* 1. Hero Header */}
-        <View style={{ alignItems: 'center', gap: space[3] }}>
-          <Cover coverId={work.cover_id} size="xl" />
+        {/* 1. Hero: the cover is the moment (design.md §10) */}
+        <View style={{ alignItems: 'center', gap: space[4], paddingTop: space[2] }}>
+          <Cover coverId={work.cover_id} title={work.title} author={work.author_name} size="xl" />
           <View style={{ alignItems: 'center', gap: space[1] }}>
-            <Txt variant="displayL" style={{ textAlign: 'center' }}>
+            <Txt variant="displayM" style={{ textAlign: 'center' }}>
               {work.title}
             </Txt>
 
@@ -398,9 +460,9 @@ export default function WorkScreen() {
               disabled={!author}
               accessibilityRole="link"
               accessibilityLabel={`Author ${work.author_name}`}
-              hitSlop={8}
+              hitSlop={{ top: 11, bottom: 11, left: 8, right: 8 }}
             >
-              <Txt variant="body" color="ink2">
+              <Txt variant="body" color="ink2" style={{ textAlign: 'center' }}>
                 {work.author_name}
               </Txt>
             </Pressable>
@@ -411,249 +473,132 @@ export default function WorkScreen() {
                 onPress={() => router.push(`/series/${series.id}` as any)}
                 accessibilityRole="link"
                 accessibilityLabel={`Series ${series.name}${series.position != null ? `, book ${series.position}` : ''}`}
-                hitSlop={8}
+                hitSlop={{ top: 12, bottom: 12, left: 8, right: 8 }}
               >
-                <Txt variant="caption" color="muted">
+                <Txt variant="caption" color="muted" style={{ textAlign: 'center' }}>
                   {series.name}{series.position != null ? ` · Book ${series.position}` : ''}
                 </Txt>
               </Pressable>
             ) : null}
 
             {/* Metadata line */}
-            <Txt variant="caption" color="muted">
-              {[work.first_publish_year, formatLabel(edition?.format), total ? `${total} pages` : null]
+            <Txt variant="caption" color="muted" tabular style={{ textAlign: 'center' }}>
+              {[work.first_publish_year, formatLabel(edition?.format), total ? pagesLabel(total) : null]
                 .filter(Boolean)
                 .join(' · ')}
             </Txt>
           </View>
         </View>
 
-        {/* 2. Primary Status Control (Largest element after cover) */}
-        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: space[2] }}>
-          {STATUSES.map((s) => {
-            const active =
-              s.key === 'want'
-                ? user
-                  ? work.your_read?.status === 'want'
-                  : savedInGuestShelf
-                : work.your_read?.status === s.key;
-            const label =
-              !user && s.key === 'want' && savedInGuestShelf
-                ? 'Saved to Want to read'
-                : s.label;
-            return (
-              <Button
-                key={s.key}
-                label={label}
-                variant={active ? 'primary' : 'secondary'}
-                disabled={busy}
-                onPress={() => setStatus(s.key)}
-                style={{ flex: 1, minWidth: 140 }}
-              />
-            );
-          })}
+        {/* 2. Status control: the largest element after the cover, one filled action */}
+        <View style={{ gap: space[2] }}>
+          <Txt variant="micro" color="muted">
+            {statusLine}
+          </Txt>
+          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: space[2] }}>
+            {STATUSES.map((s) => {
+              const active =
+                s.key === 'want'
+                  ? user
+                    ? work.your_read?.status === 'want'
+                    : savedInGuestShelf
+                  : work.your_read?.status === s.key;
+              const label =
+                !user && s.key === 'want' && savedInGuestShelf
+                  ? 'Saved to Want to read'
+                  : s.label;
+              const filled = currentStatus ? active : s.key === suggestedStatus;
+              return (
+                <Button
+                  key={s.key}
+                  label={label}
+                  variant={filled ? 'primary' : 'secondary'}
+                  disabled={busy}
+                  onPress={() => setStatus(s.key)}
+                  style={{ flex: 1, minWidth: 140 }}
+                />
+              );
+            })}
+          </View>
+
+          {/* Secondary actions (PRD §6.31, §6.34: Add to shelf & Share) */}
+          <View style={[sheet.row, { gap: space[1] }]}>
+            <Button
+              label="Add to shelf"
+              variant="tertiary"
+              onPress={handleOpenShelfSheet}
+              accessibilityLabel="Add to shelf"
+              style={{ marginLeft: -space[2] }}
+            />
+            <View style={{ flex: 1 }} />
+            <Pressable
+              onPress={() => {
+                void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                // A finished read has cards (PRD §6.45): the finish card, and the
+                // review card when there is a review. Otherwise a line of text.
+                const mine = work.your_read;
+                if (mine?.status === 'finished' && mine.id) {
+                  const options: ShareOption[] = [{ label: 'Finished', card: { template: 'finish', readId: mine.id } }];
+                  if (mine.review_id) options.push({ label: 'Review', card: { template: 'review', reviewId: mine.review_id } });
+                  router.push(`/share?options=${encodeURIComponent(encodeShareOptions(options))}` as any);
+                  return;
+                }
+                void Share.share({
+                  title: work.title,
+                  message: `${work.title} by ${work.author_name}, on Flyleaf`,
+                });
+              }}
+              accessibilityRole="button"
+              accessibilityLabel="Share book"
+              style={iconButton()}
+            >
+              <Ionicons name="share-outline" size={18} color={c.muted} />
+            </Pressable>
+
+            {user && (
+              <Pressable
+                onPress={handleMuteBook}
+                accessibilityRole="button"
+                accessibilityLabel={isMuted ? "Unmute book" : "Mute book"}
+                accessibilityState={{ selected: isMuted }}
+                style={iconButton(isMuted)}
+              >
+                <Ionicons name={isMuted ? "volume-mute" : "volume-mute-outline"} size={18} color={isMuted ? c.ink : c.muted} />
+              </Pressable>
+            )}
+            {user && (
+              <Pressable
+                onPress={() => setReportTarget({ type: 'work', id: work.id })}
+                accessibilityRole="button"
+                accessibilityLabel="Report book"
+                style={iconButton()}
+              >
+                <Ionicons name="flag-outline" size={18} color={c.muted} />
+              </Pressable>
+            )}
+          </View>
         </View>
 
-        {/* Secondary Action Row (PRD §6.31, §6.34: Add to shelf & Share) */}
-        <View style={[sheet.row, { gap: space[2] }]}>
-          <Pressable
-            onPress={handleOpenShelfSheet}
-            accessibilityRole="button"
-            accessibilityLabel="Add to shelf"
-            style={[
-              sheet.row,
-              {
-                flex: 1,
-                minHeight: 44,
-                paddingHorizontal: space[3],
-                borderRadius: radius.md,
-                borderWidth: 1,
-                borderColor: c.line,
-                backgroundColor: c.surface,
-                justifyContent: 'center',
-              },
-            ]}
-          >
-            <Ionicons name="bookmark-outline" size={18} color={c.ink2} style={{ marginRight: space[2] }} />
-            <Txt variant="body" style={{ fontWeight: '500' }}>
-              Add to shelf
-            </Txt>
-          </Pressable>
-
-          <Pressable
-            onPress={() => {
-              void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-              // A finished read has cards (PRD §6.45): the finish card, and the
-              // review card when there is a review. Otherwise a line of text.
-              const mine = work.your_read;
-              if (mine?.status === 'finished' && mine.id) {
-                const options: ShareOption[] = [{ label: 'Finished', card: { template: 'finish', readId: mine.id } }];
-                if (mine.review_id) options.push({ label: 'Review', card: { template: 'review', reviewId: mine.review_id } });
-                router.push(`/share?options=${encodeURIComponent(encodeShareOptions(options))}` as any);
-                return;
-              }
-              void Share.share({
-                title: work.title,
-                message: `${work.title} by ${work.author_name}, on Flyleaf`,
-              });
-            }}
-            accessibilityRole="button"
-            accessibilityLabel="Share book"
-            style={[
-              sheet.row,
-              {
-                minHeight: 44,
-                paddingHorizontal: space[3],
-                borderRadius: radius.md,
-                borderWidth: 1,
-                borderColor: c.line,
-                backgroundColor: c.surface,
-                justifyContent: 'center',
-              },
-            ]}
-          >
-            <Ionicons name="share-outline" size={18} color={c.muted} />
-          </Pressable>
-
-          {user && (
-            <Pressable
-              onPress={handleMuteBook}
-              accessibilityRole="button"
-              accessibilityLabel={isMuted ? "Unmute book" : "Mute book"}
-              style={[
-                sheet.row,
-                {
-                  minHeight: 44,
-                  paddingHorizontal: space[3],
-                  borderRadius: radius.md,
-                  borderWidth: 1,
-                  borderColor: isMuted ? c.lineStrong : c.line,
-                  backgroundColor: isMuted ? c.surface2 : c.surface,
-                  justifyContent: 'center',
-                },
-              ]}
-            >
-              <Ionicons name={isMuted ? "volume-mute" : "volume-mute-outline"} size={18} color={isMuted ? c.ink : c.muted} />
-            </Pressable>
-          )}
-          {user && (
-            <Pressable
-              onPress={() => setReportTarget({ type: 'work', id: work.id })}
-              accessibilityRole="button"
-              accessibilityLabel="Report book"
-              style={[sheet.row, { minHeight: 44, paddingHorizontal: space[3], borderRadius: radius.md, borderWidth: 1, borderColor: c.line, backgroundColor: c.surface, justifyContent: 'center' }]}
-            >
-              <Ionicons name="flag-outline" size={18} color={c.muted} />
-            </Pressable>
-          )}
-        </View>
-
-        {/* 3. Rating & 5-Bar Distribution Histogram */}
-        <Card style={{ gap: space[3] }}>
-          <View style={[sheet.row, { justifyContent: 'space-between' }]}>
-            <Txt variant="micro" color="muted">
-              Your rating
-            </Txt>
-            <Txt variant="caption" color="muted">
-              Optional
-            </Txt>
-          </View>
-
-          <View style={[sheet.row, { justifyContent: 'space-between', alignItems: 'center' }]}>
-            <Stars value={work.your_read?.rating ?? null} onChange={rate} size={28} />
-          </View>
-
-          {/* Histogram Divider */}
-          <View style={{ height: 1, backgroundColor: c.line, marginVertical: space[1] }} />
-
-          <View style={{ gap: space[2] }}>
-            <View style={[sheet.row, { justifyContent: 'space-between' }]}>
-              <View style={sheet.row}>
-                {work.rating_count && work.rating_count >= 5 ? (
-                  <>
-                    <Txt variant="displayM" tabular style={{ marginRight: space[2] }}>
-                      {work.avg_rating ? Number(work.avg_rating).toFixed(1) : '—'}
-                    </Txt>
-                    <View>
-                      <Stars value={work.avg_rating ? Number(work.avg_rating) : null} size={14} />
-                      <Txt variant="micro" color="muted">
-                        {work.rating_count.toLocaleString()} ratings{work.heart_count ? ` · ${heartsLabel(work.heart_count)}` : ''}
-                      </Txt>
-                    </View>
-                  </>
-                ) : work.rating_count && work.rating_count > 0 ? (
-                  // PRD §9.5: below 5 ratings, the count instead of an average
-                  // (the stars drew the average here; audit 09).
-                  <View>
-                    <Txt variant="body" style={{ fontWeight: '500' }}>
-                      {work.rating_count} {work.rating_count === 1 ? 'rating' : 'ratings'}
-                    </Txt>
-                    {work.heart_count ? (
-                      <Txt variant="micro" color="muted">{heartsLabel(work.heart_count)}</Txt>
-                    ) : null}
-                  </View>
-                ) : (
-                  <View>
-                    <Txt variant="body" color="muted">
-                      No ratings yet
-                    </Txt>
-                    <Txt variant="micro" color="muted">
-                      Be the first to rate
-                    </Txt>
-                  </View>
-                )}
-              </View>
-            </View>
-
-            {/* 5-Bar Distribution (work's real ratings; hidden when there are none) */}
-            {ratedTotal > 0 && ratingsDistribution.map((item) => (
-              <View key={item.stars} style={[sheet.row, { gap: space[2] }]}>
-                <View style={[sheet.row, { width: 28, gap: 2 }]}>
-                  <Txt variant="caption" color="muted" tabular>
-                    {item.stars}
-                  </Txt>
-                  <Ionicons name="star" size={12} color={c.star} />
-                </View>
-                <View
-                  style={{
-                    flex: 1,
-                    height: 8,
-                    borderRadius: radius.xs,
-                    backgroundColor: c.surface2,
-                    overflow: 'hidden',
-                  }}
-                >
-                  <View
-                    style={{
-                      height: '100%',
-                      width: `${item.pct}%`,
-                      backgroundColor: c.muted,
-                      borderRadius: radius.xs,
-                    }}
-                  />
-                </View>
-                <Txt variant="micro" color="muted" tabular style={{ width: 36, textAlign: 'right' }}>
-                  {item.pct}%
-                </Txt>
-              </View>
-            ))}
-          </View>
-        </Card>
-
-        {/* 4. Active Progress Card (when reading) */}
+        {/* 3. Progress (when reading) */}
         {work.your_read?.status === 'reading' && (
-          <Card style={{ gap: space[3] }}>
-            <Txt variant="micro" color="muted">
-              Progress
-            </Txt>
-            <ProgressBar percent={percent ?? 0} />
-            <Txt variant="caption" color="ink2">
-              {page && total
-                ? `Page ${page} of ${total} (${percent}%)`
-                : percent
-                ? `${percent}% complete`
-                : 'Reading started'}
-            </Txt>
+          <Section title="Your progress">
+            <View style={{ gap: space[2] }}>
+              <View style={[sheet.row, { justifyContent: 'space-between', flexWrap: 'wrap' }]}>
+                <Txt variant="caption" color="ink2" tabular>
+                  {page && total
+                    ? `Page ${page} of ${total}`
+                    : percent
+                    ? `${percent}% complete`
+                    : 'Reading started'}
+                </Txt>
+                {page && total ? (
+                  <Txt variant="caption" color="muted" tabular>
+                    {percent}%
+                  </Txt>
+                ) : null}
+              </View>
+              <ProgressBar percent={percent ?? 0} />
+            </View>
             <View style={sheet.row}>
               <TextInput
                 value={pageInput}
@@ -668,91 +613,173 @@ export default function WorkScreen() {
                   paddingHorizontal: space[3],
                   borderRadius: radius.md,
                   borderWidth: 1,
-                  borderColor: c.line,
+                  borderColor: c.lineStrong,
                   backgroundColor: c.surface,
                   color: c.ink,
+                  fontFamily: fontFamilies.uiRegular,
+                  fontSize: 15,
                 }}
               />
               <Button
-                label="Save progress"
-                variant="primary"
+                label="Save"
+                variant="secondary"
                 onPress={submitProgress}
                 disabled={busy || !pageInput}
               />
             </View>
-          </Card>
+          </Section>
         )}
 
-        {/* 5. Description (Expandable), only when the catalog has one */}
-        {work.description ? (
-        <Card style={{ gap: space[2] }}>
-          <Txt variant="micro" color="muted">
-            About this book
-          </Txt>
-          <Txt
-            variant="body"
-            color="ink"
-            numberOfLines={descExpanded ? undefined : 3}
-            style={{ lineHeight: 22 }}
-          >
-            {work.description}
-          </Txt>
-          <Pressable
-            onPress={() => setDescExpanded(!descExpanded)}
-            accessibilityRole="button"
-            accessibilityLabel={descExpanded ? 'Show less description' : 'Read full description'}
-            hitSlop={8}
-          >
-            <Txt variant="caption" color="accent" style={{ fontWeight: '500' }}>
-              {descExpanded ? 'Show less' : 'Read more'}
+        {/* 4. Your rating */}
+        <Section
+          title="Your rating"
+          aside={
+            <Txt variant="caption" color="muted">
+              Optional
             </Txt>
-          </Pressable>
-        </Card>
+          }
+        >
+          <Stars value={work.your_read?.rating ?? null} onChange={rate} />
+        </Section>
+
+        {/* 5. Everyone's ratings: average and the 5-bar histogram, labelled directly.
+            The API has no friends' ratings for a work yet; friends come first in Reviews. */}
+        <Section title="Ratings">
+          {work.rating_count && work.rating_count >= 5 ? (
+            <View style={[sheet.row, { gap: space[3], flexWrap: 'wrap' }]}>
+              <Txt variant="displayM" tabular>
+                {work.avg_rating ? Number(work.avg_rating).toFixed(1) : '—'}
+              </Txt>
+              <View style={{ flexShrink: 1 }}>
+                <Stars value={work.avg_rating ? Number(work.avg_rating) : null} size={14} />
+                <Txt variant="caption" color="muted" tabular>
+                  {work.rating_count.toLocaleString()} ratings{work.heart_count ? ` · ${heartsLabel(work.heart_count)}` : ''}
+                </Txt>
+              </View>
+            </View>
+          ) : work.rating_count && work.rating_count > 0 ? (
+            // PRD §9.5: below 5 ratings, the count instead of an average
+            // (the stars drew the average here; audit 09).
+            <View>
+              <Txt variant="body" tabular style={{ fontWeight: '500' }}>
+                {work.rating_count} {work.rating_count === 1 ? 'rating' : 'ratings'}
+              </Txt>
+              {work.heart_count ? (
+                <Txt variant="caption" color="muted" tabular>{heartsLabel(work.heart_count)}</Txt>
+              ) : null}
+            </View>
+          ) : (
+            <View>
+              <Txt variant="body" color="ink2">
+                No ratings yet
+              </Txt>
+              <Txt variant="caption" color="muted">
+                Be the first to rate
+              </Txt>
+            </View>
+          )}
+
+          {/* 5-Bar Distribution (work's real ratings; hidden when there are none) */}
+          {ratedTotal > 0 && (
+            <View style={{ gap: space[2] }}>
+              {ratingsDistribution.map((item) => (
+                <View
+                  key={item.stars}
+                  style={[sheet.row, { gap: space[3] }]}
+                  accessible
+                  accessibilityLabel={`${item.stars} stars, ${item.pct}%`}
+                >
+                  <View style={[sheet.row, { minWidth: 28, gap: 2 }]}>
+                    <Txt variant="caption" color="ink2" tabular>
+                      {item.stars}
+                    </Txt>
+                    <Ionicons name="star-outline" size={12} color={c.muted} />
+                  </View>
+                  <View
+                    style={{
+                      flex: 1,
+                      height: 8,
+                      borderRadius: radius.xs,
+                      backgroundColor: c.line,
+                      overflow: 'hidden',
+                    }}
+                  >
+                    <View
+                      style={{
+                        height: '100%',
+                        width: `${item.pct}%`,
+                        backgroundColor: c.ink2,
+                        borderRadius: radius.xs,
+                      }}
+                    />
+                  </View>
+                  <Txt variant="caption" color="ink2" tabular style={{ minWidth: 40, textAlign: 'right' }}>
+                    {item.pct}%
+                  </Txt>
+                </View>
+              ))}
+            </View>
+          )}
+        </Section>
+
+        {/* 6. Description (Expandable), only when the catalog has one */}
+        {work.description ? (
+          <Section title="About this book">
+            <Txt
+              variant="body"
+              color="ink"
+              numberOfLines={descExpanded ? undefined : 4}
+            >
+              {plainDescription(work.description)}
+            </Txt>
+            <Button
+              label={descExpanded ? 'Show less' : 'Read more'}
+              variant="tertiary"
+              size="sm"
+              onPress={() => setDescExpanded(!descExpanded)}
+              accessibilityLabel={descExpanded ? 'Show less description' : 'Read full description'}
+              style={{ alignSelf: 'flex-start', marginLeft: -space[2] }}
+            />
+          </Section>
         ) : null}
 
-        {/* 6. Metadata Strip */}
-        <Card style={{ gap: space[2] }}>
-          <Txt variant="micro" color="muted">
-            Edition
-          </Txt>
-          <View style={{ gap: space[2] }}>
-            <View style={[sheet.row, { justifyContent: 'space-between' }]}>
-              <Txt variant="caption" color="muted">
-                Format
-              </Txt>
-              <Txt variant="caption" color="ink" style={{ textTransform: 'capitalize' }}>
-                {formatLabel(edition?.format) ?? '—'}
-              </Txt>
-            </View>
-            <View style={[sheet.row, { justifyContent: 'space-between' }]}>
-              <Txt variant="caption" color="muted">
-                Pages
-              </Txt>
-              <Txt variant="caption" color="ink" tabular>
-                {total ? `${total} pages` : '—'}
-              </Txt>
-            </View>
-            <View style={[sheet.row, { justifyContent: 'space-between' }]}>
-              <Txt variant="caption" color="muted">
-                First published
-              </Txt>
-              <Txt variant="caption" color="ink" tabular>
-                {work.first_publish_year ?? '—'}
-              </Txt>
-            </View>
-            <View style={[sheet.row, { justifyContent: 'space-between' }]}>
-              <Txt variant="caption" color="muted">
-                ISBN-13
-              </Txt>
-              <Txt variant="caption" color="ink" tabular>
-                {edition?.isbn13 ?? '—'}
-              </Txt>
-            </View>
+        {/* 7. Edition details: ruled label and value rows */}
+        <Section title="Edition">
+          <View>
+            {(
+              [
+                ['Format', formatLabel(edition?.format) ?? '—'],
+                ['Pages', total ? pagesLabel(total) : '—'],
+                ['First published', work.first_publish_year ?? '—'],
+                ['ISBN-13', edition?.isbn13 ?? '—'],
+              ] as const
+            ).map(([label, value], i) => (
+              <View
+                key={label}
+                style={[
+                  sheet.row,
+                  {
+                    justifyContent: 'space-between',
+                    gap: space[4],
+                    paddingVertical: space[2],
+                    borderTopWidth: i ? 1 : 0,
+                    borderTopColor: c.line,
+                  },
+                ]}
+              >
+                <Txt variant="caption" color="muted">
+                  {label}
+                </Txt>
+                <Txt variant="caption" color="ink" tabular style={{ flexShrink: 1, textAlign: 'right' }}>
+                  {value}
+                </Txt>
+              </View>
+            ))}
           </View>
-        </Card>
+        </Section>
 
-        {/* 7. Tabs: Reviews / Editions / History */}
-        <View style={{ gap: space[3], marginTop: space[2] }}>
+        {/* 8. Tabs: Reviews / Editions / History */}
+        <View style={{ gap: space[4] }}>
           <SegmentedControl
             values={['reviews', 'editions', 'history'] as const}
             selected={activeTab}
@@ -767,29 +794,20 @@ export default function WorkScreen() {
           {activeTab === 'reviews' && (
             <View style={{ gap: space[3] }}>
               {/* Reviews Header with Write CTA */}
-              <View style={[sheet.row, { justifyContent: 'space-between', alignItems: 'center' }]}>
-                <Txt variant="body" style={{ fontWeight: '500' }}>
+              <View style={[sheet.row, { justifyContent: 'space-between', flexWrap: 'wrap', rowGap: space[2] }]}>
+                <Txt variant="body" tabular style={{ fontWeight: '500' }}>
                   {reviewsTotal > 0 ? `${reviewsTotal.toLocaleString()} ${reviewsTotal === 1 ? 'review' : 'reviews'}` : 'Reviews'}
                 </Txt>
                 <Button
                   label="Write a review"
                   variant="secondary"
-                  onPress={() => {
-                    if (!user) {
-                      promptAuth({
-                        title: 'Sign up to write a review',
-                        subtitle: 'Share your thoughts and ratings with other readers.',
-                      });
-                      return;
-                    }
-                    const targetId = work.your_read?.id ?? work.id;
-                    router.push(`/review/compose/${targetId}` as any);
-                  }}
+                  size="sm"
+                  onPress={openReviewComposer}
                 />
               </View>
 
-              {/* Sort Selector (PRD §6.25, §10.7) */}
-              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: space[2] }}>
+              {/* Sort Selector (PRD §6.25, §10.7): friends first by default */}
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: space[2], paddingVertical: space[1] }}>
                 {(
                   [
                     { key: 'friends', label: 'Friends first' },
@@ -799,59 +817,32 @@ export default function WorkScreen() {
                     { key: 'lowest', label: 'Lowest rated' },
                   ] as const
                 ).map((s) => (
-                  <Pressable
+                  <Chip
                     key={s.key}
-                    onPress={() => {
-                      void Haptics.selectionAsync();
-                      setReviewSort(s.key);
-                    }}
-                    accessibilityRole="button"
-                    accessibilityState={{ selected: reviewSort === s.key }}
-                    style={chip(reviewSort === s.key)}
-                  >
-                    <Txt
-                      variant="caption"
-                      color={reviewSort === s.key ? 'ink' : 'ink2'}
-                      style={{ fontWeight: reviewSort === s.key ? '500' : '400' }}
-                    >
-                      {s.label}
-                    </Txt>
-                  </Pressable>
+                    label={s.label}
+                    selected={reviewSort === s.key}
+                    onPress={() => setReviewSort(s.key)}
+                  />
                 ))}
               </ScrollView>
 
               {/* Rating Filter Chips */}
-              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: space[2] }}>
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: space[2], paddingVertical: space[1] }}>
                 {[null, 5, 4, 3, 2, 1].map((rVal) => (
-                  <Pressable
+                  <Chip
                     key={rVal === null ? 'all' : String(rVal)}
-                    onPress={() => {
-                      void Haptics.selectionAsync();
-                      setRatingFilter(rVal);
-                    }}
-                    accessibilityRole="button"
+                    label={rVal === null ? 'All ratings' : String(rVal)}
+                    icon={rVal === null ? undefined : 'star-outline'}
+                    selected={ratingFilter === rVal}
+                    onPress={() => setRatingFilter(rVal)}
                     accessibilityLabel={rVal === null ? 'All ratings' : `${rVal} stars`}
-                    accessibilityState={{ selected: ratingFilter === rVal }}
-                    style={[chip(ratingFilter === rVal), sheet.row, { gap: space[1] }]}
-                  >
-                    <Txt
-                      variant="caption"
-                      color={ratingFilter === rVal ? 'ink' : 'ink2'}
-                      tabular
-                      style={{ fontWeight: ratingFilter === rVal ? '500' : '400' }}
-                    >
-                      {rVal === null ? 'All ratings' : rVal}
-                    </Txt>
-                    {rVal !== null ? <Ionicons name="star" size={12} color={c.star} /> : null}
-                  </Pressable>
+                  />
                 ))}
               </ScrollView>
 
-              {/* Reviews List */}
+              {/* Reviews List: ruled rows */}
               {reviewsLoading ? (
-                <Card style={{ paddingVertical: space[6], alignItems: 'center' }}>
-                  <Txt color="muted">Loading reviews…</Txt>
-                </Card>
+                <SkeletonList rows={3} lead="avatar" style={{ paddingHorizontal: 0 }} />
               ) : reviewsList.length === 0 ? (
                 <EmptyState
                   title="No reviews yet"
@@ -860,155 +851,151 @@ export default function WorkScreen() {
                     <Button
                       label="Write a review"
                       variant="secondary"
-                      onPress={() => {
-                        if (!user) {
-                          promptAuth({
-                            title: 'Sign up to write a review',
-                            subtitle: 'Share your thoughts and ratings with other readers.',
-                          });
-                          return;
-                        }
-                        const targetId = work.your_read?.id ?? work.id;
-                        router.push(`/review/compose/${targetId}` as any);
-                      }}
+                      onPress={openReviewComposer}
                     />
                   }
                 />
               ) : (
-                reviewsList.map((rev) => {
-                  const isHiddenBySpoiler = rev.has_spoilers && !revealedSpoilers.has(rev.id);
-                  return (
-                    <Card
-                      key={rev.id}
-                      onPress={() => router.push(`/review/${rev.id}` as any)}
-                      style={{ gap: space[2] }}
-                    >
-                      <View style={[sheet.row, { justifyContent: 'space-between' }]}>
-                        <View style={[sheet.row, { gap: space[2] }]}>
-                          <View
+                <View>
+                  {reviewsList.map((rev, index) => {
+                    const isHiddenBySpoiler = rev.has_spoilers && !revealedSpoilers.has(rev.id);
+                    return (
+                      <Pressable
+                        key={rev.id}
+                        onPress={() => {
+                          void Haptics.selectionAsync();
+                          router.push(`/review/${rev.id}` as any);
+                        }}
+                        accessibilityRole="button"
+                        style={({ pressed }) => ({
+                          gap: space[2],
+                          paddingVertical: space[4],
+                          borderTopWidth: index ? 1 : 0,
+                          borderTopColor: c.line,
+                          backgroundColor: pressed ? c.surface2 : 'transparent',
+                        })}
+                      >
+                        <View style={[sheet.row, { justifyContent: 'space-between', gap: space[3] }]}>
+                          <View style={[sheet.row, { gap: space[2], flex: 1 }]}>
+                            <View
+                              style={{
+                                width: 32,
+                                height: 32,
+                                borderRadius: 16,
+                                backgroundColor: c.surface2,
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                              }}
+                            >
+                              <Txt variant="caption" style={{ fontWeight: '500' }}>
+                                {rev.author.username.charAt(0).toUpperCase()}
+                              </Txt>
+                            </View>
+                            <View style={{ flex: 1 }}>
+                              <Txt variant="caption" numberOfLines={1} style={{ fontWeight: '500' }}>
+                                {rev.author.display_name || rev.author.username}
+                              </Txt>
+                              <Txt variant="micro" color="muted">
+                                {new Date(rev.published_at).toLocaleDateString(undefined, {
+                                  month: 'short',
+                                  day: 'numeric',
+                                })}
+                              </Txt>
+                            </View>
+                          </View>
+                          <View style={[sheet.row, { gap: space[2] }]}>
+                            {rev.rating ? <RatingMark value={rev.rating} /> : null}
+                            {rev.hearted ? <HeartMark /> : null}
+                          </View>
+                        </View>
+
+                        {/* Spoiler Gate */}
+                        {isHiddenBySpoiler ? (
+                          <Pressable
+                            onPress={(e) => {
+                              e.stopPropagation();
+                              void Haptics.selectionAsync();
+                              setRevealedSpoilers((prev) => new Set([...prev, rev.id]));
+                            }}
+                            accessibilityRole="button"
                             style={{
-                              width: 32,
-                              height: 32,
-                              borderRadius: 16,
+                              minHeight: 44,
+                              paddingVertical: space[3],
+                              paddingHorizontal: space[3],
                               backgroundColor: c.surface2,
+                              borderRadius: radius.md,
+                              borderCurve: 'continuous',
                               alignItems: 'center',
-                              justifyContent: 'center',
+                              gap: space[1],
                             }}
                           >
-                            <Txt variant="caption" style={{ fontWeight: '500' }}>
-                              {rev.author.username.charAt(0).toUpperCase()}
-                            </Txt>
-                          </View>
-                          <View>
-                            <Txt variant="caption" style={{ fontWeight: '500' }}>
-                              {rev.author.display_name || rev.author.username}
-                            </Txt>
+                            <View style={[sheet.row, { gap: space[1] }]}>
+                              <Ionicons name="alert-circle-outline" size={16} color={c.ink2} />
+                              <Txt variant="caption" color="ink2" style={{ fontWeight: '500' }}>
+                                Contains spoilers
+                              </Txt>
+                            </View>
+                            {rev.spoiler_after_page ? (
+                              <Txt variant="micro" color="muted" tabular>
+                                After page {rev.spoiler_after_page}
+                              </Txt>
+                            ) : null}
                             <Txt variant="micro" color="muted">
-                              {new Date(rev.published_at).toLocaleDateString(undefined, {
-                                month: 'short',
-                                day: 'numeric',
-                              })}
+                              Tap to reveal
                             </Txt>
-                          </View>
-                        </View>
-                        <View style={[sheet.row, { gap: space[2] }]}>
-                          <Stars value={rev.rating ?? null} size={14} />
-                          {rev.hearted && (
-                            <Ionicons name="heart" size={14} color={c.heart} accessibilityLabel="Hearted" />
-                          )}
-                        </View>
-                      </View>
-
-                      {/* Spoiler Gate */}
-                      {isHiddenBySpoiler ? (
-                        <Pressable
-                          onPress={(e) => {
-                            e.stopPropagation();
-                            void Haptics.selectionAsync();
-                            setRevealedSpoilers((prev) => new Set([...prev, rev.id]));
-                          }}
-                          style={{
-                            paddingVertical: space[3],
-                            paddingHorizontal: space[3],
-                            backgroundColor: c.surface2,
-                            borderRadius: radius.sm,
-                            alignItems: 'center',
-                            gap: space[1],
-                          }}
-                        >
-                          <View style={[sheet.row, { gap: space[1] }]}>
-                            <Ionicons name="alert-circle-outline" size={16} color={c.ink2} />
-                            <Txt variant="caption" color="ink2" style={{ fontWeight: '500' }}>
-                              Contains spoilers
-                            </Txt>
-                          </View>
-                          {rev.spoiler_after_page ? (
-                            <Txt variant="micro" color="muted">
-                              After page {rev.spoiler_after_page}
-                            </Txt>
-                          ) : null}
-                          <Txt variant="micro" color="muted">
-                            Tap to reveal
-                          </Txt>
-                        </Pressable>
-                      ) : (
-                        <Txt variant="bodyL" color="ink" numberOfLines={6}>
-                          {rev.body}
-                        </Txt>
-                      )}
-
-                      {/* Social bar */}
-                      <View
-                        style={[
-                          sheet.row,
-                          { justifyContent: 'space-between', marginTop: space[1], paddingTop: space[1] },
-                        ]}
-                      >
-                        <Pressable
-                          onPress={(e) => {
-                            e.stopPropagation();
-                            void toggleReviewLike(rev);
-                          }}
-                          style={[sheet.row, { gap: space[1] }]}
-                          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                          accessibilityRole="button"
-                          accessibilityLabel={rev.viewer_has_liked ? 'Unlike review' : 'Like review'}
-                        >
-                          <Ionicons
-                            name={rev.viewer_has_liked ? 'heart' : 'heart-outline'}
-                            size={16}
-                            color={rev.viewer_has_liked ? c.heart : c.muted}
-                          />
-                          <Txt variant="micro" color="muted" tabular>
-                            {rev.like_count > 0 ? rev.like_count : 'Like'}
-                          </Txt>
-                        </Pressable>
-                        {rev.has_spoilers && !isHiddenBySpoiler && (
-                          <Txt variant="micro" color="muted">
-                            Spoilers revealed
+                          </Pressable>
+                        ) : (
+                          <Txt variant="bodyL" color="ink" numberOfLines={6}>
+                            {rev.body}
                           </Txt>
                         )}
-                      </View>
-                    </Card>
-                  );
-                })
+
+                        {/* Social bar */}
+                        <View style={[sheet.row, { justifyContent: 'space-between' }]}>
+                          <Pressable
+                            onPress={(e) => {
+                              e.stopPropagation();
+                              void toggleReviewLike(rev);
+                            }}
+                            style={[sheet.row, { gap: space[1], minHeight: 44, minWidth: 44 }]}
+                            accessibilityRole="button"
+                            accessibilityLabel={rev.viewer_has_liked ? 'Unlike review' : 'Like review'}
+                          >
+                            <Ionicons
+                              name={rev.viewer_has_liked ? 'heart' : 'heart-outline'}
+                              size={16}
+                              color={rev.viewer_has_liked ? c.heart : c.muted}
+                            />
+                            <Txt variant="micro" color="muted" tabular>
+                              {rev.like_count > 0 ? rev.like_count : 'Like'}
+                            </Txt>
+                          </Pressable>
+                          {rev.has_spoilers && !isHiddenBySpoiler && (
+                            <Txt variant="micro" color="muted">
+                              Spoilers revealed
+                            </Txt>
+                          )}
+                        </View>
+                      </Pressable>
+                    );
+                  })}
+                </View>
               )}
             </View>
           )}
 
           {activeTab === 'editions' && (
             <View style={{ gap: space[3] }}>
-              <Card style={{ gap: space[3] }}>
-                <Txt variant="title">Editions of {work.title}</Txt>
-                <Txt variant="caption" color="muted">
-                  {(work.editions?.length ?? 0).toLocaleString()} {work.editions?.length === 1 ? 'edition' : 'editions'} in the catalog
-                </Txt>
-                <Button
-                  label="Choose the copy you own"
-                  variant="primary"
-                  onPress={() => router.push(`/work/${work.id}/editions` as any)}
-                />
-              </Card>
+              <Txt variant="title">Editions of {work.title}</Txt>
+              <Txt variant="caption" color="muted" tabular>
+                {(work.editions?.length ?? 0).toLocaleString()} {work.editions?.length === 1 ? 'edition' : 'editions'} in the catalog
+              </Txt>
+              <Button
+                label="Choose the copy you own"
+                variant="secondary"
+                onPress={() => router.push(`/work/${work.id}/editions` as any)}
+                style={{ alignSelf: 'flex-start' }}
+              />
             </View>
           )}
 
@@ -1020,7 +1007,7 @@ export default function WorkScreen() {
                   <Txt variant="caption" color="ink2">
                     {STATUSES.find((s) => s.key === work.your_read?.status)?.label ?? work.your_read.status}
                   </Txt>
-                  {work.your_read.rating ? <Stars value={work.your_read.rating} size={14} /> : null}
+                  {work.your_read.rating ? <RatingMark value={work.your_read.rating} /> : null}
                 </Card>
               ) : (
                 <EmptyState

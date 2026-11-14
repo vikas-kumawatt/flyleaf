@@ -24,8 +24,8 @@ import { track } from '@/lib/events';
 import { suggestionReason, toFollowAll } from '@/lib/followSuggestions';
 import { useSession } from '@/lib/session';
 import { useOfflineSync } from '@/offline/sync';
-import { Button, Card, Cover, EmptyState, Screen, Txt, sheet, SkeletonList } from '@/ui/components';
-import { space, useTheme } from '@/ui/tokens';
+import { Button, Cover, EmptyState, Screen, Txt, sheet, SkeletonList } from '@/ui/components';
+import { radius, space, useTheme } from '@/ui/tokens';
 
 export default function FollowSuggestionsScreen() {
   const c = useTheme();
@@ -110,14 +110,14 @@ export default function FollowSuggestionsScreen() {
         </Txt>
       </View>
 
-      <ScrollView contentContainerStyle={{ padding: space[4], paddingBottom: insets.bottom + space[12] * 2, gap: space[3] }}>
+      <ScrollView contentContainerStyle={{ paddingHorizontal: space[4], paddingBottom: insets.bottom + space[12] * 2 }}>
         {loading ? (
           <SkeletonList lead="avatar" style={{ paddingHorizontal: 0, paddingTop: 0 }} />
         ) : failed ? (
           <EmptyState
             title="Could not load suggestions"
             subtitle="Check your connection and try again, or skip this step."
-            action={<Button label="Try again" variant="outline" onPress={() => void load()} />}
+            action={<Button label="Try again" variant="secondary" onPress={() => void load()} />}
           />
         ) : users.length === 0 ? (
           <EmptyState
@@ -125,14 +125,22 @@ export default function FollowSuggestionsScreen() {
             subtitle="As more readers join, we will suggest people who read what you read. The Popular feed has plenty in the meantime."
           />
         ) : (
-          users.map((u) => {
+          users.map((u, index) => {
             const isFollowed = followed.has(u.id);
             return (
-              <Card key={u.id} style={{ padding: space[4], gap: space[3] }}>
+              <View
+                key={u.id}
+                style={{
+                  gap: space[3],
+                  paddingVertical: space[4],
+                  borderTopWidth: index ? 1 : 0,
+                  borderTopColor: c.line,
+                }}
+              >
                 <View style={[sheet.rowTop, { gap: space[3] }]}>
                   <Pressable onPress={() => router.push(`/user/${u.id}` as any)} accessibilityRole="button" accessibilityLabel={`Open @${u.username}`}>
                     <View style={[styles.avatar, { backgroundColor: c.surface2, borderColor: c.line }]}>
-                      <Txt variant="title" style={{ fontSize: 18, fontWeight: '500', color: c.ink2 }}>
+                      <Txt variant="title" color="ink2">
                         {(u.display_name || u.username).charAt(0).toUpperCase()}
                       </Txt>
                     </View>
@@ -147,20 +155,20 @@ export default function FollowSuggestionsScreen() {
                   </View>
                   <Button
                     label={isFollowed ? 'Following' : 'Follow'}
-                    variant={isFollowed ? 'outline' : 'primary'}
+                    variant={isFollowed ? 'tertiary' : 'secondary'}
                     size="sm"
                     disabled={busy}
                     onPress={() => void (isFollowed ? unfollow(u.id) : follow([u.id]))}
                   />
                 </View>
                 {u.favourites.length > 0 && (
-                  <View style={[sheet.row, { gap: space[2] }]}>
+                  <View style={[sheet.row, { gap: space[2], flexWrap: 'wrap' }]}>
                     {u.favourites.map((f) => (
                       <Cover key={f.id} coverId={f.cover_id} title={f.title} size="s" />
                     ))}
                   </View>
                 )}
-              </Card>
+              </View>
             );
           })
         )}
@@ -168,9 +176,9 @@ export default function FollowSuggestionsScreen() {
 
       <View style={[styles.footer, { paddingBottom: insets.bottom + space[3], backgroundColor: c.ground, borderTopColor: c.line }]}>
         {remaining.length > 1 && (
-          <Button label={`Follow all ${remaining.length}`} variant="outline" disabled={busy} onPress={() => void follow(remaining)} style={{ flex: 1 }} />
+          <Button label={`Follow all ${remaining.length}`} variant="secondary" disabled={busy} onPress={() => void follow(remaining)} style={{ flex: 1 }} />
         )}
-        <Button label={followed.size > 0 ? 'Continue' : 'Skip'} onPress={done} style={{ flex: 1 }} />
+        <Button label={followed.size > 0 ? 'Continue' : 'Skip'} variant={followed.size > 0 ? 'primary' : 'tertiary'} onPress={done} style={{ flex: 1 }} />
       </View>
     </Screen>
   );
@@ -180,7 +188,7 @@ const styles = StyleSheet.create({
   avatar: {
     width: 48,
     height: 48,
-    borderRadius: 24,
+    borderRadius: radius.pill,
     borderWidth: 1,
     alignItems: 'center',
     justifyContent: 'center',
@@ -194,6 +202,6 @@ const styles = StyleSheet.create({
     gap: space[2],
     paddingHorizontal: space[4],
     paddingTop: space[3],
-    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopWidth: 1,
   },
 });
