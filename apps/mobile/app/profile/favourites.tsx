@@ -18,13 +18,12 @@ import * as Haptics from 'expo-haptics';
 import { api, type ProfileFavourite, type Work } from '@/lib/api';
 import {
   Button,
-  Card,
   Cover,
   Screen,
   Txt,
   sheet, SkeletonList} from '@/ui/components';
 import { Ionicons } from '@expo/vector-icons';
-import { fontFamilies, radius, space, useTheme } from '@/ui/tokens';
+import { familyFor, radius, space, useTheme } from '@/ui/tokens';
 
 // Small square control for reordering and removing a favourite.
 function IconButton({
@@ -46,14 +45,13 @@ function IconButton({
       accessibilityRole="button"
       accessibilityLabel={label}
       accessibilityState={{ disabled: Boolean(disabled) }}
-      hitSlop={4}
       style={({ pressed }) => ({
-        width: 36,
-        height: 36,
+        width: 44,
+        height: 44,
         borderRadius: radius.md,
         borderWidth: 1,
-        borderColor: c.line,
-        backgroundColor: pressed ? c.surface2 : c.surface,
+        borderColor: c.lineStrong,
+        backgroundColor: pressed ? c.surface2 : 'transparent',
         alignItems: 'center',
         justifyContent: 'center',
         opacity: disabled ? 0.4 : 1,
@@ -238,7 +236,7 @@ export default function FavouritesPickerScreen() {
               <ActivityIndicator size="small" color={c.muted} />
             ) : (
               <Txt variant="body" color="accent" style={{ fontWeight: '500' }}>
-                Done
+                Save
               </Txt>
             )}
           </Pressable>
@@ -254,44 +252,37 @@ export default function FavouritesPickerScreen() {
         }}
       >
         <View style={{ gap: space[1] }}>
-          <Txt variant="body" style={{ fontWeight: '500' }}>
-            Curate your 4 defining books
-          </Txt>
+          <Txt variant="displayM">Your four favourites</Txt>
           <Txt variant="caption" color="muted">
-            These four books take center stage on your profile. Drag or use arrows to choose their order.
+            These four books come first on your profile. Use the arrows to set their order.
           </Txt>
         </View>
 
         {loading ? (
           <SkeletonList lead="cover" rows={4} style={{ paddingHorizontal: 0, paddingTop: 0 }} />
         ) : (
-          <View style={{ gap: space[3] }}>
+          <View>
             {/* Render 4 slots */}
             {[0, 1, 2, 3].map((slotIndex) => {
               const book = favourites[slotIndex];
 
               if (book) {
                 return (
-                  <Card key={book.id} style={{ padding: space[3] }}>
-                    <View style={sheet.rowTop}>
+                  <View key={book.id} style={[styles.slotRow, { borderTopColor: c.line, borderTopWidth: slotIndex ? 1 : 0 }]}>
+                    <View style={[sheet.rowTop, { gap: space[3] }]}>
                       {/* Slot number badge */}
-                      <View
-                        style={[
-                          styles.slotBadge,
-                          { backgroundColor: c.surface, borderColor: c.line },
-                        ]}
-                      >
-                        <Txt variant="micro" color="ink2" tabular>
-                          #{slotIndex + 1}
+                      <View style={styles.slotBadge}>
+                        <Txt variant="body" color="muted" tabular>
+                          {slotIndex + 1}
                         </Txt>
                       </View>
 
                       {/* Cover */}
-                      <Cover coverId={book.cover_id} title={book.title} size="m" />
+                      <Cover coverId={book.cover_id} title={book.title} size="s" />
 
                       {/* Details & actions */}
-                      <View style={{ flex: 1, marginLeft: space[3], gap: 2 }}>
-                        <Txt variant="title" numberOfLines={1} style={{ fontFamily: fontFamilies.displayMedium }}>
+                      <View style={{ flex: 1, gap: space[1] }}>
+                        <Txt variant="title" numberOfLines={2}>
                           {book.title}
                         </Txt>
                         <Txt variant="caption" color="muted" numberOfLines={1}>
@@ -299,8 +290,8 @@ export default function FavouritesPickerScreen() {
                         </Txt>
 
                         {/* Controls */}
-                        <View style={[sheet.row, { gap: space[2], marginTop: space[2] }]}>
-<IconButton
+                        <View style={[sheet.row, { gap: space[2], marginTop: space[2], flexWrap: 'wrap' }]}>
+                          <IconButton
                             icon="chevron-up"
                             label="Move up"
                             disabled={slotIndex === 0}
@@ -314,14 +305,14 @@ export default function FavouritesPickerScreen() {
                           />
                           <Button
                             label="Change"
-                            variant="outline"
+                            variant="secondary"
                             size="sm"
                             onPress={() => {
                               void Haptics.selectionAsync();
                               setSearchTargetSlot(slotIndex);
                             }}
                           />
-<IconButton
+                          <IconButton
                             icon="close"
                             label="Remove"
                             onPress={() => removeSlot(slotIndex)}
@@ -329,7 +320,7 @@ export default function FavouritesPickerScreen() {
                         </View>
                       </View>
                     </View>
-                  </Card>
+                  </View>
                 );
               }
 
@@ -343,22 +334,17 @@ export default function FavouritesPickerScreen() {
                   }}
                   accessibilityRole="button"
                   accessibilityLabel={`Add favourite book ${slotIndex + 1}`}
-                  style={[
-                    styles.emptySlot,
-                    { borderColor: c.line, backgroundColor: c.surface },
-                  ]}
+                  style={[styles.emptySlot, { borderTopColor: c.line, borderTopWidth: slotIndex ? 1 : 0 }]}
                 >
-                  <View style={[styles.slotBadge, { backgroundColor: c.ground, borderColor: c.line }]}>
-                    <Txt variant="micro" color="muted" tabular>
-                      #{slotIndex + 1}
+                  <View style={styles.slotBadge}>
+                    <Txt variant="body" color="muted" tabular>
+                      {slotIndex + 1}
                     </Txt>
                   </View>
-                  <View style={{ alignItems: 'center', gap: space[1] }}>
-                    <Ionicons name="add" size={20} color={c.muted} />
-                    <Txt variant="caption" color="muted">
-                      Choose favourite #{slotIndex + 1}
-                    </Txt>
-                  </View>
+                  <Ionicons name="add-outline" size={20} color={c.accent} />
+                  <Txt variant="body" color="accent">
+                    Choose a book
+                  </Txt>
                 </Pressable>
               );
             })}
@@ -368,35 +354,31 @@ export default function FavouritesPickerScreen() {
         {/* Catalog Search Panel (when a slot is being picked) */}
         {searchTargetSlot !== null && (
           <View
-            style={[
-              styles.searchPanel,
-              { backgroundColor: c.surface, borderColor: c.line, borderWidth: 1 },
-            ]}
+            style={[styles.searchPanel, { backgroundColor: c.surface }]}
           >
             <View style={[sheet.rowBetween, { marginBottom: space[2] }]}>
               <Txt variant="title">
-                Pick a book for #{searchTargetSlot + 1}
+                Pick a book for slot {searchTargetSlot + 1}
               </Txt>
-              <Pressable
+              <Button
+                label="Cancel"
+                variant="tertiary"
+                size="sm"
                 onPress={() => {
                   void Haptics.selectionAsync();
                   setSearchTargetSlot(null);
                   setSearchQuery('');
                   setSearchResults([]);
                 }}
-                hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-              >
-                <Txt variant="caption" color="muted">
-                  Cancel
-                </Txt>
-              </Pressable>
+                style={{ minHeight: 44 }}
+              />
             </View>
 
             {/* Search Input */}
             <View
               style={[
                 styles.searchInputContainer,
-                { backgroundColor: c.ground, borderColor: c.line },
+                { backgroundColor: c.ground, borderColor: c.lineStrong },
               ]}
             >
               <TextInput
@@ -405,14 +387,18 @@ export default function FavouritesPickerScreen() {
                 value={searchQuery}
                 onChangeText={handleSearch}
                 autoFocus
-                style={[styles.searchInput, { color: c.ink }]}
+                accessibilityLabel="Search for a book"
+                style={[styles.searchInput, { color: c.ink, fontFamily: familyFor(false, '400') }]}
               />
               {searchQuery.length > 0 && (
                 <Pressable
                   onPress={() => handleSearch('')}
-                  hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                  accessibilityRole="button"
+                  accessibilityLabel="Clear search"
+                  hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+                  style={{ minWidth: 44, minHeight: 44, alignItems: 'center', justifyContent: 'center' }}
                 >
-                  <Ionicons name="close-circle" size={16} color={c.muted} accessibilityLabel="Clear search" />
+                  <Ionicons name="close-circle" size={18} color={c.muted} />
                 </Pressable>
               )}
             </View>
@@ -422,19 +408,20 @@ export default function FavouritesPickerScreen() {
             )}
 
             {/* Search Results */}
-            <View style={{ gap: space[2], marginTop: space[2] }}>
-              {searchResults.slice(0, 6).map((book) => (
+            <View style={{ marginTop: space[2] }}>
+              {searchResults.slice(0, 6).map((book, index) => (
                 <Pressable
                   key={book.id}
                   onPress={() => selectBook(book)}
+                  accessibilityRole="button"
                   style={[
                     styles.searchResultItem,
-                    { backgroundColor: c.ground, borderColor: c.line },
+                    { borderTopColor: c.line, borderTopWidth: index ? 1 : 0 },
                   ]}
                 >
                   <Cover coverId={book.cover_id} title={book.title} size="s" />
-                  <View style={{ flex: 1, marginLeft: space[3] }}>
-                    <Txt variant="body" numberOfLines={1} style={{ fontWeight: '500' }}>
+                  <View style={{ flex: 1, gap: space[1] }}>
+                    <Txt variant="title" numberOfLines={2}>
                       {book.title}
                     </Txt>
                     <Txt variant="caption" color="muted" numberOfLines={1}>
@@ -443,7 +430,7 @@ export default function FavouritesPickerScreen() {
                   </View>
                   <Button
                     label="Select"
-                    variant="primary"
+                    variant="secondary"
                     size="sm"
                     onPress={() => selectBook(book)}
                   />
@@ -458,23 +445,18 @@ export default function FavouritesPickerScreen() {
 }
 
 const styles = StyleSheet.create({
+  slotRow: {
+    paddingVertical: space[3],
+  },
   slotBadge: {
-    width: 28,
-    height: 28,
-    borderRadius: radius.sm,
-    borderWidth: 1,
+    width: 24,
     alignItems: 'center',
-    justifyContent: 'center',
-    marginRight: space[2],
   },
   emptySlot: {
-    height: 96,
-    borderRadius: radius.lg,
-    borderWidth: 1,
-    borderStyle: 'dashed',
+    minHeight: 96,
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: space[4],
+    paddingVertical: space[3],
     gap: space[3],
   },
   searchPanel: {
@@ -486,20 +468,20 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     borderWidth: 1,
-    borderRadius: radius.sm,
-    paddingHorizontal: space[3],
-    height: 44,
+    borderRadius: radius.md,
+    paddingLeft: space[3],
+    minHeight: 48,
   },
   searchInput: {
     flex: 1,
     fontSize: 15,
     paddingVertical: 0,
+    minHeight: 44,
   },
   searchResultItem: {
     flexDirection: 'row',
     alignItems: 'center',
-    padding: space[2],
-    borderRadius: radius.sm,
-    borderWidth: 1,
+    gap: space[3],
+    paddingVertical: space[3],
   },
 });

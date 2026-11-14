@@ -2,9 +2,9 @@
 //
 // Lists and collections: Mine / Saved / Discover.
 // Features:
-// 1. My Shelves 2-column responsive grid with 4-cover mosaic cards.
+// 1. My Shelves as ruled rows (or a two-column grid) with a strip of covers and a serif title.
 // 2. Sorting options: Recently updated, Alphabetical (A–Z), and Book count.
-// 3. Grid vs List display toggle.
+// 3. List vs Grid display toggle.
 // 4. Empty state with three 1-tap starter suggestions (Favourites of 2026, Comfort reads, Recommended to me).
 // 5. Guest device shelf with 20-book cap and contextual signup prompts.
 // 6. Pull-to-refresh and auto-refresh on screen focus.
@@ -18,7 +18,6 @@ import {
   ActivityIndicator,
   RefreshControl,
   useWindowDimensions,
-  StyleSheet,
   Alert,
 } from 'react-native';
 import { useRouter, useFocusEffect } from 'expo-router';
@@ -36,11 +35,228 @@ import {
   type ShelfSortOption,
 } from '@/lib/shelfValidation';
 import { track } from '@/lib/events';
-import { Button, Card, Cover, EmptyState, Screen, SegmentedControl, Txt, sheet, Skeleton } from '@/ui/components';
-import { space, radius, useTheme } from '@/ui/tokens';
+import {
+  Button,
+  Chip,
+  Cover,
+  EmptyState,
+  Screen,
+  SegmentedControl,
+  Txt,
+  sheet,
+  Skeleton,
+} from '@/ui/components';
+import { cover, familyFor, radius, space, useTheme } from '@/ui/tokens';
 
 /** Saved shelves per page (the API allows up to 100). */
 const SAVED_PAGE = 50;
+
+/** Starter badges come from the library in title case; the interface is sentence case. */
+const sentenceCase = (s: string) => s.charAt(0).toUpperCase() + s.slice(1).toLowerCase();
+
+/** One shelf as a list or grid entry. `label` is its accessibility label. */
+interface ShelfEntry {
+  shelf: Shelf;
+  label: string;
+  curator?: string;
+  showPrivacy?: boolean;
+}
+
+/** A strip of the first few covers, side by side. Nothing when the shelf has none. */
+function CoverStrip({ ids, max }: { ids: Shelf['cover_ids']; max: number }) {
+  const shown = (ids || []).filter((cid): cid is number => cid !== null).slice(0, max);
+  if (shown.length === 0) return null;
+  return (
+    <View style={{ flexDirection: 'row', gap: space[1] }}>
+      {shown.map((cid, i) => (
+        <Cover key={i} coverId={cid} size="xs" />
+      ))}
+    </View>
+  );
+}
+
+/** Privacy, book count, ranked and save count on one wrapping line of meta. */
+function ShelfMeta({ shelf, showPrivacy }: { shelf: Shelf; showPrivacy?: boolean }) {
+  const c = useTheme();
+  return (
+    <View
+      style={{
+        flexDirection: 'row',
+        flexWrap: 'wrap',
+        alignItems: 'center',
+        columnGap: space[3],
+        rowGap: space[1],
+      }}
+    >
+      {showPrivacy ? (
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: space[1] }}>
+          <Ionicons
+            name={
+              shelf.privacy === 'public'
+                ? 'globe-outline'
+                : shelf.privacy === 'followers'
+                ? 'people-outline'
+                : 'lock-closed-outline'
+            }
+            size={14}
+            color={c.muted}
+          />
+          <Txt variant="caption" color="muted">
+            {shelf.privacy === 'public'
+              ? 'Public'
+              : shelf.privacy === 'followers'
+              ? 'Followers'
+              : 'Private'}
+          </Txt>
+        </View>
+      ) : null}
+      <Txt variant="caption" color="muted" tabular>
+        {shelf.item_count} {shelf.item_count === 1 ? 'book' : 'books'}
+      </Txt>
+      {shelf.is_ranked ? (
+        <Txt variant="caption" color="muted">
+          Ranked
+        </Txt>
+      ) : null}
+      {shelf.save_count > 0 ? (
+        <Txt variant="caption" color="muted" tabular>
+          {shelf.save_count} {shelf.save_count === 1 ? 'save' : 'saves'}
+        </Txt>
+      ) : null}
+    </View>
+  );
+}
+
+/** A ruled row: serif title, who curated it, a line of meta, then the cover strip. */
+function ShelfListRow({
+  entry,
+  index,
+  onPress,
+}: {
+  entry: ShelfEntry;
+  index: number;
+  onPress: () => void;
+}) {
+  const c = useTheme();
+  const { shelf, curator } = entry;
+  return (
+    <Pressable
+      onPress={onPress}
+      accessibilityRole="button"
+      accessibilityLabel={entry.label}
+      style={({ pressed }) => ({
+        gap: space[2],
+        paddingVertical: space[4],
+        borderTopWidth: index ? 1 : 0,
+        borderTopColor: c.line,
+        backgroundColor: pressed ? c.surface2 : 'transparent',
+      })}
+    >
+      <Txt variant="title" numberOfLines={2}>
+        {shelf.name}
+      </Txt>
+      {curator ? (
+        <Txt variant="caption" color="ink2" numberOfLines={1}>
+          by {curator}
+        </Txt>
+      ) : null}
+      {shelf.description ? (
+        <Txt variant="caption" color="muted" numberOfLines={2}>
+          {shelf.description}
+        </Txt>
+      ) : null}
+      <ShelfMeta shelf={shelf} showPrivacy={entry.showPrivacy} />
+      <CoverStrip ids={shelf.cover_ids} max={6} />
+    </Pressable>
+  );
+}
+
+/** A grid tile: no card, a rule above it, a short cover strip and the serif title. */
+function ShelfGridTile({
+  entry,
+  width,
+  onPress,
+}: {
+  entry: ShelfEntry;
+  width: number;
+  onPress: () => void;
+}) {
+  const c = useTheme();
+  const { shelf, curator } = entry;
+  return (
+    <Pressable
+      onPress={onPress}
+      accessibilityRole="button"
+      accessibilityLabel={entry.label}
+      style={({ pressed }) => ({
+        width,
+        gap: space[2],
+        paddingVertical: space[3],
+        borderTopWidth: 1,
+        borderTopColor: c.line,
+        backgroundColor: pressed ? c.surface2 : 'transparent',
+      })}
+    >
+      <CoverStrip ids={shelf.cover_ids} max={3} />
+      <Txt variant="title" numberOfLines={2}>
+        {shelf.name}
+      </Txt>
+      {curator ? (
+        <Txt variant="caption" color="ink2" numberOfLines={1}>
+          by {curator}
+        </Txt>
+      ) : null}
+      <ShelfMeta shelf={shelf} />
+    </Pressable>
+  );
+}
+
+/** Loading rows shaped like the entries: title, meta, then a strip of covers. */
+function ShelfSkeletons({
+  label,
+  grid,
+  tileWidth,
+}: {
+  label: string;
+  grid: boolean;
+  tileWidth: number;
+}) {
+  const c = useTheme();
+  return (
+    <View
+      accessible
+      accessibilityLabel={label}
+      accessibilityState={{ busy: true }}
+      style={grid ? { flexDirection: 'row', flexWrap: 'wrap', columnGap: space[4] } : undefined}
+    >
+      {[0, 1, 2, 3].map((k) => (
+        <View
+          key={k}
+          style={{
+            width: grid ? tileWidth : undefined,
+            gap: space[2],
+            paddingVertical: grid ? space[3] : space[4],
+            borderTopWidth: grid || k ? 1 : 0,
+            borderTopColor: c.line,
+          }}
+        >
+          <Skeleton width={k % 2 ? '55%' : '70%'} height={20} />
+          <Skeleton width="35%" height={12} />
+          <View style={{ flexDirection: 'row', gap: space[1] }}>
+            {[0, 1, 2].map((j) => (
+              <Skeleton
+                key={j}
+                width={cover.xs.width}
+                height={cover.xs.height}
+                borderRadius={radius.xs}
+              />
+            ))}
+          </View>
+        </View>
+      ))}
+    </View>
+  );
+}
 
 export default function ShelvesScreen() {
   const c = useTheme();
@@ -64,7 +280,7 @@ export default function ShelvesScreen() {
   const [savedLoading, setSavedLoading] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [sortBy, setSortBy] = useState<ShelfSortOption>('updated');
-  const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
+  const [viewMode, setViewMode] = useState<'grid' | 'list'>('list');
   const [creatingStarterId, setCreatingStarterId] = useState<string | null>(null);
 
   // Curated (Public browse - SH-08) state
@@ -234,33 +450,71 @@ export default function ShelvesScreen() {
     return sortShelves(shelves, sortBy);
   }, [shelves, sortBy]);
 
-  // Responsive Grid Calculations
-  const gridGap = space[3];
-  const containerPadding = space[4] * 2;
-  const cardWidth = Math.floor((width - containerPadding - gridGap) / 2);
+  // Two-column grid width (the list is full width)
+  const gridGap = space[4];
+  const tileWidth = Math.floor((width - space[4] * 2 - gridGap) / 2);
+
+  const openShelf = (id: string) => {
+    void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    router.push(`/shelf/${id}` as any);
+  };
+
+  const curatorOf = (shelf: Shelf) => shelf.owner.displayName || shelf.owner.username || 'Curator';
+
+  // The same entries as ruled rows or as a grid, whichever the viewer picked
+  const renderEntries = (entries: ShelfEntry[]) =>
+    viewMode === 'grid' ? (
+      <View style={{ flexDirection: 'row', flexWrap: 'wrap', columnGap: gridGap }}>
+        {entries.map((entry) => (
+          <ShelfGridTile
+            key={entry.shelf.id}
+            entry={entry}
+            width={tileWidth}
+            onPress={() => openShelf(entry.shelf.id)}
+          />
+        ))}
+      </View>
+    ) : (
+      <View>
+        {entries.map((entry, index) => (
+          <ShelfListRow
+            key={entry.shelf.id}
+            entry={entry}
+            index={index}
+            onPress={() => openShelf(entry.shelf.id)}
+          />
+        ))}
+      </View>
+    );
+
+  const viewToggle = (
+    <Pressable
+      onPress={() => {
+        void Haptics.selectionAsync();
+        setViewMode((prev) => (prev === 'grid' ? 'list' : 'grid'));
+      }}
+      accessibilityRole="button"
+      accessibilityLabel={`Switch to ${viewMode === 'grid' ? 'list' : 'grid'} view`}
+      style={{ minWidth: 44, minHeight: 44, alignItems: 'center', justifyContent: 'center' }}
+    >
+      <Ionicons name={viewMode === 'grid' ? 'list-outline' : 'grid-outline'} size={20} color={c.ink2} />
+    </Pressable>
+  );
 
   return (
     <Screen>
-      {/* Header */}
+      {/* Header: the segmented control draws the rule, so no border of its own */}
       <View
         style={{
           paddingTop: Math.max(insets.top, space[4]),
           paddingHorizontal: space[4],
-          paddingBottom: space[3],
           backgroundColor: c.ground,
-          borderBottomWidth: 1,
-          borderBottomColor: c.line,
-          gap: space[3],
+          gap: space[2],
         }}
       >
         <View style={[sheet.row, { justifyContent: 'space-between' }]}>
           <Txt variant="displayL">Shelves</Txt>
-          <Button
-            label="New shelf"
-            variant="secondary"
-            onPress={handleNewList}
-            style={{ minHeight: 36, paddingHorizontal: space[3] }}
-          />
+          <Button label="New shelf" variant="secondary" size="sm" onPress={handleNewList} />
         </View>
 
         <SegmentedControl
@@ -308,79 +562,63 @@ export default function ShelvesScreen() {
         {shelfFilter === 'mine' && (
           <>
             {!user ? (
-              // Guest Device Shelf
+              // Guest device shelf
               <View style={{ gap: space[4] }}>
-                <Card style={{ backgroundColor: c.surface }}>
-                  <View style={[sheet.row, { justifyContent: 'space-between' }]}>
-                    <Txt variant="title">Want to read (on this device)</Txt>
-                    <View
-                      style={{
-                        paddingVertical: 2,
-                      }}
-                    >
-                      <Txt variant="micro" color="muted" tabular>
-                        {guestCount} / {maxCap} saved
-                      </Txt>
+                <View style={{ gap: space[2] }}>
+                  <View style={[sheet.row, { justifyContent: 'space-between', alignItems: 'flex-start' }]}>
+                    <View style={{ flex: 1 }}>
+                      <Txt variant="displayM">Want to read (on this device)</Txt>
                     </View>
+                    <Txt variant="micro" color="muted" tabular>
+                      {guestCount} / {maxCap} saved
+                    </Txt>
                   </View>
-                  <Txt variant="caption" color="muted" style={{ marginTop: space[1] }}>
+                  <Txt variant="caption" color="muted">
                     Books you save while browsing. Sign up to sync them and make your own shelves.
                   </Txt>
-                </Card>
+                </View>
 
                 {guestCount > 0 ? (
-                  <View style={{ gap: space[3] }}>
-                    {guestBooks.map((b) => (
-                      <Card
+                  <View>
+                    {guestBooks.map((b, index) => (
+                      <View
                         key={b.id}
-                        onPress={() => router.push(`/work/${b.id}`)}
-                        style={{ padding: space[3] }}
+                        style={[
+                          sheet.row,
+                          {
+                            paddingVertical: space[3],
+                            borderTopWidth: index ? 1 : 0,
+                            borderTopColor: c.line,
+                          },
+                        ]}
                       >
-                        <View style={sheet.rowTop}>
-                          <Cover coverId={b.cover_id} title={b.title} size="m" />
-                          <View
-                            style={{
-                              flex: 1,
-                              marginLeft: space[3],
-                              justifyContent: 'space-between',
-                            }}
-                          >
-                            <View style={{ gap: 2 }}>
-                              <Txt variant="title" numberOfLines={1}>
-                                {b.title}
-                              </Txt>
-                              <Txt variant="caption" color="muted">
-                                {b.author_name}
-                              </Txt>
-                            </View>
-
-                            <View
-                              style={[
-                                sheet.row,
-                                { justifyContent: 'space-between', marginTop: space[2] },
-                              ]}
-                            >
-                              <Txt variant="micro" color="muted">
-                                Saved {new Date(b.added_at).toLocaleDateString()}
-                              </Txt>
-                              <Pressable
-                                onPress={async (e) => {
-                                  e.stopPropagation();
-                                  void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                                  await removeBook(b.id);
-                                }}
-                                accessibilityRole="button"
-                                accessibilityLabel={`Remove ${b.title} from device shelf`}
-                                hitSlop={8}
-                              >
-                                <Txt variant="caption" color="muted">
-                                  Remove
-                                </Txt>
-                              </Pressable>
-                            </View>
+                        <Pressable
+                          onPress={() => router.push(`/work/${b.id}`)}
+                          accessibilityRole="button"
+                          accessibilityLabel={`Open ${b.title}`}
+                          style={[sheet.rowTop, { flex: 1 }]}
+                        >
+                          <Cover coverId={b.cover_id} title={b.title} size="s" />
+                          <View style={{ flex: 1, gap: space[1] }}>
+                            <Txt variant="title" numberOfLines={2}>
+                              {b.title}
+                            </Txt>
+                            <Txt variant="caption" color="muted" numberOfLines={1}>
+                              {b.author_name}
+                            </Txt>
+                            <Txt variant="micro" color="muted">
+                              Saved {new Date(b.added_at).toLocaleDateString()}
+                            </Txt>
                           </View>
-                        </View>
-                      </Card>
+                        </Pressable>
+                        <Button
+                          label="Remove"
+                          variant="tertiary"
+                          size="sm"
+                          accessibilityLabel={`Remove ${b.title} from device shelf`}
+                          onPress={() => void removeBook(b.id)}
+                        />
+                      </View>
                     ))}
                   </View>
                 ) : (
@@ -398,44 +636,35 @@ export default function ShelvesScreen() {
                 )}
               </View>
             ) : loading && !refreshing && shelves.length === 0 ? (
-              // Loading State
-              <View style={styles.gridContainer} accessible accessibilityLabel="Loading your shelves" accessibilityState={{ busy: true }}>
-                {[0, 1, 2, 3].map((k) => (
-                  <View key={k} style={[styles.gridCard, { width: cardWidth, backgroundColor: c.surface, borderColor: c.line }]}>
-                    <Skeleton width="100%" height={112} borderRadius={0} />
-                    <View style={[styles.gridDetails, { gap: space[2] }]}>
-                      <Skeleton width="70%" height={14} />
-                      <Skeleton width="40%" height={12} />
-                    </View>
-                  </View>
-                ))}
-              </View>
+              <ShelfSkeletons
+                label="Loading your shelves"
+                grid={viewMode === 'grid'}
+                tileWidth={tileWidth}
+              />
             ) : shelves.length === 0 ? (
-              // Empty State with 3 Start with one of these (PRD §6.33)
-              <View style={{ gap: space[4] }}>
-                <View style={[styles.welcomeBanner, { backgroundColor: c.surface, borderColor: c.line }]}>
-                  <Ionicons name="library-outline" size={24} color={c.ink2} />
-                  <View style={{ flex: 1, marginLeft: space[3] }}>
-                    <Txt style={[styles.welcomeTitle, { color: c.ink }]}>
-                      Your personal shelves
-                    </Txt>
-                    <Txt style={{ color: c.muted, fontSize: 13, marginTop: 2 }}>
-                      Make lists, rank your favourites or plan a reading challenge
+              // Empty state with 3 Start with one of these (PRD §6.33)
+              <View style={{ gap: space[6] }}>
+                <View style={{ gap: space[1] }}>
+                  <Txt variant="displayM">Your personal shelves</Txt>
+                  <Txt variant="body" color="ink2">
+                    Make lists, rank your favourites or plan a reading challenge
+                  </Txt>
+                </View>
+
+                {/* Three starter shelves, ruled rows */}
+                <View>
+                  <View
+                    style={[
+                      sheet.row,
+                      { justifyContent: 'space-between', alignItems: 'baseline', paddingBottom: space[2] },
+                    ]}
+                  >
+                    <Txt variant="title">Start with one of these</Txt>
+                    <Txt variant="micro" color="muted">
+                      One tap each
                     </Txt>
                   </View>
-                </View>
-
-                {/* Section title */}
-                <View style={[sheet.row, { justifyContent: 'space-between', alignItems: 'baseline' }]}>
-                  <Txt style={[styles.sectionTitle, { color: c.ink }]}>
-                    Start with one of these
-                  </Txt>
-                  <Txt style={{ color: c.muted, fontSize: 12 }}>One tap each</Txt>
-                </View>
-
-                {/* Three Starter Shelf Cards */}
-                <View style={{ gap: space[3] }}>
-                  {STARTER_SHELVES.map((starter) => {
+                  {STARTER_SHELVES.map((starter, index) => {
                     const isCreating = creatingStarterId === starter.id;
                     return (
                       <Pressable
@@ -445,390 +674,69 @@ export default function ShelvesScreen() {
                         accessibilityRole="button"
                         accessibilityLabel={`Create ${starter.name} shelf`}
                         style={({ pressed }) => [
-                          styles.starterCard,
+                          sheet.row,
                           {
-                            backgroundColor: c.surface,
-                            borderColor: c.line,
-                            opacity: pressed ? 0.85 : 1,
+                            gap: space[3],
+                            minHeight: 64,
+                            paddingVertical: space[3],
+                            borderTopWidth: 1,
+                            borderTopColor: c.line,
+                            borderBottomWidth: index === STARTER_SHELVES.length - 1 ? 1 : 0,
+                            borderBottomColor: c.line,
+                            backgroundColor: pressed ? c.surface2 : 'transparent',
                           },
                         ]}
                       >
-                        <View style={styles.starterCardHeader}>
-                          <View
-                            style={[
-                              styles.starterIconBubble,
-                              { backgroundColor: c.surface2 },
-                            ]}
-                          >
-                            <Ionicons name={starter.icon as any} size={18} color={c.ink2} />
-                          </View>
-                          <View style={{ flex: 1, marginLeft: space[3] }}>
-                            <View style={[sheet.row, { justifyContent: 'space-between' }]}>
-                              <Txt style={[styles.starterName, { color: c.ink }]}>
-                                {starter.name}
-                              </Txt>
-                              <View
-                                style={[
-                                  styles.starterBadge,
-                                  {
-                                    backgroundColor: c.surface2,
-                                  },
-                                ]}
-                              >
-                                <Txt
-                                  style={{
-                                    fontSize: 12,
-                                    fontWeight: '500',
-                                    color: c.ink2,
-                                  }}
-                                >
-                                  {starter.badge}
-                                </Txt>
-                              </View>
-                            </View>
-                            <Txt style={{ color: c.muted, fontSize: 13, marginTop: 4 }}>
-                              {starter.tagline}
-                            </Txt>
-                          </View>
-                        </View>
-
-                        <View style={[styles.starterCardFooter, { borderTopColor: c.line }]}>
-                          <Txt style={{ color: c.muted, fontSize: 12 }}>
+                        <Ionicons name={starter.icon as any} size={22} color={c.ink2} />
+                        <View style={{ flex: 1, gap: space[1] }}>
+                          <Txt variant="title" numberOfLines={2}>
+                            {starter.name}
+                          </Txt>
+                          <Txt variant="caption" color="muted">
+                            {starter.tagline}
+                          </Txt>
+                          <Txt variant="micro" color="muted">
+                            {sentenceCase(starter.badge)} ·{' '}
                             {starter.privacy === 'public' ? 'Public shelf' : 'Private'}
                           </Txt>
-                          <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                            {isCreating ? (
-                              <ActivityIndicator size="small" color={c.muted} />
-                            ) : (
-                              <Txt style={{ color: c.accent, fontWeight: '500', fontSize: 13 }}>
-                                Create
-                              </Txt>
-                            )}
-                          </View>
                         </View>
+                        {isCreating ? (
+                          <ActivityIndicator size="small" color={c.muted} />
+                        ) : (
+                          <Txt variant="body" color="accent" style={{ fontWeight: '500' }}>
+                            Create
+                          </Txt>
+                        )}
                       </Pressable>
                     );
                   })}
                 </View>
 
-                {/* Custom creation alternative */}
-                <View style={{ alignItems: 'center', marginTop: space[2] }}>
-                  <Button
-                    label="Start a blank shelf"
-                    variant="outline"
-                    onPress={handleNewList}
-                    style={{ width: '100%' }}
-                  />
-                </View>
+                {/* Custom creation alternative: the one primary on this screen */}
+                <Button label="Start a blank shelf" variant="primary" onPress={handleNewList} />
               </View>
             ) : (
-              // Non-Empty: Shelves Grid / List
-              <View style={{ gap: space[3] }}>
-                {/* Controls Bar: Count, Sort, View Mode */}
-                <View style={styles.controlsBar}>
-                  <Txt style={{ color: c.muted, fontSize: 13, fontWeight: '500' }}>
+              // Non-empty: count, sort and view toggle, then the shelves
+              <View style={{ gap: space[2] }}>
+                <View style={[sheet.row, { justifyContent: 'space-between' }]}>
+                  <Txt variant="caption" color="muted" tabular>
                     {shelves.length} {shelves.length === 1 ? 'shelf' : 'shelves'}
                   </Txt>
-
-                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: space[2] }}>
-                    {/* Sort Pills */}
-                    <View style={[styles.sortPillGroup, { backgroundColor: c.surface2 }]}>
-                      <Pressable
-                        onPress={() => {
-                          void Haptics.selectionAsync();
-                          setSortBy('updated');
-                        }}
-                        style={[
-                          styles.sortPill,
-                          sortBy === 'updated' && { backgroundColor: c.surface, borderColor: c.line },
-                        ]}
-                      >
-                        <Txt
-                          style={{
-                            fontSize: 12,
-                            fontWeight: '500',
-                            color: sortBy === 'updated' ? c.ink : c.muted,
-                          }}
-                        >
-                          Recent
-                        </Txt>
-                      </Pressable>
-                      <Pressable
-                        onPress={() => {
-                          void Haptics.selectionAsync();
-                          setSortBy('alpha');
-                        }}
-                        style={[
-                          styles.sortPill,
-                          sortBy === 'alpha' && { backgroundColor: c.surface, borderColor: c.line },
-                        ]}
-                      >
-                        <Txt
-                          style={{
-                            fontSize: 12,
-                            fontWeight: '500',
-                            color: sortBy === 'alpha' ? c.ink : c.muted,
-                          }}
-                        >
-                          A–Z
-                        </Txt>
-                      </Pressable>
-                      <Pressable
-                        onPress={() => {
-                          void Haptics.selectionAsync();
-                          setSortBy('books');
-                        }}
-                        style={[
-                          styles.sortPill,
-                          sortBy === 'books' && { backgroundColor: c.surface, borderColor: c.line },
-                        ]}
-                      >
-                        <Txt
-                          style={{
-                            fontSize: 12,
-                            fontWeight: '500',
-                            color: sortBy === 'books' ? c.ink : c.muted,
-                          }}
-                        >
-                          Books
-                        </Txt>
-                      </Pressable>
-                    </View>
-
-                    {/* View Mode Toggle */}
-                    <Pressable
-                      onPress={() => {
-                        void Haptics.selectionAsync();
-                        setViewMode((prev) => (prev === 'grid' ? 'list' : 'grid'));
-                      }}
-                      accessibilityRole="button"
-                      accessibilityLabel={`Switch to ${viewMode === 'grid' ? 'list' : 'grid'} view`}
-                      hitSlop={8}
-                      style={[
-                        styles.viewModeButton,
-                        { backgroundColor: c.surface2, borderColor: c.line },
-                      ]}
-                    >
-                      <Ionicons
-                        name={viewMode === 'grid' ? 'list-outline' : 'grid-outline'}
-                        size={16}
-                        color={c.ink}
-                      />
-                    </Pressable>
-                  </View>
+                  {viewToggle}
                 </View>
 
-                {/* Grid View */}
-                {viewMode === 'grid' ? (
-                  <View style={styles.gridContainer}>
-                    {displayedShelves.map((shelf) => {
-                      const coverIds = (shelf.cover_ids || []).filter(
-                        (cid): cid is number => cid !== null,
-                      );
-                      return (
-                        <Pressable
-                          key={shelf.id}
-                          onPress={() => {
-                            void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                            router.push(`/shelf/${shelf.id}` as any);
-                          }}
-                          accessibilityRole="button"
-                          accessibilityLabel={`Shelf ${shelf.name}, ${shelf.item_count} books`}
-                          style={({ pressed }) => [
-                            styles.gridCard,
-                            {
-                              width: cardWidth,
-                              backgroundColor: c.surface,
-                              borderColor: c.line,
-                              opacity: pressed ? 0.85 : 1,
-                            },
-                          ]}
-                        >
-                          {/* Mosaic Card Top */}
-                          <View
-                            style={[
-                              styles.gridMosaicContainer,
-                              { backgroundColor: c.surface2, borderColor: c.line },
-                            ]}
-                          >
-                            {coverIds.length >= 4 ? (
-                              <View style={styles.mosaic2x2}>
-                                {coverIds.slice(0, 4).map((cid, i) => (
-                                  <View key={i} style={styles.mosaic2x2Cell}>
-                                    <Cover coverId={cid} size="xs" />
-                                  </View>
-                                ))}
-                              </View>
-                            ) : coverIds.length > 0 ? (
-                              <View style={styles.mosaicSingleOrStack}>
-                                {coverIds.map((cid, i) => (
-                                  <View
-                                    key={i}
-                                    style={{
-                                      marginRight: -space[2],
-                                      zIndex: 10 - i,
-                                      // Stacked covers separate with a ground-coloured edge, not a shadow
-                                      borderWidth: 1,
-                                      borderColor: c.ground,
-                                      borderRadius: radius.xs,
-                                      overflow: 'hidden',
-                                    }}
-                                  >
-                                    <Cover coverId={cid} size="s" />
-                                  </View>
-                                ))}
-                              </View>
-                            ) : (
-                              <View style={styles.mosaicEmptyCell}>
-                                <Ionicons name="albums-outline" size={28} color={c.muted} />
-                              </View>
-                            )}
-                          </View>
+                <View style={[sheet.row, { flexWrap: 'wrap', gap: space[2] }]}>
+                  <Chip label="Recent" selected={sortBy === 'updated'} onPress={() => setSortBy('updated')} />
+                  <Chip label="A–Z" selected={sortBy === 'alpha'} onPress={() => setSortBy('alpha')} />
+                  <Chip label="Books" selected={sortBy === 'books'} onPress={() => setSortBy('books')} />
+                </View>
 
-                          {/* Shelf Details */}
-                          <View style={styles.gridDetails}>
-                            <Txt numberOfLines={2} style={[styles.gridTitle, { color: c.ink }]}>
-                              {shelf.name}
-                            </Txt>
-
-                            <View style={styles.gridMetaRow}>
-                              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
-                                <Ionicons
-                                  name={
-                                    shelf.privacy === 'public'
-                                      ? 'globe-outline'
-                                      : shelf.privacy === 'followers'
-                                      ? 'people-outline'
-                                      : 'lock-closed-outline'
-                                  }
-                                  size={11}
-                                  color={c.muted}
-                                />
-                                <Txt style={{ color: c.muted, fontSize: 12 }}>
-                                  {shelf.item_count} {shelf.item_count === 1 ? 'book' : 'books'}
-                                </Txt>
-                              </View>
-
-                              {shelf.is_ranked && (
-                                <View style={[styles.rankTag, { backgroundColor: c.surface2 }]}>
-                                  <Txt
-                                    style={{ color: c.ink2, fontSize: 12, fontWeight: '500' }}
-                                  >
-                                    #
-                                  </Txt>
-                                </View>
-                              )}
-                            </View>
-                          </View>
-                        </Pressable>
-                      );
-                    })}
-                  </View>
-                ) : (
-                  // List View
-                  <View style={{ gap: space[3] }}>
-                    {displayedShelves.map((shelf) => {
-                      const coverIds = (shelf.cover_ids || []).filter(
-                        (cid): cid is number => cid !== null,
-                      );
-                      return (
-                        <Card
-                          key={shelf.id}
-                          onPress={() => {
-                            void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                            router.push(`/shelf/${shelf.id}` as any);
-                          }}
-                          style={{ padding: space[3] }}
-                        >
-                          <View style={sheet.rowTop}>
-                            {/* Mosaic Mini-stack */}
-                            <View
-                              style={[
-                                styles.listMosaic,
-                                { backgroundColor: c.surface2, borderColor: c.line },
-                              ]}
-                            >
-                              {coverIds.length >= 4 ? (
-                                <View style={styles.listMosaicGrid}>
-                                  {coverIds.slice(0, 4).map((cid, i) => (
-                                    <View key={i} style={styles.listMosaicCell}>
-                                      <Cover coverId={cid} size="xs" />
-                                    </View>
-                                  ))}
-                                </View>
-                              ) : coverIds.length > 0 ? (
-                                <Cover coverId={coverIds[0]!} size="xs" />
-                              ) : (
-                                <Ionicons name="albums-outline" size={24} color={c.muted} />
-                              )}
-                            </View>
-
-                            {/* Details */}
-                            <View style={{ flex: 1, marginLeft: space[3], gap: 4 }}>
-                              <View style={[sheet.row, { justifyContent: 'space-between' }]}>
-                                <Txt
-                                  numberOfLines={1}
-                                  style={[styles.listTitle, { color: c.ink }]}
-                                >
-                                  {shelf.name}
-                                </Txt>
-                                {shelf.is_ranked && (
-                                  <View
-                                    style={[styles.rankPill, { backgroundColor: c.surface2 }]}
-                                  >
-                                    <Txt
-                                      style={{ color: c.ink2, fontSize: 12, fontWeight: '500' }}
-                                    >
-                                      Ranked
-                                    </Txt>
-                                  </View>
-                                )}
-                              </View>
-
-                              {shelf.description ? (
-                                <Txt numberOfLines={2} style={{ color: c.muted, fontSize: 12 }}>
-                                  {shelf.description}
-                                </Txt>
-                              ) : null}
-
-                              <View style={[sheet.row, { gap: space[3], marginTop: 2 }]}>
-                                <View
-                                  style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}
-                                >
-                                  <Ionicons
-                                    name={
-                                      shelf.privacy === 'public'
-                                        ? 'globe-outline'
-                                        : shelf.privacy === 'followers'
-                                        ? 'people-outline'
-                                        : 'lock-closed-outline'
-                                    }
-                                    size={12}
-                                    color={c.muted}
-                                  />
-                                  <Txt style={{ color: c.muted, fontSize: 12 }}>
-                                    {shelf.privacy === 'public'
-                                      ? 'Public'
-                                      : shelf.privacy === 'followers'
-                                      ? 'Followers'
-                                      : 'Private'}
-                                  </Txt>
-                                </View>
-                                <Txt style={{ color: c.muted, fontSize: 12 }}>
-                                  {shelf.item_count} {shelf.item_count === 1 ? 'book' : 'books'}
-                                </Txt>
-                                {shelf.save_count > 0 && (
-                                  <Txt style={{ color: c.muted, fontSize: 12 }}>
-                                    {shelf.save_count} saves
-                                  </Txt>
-                                )}
-                              </View>
-                            </View>
-                          </View>
-                        </Card>
-                      );
-                    })}
-                  </View>
+                {renderEntries(
+                  displayedShelves.map((shelf) => ({
+                    shelf,
+                    label: `Shelf ${shelf.name}, ${shelf.item_count} books`,
+                    showPrivacy: true,
+                  })),
                 )}
               </View>
             )}
@@ -837,7 +745,7 @@ export default function ShelvesScreen() {
               <Pressable
                 accessibilityRole="link"
                 onPress={() => router.push('/shelf/deleted' as any)}
-                style={{ alignSelf: 'center', paddingVertical: space[3] }}
+                style={{ alignSelf: 'center', minHeight: 44, justifyContent: 'center', paddingHorizontal: space[3] }}
               >
                 <Txt variant="caption" color="muted">Recently deleted shelves</Txt>
               </Pressable>
@@ -848,325 +756,51 @@ export default function ShelvesScreen() {
         {shelfFilter === 'saved' && (
           <>
             {!user ? (
-              <Card
-                style={{
-                  backgroundColor: c.surface,
-                  padding: space[4],
-                  gap: space[3],
-                  alignItems: 'center',
-                }}
-              >
-                <View
-                  style={[
-                    styles.starterIconBubble,
-                    { backgroundColor: c.surface2, width: 48, height: 48, borderRadius: 24 },
-                  ]}
-                >
-                  <Ionicons name="bookmark-outline" size={24} color={c.ink2} />
-                </View>
-                <Txt variant="title" style={{ textAlign: 'center', fontSize: 17 }}>
-                  Save shelves you love
-                </Txt>
-                <Txt
-                  variant="caption"
-                  color="muted"
-                  style={{ textAlign: 'center', lineHeight: 20 }}
-                >
-                  Sign in to save lists other readers make. A saved shelf stays in sync as its curator updates it.
-                </Txt>
-                <Button
-                  label="Sign in or sign up"
-                  variant="primary"
-                  onPress={() =>
-                    promptAuth({
-                      title: 'Sign in to save shelves',
-                      subtitle:
-                        'Keep curated reading lists from other readers bookmarked in your library.',
-                    })
-                  }
-                  style={{ width: '100%', marginTop: space[2] }}
-                />
-              </Card>
+              <EmptyState
+                title="Save shelves you love"
+                subtitle="Sign in to save lists other readers make. A saved shelf stays in sync as its curator updates it."
+                action={
+                  <Button
+                    label="Sign in"
+                    variant="primary"
+                    onPress={() =>
+                      promptAuth({
+                        title: 'Sign in to save shelves',
+                        subtitle:
+                          'Keep curated reading lists from other readers bookmarked in your library.',
+                      })
+                    }
+                  />
+                }
+              />
             ) : savedLoading && savedShelves.length === 0 ? (
-              <View style={styles.gridContainer} accessible accessibilityLabel="Loading saved shelves" accessibilityState={{ busy: true }}>
-                {[0, 1, 2, 3].map((k) => (
-                  <View key={k} style={[styles.gridCard, { width: cardWidth, backgroundColor: c.surface, borderColor: c.line }]}>
-                    <Skeleton width="100%" height={112} borderRadius={0} />
-                    <View style={[styles.gridDetails, { gap: space[2] }]}>
-                      <Skeleton width="70%" height={14} />
-                      <Skeleton width="40%" height={12} />
-                    </View>
-                  </View>
-                ))}
-              </View>
+              <ShelfSkeletons
+                label="Loading saved shelves"
+                grid={viewMode === 'grid'}
+                tileWidth={tileWidth}
+              />
             ) : savedShelves.length === 0 ? (
               <EmptyState
                 title="No saved shelves yet"
                 subtitle="Tap Save shelf on any list in Curated to keep it here. It stays in sync with its curator."
               />
             ) : (
-              <View style={{ gap: space[3] }}>
-                {/* Controls Bar: Count and View Mode */}
-                <View style={styles.controlsBar}>
-                  <Txt style={{ color: c.muted, fontSize: 13, fontWeight: '500' }}>
+              <View style={{ gap: space[2] }}>
+                <View style={[sheet.row, { justifyContent: 'space-between' }]}>
+                  <Txt variant="caption" color="muted" tabular>
                     {savedTotal} {savedTotal === 1 ? 'saved shelf' : 'saved shelves'}
                   </Txt>
-
-                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: space[2] }}>
-                    <Pressable
-                      accessibilityRole="button"
-                      accessibilityLabel={`Switch to ${viewMode === 'grid' ? 'list' : 'grid'} view`}
-                      onPress={() => {
-                        void Haptics.selectionAsync();
-                        setViewMode((m) => (m === 'grid' ? 'list' : 'grid'));
-                      }}
-                      style={[
-                        styles.viewModeButton,
-                        { backgroundColor: c.surface, borderColor: c.line },
-                      ]}
-                    >
-                      <Ionicons
-                        name={viewMode === 'grid' ? 'list' : 'grid-outline'}
-                        size={15}
-                        color={c.ink}
-                      />
-                    </Pressable>
-                  </View>
+                  {viewToggle}
                 </View>
 
-                {/* Saved Shelves Grid / List */}
-                {viewMode === 'grid' ? (
-                  <View style={styles.gridContainer}>
-                    {savedShelves.map((shelf) => {
-                      const coverIds = (shelf.cover_ids || []).filter(
-                        (cid): cid is number => cid !== null,
-                      );
-                      const curatorName =
-                        shelf.owner.displayName || shelf.owner.username || 'Curator';
-                      return (
-                        <Pressable
-                          key={shelf.id}
-                          onPress={() => {
-                            void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                            router.push(`/shelf/${shelf.id}` as any);
-                          }}
-                          accessibilityRole="button"
-                          accessibilityLabel={`Saved shelf ${shelf.name} by ${curatorName}, ${shelf.item_count} books`}
-                          style={({ pressed }) => [
-                            styles.gridCard,
-                            {
-                              width: cardWidth,
-                              backgroundColor: c.surface,
-                              borderColor: c.line,
-                              opacity: pressed ? 0.85 : 1,
-                            },
-                          ]}
-                        >
-                          {/* Mosaic Top */}
-                          <View
-                            style={[
-                              styles.gridMosaicContainer,
-                              { backgroundColor: c.surface2, borderColor: c.line },
-                            ]}
-                          >
-                            {coverIds.length >= 4 ? (
-                              <View style={styles.mosaic2x2}>
-                                {coverIds.slice(0, 4).map((cid, i) => (
-                                  <View key={i} style={styles.mosaic2x2Cell}>
-                                    <Cover coverId={cid} size="xs" />
-                                  </View>
-                                ))}
-                              </View>
-                            ) : coverIds.length > 0 ? (
-                              <View style={styles.mosaicSingleOrStack}>
-                                {coverIds.map((cid, i) => (
-                                  <View
-                                    key={i}
-                                    style={{
-                                      marginRight: -space[2],
-                                      zIndex: 10 - i,
-                                      // Stacked covers separate with a ground-coloured edge, not a shadow
-                                      borderWidth: 1,
-                                      borderColor: c.ground,
-                                      borderRadius: radius.xs,
-                                      overflow: 'hidden',
-                                    }}
-                                  >
-                                    <Cover coverId={cid} size="s" />
-                                  </View>
-                                ))}
-                              </View>
-                            ) : (
-                              <View style={styles.mosaicEmptyCell}>
-                                <Ionicons name="albums-outline" size={28} color={c.muted} />
-                              </View>
-                            )}
-                          </View>
-
-                          {/* Shelf Details */}
-                          <View style={styles.gridDetails}>
-                            <Txt numberOfLines={2} style={[styles.gridTitle, { color: c.ink }]}>
-                              {shelf.name}
-                            </Txt>
-
-                            {/* Curator attribution */}
-                            <View style={styles.curatorRow}>
-                              <View
-                                style={[
-                                  styles.curatorAvatar,
-                                  { backgroundColor: c.surface2 },
-                                ]}
-                              >
-                                <Txt
-                                  style={{
-                                    color: c.ink2,
-                                    fontSize: 12,
-                                    fontWeight: '500',
-                                  }}
-                                >
-                                  {curatorName.charAt(0).toUpperCase()}
-                                </Txt>
-                              </View>
-                              <Txt
-                                numberOfLines={1}
-                                style={[styles.curatorText, { color: c.muted }]}
-                              >
-                                by <Txt style={{ color: c.ink, fontWeight: '500' }}>{curatorName}</Txt>
-                              </Txt>
-                            </View>
-
-                            <View style={styles.gridMetaRow}>
-                              <Txt style={{ color: c.muted, fontSize: 12 }}>
-                                {shelf.item_count} {shelf.item_count === 1 ? 'book' : 'books'}
-                              </Txt>
-                              {shelf.is_ranked && (
-                                <View style={[styles.rankTag, { backgroundColor: c.surface2 }]}>
-                                  <Txt
-                                    style={{
-                                      color: c.ink2,
-                                      fontSize: 12,
-                                      fontWeight: '500',
-                                    }}
-                                  >
-                                    Ranked
-                                  </Txt>
-                                </View>
-                              )}
-                            </View>
-                          </View>
-                        </Pressable>
-                      );
-                    })}
-                  </View>
-                ) : (
-                  <View style={{ gap: space[3] }}>
-                    {savedShelves.map((shelf) => {
-                      const coverIds = (shelf.cover_ids || []).filter(
-                        (cid): cid is number => cid !== null,
-                      );
-                      const curatorName =
-                        shelf.owner.displayName || shelf.owner.username || 'Curator';
-                      return (
-                        <Card
-                          key={shelf.id}
-                          onPress={() => {
-                            void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                            router.push(`/shelf/${shelf.id}` as any);
-                          }}
-                          style={{ padding: space[3] }}
-                        >
-                          <View style={sheet.rowTop}>
-                            {/* Mosaic preview */}
-                            <View
-                              style={[
-                                styles.listMosaic,
-                                { backgroundColor: c.surface2, borderColor: c.line },
-                              ]}
-                            >
-                              {coverIds.length >= 4 ? (
-                                <View style={styles.listMosaicGrid}>
-                                  {coverIds.slice(0, 4).map((cid, i) => (
-                                    <View key={i} style={styles.listMosaicCell}>
-                                      <Cover coverId={cid} size="xs" />
-                                    </View>
-                                  ))}
-                                </View>
-                              ) : coverIds.length > 0 ? (
-                                <Cover coverId={coverIds[0]} size="s" />
-                              ) : (
-                                <Ionicons name="albums-outline" size={24} color={c.muted} />
-                              )}
-                            </View>
-
-                            {/* Details */}
-                            <View style={{ flex: 1, marginLeft: space[3], gap: 4 }}>
-                              <View style={[sheet.row, { justifyContent: 'space-between' }]}>
-                                <Txt
-                                  numberOfLines={1}
-                                  style={[styles.listTitle, { color: c.ink }]}
-                                >
-                                  {shelf.name}
-                                </Txt>
-                                {shelf.is_ranked && (
-                                  <View
-                                    style={[styles.rankPill, { backgroundColor: c.surface2 }]}
-                                  >
-                                    <Txt
-                                      style={{ color: c.ink2, fontSize: 12, fontWeight: '500' }}
-                                    >
-                                      Ranked
-                                    </Txt>
-                                  </View>
-                                )}
-                              </View>
-
-                              {/* Curator attribution */}
-                              <View style={styles.curatorRow}>
-                                <View
-                                  style={[
-                                    styles.curatorAvatar,
-                                    { backgroundColor: c.surface2 },
-                                  ]}
-                                >
-                                  <Txt
-                                    style={{
-                                      color: c.ink2,
-                                      fontSize: 12,
-                                      fontWeight: '500',
-                                    }}
-                                  >
-                                    {curatorName.charAt(0).toUpperCase()}
-                                  </Txt>
-                                </View>
-                                <Txt
-                                  numberOfLines={1}
-                                  style={[styles.curatorText, { color: c.muted }]}
-                                >
-                                  by <Txt style={{ color: c.ink, fontWeight: '500' }}>{curatorName}</Txt>
-                                </Txt>
-                              </View>
-
-                              {shelf.description ? (
-                                <Txt numberOfLines={2} style={{ color: c.muted, fontSize: 12 }}>
-                                  {shelf.description}
-                                </Txt>
-                              ) : null}
-
-                              <View style={[sheet.row, { gap: space[3], marginTop: 2 }]}>
-                                <Txt style={{ color: c.muted, fontSize: 12 }}>
-                                  {shelf.item_count} {shelf.item_count === 1 ? 'book' : 'books'}
-                                </Txt>
-                                <Txt style={{ color: c.muted, fontSize: 12 }}>
-                                  {shelf.save_count} {shelf.save_count === 1 ? 'save' : 'saves'}
-                                </Txt>
-                              </View>
-                            </View>
-                          </View>
-                        </Card>
-                      );
-                    })}
-                  </View>
+                {renderEntries(
+                  savedShelves.map((shelf) => ({
+                    shelf,
+                    curator: curatorOf(shelf),
+                    label: `Saved shelf ${shelf.name} by ${curatorOf(shelf)}, ${shelf.item_count} books`,
+                  })),
                 )}
+
                 {savedShelves.length < savedTotal && (
                   <Button
                     label={savedLoadingMore ? 'Loading…' : 'Show more saved shelves'}
@@ -1182,7 +816,7 @@ export default function ShelvesScreen() {
 
         {shelfFilter === 'discover' && (
           <View style={{ gap: space[3] }}>
-            {/* Search Bar */}
+            {/* Search field */}
             <View
               style={{
                 flexDirection: 'row',
@@ -1190,9 +824,9 @@ export default function ShelvesScreen() {
                 backgroundColor: c.surface,
                 borderRadius: radius.md,
                 borderWidth: 1,
-                borderColor: c.line,
-                paddingHorizontal: space[3],
-                height: 44,
+                borderColor: c.lineStrong,
+                paddingLeft: space[3],
+                minHeight: 48,
               }}
             >
               <Ionicons
@@ -1213,7 +847,8 @@ export default function ShelvesScreen() {
                 style={{
                   flex: 1,
                   color: c.ink,
-                  fontSize: 13,
+                  fontFamily: familyFor(false, '400'),
+                  fontSize: 15,
                   paddingVertical: 0,
                 }}
               />
@@ -1222,112 +857,29 @@ export default function ShelvesScreen() {
                   onPress={() => setBrowseQuery('')}
                   accessibilityRole="button"
                   accessibilityLabel="Clear shelf search"
-                  hitSlop={8}
+                  style={{ minWidth: 44, minHeight: 44, alignItems: 'center', justifyContent: 'center' }}
                 >
-                  <Ionicons name="close-circle" size={16} color={c.muted} />
+                  <Ionicons name="close-circle" size={18} color={c.muted} />
                 </Pressable>
               )}
             </View>
 
-            {/* Controls Bar: Sort Pills & View Mode */}
-            <View style={styles.controlsBar}>
-              {/* Sort Pills */}
-              <View style={[styles.sortPillGroup, { backgroundColor: c.surface2 }]}>
-                <Pressable
-                  onPress={() => {
-                    void Haptics.selectionAsync();
-                    setBrowseSort('ranked');
-                  }}
-                  style={[
-                    styles.sortPill,
-                    browseSort === 'ranked' && { backgroundColor: c.surface, borderColor: c.line },
-                  ]}
-                >
-                  <Txt
-                    style={{
-                      fontSize: 12,
-                      fontWeight: browseSort === 'ranked' ? '500' : '500',
-                      color: browseSort === 'ranked' ? c.ink : c.muted,
-                    }}
-                  >
-                    Featured
-                  </Txt>
-                </Pressable>
-                <Pressable
-                  onPress={() => {
-                    void Haptics.selectionAsync();
-                    setBrowseSort('popular');
-                  }}
-                  style={[
-                    styles.sortPill,
-                    browseSort === 'popular' && { backgroundColor: c.surface, borderColor: c.line },
-                  ]}
-                >
-                  <Txt
-                    style={{
-                      fontSize: 12,
-                      fontWeight: browseSort === 'popular' ? '500' : '500',
-                      color: browseSort === 'popular' ? c.ink : c.muted,
-                    }}
-                  >
-                    Popular
-                  </Txt>
-                </Pressable>
-                <Pressable
-                  onPress={() => {
-                    void Haptics.selectionAsync();
-                    setBrowseSort('recent');
-                  }}
-                  style={[
-                    styles.sortPill,
-                    browseSort === 'recent' && { backgroundColor: c.surface, borderColor: c.line },
-                  ]}
-                >
-                  <Txt
-                    style={{
-                      fontSize: 12,
-                      fontWeight: browseSort === 'recent' ? '500' : '500',
-                      color: browseSort === 'recent' ? c.ink : c.muted,
-                    }}
-                  >
-                    Recent
-                  </Txt>
-                </Pressable>
+            {/* Sort chips and view toggle */}
+            <View style={[sheet.row, { justifyContent: 'space-between' }]}>
+              <View style={[sheet.row, { flex: 1, flexWrap: 'wrap', gap: space[2] }]}>
+                <Chip label="Featured" selected={browseSort === 'ranked'} onPress={() => setBrowseSort('ranked')} />
+                <Chip label="Popular" selected={browseSort === 'popular'} onPress={() => setBrowseSort('popular')} />
+                <Chip label="Recent" selected={browseSort === 'recent'} onPress={() => setBrowseSort('recent')} />
               </View>
-
-              {/* View Mode Toggle */}
-              <Pressable
-                accessibilityRole="button"
-                accessibilityLabel={`Switch to ${viewMode === 'grid' ? 'list' : 'grid'} view`}
-                onPress={() => {
-                  void Haptics.selectionAsync();
-                  setViewMode((m) => (m === 'grid' ? 'list' : 'grid'));
-                }}
-                style={[
-                  styles.viewModeButton,
-                  { backgroundColor: c.surface, borderColor: c.line },
-                ]}
-              >
-                <Ionicons
-                  name={viewMode === 'grid' ? 'list' : 'grid-outline'}
-                  size={15}
-                  color={c.ink}
-                />
-              </Pressable>
+              {viewToggle}
             </View>
 
             {browseLoading && browseShelvesList.length === 0 ? (
-              <View style={styles.gridContainer} accessible accessibilityLabel="Loading curated shelves" accessibilityState={{ busy: true }}>
-                {[0, 1, 2, 3].map((k) => (
-                  <View key={k} style={[styles.gridCard, { width: cardWidth, backgroundColor: c.surface, borderColor: c.line }]}>
-                    <Skeleton width="100%" height={112} borderRadius={0} />
-                    <View style={[styles.gridDetails, { gap: space[2] }]}>
-                      <Skeleton width="70%" height={14} />
-                      <Skeleton width="40%" height={12} />
-                    </View>
-                  </View>
-                ))}
-              </View>
+              <ShelfSkeletons
+                label="Loading curated shelves"
+                grid={viewMode === 'grid'}
+                tileWidth={tileWidth}
+              />
             ) : browseShelvesList.length === 0 ? (
               <EmptyState
                 title={browseQuery ? `No shelves found for "${browseQuery}"` : 'No curated shelves yet'}
@@ -1337,249 +889,14 @@ export default function ShelvesScreen() {
                     : 'Explore book club selections, award winners, and themed reading lists curated by fellow readers.'
                 }
               />
-            ) : viewMode === 'grid' ? (
-              <View style={styles.gridContainer}>
-                {browseShelvesList.map((shelf) => {
-                  const coverIds = (shelf.cover_ids || []).filter(
-                    (cid): cid is number => cid !== null,
-                  );
-                  const curatorName =
-                    shelf.owner.displayName || shelf.owner.username || 'Curator';
-
-                  return (
-                    <Pressable
-                      key={shelf.id}
-                      onPress={() => {
-                        void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                        router.push(`/shelf/${shelf.id}` as any);
-                      }}
-                      accessibilityRole="button"
-                      accessibilityLabel={`Curated shelf ${shelf.name} by ${curatorName}, ${shelf.item_count} books`}
-                      style={({ pressed }) => [
-                        styles.gridCard,
-                        {
-                          width: cardWidth,
-                          backgroundColor: c.surface,
-                          borderColor: c.line,
-                          opacity: pressed ? 0.85 : 1,
-                        },
-                      ]}
-                    >
-                      {/* Mosaic Card Top */}
-                      <View
-                        style={[
-                          styles.gridMosaicContainer,
-                          { backgroundColor: c.surface2, borderColor: c.line },
-                        ]}
-                      >
-                        {coverIds.length >= 4 ? (
-                          <View style={styles.mosaic2x2}>
-                            {coverIds.slice(0, 4).map((cid, i) => (
-                              <View key={i} style={styles.mosaic2x2Cell}>
-                                <Cover coverId={cid} size="xs" />
-                              </View>
-                            ))}
-                          </View>
-                        ) : coverIds.length > 0 ? (
-                          <View style={styles.mosaicSingleOrStack}>
-                            {coverIds.map((cid, i) => (
-                              <View
-                                key={i}
-                                style={{
-                                  marginRight: -space[2],
-                                  zIndex: 10 - i,
-                                  // Stacked covers separate with a ground-coloured edge, not a shadow
-                                  borderWidth: 1,
-                                  borderColor: c.ground,
-                                  borderRadius: radius.xs,
-                                  overflow: 'hidden',
-                                }}
-                              >
-                                <Cover coverId={cid} size="s" />
-                              </View>
-                            ))}
-                          </View>
-                        ) : (
-                          <View style={styles.mosaicEmptyCell}>
-                            <Ionicons name="albums-outline" size={28} color={c.muted} />
-                          </View>
-                        )}
-                      </View>
-
-                      {/* Shelf Details */}
-                      <View style={styles.gridDetails}>
-                        <Txt numberOfLines={2} style={[styles.gridTitle, { color: c.ink }]}>
-                          {shelf.name}
-                        </Txt>
-
-                        {/* Curator attribution */}
-                        <View style={styles.curatorRow}>
-                          <View
-                            style={[
-                              styles.curatorAvatar,
-                              { backgroundColor: c.surface2 },
-                            ]}
-                          >
-                            <Txt
-                              style={{
-                                color: c.ink2,
-                                fontSize: 12,
-                                fontWeight: '500',
-                              }}
-                            >
-                              {curatorName.charAt(0).toUpperCase()}
-                            </Txt>
-                          </View>
-                          <Txt
-                            numberOfLines={1}
-                            style={[styles.curatorText, { color: c.muted }]}
-                          >
-                            by <Txt style={{ color: c.ink, fontWeight: '500' }}>{curatorName}</Txt>
-                          </Txt>
-                        </View>
-
-                        <View style={styles.gridMetaRow}>
-                          <Txt style={{ color: c.muted, fontSize: 12 }}>
-                            {shelf.item_count} {shelf.item_count === 1 ? 'book' : 'books'}
-                          </Txt>
-                          {shelf.is_ranked ? (
-                            <View style={[styles.rankTag, { backgroundColor: c.surface2 }]}>
-                              <Txt
-                                style={{
-                                  color: c.ink2,
-                                  fontSize: 12,
-                                  fontWeight: '500',
-                                }}
-                              >
-                                Ranked
-                              </Txt>
-                            </View>
-                          ) : shelf.save_count > 0 ? (
-                            <Txt style={{ color: c.muted, fontSize: 12 }}>
-                              {shelf.save_count} {shelf.save_count === 1 ? 'save' : 'saves'}
-                            </Txt>
-                          ) : null}
-                        </View>
-                      </View>
-                    </Pressable>
-                  );
-                })}
-              </View>
             ) : (
-              <View style={{ gap: space[3] }}>
-                {browseShelvesList.map((shelf) => {
-                  const coverIds = (shelf.cover_ids || []).filter(
-                    (cid): cid is number => cid !== null,
-                  );
-                  const curatorName =
-                    shelf.owner.displayName || shelf.owner.username || 'Curator';
-
-                  return (
-                    <Card
-                      key={shelf.id}
-                      onPress={() => {
-                        void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                        router.push(`/shelf/${shelf.id}` as any);
-                      }}
-                      style={{ padding: space[3] }}
-                    >
-                      <View style={sheet.rowTop}>
-                        {/* Left mosaic thumbnail */}
-                        <View
-                          style={[
-                            styles.listMosaic,
-                            { backgroundColor: c.surface2, borderColor: c.line },
-                          ]}
-                        >
-                          {coverIds.length >= 4 ? (
-                            <View style={styles.listMosaicGrid}>
-                              {coverIds.slice(0, 4).map((cid, i) => (
-                                <View key={i} style={styles.listMosaicCell}>
-                                  <Cover coverId={cid} size="xs" />
-                                </View>
-                              ))}
-                            </View>
-                          ) : coverIds.length > 0 ? (
-                            <Cover coverId={coverIds[0]} size="s" />
-                          ) : (
-                            <Ionicons name="albums-outline" size={24} color={c.muted} />
-                          )}
-                        </View>
-
-                        {/* Right details */}
-                        <View
-                          style={{
-                            flex: 1,
-                            marginLeft: space[3],
-                            justifyContent: 'space-between',
-                          }}
-                        >
-                          <View style={[sheet.row, { justifyContent: 'space-between' }]}>
-                            <Txt
-                              numberOfLines={1}
-                              style={[styles.listTitle, { color: c.ink }]}
-                            >
-                              {shelf.name}
-                            </Txt>
-                            {shelf.is_ranked && (
-                              <View
-                                style={[styles.rankPill, { backgroundColor: c.surface2 }]}
-                              >
-                                <Txt
-                                  style={{ color: c.ink2, fontSize: 12, fontWeight: '500' }}
-                                >
-                                  Ranked
-                                </Txt>
-                              </View>
-                            )}
-                          </View>
-
-                          {/* Curator attribution */}
-                          <View style={styles.curatorRow}>
-                            <View
-                              style={[
-                                styles.curatorAvatar,
-                                { backgroundColor: c.surface2 },
-                              ]}
-                            >
-                              <Txt
-                                style={{
-                                  color: c.ink2,
-                                  fontSize: 12,
-                                  fontWeight: '500',
-                                }}
-                              >
-                                {curatorName.charAt(0).toUpperCase()}
-                              </Txt>
-                            </View>
-                            <Txt
-                              numberOfLines={1}
-                              style={[styles.curatorText, { color: c.muted }]}
-                            >
-                              by <Txt style={{ color: c.ink, fontWeight: '500' }}>{curatorName}</Txt>
-                            </Txt>
-                          </View>
-
-                          {shelf.description ? (
-                            <Txt numberOfLines={2} style={{ color: c.muted, fontSize: 12 }}>
-                              {shelf.description}
-                            </Txt>
-                          ) : null}
-
-                          <View style={[sheet.row, { gap: space[3], marginTop: 2 }]}>
-                            <Txt style={{ color: c.muted, fontSize: 12 }}>
-                              {shelf.item_count} {shelf.item_count === 1 ? 'book' : 'books'}
-                            </Txt>
-                            <Txt style={{ color: c.muted, fontSize: 12 }}>
-                              {shelf.save_count} {shelf.save_count === 1 ? 'save' : 'saves'}
-                            </Txt>
-                          </View>
-                        </View>
-                      </View>
-                    </Card>
-                  );
-                })}
-              </View>
+              renderEntries(
+                browseShelvesList.map((shelf) => ({
+                  shelf,
+                  curator: curatorOf(shelf),
+                  label: `Curated shelf ${shelf.name} by ${curatorOf(shelf)}, ${shelf.item_count} books`,
+                })),
+              )
             )}
           </View>
         )}
@@ -1587,189 +904,3 @@ export default function ShelvesScreen() {
     </Screen>
   );
 }
-
-const styles = StyleSheet.create({
-  welcomeBanner: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    padding: space[4],
-    borderRadius: radius.lg,
-    borderWidth: 1,
-  },
-  welcomeTitle: {
-    fontSize: 15,
-    fontWeight: '500',
-  },
-  sectionTitle: {
-    fontSize: 17,
-    lineHeight: 24,
-    fontWeight: '500',
-  },
-  starterCard: {
-    borderRadius: radius.lg,
-    borderWidth: 1,
-    padding: space[4],
-    gap: space[3],
-  },
-  starterCardHeader: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-  },
-  starterIconBubble: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  starterName: {
-    fontSize: 15,
-    fontWeight: '500',
-  },
-  starterBadge: {
-    paddingHorizontal: space[2],
-    paddingVertical: 2,
-    borderRadius: radius.xs,
-  },
-  starterCardFooter: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingTop: space[2],
-    borderTopWidth: 1,
-  },
-  controlsBar: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingVertical: space[1],
-  },
-  // Segmented: surface2 track, surface thumb with a hairline
-  sortPillGroup: {
-    flexDirection: 'row',
-    borderRadius: radius.md,
-    padding: 2,
-  },
-  sortPill: {
-    paddingHorizontal: space[3],
-    paddingVertical: space[1],
-    borderRadius: radius.sm,
-    borderWidth: 1,
-    borderColor: 'transparent',
-  },
-  viewModeButton: {
-    padding: 4,
-    borderRadius: radius.sm,
-    borderWidth: 1,
-  },
-  gridContainer: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: space[3],
-  },
-  gridCard: {
-    borderRadius: radius.lg,
-    borderWidth: 1,
-    overflow: 'hidden',
-  },
-  gridMosaicContainer: {
-    height: 112,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderBottomWidth: 1,
-    overflow: 'hidden',
-  },
-  mosaic2x2: {
-    width: 68,
-    height: 100,
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 2,
-    borderRadius: radius.sm,
-    overflow: 'hidden',
-  },
-  mosaic2x2Cell: {
-    width: 33,
-    height: 49,
-    overflow: 'hidden',
-  },
-  mosaicSingleOrStack: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  mosaicEmptyCell: {
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  gridDetails: {
-    padding: space[3],
-    gap: space[1],
-  },
-  gridTitle: {
-    fontSize: 13,
-    fontWeight: '500',
-    lineHeight: 18,
-  },
-  gridMetaRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    marginTop: space[1],
-  },
-  rankTag: {
-    paddingHorizontal: 4,
-    paddingVertical: 2,
-    borderRadius: radius.xs,
-  },
-  listMosaic: {
-    width: 56,
-    height: 80,
-    borderRadius: radius.sm,
-    borderWidth: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    overflow: 'hidden',
-  },
-  listMosaicGrid: {
-    width: 50,
-    height: 74,
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 1,
-    overflow: 'hidden',
-  },
-  listMosaicCell: {
-    width: 24,
-    height: 36,
-    overflow: 'hidden',
-  },
-  listTitle: {
-    fontSize: 15,
-    fontWeight: '500',
-    flex: 1,
-    marginRight: space[2],
-  },
-  rankPill: {
-    paddingHorizontal: space[2],
-    paddingVertical: 2,
-    borderRadius: radius.xs,
-  },
-  curatorRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    marginVertical: 2,
-  },
-  curatorAvatar: {
-    width: 16,
-    height: 16,
-    borderRadius: 8,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  curatorText: {
-    fontSize: 12,
-    flex: 1,
-  },
-});

@@ -30,7 +30,7 @@ import * as Linking from 'expo-linking';
 import { useSession } from '@/lib/session';
 import {
   Button,
-  Card,
+  Chip,
   EmptyState,
   Screen,
   SegmentedControl,
@@ -224,6 +224,10 @@ export default function ImportScreen() {
     reader.readAsText(file);
   };
 
+  // A step of the page: a hairline rule above, then its own serif heading.
+  const section = { gap: space[3], borderTopWidth: 1, borderTopColor: c.line, paddingTop: space[6] } as const;
+  const entry = { gap: space[1], paddingVertical: space[3], borderTopWidth: 1, borderTopColor: c.line } as const;
+
   return (
     <Screen style={{ flex: 1, backgroundColor: c.ground }}>
       {/* Navigation Header */}
@@ -241,6 +245,8 @@ export default function ImportScreen() {
           <Pressable
             onPress={() => router.back()}
             hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+            accessibilityRole="button"
+            accessibilityLabel="Back"
             style={{ minWidth: 44, minHeight: 44, justifyContent: 'center' }}
           >
             <Ionicons name="arrow-back" size={24} color={c.ink} />
@@ -252,13 +258,11 @@ export default function ImportScreen() {
         </View>
       </View>
 
-      <ScrollView contentContainerStyle={{ padding: space[4], gap: space[4] }}>
+      <ScrollView contentContainerStyle={{ padding: space[4], paddingBottom: insets.bottom + space[8], gap: space[6] }}>
         {/* Active Import Live Progress Banner */}
         {activeImportId && (
-          <View>
-            <Txt variant="micro" color="muted" style={{ marginBottom: space[2] }}>
-              Active import
-            </Txt>
+          <View style={{ gap: space[2] }}>
+            <Txt variant="title">Active import</Txt>
             <ImportProgressBanner
               importId={activeImportId}
               onComplete={() => {
@@ -269,54 +273,27 @@ export default function ImportScreen() {
           </View>
         )}
 
-        {/* 1. SOURCE PLATFORM SELECTOR */}
-        <View style={{ gap: space[2] }}>
-          <Txt variant="micro" color="muted">
-            Import from
-          </Txt>
+        {/* Source platform */}
+        <View style={{ gap: space[3] }}>
+          <Txt variant="title">Import from</Txt>
 
           <View style={styles.platformGrid}>
-            {PLATFORMS.map((p) => {
-              const isSelected = selectedSource === p.id;
-              return (
-                <Pressable
-                  key={p.id}
-                  onPress={() => {
-                    void Haptics.selectionAsync();
-                    setSelectedSource(p.id);
-                  }}
-                  style={[
-                    styles.platformCard,
-                    {
-                      backgroundColor: isSelected ? c.accentSoft : c.surface,
-                      borderColor: isSelected ? c.accent : c.line,
-                    },
-                  ]}
-                >
-                  <Ionicons
-                    name={p.icon as any}
-                    size={18}
-                    color={isSelected ? c.accent : c.muted}
-                  />
-                  <Txt
-                    variant="body"
-                    numberOfLines={1}
-                    style={{ flex: 1, fontWeight: '500', color: isSelected ? c.accent : c.ink }}
-                  >
-                    {p.name}
-                  </Txt>
-                </Pressable>
-              );
-            })}
+            {PLATFORMS.map((p) => (
+              <Chip
+                key={p.id}
+                label={p.name}
+                icon={p.icon as any}
+                selected={selectedSource === p.id}
+                onPress={() => setSelectedSource(p.id)}
+              />
+            ))}
           </View>
         </View>
 
-        {/* 2. CSV PAYLOAD INPUT */}
-        <View style={{ gap: space[2] }}>
+        {/* CSV payload */}
+        <View style={section}>
           <View style={sheet.rowBetween}>
-            <Txt variant="micro" color="muted">
-              Export file
-            </Txt>
+            <Txt variant="title">Export file</Txt>
             <Txt variant="micro" color="muted" tabular>
               {csvText.length > 0 ? `${csvText.length.toLocaleString()} characters` : 'CSV, UTF-8'}
             </Txt>
@@ -324,7 +301,7 @@ export default function ImportScreen() {
 
           {/* Web file picker shortcut when running on web */}
           {Platform.OS === 'web' && (
-            <View style={{ marginBottom: space[2] }}>
+            <View>
               <input
                 type="file"
                 accept=".csv,.txt"
@@ -345,9 +322,10 @@ export default function ImportScreen() {
             placeholderTextColor={c.muted}
             multiline
             numberOfLines={6}
+            accessibilityLabel="Export file contents"
             style={[
               styles.csvInput,
-              { backgroundColor: c.surface2, borderColor: c.line, color: c.ink },
+              { backgroundColor: c.surface, borderColor: c.lineStrong, color: c.ink },
             ]}
           />
 
@@ -366,82 +344,75 @@ export default function ImportScreen() {
           />
         </View>
 
-        {/* 3. PREVIOUS IMPORTS HISTORY */}
-        <View style={{ gap: space[2], marginTop: space[4] }}>
-          <Txt variant="micro" color="muted">
-            Import history
-          </Txt>
+        {/* Previous imports */}
+        <View style={section}>
+          <Txt variant="title">Import history</Txt>
 
           {loadingPast ? (
             <SkeletonSettings rows={3} />
           ) : pastImports.length === 0 ? (
-            <Card style={{ padding: space[4], alignItems: 'center' }}>
-              <Txt variant="caption" color="muted">
-                No imports yet
-              </Txt>
-            </Card>
+            <Txt variant="body" color="muted">
+              No imports yet
+            </Txt>
           ) : (
-            pastImports.map((imp) => {
-              const dateStr = new Date(imp.created_at).toLocaleDateString(undefined, {
-                month: 'short',
-                day: 'numeric',
-                year: 'numeric',
-              });
+            <View>
+              {pastImports.map((imp) => {
+                const dateStr = new Date(imp.created_at).toLocaleDateString(undefined, {
+                  month: 'short',
+                  day: 'numeric',
+                  year: 'numeric',
+                });
 
-              return (
-                <Card key={imp.id} style={{ padding: space[4], gap: space[3] }}>
-                  <View style={sheet.rowBetween}>
-                    <View style={{ flex: 1, gap: 2 }}>
-                      <Txt variant="body" style={{ fontWeight: '500' }}>
-                        {sourceName(imp.source)}
-                      </Txt>
-                      <Txt variant="caption" color="muted">
-                        {dateStr} · {imp.filename || 'export.csv'}
+                return (
+                  <View key={imp.id} style={entry}>
+                    <View style={sheet.rowBetween}>
+                      <View style={{ flex: 1, gap: space[1] }}>
+                        <Txt variant="body" style={{ fontWeight: '500' }}>
+                          {sourceName(imp.source)}
+                        </Txt>
+                        <Txt variant="caption" color="muted">
+                          {dateStr} · {imp.filename || 'export.csv'}
+                        </Txt>
+                      </View>
+
+                      <Txt
+                        variant="micro"
+                        color={imp.state === 'completed' ? 'ink2' : imp.state === 'failed' ? 'critical' : 'muted'}
+                      >
+                        {sentence(imp.state)}
                       </Txt>
                     </View>
 
-                    <Txt
-                      variant="micro"
-                      color={imp.state === 'completed' ? 'ink2' : imp.state === 'failed' ? 'critical' : 'muted'}
-                    >
-                      {sentence(imp.state)}
-                    </Txt>
-                  </View>
+                    <View style={[sheet.rowBetween, { gap: space[2] }]}>
+                      <Txt variant="caption" color="muted" tabular style={{ flex: 1 }}>
+                        {imp.matched} matched · {imp.unmatched} unmatched · {imp.total_rows} total
+                      </Txt>
 
-                  <View style={sheet.rowBetween}>
-                    <Txt variant="caption" color="muted" tabular>
-                      {imp.matched} matched · {imp.unmatched} unmatched · {imp.total_rows} total
-                    </Txt>
-
-                    {imp.unmatched > 0 && (
-                      <Pressable
-                        onPress={() => {
-                          void Haptics.selectionAsync();
-                          router.push({
-                            pathname: '/import/unmatched' as any,
-                            params: { id: imp.id },
-                          });
-                        }}
-                        hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                      >
-                        <Txt variant="caption" color="accent" style={{ fontWeight: '500' }}>
-                          Review unmatched
-                        </Txt>
-                      </Pressable>
-                    )}
+                      {imp.unmatched > 0 && (
+                        <Button
+                          label="Review unmatched"
+                          variant="tertiary"
+                          onPress={() => {
+                            void Haptics.selectionAsync();
+                            router.push({
+                              pathname: '/import/unmatched' as any,
+                              params: { id: imp.id },
+                            });
+                          }}
+                        />
+                      )}
+                    </View>
                   </View>
-                </Card>
-              );
-            })
+                );
+              })}
+            </View>
           )}
         </View>
 
-        {/* 4. EXPORT LIBRARY DATA (IM-10) */}
-        <View style={{ gap: space[3], marginTop: space[4], paddingTop: space[6], borderTopWidth: 1, borderTopColor: c.line }}>
+        {/* Export library data (IM-10) */}
+        <View style={section}>
           <View style={{ gap: space[1] }}>
-            <Txt variant="micro" color="muted">
-              Export your library
-            </Txt>
+            <Txt variant="title">Export your library</Txt>
             <Txt variant="caption" color="muted">
               Your reading history, reviews and shelves, as one file
             </Txt>
@@ -466,22 +437,22 @@ export default function ImportScreen() {
 
           {/* Past Exports List */}
           {pastExports.length > 0 && (
-            <View style={{ gap: space[2], marginTop: space[1] }}>
-              <Txt variant="micro" color="muted">
+            <View style={{ gap: space[2], marginTop: space[3] }}>
+              <Txt variant="micro" color="ink2">
                 Previous exports
               </Txt>
 
-              {pastExports.map((exp) => {
-                const dateStr = new Date(exp.created_at).toLocaleDateString(undefined, {
-                  month: 'short',
-                  day: 'numeric',
-                });
-                const sizeKb = exp.file_size_bytes ? `${Math.round(exp.file_size_bytes / 1024)} KB` : null;
+              <View>
+                {pastExports.map((exp) => {
+                  const dateStr = new Date(exp.created_at).toLocaleDateString(undefined, {
+                    month: 'short',
+                    day: 'numeric',
+                  });
+                  const sizeKb = exp.file_size_bytes ? `${Math.round(exp.file_size_bytes / 1024)} KB` : null;
 
-                return (
-                  <Card key={exp.id} style={{ padding: space[4] }}>
-                    <View style={sheet.rowBetween}>
-                      <View style={{ flex: 1, gap: 2 }}>
+                  return (
+                    <View key={exp.id} style={[entry, sheet.rowBetween, { gap: space[2] }]}>
+                      <View style={{ flex: 1, gap: space[1] }}>
                         <Txt variant="body" style={{ fontWeight: '500' }}>
                           {exp.format.toUpperCase()} export
                         </Txt>
@@ -508,9 +479,9 @@ export default function ImportScreen() {
                         />
                       )}
                     </View>
-                  </Card>
-                );
-              })}
+                  );
+                })}
+              </View>
             </View>
           )}
         </View>
@@ -525,18 +496,8 @@ const styles = StyleSheet.create({
     flexWrap: 'wrap',
     gap: space[2],
   },
-  platformCard: {
-    width: '48.5%',
-    minHeight: 48,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: space[2],
-    paddingHorizontal: space[3],
-    borderRadius: radius.md,
-    borderWidth: 1,
-  },
   csvInput: {
-    height: 140,
+    minHeight: 140,
     borderRadius: radius.md,
     borderWidth: 1,
     padding: space[3],

@@ -44,3 +44,9 @@ export function ScreenHeader({ title, right }: { title: string; right?: React.Re
     </View>
   );
 }
+
+/** The status-bar inset alone, for a screen that draws its own back and close row. */
+export function TopInset() {
+  const insets = useSafeAreaInsets();
+  return <View style={{ height: insets.top }} />;
+}

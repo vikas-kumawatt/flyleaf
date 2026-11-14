@@ -85,7 +85,7 @@ export function GoalSheet({
           </Txt>
         ) : null}
         <Button label="Save" variant="primary" onPress={() => void save()} disabled={busy} />
-        {goal?.goal ? <Button label="Remove goal" variant="secondary" onPress={() => void remove()} disabled={busy} /> : null}
+        {goal?.goal ? <Button label="Remove" accessibilityLabel="Remove goal" variant="destructive" onPress={() => void remove()} disabled={busy} /> : null}
       </View>
     </BottomSheet>
   );

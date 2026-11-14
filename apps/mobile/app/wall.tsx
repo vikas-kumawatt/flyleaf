@@ -34,7 +34,7 @@ import {
   SkeletonCoverGrid,
 } from '@/ui/components';
 import { Ionicons } from '@expo/vector-icons';
-import { palette, radius, space, useTheme } from '@/ui/tokens';
+import { radius, space, useTheme } from '@/ui/tokens';
 
 export default function WallScreen() {
   const c = useTheme();
@@ -214,7 +214,7 @@ export default function WallScreen() {
           </Pressable>
 
           <View style={{ alignItems: 'center' }}>
-            <Txt variant="displayM">The Wall</Txt>
+            <Txt variant="displayM">The wall</Txt>
             <Txt variant="caption" color="muted" tabular>
               {processedReads.length} {processedReads.length === 1 ? 'cover' : 'covers'}
             </Txt>
@@ -233,8 +233,9 @@ export default function WallScreen() {
             accessibilityRole="button"
             accessibilityLabel="Sort"
             hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
-            style={{ minWidth: 44, minHeight: 44, justifyContent: 'center', alignItems: 'flex-end' }}
+            style={[sheet.row, { gap: space[1], minWidth: 44, minHeight: 44, justifyContent: 'flex-end' }]}
           >
+            <Ionicons name="swap-vertical-outline" size={16} color={c.ink2} />
             <Txt variant="caption" color="ink2" style={{ fontWeight: '500' }}>
               {sortBy === 'date_desc' ? 'Recent' : sortBy === 'rating_desc' ? 'Rating' : 'A–Z'}
             </Txt>
@@ -297,7 +298,7 @@ export default function WallScreen() {
         }
       >
         {loading && reads.length === 0 ? (
-          <SkeletonCoverGrid count={12} columns={3} style={{ padding: 0 }} />
+          <SkeletonCoverGrid count={12} columns={numColumns} style={{ padding: 0 }} />
         ) : processedReads.length === 0 ? (
           <EmptyState
             title="No covers to display"
@@ -310,7 +311,7 @@ export default function WallScreen() {
               reads.length > 0 ? (
                 <Button
                   label="Clear filters"
-                  variant="outline"
+                  variant="secondary"
                   onPress={() => {
                     void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
                     setSelectedYear('all');
@@ -338,7 +339,7 @@ export default function WallScreen() {
                 <View style={[styles.coverFrame, { backgroundColor: c.surface2 }]}>
                   <Cover coverId={r.cover_id} title={r.title ?? ''} size="fluid" />
                   {(r.rating !== null || Boolean(r.hearted)) && (
-                    <View style={styles.bottomOverlay}>
+                    <View style={[styles.bottomOverlay, { backgroundColor: c.scrim }]}>
                       {r.rating !== null && r.rating !== undefined ? (
                         <RatingMark value={Number(r.rating)} size={11} onCover />
                       ) : (
@@ -377,7 +378,6 @@ const styles = StyleSheet.create({
     bottom: 0,
     left: 0,
     right: 0,
-    backgroundColor: palette.scrim.dark,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',

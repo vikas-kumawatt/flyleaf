@@ -376,7 +376,7 @@ export function adminDedupeRoutes(db: Db) {
           css: `
     .pair { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
     .side { display: flex; flex-direction: column; gap: 4px; padding: 16px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); }
-    .side h3 { font-family: Newsreader, Georgia, serif; font-size: 17px; }
+    .side h3 { font: 600 17px Figtree, system-ui, sans-serif; letter-spacing: -0.01em; }
     @media (max-width: 900px) { .pair { grid-template-columns: 1fr; } }`,
           body: `
     <div class="page-head">

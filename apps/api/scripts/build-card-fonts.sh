@@ -26,11 +26,11 @@ get() { # family-dir file
 inst() { fonttools varLib.instancer -q "$@"; }
 sub() { pyftsubset "$1" --layout-features='*' --no-hinting --unicodes="$2" --output-file="$3"; }
 
-# Newsreader for titles and quotes, Instrument Sans for everything else
-# (design.md §3). Card titles are 48-72 px, so the optical size is cut at 36.
-get newsreader 'Newsreader[opsz,wght].ttf'
-inst 'Newsreader[opsz,wght].ttf' opsz=36 wght=400 -o "$OUT/Newsreader-Regular.ttf"
-inst 'Newsreader[opsz,wght].ttf' opsz=36 wght=500 -o "$OUT/Newsreader-Medium.ttf"
+# Figtree for titles and headings, Instrument Sans for everything else
+# (design.md §3).
+get figtree 'Figtree[wght].ttf'
+inst 'Figtree[wght].ttf' wght=500 -o "$OUT/Figtree-Medium.ttf"
+inst 'Figtree[wght].ttf' wght=600 -o "$OUT/Figtree-SemiBold.ttf"
 
 get instrumentsans 'InstrumentSans[wdth,wght].ttf'
 inst 'InstrumentSans[wdth,wght].ttf' wdth=100 wght=400 -o "$OUT/InstrumentSans-Regular.ttf"

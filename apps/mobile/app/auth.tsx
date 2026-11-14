@@ -35,8 +35,9 @@ import { loginErrorMessage, transientAuthError } from '@/lib/authErrors';
 import { RESTORED_MESSAGE, RESTORED_TITLE } from '@/lib/accountDeletion';
 import { createUsernameChecker, type UsernameStatus } from '@/lib/usernameCheck';
 import { WelcomeCarousel } from '@/ui/WelcomeCarousel';
-import { Button, Card, Screen, Txt, sheet } from '@/ui/components';
+import { Button, Card, Field, Screen, Txt, sheet } from '@/ui/components';
 import { space, radius, useTheme, fontFamilies } from '@/ui/tokens';
+import { TopInset } from '@/ui/ScreenHeader';
 
 type AuthMode =
   | 'welcome'
@@ -233,6 +234,7 @@ export default function AuthScreen() {
   if (mode === 'welcome') {
     return (
       <Screen>
+        <TopInset />
         <WelcomeCarousel
           onGetStarted={() => setMode('signup_step1')}
           onLogin={() => setMode('login')}
@@ -242,11 +244,35 @@ export default function AuthScreen() {
     );
   }
 
+  // One inline notice, set just above the primary action of whichever form is
+  // showing: errors in critical, confirmations in positive. No boxed banner.
+  const notices = (
+    <>
+      {generalError ? (
+        <View style={styles.notice} accessibilityRole="alert" accessibilityLiveRegion="polite">
+          <Ionicons name="alert-circle-outline" size={16} color={c.critical} />
+          <Txt variant="caption" color="critical" style={{ flex: 1 }}>
+            {generalError}
+          </Txt>
+        </View>
+      ) : null}
+      {successNotice ? (
+        <View style={styles.notice} accessibilityLiveRegion="polite">
+          <Ionicons name="checkmark-circle-outline" size={16} color={c.positive} />
+          <Txt variant="caption" color="positive" style={{ flex: 1 }}>
+            {successNotice}
+          </Txt>
+        </View>
+      ) : null}
+    </>
+  );
+
   return (
     <Screen>
+      <TopInset />
       <ScrollView contentContainerStyle={sheet.pad} keyboardShouldPersistTaps="handled">
         {/* Modal Top Bar */}
-        <View style={[sheet.row, { justifyContent: 'space-between', marginBottom: space[2] }]}>
+        <View style={[sheet.row, { justifyContent: 'space-between' }]}>
           <Pressable
             onPress={() => {
               setGeneralError(null);
@@ -272,88 +298,41 @@ export default function AuthScreen() {
           </Pressable>
         </View>
 
-        {/* Success Notice Banner */}
-        {successNotice && (
-          <View style={[styles.banner, { backgroundColor: c.accentSoft, borderColor: c.accent }]}>
-            <Ionicons name="checkmark-circle-outline" size={20} color={c.accent} />
-            <Txt variant="body" color="accent" style={{ flex: 1 }}>
-              {successNotice}
-            </Txt>
-          </View>
-        )}
-
-        {/* Error Notice Banner */}
-        {generalError && (
-          <View style={[styles.banner, { backgroundColor: c.surface2, borderColor: c.critical }]}>
-            <Ionicons name="alert-circle-outline" size={20} color={c.critical} />
-            <Txt variant="caption" color="critical" style={{ flex: 1 }}>
-              {generalError}
-            </Txt>
-          </View>
-        )}
-
         {/* ------------------------------------------------ Login Mode */}
         {mode === 'login' && (
           <View style={{ gap: space[4] }}>
-            <Txt variant="displayL">Sign in</Txt>
+            <Txt variant="displayM">Sign in</Txt>
 
-            <View style={{ gap: space[1] }}>
-              <Txt variant="micro" color="muted">
-                Email
-              </Txt>
-              <TextInput
-                value={email}
-                onChangeText={setEmail}
-                keyboardType="email-address"
-                autoCapitalize="none"
-                placeholder="name@example.com"
-                placeholderTextColor={c.muted}
-                style={[styles.input, { backgroundColor: c.surface2, borderColor: c.line, color: c.ink }]}
-              />
+            <Field
+              label="Email"
+              value={email}
+              onChangeText={setEmail}
+              keyboardType="email-address"
+              placeholder="name@example.com"
+            />
+
+            <PasswordInput
+              label="Password"
+              value={password}
+              onChangeText={setPassword}
+              placeholder="Enter password"
+              show={showPassword}
+              onToggle={() => setShowPassword(!showPassword)}
+            />
+
+            <View style={{ alignItems: 'flex-start' }}>
+              <Button label="Forgot password?" variant="tertiary" onPress={() => setMode('forgot')} />
             </View>
 
-            <View style={{ gap: space[1] }}>
-              <View style={[sheet.row, { justifyContent: 'space-between' }]}>
-                <Txt variant="micro" color="muted">
-                  Password
-                </Txt>
-                <Pressable onPress={() => setMode('forgot')}>
-                  <Txt variant="caption" color="accent">
-                    Forgot password?
-                  </Txt>
-                </Pressable>
-              </View>
-              <View style={[styles.passwordContainer, { backgroundColor: c.surface2, borderColor: c.line }]}>
-                <TextInput
-                  value={password}
-                  onChangeText={setPassword}
-                  secureTextEntry={!showPassword}
-                  autoCapitalize="none"
-                  placeholder="Enter password"
-                  placeholderTextColor={c.muted}
-                  style={[styles.passwordInput, { color: c.ink }]}
-                />
-                <Pressable onPress={() => setShowPassword(!showPassword)} style={styles.eyeButton}>
-                  <Ionicons
-                    name={showPassword ? 'eye-off-outline' : 'eye-outline'}
-                    size={20}
-                    color={c.muted}
-                  />
-                </Pressable>
-              </View>
-            </View>
+            {notices}
 
             <Button label="Sign in" variant="primary" onPress={handleLogin} loading={busy} />
 
-            <View style={[sheet.row, { justifyContent: 'center', gap: space[2], marginTop: space[2] }]}>
-              <Txt variant="body" color="muted">
+            <View style={styles.switchRow}>
+              <Txt variant="body" color="ink2">
                 New to Flyleaf?
               </Txt>
-              <Pressable onPress={() => setMode('signup_step1')}>
-                <Txt variant="body" color="accent" style={{ fontWeight: '500' }}>
-                  Create account
-                </Txt>
-              </Pressable>
+              <Button label="Create account" variant="tertiary" onPress={() => setMode('signup_step1')} />
             </View>
           </View>
         )}
@@ -361,65 +340,47 @@ export default function AuthScreen() {
         {/* ------------------------------------------------ Sign Up Step 1 */}
         {mode === 'signup_step1' && (
           <View style={{ gap: space[4] }}>
-            <Txt variant="displayL">Create an account</Txt>
-            <Txt variant="body" color="muted">
-              Step 1 of 2 · Account credentials
-            </Txt>
-
             <View style={{ gap: space[1] }}>
-              <Txt variant="micro" color="muted">
-                Email
+              <Txt variant="displayM">Create an account</Txt>
+              <Txt variant="caption" color="muted">
+                Step 1 of 2 · Account credentials
               </Txt>
-              <TextInput
-                value={email}
-                onChangeText={setEmail}
-                keyboardType="email-address"
-                autoCapitalize="none"
-                placeholder="name@example.com"
-                placeholderTextColor={c.muted}
-                style={[styles.input, { backgroundColor: c.surface2, borderColor: c.line, color: c.ink }]}
-              />
             </View>
 
-            <View style={{ gap: space[1] }}>
-              <Txt variant="micro" color="muted">
-                Password
-              </Txt>
-              <View style={[styles.passwordContainer, { backgroundColor: c.surface2, borderColor: c.line }]}>
-                <TextInput
-                  value={password}
-                  onChangeText={setPassword}
-                  secureTextEntry={!showPassword}
-                  autoCapitalize="none"
-                  placeholder="Min 10 characters"
-                  placeholderTextColor={c.muted}
-                  style={[styles.passwordInput, { color: c.ink }]}
-                />
-                <Pressable onPress={() => setShowPassword(!showPassword)} style={styles.eyeButton}>
-                  <Ionicons
-                    name={showPassword ? 'eye-off-outline' : 'eye-outline'}
-                    size={20}
-                    color={c.muted}
-                  />
-                </Pressable>
-              </View>
+            <Field
+              label="Email"
+              value={email}
+              onChangeText={setEmail}
+              keyboardType="email-address"
+              placeholder="name@example.com"
+            />
+
+            <View style={{ gap: space[2] }}>
+              <PasswordInput
+                label="Password"
+                value={password}
+                onChangeText={setPassword}
+                placeholder="Min 10 characters"
+                show={showPassword}
+                onToggle={() => setShowPassword(!showPassword)}
+              />
 
               {/* Password strength indicator */}
               {password.length > 0 && (
-                <View style={{ flexDirection: 'row', gap: space[1], marginTop: space[1], alignItems: 'center' }}>
+                <View style={{ flexDirection: 'row', gap: space[1], alignItems: 'center' }}>
                   {[1, 2, 3, 4].map((step) => (
                     <View
                       key={step}
                       style={{
                         flex: 1,
                         height: 4,
-                        borderRadius: 2,
+                        borderRadius: radius.xs,
                         backgroundColor:
                           step <= passwordCheck.score
                             ? passwordCheck.score < 2
                               ? c.critical
                               : c.accent
-                            : c.surface2,
+                            : c.line,
                       }}
                     />
                   ))}
@@ -436,30 +397,17 @@ export default function AuthScreen() {
               )}
             </View>
 
-            <View style={{ gap: space[1] }}>
-              <Txt variant="micro" color="muted">
-                Date of birth
-              </Txt>
-              <TextInput
-                value={dob}
-                onChangeText={setDob}
-                placeholder="YYYY-MM-DD"
-                placeholderTextColor={c.muted}
-                style={[styles.input, { backgroundColor: c.surface2, borderColor: c.line, color: c.ink }]}
-              />
-            </View>
+            <Field label="Date of birth" value={dob} onChangeText={setDob} placeholder="YYYY-MM-DD" />
+
+            {notices}
 
             <Button label="Continue to profile" variant="primary" onPress={handleSignupStep1} />
 
-            <View style={[sheet.row, { justifyContent: 'center', gap: space[2], marginTop: space[2] }]}>
-              <Txt variant="body" color="muted">
+            <View style={styles.switchRow}>
+              <Txt variant="body" color="ink2">
                 Already have an account?
               </Txt>
-              <Pressable onPress={() => setMode('login')}>
-                <Txt variant="body" color="accent" style={{ fontWeight: '500' }}>
-                  Sign in
-                </Txt>
-              </Pressable>
+              <Button label="Sign in" variant="tertiary" onPress={() => setMode('login')} />
             </View>
           </View>
         )}
@@ -467,21 +415,21 @@ export default function AuthScreen() {
         {/* ------------------------------------------------ Sign Up Step 2 (Username + Avatar) */}
         {mode === 'signup_step2' && (
           <View style={{ gap: space[4] }}>
-            <Txt variant="displayL">Choose your username</Txt>
-            <Txt variant="body" color="muted">
-              Step 2 of 2 · Your identity on Flyleaf
-            </Txt>
+            <View style={{ gap: space[1] }}>
+              <Txt variant="displayM">Choose your username</Txt>
+              <Txt variant="caption" color="muted">
+                Step 2 of 2 · Your identity on Flyleaf
+              </Txt>
+            </View>
 
             {/* Avatar Preview */}
-            <View style={{ alignItems: 'center', marginVertical: space[3] }}>
+            <View style={{ alignItems: 'center', gap: space[2] }}>
               <View
                 style={{
                   width: 80,
                   height: 80,
-                  borderRadius: 40,
+                  borderRadius: radius.pill,
                   backgroundColor: c.accentSoft,
-                  borderWidth: 1,
-                  borderColor: c.line,
                   alignItems: 'center',
                   justifyContent: 'center',
                 }}
@@ -490,21 +438,21 @@ export default function AuthScreen() {
                   {(username || email || 'F').charAt(0).toUpperCase()}
                 </Txt>
               </View>
-              <Txt variant="caption" color="muted" style={{ marginTop: space[2] }}>
+              <Txt variant="caption" color="muted">
                 Typographic avatar
               </Txt>
             </View>
 
             <View style={{ gap: space[1] }}>
-              <Txt variant="micro" color="muted">
+              <Txt variant="micro" color="ink2">
                 Username
               </Txt>
               <View
                 style={[
                   styles.input,
                   {
-                    backgroundColor: c.surface2,
-                    borderColor: username.length > 0 && !usernameCheck.valid ? c.critical : c.line,
+                    backgroundColor: c.surface,
+                    borderColor: username.length > 0 && !usernameCheck.valid ? c.critical : c.lineStrong,
                     flexDirection: 'row',
                     alignItems: 'center',
                   },
@@ -520,6 +468,7 @@ export default function AuthScreen() {
                   autoCorrect={false}
                   placeholder="username"
                   placeholderTextColor={c.muted}
+                  accessibilityLabel="Username"
                   style={{ flex: 1, color: c.ink, fontSize: 15, fontFamily: fontFamilies.uiRegular }}
                 />
                 {usernameCheck.valid && usernameStatus.state === 'checking' && (
@@ -542,14 +491,14 @@ export default function AuthScreen() {
                     {usernameStatus.reason === 'taken' ? 'That username is taken.' : 'That username is not available.'}
                     {usernameStatus.suggestions.length > 0 ? ' Try one of these:' : ''}
                   </Txt>
-                  <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: space[2] }}>
+                  <View style={{ flexDirection: 'row', flexWrap: 'wrap', columnGap: space[4] }}>
                     {usernameStatus.suggestions.map((s) => (
                       <Pressable
                         key={s}
                         onPress={() => setUsername(s)}
                         accessibilityRole="button"
                         accessibilityLabel={`Use ${s}`}
-                        style={{ minHeight: 44, justifyContent: 'center' }}
+                        style={{ minHeight: 44, minWidth: 44, justifyContent: 'center' }}
                       >
                         <Txt variant="caption" color="accent" style={{ fontWeight: '500' }}>
                           @{s}
@@ -565,6 +514,8 @@ export default function AuthScreen() {
               )}
             </View>
 
+            {notices}
+
             <Button
               label="Create account"
               variant="primary"
@@ -578,86 +529,58 @@ export default function AuthScreen() {
         {/* ------------------------------------------------ Forgot Password Mode */}
         {mode === 'forgot' && (
           <View style={{ gap: space[4] }}>
-            <Txt variant="displayL">Reset password</Txt>
-            <Txt variant="body" color="muted">
-              Enter your registered email address and we will send you a link to reset your password.
-            </Txt>
-
-            <View style={{ gap: space[1] }}>
-              <Txt variant="micro" color="muted">
-                Email
+            <View style={{ gap: space[2] }}>
+              <Txt variant="displayM">Reset password</Txt>
+              <Txt variant="body" color="ink2">
+                Enter your registered email address and we will send you a link to reset your password.
               </Txt>
-              <TextInput
-                value={email}
-                onChangeText={setEmail}
-                keyboardType="email-address"
-                autoCapitalize="none"
-                placeholder="name@example.com"
-                placeholderTextColor={c.muted}
-                style={[styles.input, { backgroundColor: c.surface2, borderColor: c.line, color: c.ink }]}
-              />
             </View>
+
+            <Field
+              label="Email"
+              value={email}
+              onChangeText={setEmail}
+              keyboardType="email-address"
+              placeholder="name@example.com"
+            />
+
+            {notices}
 
             <Button label="Send reset link" variant="primary" onPress={handleForgotPassword} loading={busy} />
 
-            <Button
-              label="I have a reset token"
-              variant="secondary"
-              onPress={() => setMode('reset')}
-            />
+            <Button label="I have a reset token" variant="tertiary" onPress={() => setMode('reset')} />
           </View>
         )}
 
         {/* ------------------------------------------------ Reset Password Mode */}
         {mode === 'reset' && (
           <View style={{ gap: space[4] }}>
-            <Txt variant="displayL">Set new password</Txt>
+            <Txt variant="displayM">Set new password</Txt>
 
-            <View style={{ gap: space[1] }}>
-              <Txt variant="micro" color="muted">
-                Reset token
-              </Txt>
-              <TextInput
-                value={resetToken}
-                onChangeText={setResetToken}
-                autoCapitalize="none"
-                placeholder="Paste token from email"
-                placeholderTextColor={c.muted}
-                style={[styles.input, { backgroundColor: c.surface2, borderColor: c.line, color: c.ink }]}
-              />
-            </View>
+            <Field
+              label="Reset token"
+              value={resetToken}
+              onChangeText={setResetToken}
+              placeholder="Paste token from email"
+            />
 
-            <View style={{ gap: space[1] }}>
-              <Txt variant="micro" color="muted">
-                New password
-              </Txt>
-              <TextInput
-                value={password}
-                onChangeText={setPassword}
-                secureTextEntry
-                autoCapitalize="none"
-                autoCorrect={false}
-                placeholder="Min 10 characters"
-                placeholderTextColor={c.muted}
-                style={[styles.input, { backgroundColor: c.surface2, borderColor: c.line, color: c.ink }]}
-              />
-            </View>
+            <Field
+              label="New password"
+              value={password}
+              onChangeText={setPassword}
+              secureTextEntry
+              placeholder="Min 10 characters"
+            />
 
-            <View style={{ gap: space[1] }}>
-              <Txt variant="micro" color="muted">
-                Confirm new password
-              </Txt>
-              <TextInput
-                value={confirmPassword}
-                onChangeText={setConfirmPassword}
-                secureTextEntry
-                autoCapitalize="none"
-                autoCorrect={false}
-                placeholder="Re-enter password"
-                placeholderTextColor={c.muted}
-                style={[styles.input, { backgroundColor: c.surface2, borderColor: c.line, color: c.ink }]}
-              />
-            </View>
+            <Field
+              label="Confirm new password"
+              value={confirmPassword}
+              onChangeText={setConfirmPassword}
+              secureTextEntry
+              placeholder="Re-enter password"
+            />
+
+            {notices}
 
             <Button label="Change password" variant="primary" onPress={handleResetPassword} loading={busy} />
           </View>
@@ -666,28 +589,79 @@ export default function AuthScreen() {
         {/* ------------------------------------------------ Verify Email Mode */}
         {mode === 'verify' && (
           <View style={{ gap: space[4] }}>
-            <Txt variant="displayL">Check your email</Txt>
-            <Txt variant="body" color="muted">
-              We sent a verification link to {email || 'your email'}.
-            </Txt>
+            <View style={{ gap: space[2] }}>
+              <Txt variant="displayM">Check your email</Txt>
+              <Txt variant="body" color="ink2">
+                We sent a verification link to {email || 'your email'}.
+              </Txt>
+            </View>
 
-            <Button
-              label={cooldown > 0 ? `Resend in ${cooldown}s` : 'Resend verification email'}
-              variant="secondary"
-              onPress={handleResendVerification}
-              disabled={cooldown > 0}
-              loading={busy}
-            />
+            {notices}
 
             <Button
               label="Continue to Flyleaf"
               variant="primary"
               onPress={() => router.back()}
             />
+
+            <Button
+              label={cooldown > 0 ? `Resend in ${cooldown}s` : 'Resend verification email'}
+              variant="tertiary"
+              onPress={handleResendVerification}
+              disabled={cooldown > 0}
+              loading={busy}
+            />
           </View>
         )}
       </ScrollView>
     </Screen>
+  );
+}
+
+// A password field with its label above and a show/hide toggle at the end, so it
+// matches Field. Field itself cannot hold the toggle.
+function PasswordInput({
+  label,
+  value,
+  onChangeText,
+  placeholder,
+  show,
+  onToggle,
+}: {
+  label: string;
+  value: string;
+  onChangeText: (v: string) => void;
+  placeholder: string;
+  show: boolean;
+  onToggle: () => void;
+}) {
+  const c = useTheme();
+  return (
+    <View style={{ gap: space[1] }}>
+      <Txt variant="micro" color="ink2">
+        {label}
+      </Txt>
+      <View style={[styles.passwordContainer, { backgroundColor: c.surface, borderColor: c.lineStrong }]}>
+        <TextInput
+          value={value}
+          onChangeText={onChangeText}
+          secureTextEntry={!show}
+          autoCapitalize="none"
+          placeholder={placeholder}
+          placeholderTextColor={c.muted}
+          accessibilityLabel={label}
+          style={[styles.passwordInput, { color: c.ink }]}
+        />
+        <Pressable
+          onPress={onToggle}
+          accessibilityRole="button"
+          accessibilityLabel={show ? 'Hide password' : 'Show password'}
+          style={styles.eyeButton}
+        >
+          <Ionicons name={show ? 'eye-off-outline' : 'eye-outline'} size={20} color={c.muted} />
+        </Pressable>
+      </View>
+    </View>
   );
 }
 
@@ -698,14 +672,17 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  banner: {
+  notice: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: space[3],
-    padding: space[3],
-    borderRadius: radius.md,
-    borderWidth: 1,
-    marginBottom: space[2],
+    gap: space[2],
+  },
+  switchRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    alignItems: 'center',
+    justifyContent: 'center',
+    columnGap: space[1],
   },
   input: {
     minHeight: 48,
@@ -730,8 +707,9 @@ const styles = StyleSheet.create({
     minHeight: 48,
   },
   eyeButton: {
+    minWidth: 44,
     paddingHorizontal: space[3],
-    height: 48,
+    minHeight: 48,
     alignItems: 'center',
     justifyContent: 'center',
   },

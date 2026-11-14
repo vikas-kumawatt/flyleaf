@@ -12,7 +12,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as Haptics from 'expo-haptics';
 import { api, FlyleafApiError } from '@/lib/api';
 import { useSession } from '@/lib/session';
-import { Button, Card, EmptyState, Field, Screen, Txt, sheet } from '@/ui/components';
+import { Button, EmptyState, Field, Screen, Txt, sheet } from '@/ui/components';
 import { space, useTheme } from '@/ui/tokens';
 
 export default function ContentSettingsScreen() {
@@ -63,8 +63,8 @@ export default function ContentSettingsScreen() {
           // Under 18, or no confirmed date of birth: the control does not exist (§7.8).
           <EmptyState title="No content settings" subtitle="There is nothing to change here for your account" />
         ) : (
-          <Card style={{ padding: space[4], gap: space[3] }}>
-            <View style={[sheet.rowBetween, { gap: space[3] }]}>
+          <View>
+            <View style={[sheet.rowBetween, { gap: space[3], minHeight: 56, paddingHorizontal: space[4], paddingVertical: space[3] }]}>
               <View style={{ flex: 1, gap: 2 }}>
                 <Txt variant="body" style={{ fontWeight: '500' }}>
                   Show explicit titles in search
@@ -77,11 +77,13 @@ export default function ContentSettingsScreen() {
                 value={askingDob || Boolean(user.showExplicit)}
                 onValueChange={onToggle}
                 disabled={saving}
+                trackColor={{ false: c.lineStrong, true: c.accent }}
+                thumbColor={c.surface}
                 accessibilityLabel="Show explicit titles in search"
               />
             </View>
             {askingDob && (
-              <View style={{ gap: space[2] }}>
+              <View style={{ gap: space[2], paddingHorizontal: space[4], paddingVertical: space[3], borderTopWidth: 1, borderTopColor: c.line }}>
                 <Field
                   label="Re-enter your date of birth"
                   value={dob}
@@ -103,11 +105,13 @@ export default function ContentSettingsScreen() {
               </View>
             )}
             {!askingDob && error && (
-              <Txt variant="caption" color="critical">
-                {error}
-              </Txt>
+              <View style={{ paddingHorizontal: space[4], paddingVertical: space[3] }}>
+                <Txt variant="caption" color="critical">
+                  {error}
+                </Txt>
+              </View>
             )}
-          </Card>
+          </View>
         )}
       </ScrollView>
     </Screen>

@@ -11,6 +11,7 @@ import { validatePassword } from '@/lib/auth-validation';
 import { transientAuthError, UNREACHABLE } from '@/lib/authErrors';
 import { Button, Screen, Txt, sheet } from '@/ui/components';
 import { fontFamilies, radius, space, useTheme } from '@/ui/tokens';
+import { ScreenHeader } from '@/ui/ScreenHeader';
 
 export default function ResetPasswordScreen() {
   const c = useTheme();
@@ -51,17 +52,20 @@ export default function ResetPasswordScreen() {
     }
   };
 
+  // Field cannot carry autoComplete / textContentType, which password managers
+  // need here, so these two inputs are drawn to match Field with a label above.
   const input = [
-    { backgroundColor: c.surface2, borderColor: c.line, color: c.ink },
+    { backgroundColor: c.surface, borderColor: error ? c.critical : c.lineStrong, color: c.ink },
     { borderWidth: 1, borderRadius: radius.md, paddingHorizontal: space[3], minHeight: 48, fontSize: 15, fontFamily: fontFamilies.uiRegular },
   ];
 
   if (state === 'done') {
     return (
       <Screen>
+        <ScreenHeader title="New password" />
         <View style={[sheet.pad, { gap: space[4] }]}>
-          <Txt variant="displayL">Password changed</Txt>
-          <Txt variant="body" color="muted">
+          <Txt variant="displayM">Password changed</Txt>
+          <Txt variant="body" color="ink2">
             You have been signed out on every device. Sign in with your new password.
           </Txt>
           <Button label="Sign in" variant="primary" onPress={() => router.replace('/auth?mode=login' as any)} />
@@ -73,9 +77,10 @@ export default function ResetPasswordScreen() {
   if (state === 'expired') {
     return (
       <Screen>
+        <ScreenHeader title="New password" />
         <View style={[sheet.pad, { gap: space[4] }]}>
-          <Txt variant="displayL">This link has expired</Txt>
-          <Txt variant="body" color="muted">
+          <Txt variant="displayM">This link has expired</Txt>
+          <Txt variant="body" color="ink2">
             Reset links work once and expire after 60 minutes. Send yourself a new one.
           </Txt>
           <Button label="Send a new link" variant="primary" onPress={() => router.replace('/auth?mode=forgot' as any)} />
@@ -86,34 +91,43 @@ export default function ResetPasswordScreen() {
 
   return (
     <Screen>
+      <ScreenHeader title="New password" />
       <ScrollView contentContainerStyle={[sheet.pad, { gap: space[4] }]} keyboardShouldPersistTaps="handled">
-        <Txt variant="displayL">Choose a new password</Txt>
-        <Txt variant="body" color="muted">At least 10 characters</Txt>
-        {error ? <Txt variant="caption" color="critical">{error}</Txt> : null}
-        <TextInput
-          value={password}
-          onChangeText={setPassword}
-          secureTextEntry
-          autoCapitalize="none"
-          autoComplete="new-password"
-          textContentType="newPassword"
-          placeholder="New password"
-          placeholderTextColor={c.muted}
-          accessibilityLabel="New password"
-          style={input}
-        />
-        <TextInput
-          value={confirm}
-          onChangeText={setConfirm}
-          secureTextEntry
-          autoCapitalize="none"
-          autoComplete="new-password"
-          textContentType="newPassword"
-          placeholder="Confirm new password"
-          placeholderTextColor={c.muted}
-          accessibilityLabel="Confirm new password"
-          style={input}
-        />
+        <View style={{ gap: space[1] }}>
+          <Txt variant="displayM">Choose a new password</Txt>
+          <Txt variant="body" color="ink2">At least 10 characters</Txt>
+        </View>
+        <View style={{ gap: space[1] }}>
+          <Txt variant="micro" color="ink2">New password</Txt>
+          <TextInput
+            value={password}
+            onChangeText={setPassword}
+            secureTextEntry
+            autoCapitalize="none"
+            autoComplete="new-password"
+            textContentType="newPassword"
+            placeholder="New password"
+            placeholderTextColor={c.muted}
+            accessibilityLabel="New password"
+            style={input}
+          />
+        </View>
+        <View style={{ gap: space[1] }}>
+          <Txt variant="micro" color="ink2">Confirm new password</Txt>
+          <TextInput
+            value={confirm}
+            onChangeText={setConfirm}
+            secureTextEntry
+            autoCapitalize="none"
+            autoComplete="new-password"
+            textContentType="newPassword"
+            placeholder="Confirm new password"
+            placeholderTextColor={c.muted}
+            accessibilityLabel="Confirm new password"
+            style={input}
+          />
+          {error ? <Txt variant="caption" color="critical">{error}</Txt> : null}
+        </View>
         <Button label="Change password" variant="primary" loading={busy} onPress={() => void submit()} />
       </ScrollView>
     </Screen>

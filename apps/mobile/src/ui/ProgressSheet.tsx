@@ -13,13 +13,12 @@ import {
   TextInput,
   Pressable,
   ScrollView,
-  KeyboardAvoidingView,
-  Platform,
   Text,
   TextStyle,
 } from 'react-native';
 import * as Haptics from 'expo-haptics';
-import { BottomSheet, Button, Txt, sheet } from './components';
+import { Ionicons } from '@expo/vector-icons';
+import { BottomSheet, Button, Chip, Txt, sheet } from './components';
 import { radius, space, useTheme, type as t, fontFamilies } from './tokens';
 
 interface ProgressSheetProps {
@@ -110,20 +109,20 @@ export function ProgressSheet({
   };
 
   return (
-    <BottomSheet visible={visible} onClose={onClose} title={`Update — ${title}`}>
-      <KeyboardAvoidingView
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-        keyboardVerticalOffset={20}
-      >
+    <BottomSheet visible={visible} onClose={onClose} title="Update progress">
+      <View>
         <ScrollView
           showsVerticalScrollIndicator={false}
           contentContainerStyle={{ gap: space[4], paddingBottom: space[4] }}
         >
+          <Txt variant="body" color="ink2" numberOfLines={1}>
+            {title}
+          </Txt>
           {/* Page Number Entry & Quick Delta Chips */}
           <View style={{ gap: space[2] }}>
             <View style={[sheet.row, { justifyContent: 'space-between' }]}>
               <Txt variant="caption" color="muted">
-                CURRENT PAGE {pageCount ? `(OF ${pageCount})` : ''}
+                Current page{pageCount ? ` of ${pageCount}` : ''}
               </Txt>
               {pageCount && (
                 <Txt variant="micro" color="ink2" tabular>
@@ -154,7 +153,7 @@ export function ProgressSheet({
                 paddingVertical: space[2],
                 borderRadius: radius.md,
                 borderWidth: 1,
-                borderColor: error ? c.critical : c.line,
+                borderColor: error ? c.critical : c.lineStrong,
                 backgroundColor: c.surface2,
                 color: c.ink,
               }}
@@ -171,37 +170,28 @@ export function ProgressSheet({
                       onClose();
                       onFinishShortcut();
                     }}
+                    accessibilityRole="button"
+                    style={[sheet.row, { gap: space[1], minHeight: 44 }]}
                   >
                     <Txt variant="caption" color="accent" style={{ fontWeight: '500' }}>
-                      Finish book now →
+                      Finish this book
                     </Txt>
+                    <Ionicons name="chevron-forward" size={16} color={c.accent} />
                   </Pressable>
                 )}
               </View>
             )}
 
             {/* Quick increment chips */}
-            <View style={[sheet.row, { gap: space[2], marginTop: space[1] }]}>
+            <View style={[sheet.row, { gap: space[2], flexWrap: 'wrap' }]}>
               {[10, 25, 50].map((delta) => (
-                <Pressable
+                <Chip
                   key={delta}
-                  onPress={() => handleAddDelta(delta)}
-                  accessibilityRole="button"
+                  label={`+${delta}`}
+                  selected={false}
                   accessibilityLabel={`Add ${delta} pages`}
-                  style={{
-                    flex: 1,
-                    paddingVertical: space[2],
-                    borderRadius: radius.sm,
-                    backgroundColor: c.surface2,
-                    borderWidth: 1,
-                    borderColor: c.line,
-                    alignItems: 'center',
-                  }}
-                >
-                  <Txt variant="caption" color="ink" style={{ fontWeight: '500' }}>
-                    +{delta}
-                  </Txt>
-                </Pressable>
+                  onPress={() => handleAddDelta(delta)}
+                />
               ))}
             </View>
           </View>
@@ -210,42 +200,23 @@ export function ProgressSheet({
           <View style={{ gap: space[2] }}>
             <View style={[sheet.row, { justifyContent: 'space-between' }]}>
               <Txt variant="caption" color="muted">
-                TIME SPENT (OPTIONAL)
+                Time spent (optional)
               </Txt>
               <Txt variant="micro" color="muted">
                 Unlocks reading speed
               </Txt>
             </View>
 
-            <View style={[sheet.row, { gap: space[2] }]}>
-              {[15, 30, 45, 60].map((m) => {
-                const isSelected = minutesInput === String(m);
-                return (
-                  <Pressable
-                    key={m}
-                    onPress={() => handleSelectMinutes(m)}
-                    accessibilityRole="button"
-                    accessibilityLabel={`${m} minutes`}
-                    style={{
-                      flex: 1,
-                      paddingVertical: space[2],
-                      borderRadius: radius.sm,
-                      backgroundColor: isSelected ? c.accentSoft : c.surface2,
-                      borderWidth: 1,
-                      borderColor: isSelected ? c.accent : c.line,
-                      alignItems: 'center',
-                    }}
-                  >
-                    <Txt
-                      variant="caption"
-                      color={isSelected ? 'accent' : 'ink'}
-                      style={{ fontWeight: isSelected ? '500' : '400' }}
-                    >
-                      {m}m
-                    </Txt>
-                  </Pressable>
-                );
-              })}
+            <View style={[sheet.row, { gap: space[2], flexWrap: 'wrap' }]}>
+              {[15, 30, 45, 60].map((m) => (
+                <Chip
+                  key={m}
+                  label={`${m}m`}
+                  selected={minutesInput === String(m)}
+                  accessibilityLabel={`${m} minutes`}
+                  onPress={() => handleSelectMinutes(m)}
+                />
+              ))}
             </View>
 
             <TextInput
@@ -256,12 +227,12 @@ export function ProgressSheet({
               placeholderTextColor={c.muted}
               accessibilityLabel="Custom reading session minutes"
               style={{
-                height: 42,
+                minHeight: 44,
                 paddingHorizontal: space[3],
                 fontFamily: fontFamilies.uiRegular,
                 borderRadius: radius.md,
                 borderWidth: 1,
-                borderColor: c.line,
+                borderColor: c.lineStrong,
                 backgroundColor: c.surface2,
                 color: c.ink,
                 fontSize: 15,
@@ -273,7 +244,7 @@ export function ProgressSheet({
           <View style={{ gap: space[1] }}>
             <View style={[sheet.row, { justifyContent: 'space-between' }]}>
               <Txt variant="caption" color="muted">
-                PRIVATE NOTE (OPTIONAL)
+                Private note (optional)
               </Txt>
               <Txt
                 variant="micro"
@@ -301,7 +272,7 @@ export function ProgressSheet({
                 fontFamily: fontFamilies.uiRegular,
                 borderRadius: radius.md,
                 borderWidth: 1,
-                borderColor: c.line,
+                borderColor: c.lineStrong,
                 backgroundColor: c.surface2,
                 color: c.ink,
                 fontSize: 15,
@@ -320,16 +291,17 @@ export function ProgressSheet({
                 }}
                 accessibilityRole="button"
                 accessibilityLabel="Save a quote from this section"
-                style={{ paddingVertical: space[1] }}
+                style={[sheet.row, { gap: space[1], minHeight: 44 }]}
               >
+                <Ionicons name="add" size={16} color={c.accent} />
                 <Txt variant="caption" color="accent">
-                  + Save a quote from this section
+                  Save a quote from this section
                 </Txt>
               </Pressable>
             ) : (
               <View style={{ gap: space[1] }}>
                 <Txt variant="caption" color="muted">
-                  QUOTE
+                  Quote
                 </Txt>
                 <TextInput
                   value={quoteInput}
@@ -340,17 +312,15 @@ export function ProgressSheet({
                   numberOfLines={2}
                   accessibilityLabel="Transcribe quote"
                   style={{
-                    minHeight: 60,
+                    minHeight: 72,
                     paddingHorizontal: space[3],
                     paddingVertical: space[2],
-                    fontFamily: fontFamilies.uiRegular,
+                    ...t.bodyL,
                     borderRadius: radius.md,
                     borderWidth: 1,
-                    borderColor: c.accent,
+                    borderColor: c.lineStrong,
                     backgroundColor: c.surface2,
                     color: c.ink,
-                    fontSize: 15,
-                    fontStyle: 'italic',
                     textAlignVertical: 'top',
                   }}
                 />
@@ -360,9 +330,9 @@ export function ProgressSheet({
 
           {/* Action Buttons */}
           <View style={{ gap: space[2], marginTop: space[2] }}>
-            <Button label="Save progress" variant="primary" onPress={handleSave} />
+            <Button label="Save" variant="primary" onPress={handleSave} />
             <Button
-              label="I finished this book"
+              label="Finish"
               variant="tertiary"
               onPress={() => {
                 onClose();
@@ -371,7 +341,7 @@ export function ProgressSheet({
             />
           </View>
         </ScrollView>
-      </KeyboardAvoidingView>
+      </View>
     </BottomSheet>
   );
 }

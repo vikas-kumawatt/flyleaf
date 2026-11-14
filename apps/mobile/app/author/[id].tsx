@@ -23,15 +23,15 @@ import * as Haptics from 'expo-haptics';
 import { api, type Work } from '@/lib/api';
 import { useRemote } from '@/lib/useRemote';
 import { RemoteStatus } from '@/ui/RemoteStatus';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
   Button,
-  Card,
   Cover,
   Screen,
   Txt,
   sheet,
 } from '@/ui/components';
-import { fontFamilies, space, useTheme } from '@/ui/tokens';
+import { space, useTheme } from '@/ui/tokens';
 
 const STATUS_LABEL: Record<string, string> = {
   want: 'Want to read',
@@ -44,6 +44,7 @@ export default function AuthorScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
   const c = useTheme();
+  const insets = useSafeAreaInsets();
 
   const [bioExpanded, setBioExpanded] = useState(false);
   const [more, setMore] = useState<Work[]>([]);
@@ -75,24 +76,25 @@ export default function AuthorScreen() {
         style={{
           flexDirection: 'row',
           alignItems: 'center',
-          paddingHorizontal: space[4],
-          paddingTop: space[4],
-          paddingBottom: space[3],
+          paddingLeft: space[2],
+          paddingRight: space[4],
+          paddingTop: Math.max(insets.top, space[4]),
+          paddingBottom: space[2],
           backgroundColor: c.ground,
           borderBottomWidth: 1,
           borderBottomColor: c.line,
-          gap: space[3],
+          gap: space[1],
         }}
       >
         <Pressable
           onPress={() => router.back()}
           accessibilityRole="button"
           accessibilityLabel="Back"
-          hitSlop={8}
+          style={{ minWidth: 44, minHeight: 44, alignItems: 'center', justifyContent: 'center' }}
         >
           <Ionicons name="chevron-back" size={24} color={c.ink} />
         </Pressable>
-        <Txt variant="title" numberOfLines={1}>
+        <Txt variant="title" numberOfLines={1} style={{ flex: 1 }}>
           Author
         </Txt>
       </View>
@@ -126,7 +128,7 @@ export default function AuthorScreen() {
 
           <View style={{ alignItems: 'center', gap: space[1] }}>
             <Txt variant="displayL" style={{ textAlign: 'center' }}>{author.name}</Txt>
-            <Txt variant="caption" color="muted" tabular>
+            <Txt variant="caption" color="muted" tabular style={{ textAlign: 'center' }}>
               {author.read_count.toLocaleString()} of {author.works_count.toLocaleString()} books read
             </Txt>
           </View>
@@ -134,87 +136,84 @@ export default function AuthorScreen() {
 
         {/* Biography (Collapsible per PRD §6.29) */}
         {author.bio && (
-          <Card style={{ gap: space[2] }}>
-            <Txt variant="micro" color="muted">
-              Biography
-            </Txt>
+          <View style={{ gap: space[2], paddingTop: space[6], borderTopWidth: 1, borderTopColor: c.line }}>
+            <Txt variant="title">Biography</Txt>
             <Txt
               variant="body"
               color="ink"
-              numberOfLines={bioExpanded ? undefined : 3}
+              numberOfLines={bioExpanded ? undefined : 4}
             >
               {author.bio}
             </Txt>
-            <Pressable
+            <Button
+              label={bioExpanded ? 'Show less' : 'Read more'}
+              variant="tertiary"
+              size="sm"
               onPress={() => setBioExpanded(!bioExpanded)}
-              accessibilityRole="button"
               accessibilityLabel={bioExpanded ? 'Show less bio' : 'Read full bio'}
-              hitSlop={8}
-            >
-              <Txt variant="caption" color="accent" style={{ fontWeight: '500' }}>
-                {bioExpanded ? 'Show less' : 'Read more'}
-              </Txt>
-            </Pressable>
-          </Card>
+              style={{ alignSelf: 'flex-start', marginLeft: -space[2] }}
+            />
+          </View>
         )}
 
-        {/* Bibliography List */}
-        <View style={{ gap: space[3] }}>
+        {/* Bibliography: ruled rows */}
+        <View style={{ gap: space[2], paddingTop: space[6], borderTopWidth: 1, borderTopColor: c.line }}>
           <Txt variant="title">Bibliography</Txt>
-          <View style={{ gap: space[3] }}>
-            {works.length === 0 ? (
-              <Txt color="muted">No books by this author in the catalog yet</Txt>
-            ) : null}
-            {works.map((work) => (
-              <Card
+          {works.length === 0 ? (
+            <Txt variant="body" color="muted">No books by this author in the catalog yet</Txt>
+          ) : null}
+          <View>
+            {works.map((work, index) => (
+              <Pressable
                 key={work.id}
-                onPress={() => router.push(`/work/${work.id}`)}
-                style={{ padding: space[3] }}
+                onPress={() => {
+                  void Haptics.selectionAsync();
+                  router.push(`/work/${work.id}`);
+                }}
+                accessibilityRole="button"
+                style={({ pressed }) => [
+                  sheet.rowTop,
+                  {
+                    paddingVertical: space[3],
+                    borderTopWidth: index ? 1 : 0,
+                    borderTopColor: c.line,
+                    backgroundColor: pressed ? c.surface2 : 'transparent',
+                  },
+                ]}
               >
-                <View style={sheet.rowTop}>
-                  <Cover coverId={work.cover_id} title={work.title} size="s" />
-                  <View
-                    style={{
-                      flex: 1,
-                      marginLeft: space[3],
-                      justifyContent: 'space-between',
-                      gap: space[1],
-                    }}
-                  >
-                    <View>
-                      <Txt variant="title" style={{ fontFamily: fontFamilies.displayMedium }} numberOfLines={2}>
-                        {work.title}
+                <Cover coverId={work.cover_id} title={work.title} author={author.name} size="s" />
+                <View style={{ flex: 1, gap: space[1] }}>
+                  <Txt variant="title" numberOfLines={2}>
+                    {work.title}
+                  </Txt>
+                  {work.first_publish_year ? (
+                    <Txt variant="caption" color="ink2" tabular>
+                      First published {work.first_publish_year}
+                    </Txt>
+                  ) : null}
+                  <View style={[sheet.row, { justifyContent: 'space-between', flexWrap: 'wrap', gap: space[2] }]}>
+                    <Txt variant="micro" color="muted" tabular>
+                      {work.log_count.toLocaleString()} {work.log_count === 1 ? 'reader' : 'readers'}
+                    </Txt>
+                    {work.your_read && (
+                      <Txt variant="micro" color="ink2">
+                        {STATUS_LABEL[work.your_read.status] ?? work.your_read.status}
                       </Txt>
-                      {work.first_publish_year ? (
-                        <Txt variant="caption" color="muted" tabular>
-                          First published {work.first_publish_year}
-                        </Txt>
-                      ) : null}
-                    </View>
-
-                    <View style={[sheet.row, { justifyContent: 'space-between', marginTop: space[1] }]}>
-                      <Txt variant="micro" color="muted" tabular>
-                        {work.log_count.toLocaleString()} {work.log_count === 1 ? 'reader' : 'readers'}
-                      </Txt>
-                      {work.your_read && (
-                        <Txt variant="micro" color="ink2">
-                          {STATUS_LABEL[work.your_read.status] ?? work.your_read.status}
-                        </Txt>
-                      )}
-                    </View>
+                    )}
                   </View>
                 </View>
-              </Card>
+              </Pressable>
             ))}
-            {works.length < author.works_count ? (
-              <Button
-                label={`Show more (${author.works_count - works.length})`}
-                variant="secondary"
-                loading={loadingMore}
-                onPress={() => void loadMore()}
-              />
-            ) : null}
           </View>
+          {works.length < author.works_count ? (
+            <Button
+              label={`Show more (${author.works_count - works.length})`}
+              variant="secondary"
+              loading={loadingMore}
+              onPress={() => void loadMore()}
+              style={{ marginTop: space[2] }}
+            />
+          ) : null}
         </View>
       </ScrollView>
     </Screen>

@@ -6,12 +6,18 @@
 // slider: the type scale in ui/tokens is fixed (owner decision on LA-02).
 
 import React from 'react';
-import { ScrollView } from 'react-native';
+import { ScrollView, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { Screen, SegmentedControl, Txt } from '@/ui/components';
+import { Chip, Screen, Txt } from '@/ui/components';
 import { ScreenHeader } from '@/ui/ScreenHeader';
 import { Group, NavRow, SectionTitle } from '@/ui/SettingsRows';
 import { space, useTheme, useThemeContext, type ThemeMode } from '@/ui/tokens';
+
+const THEME_OPTIONS: { value: ThemeMode; label: string }[] = [
+  { value: 'system', label: 'System' },
+  { value: 'light', label: 'Light' },
+  { value: 'dark', label: 'Dark' },
+];
 
 export default function AppearanceSettingsScreen() {
   const c = useTheme();
@@ -23,15 +29,12 @@ export default function AppearanceSettingsScreen() {
       <ScreenHeader title="Appearance" />
       <ScrollView contentContainerStyle={{ padding: space[4], paddingBottom: insets.bottom + space[8], gap: space[2] }}>
         <SectionTitle>Theme</SectionTitle>
-        <SegmentedControl
-          options={[
-            { value: 'system', label: 'System' },
-            { value: 'light', label: 'Light' },
-            { value: 'dark', label: 'Dark' },
-          ]}
-          value={mode}
-          onChange={(val) => void setMode(val as ThemeMode)}
-        />
+        {/* A setting, not a set of views: radio chips, not the underlined tabs. */}
+        <View accessibilityRole="radiogroup" style={{ flexDirection: 'row', flexWrap: 'wrap', gap: space[2] }}>
+          {THEME_OPTIONS.map((o) => (
+            <Chip key={o.value} label={o.label} role="radio" selected={mode === o.value} onPress={() => void setMode(o.value)} />
+          ))}
+        </View>
         <Txt variant="caption" color="muted">
           System follows your phone, switching between light and dark with it.
         </Txt>

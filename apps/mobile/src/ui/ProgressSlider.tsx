@@ -5,7 +5,7 @@
 //   2. Haptic tick at each 5% increment.
 //   3. Responsive thumb with optimistic local updates, eased on tap.
 
-import React, { useState, useRef } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import { View, LayoutChangeEvent, StyleProp, ViewStyle } from 'react-native';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import Animated, {
@@ -14,6 +14,7 @@ import Animated, {
   withTiming,
   Easing,
   runOnJS,
+  useReducedMotion,
 } from 'react-native-reanimated';
 import * as Haptics from 'expo-haptics';
 import { motion, radius, space, useTheme } from './tokens';
@@ -42,6 +43,16 @@ export function ProgressSlider({
   const initialPercent = pageCount > 0 ? Math.min(100, Math.max(0, (currentPage / pageCount) * 100)) : 0;
   const progressRatio = useSharedValue(initialPercent / 100);
   const lastHapticStep = useRef(Math.floor(initialPercent / 5));
+  const reduceMotion = useReducedMotion();
+
+  // Progress also changes from outside the slider (+10 pages, the progress
+  // sheet): the thumb follows, or it would sit where it was first drawn.
+  useEffect(() => {
+    progressRatio.value = reduceMotion
+      ? initialPercent / 100
+      : withTiming(initialPercent / 100, { duration: motion.menu, easing: Easing.bezier(...motion.easing) });
+    lastHapticStep.current = Math.floor(initialPercent / 5);
+  }, [initialPercent]);
 
   const handleLayout = (e: LayoutChangeEvent) => {
     const w = e.nativeEvent.layout.width;
@@ -116,17 +127,16 @@ export function ProgressSlider({
             now: currentPage,
           }}
           style={{
-            height: 36,
-            justifyContent: 'center',
+            height: 28,
             paddingVertical: 12,
           }}
         >
           {/* Background track */}
           <View
             style={{
-              height: 6,
-              borderRadius: radius.pill,
-              backgroundColor: c.surface2,
+              height: 4,
+              borderRadius: radius.xs,
+              backgroundColor: c.line,
               overflow: 'hidden',
             }}
           >
@@ -136,7 +146,6 @@ export function ProgressSlider({
                 {
                   height: '100%',
                   backgroundColor: c.accent,
-                  borderRadius: radius.pill,
                 },
                 fillStyle,
               ]}
@@ -148,8 +157,8 @@ export function ProgressSlider({
             style={[
               {
                 position: 'absolute',
-                // Centres the 20pt thumb on the 6pt track (12 padding + 3 - 10).
-                top: 5,
+                // Centres the 20pt thumb on the 4pt track (12 padding + 2 - 10).
+                top: 4,
                 width: 20,
                 height: 20,
                 marginLeft: -10,

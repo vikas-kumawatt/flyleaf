@@ -1,4 +1,4 @@
-// Five-tab navigation shell with central FAB (PRD §5.2, design.md §4-5, SL-01).
+// Five-tab navigation shell with a central Log action (PRD §5.2, design.md §5, SL-01).
 //
 // 1. Home (House)
 // 2. Reading (Bookmark) -- the daily hook
@@ -16,7 +16,7 @@ import * as Haptics from 'expo-haptics';
 import { useSession } from '@/lib/session';
 import { budgetTracker } from '@/lib/budgetTracker';
 import { useActionGate } from '@/ui/ActionGate';
-import { useTheme, fontFamilies, radius, space, type as t } from '@/ui/tokens';
+import { useTheme, fontFamilies, space, type as t } from '@/ui/tokens';
 
 function TabBarItem({
   title,
@@ -51,6 +51,8 @@ function TabBarItem({
       />
       <Text
         numberOfLines={1}
+        // A tab label that truncates is worse than one that stops growing.
+        maxFontSizeMultiplier={1.3}
         style={[
           t.micro as object,
           {
@@ -60,6 +62,10 @@ function TabBarItem({
             fontWeight: 'normal',
             color: focused ? c.ink : c.muted,
             marginTop: space[1] / 2,
+            // The label takes the cell's width, so it never depends on its own
+            // measured width (seen clipped on Android after a remount).
+            alignSelf: 'stretch',
+            textAlign: 'center',
           },
         ]}
       >
@@ -122,8 +128,8 @@ export default function TabLayout() {
               onPress={() => navigation.navigate('reading')}
             />
 
-            {/* Central FAB (+) — Log a book */}
-            <View style={styles.fabSlot}>
+            {/* Central Log action: a labelled peer of the tabs, in the accent */}
+            <View style={styles.tabItem}>
               <Pressable
                 onPress={() => {
                   void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
@@ -140,9 +146,28 @@ export default function TabLayout() {
                 }}
                 accessibilityRole="button"
                 accessibilityLabel="Log a book"
-                style={[styles.fabButton, { backgroundColor: c.accent }]}
+                style={styles.logButton}
               >
-                <Ionicons name="add" size={24} color={c.onAccent} />
+                <Ionicons name="add-circle-outline" size={24} color={c.accent} />
+                <Text
+                  numberOfLines={1}
+                  maxFontSizeMultiplier={1.3}
+                  style={[
+                    t.micro as object,
+                    {
+                      fontSize: 11,
+                      lineHeight: 14,
+                      fontFamily: fontFamilies.uiMedium,
+                      fontWeight: 'normal',
+                      color: c.accent,
+                      marginTop: space[1] / 2,
+                      alignSelf: 'stretch',
+                      textAlign: 'center',
+                    },
+                  ]}
+                >
+                  Log
+                </Text>
               </Pressable>
             </View>
 
@@ -202,15 +227,10 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     paddingVertical: space[1] / 2,
   },
-  fabSlot: {
-    width: 56,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  fabButton: {
-    width: 44,
-    height: 44,
-    borderRadius: radius.md,
+  logButton: {
+    minHeight: 48,
+    minWidth: 48,
+    alignSelf: 'stretch',
     alignItems: 'center',
     justifyContent: 'center',
   },

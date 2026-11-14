@@ -26,8 +26,8 @@ import { useSession } from '@/lib/session';
 import { ReportSheet, type ReportTarget } from '@/ui/ReportSheet';
 import { useActionGate } from '@/ui/ActionGate';
 import { useOfflineSync } from '@/offline/sync';
-import { Button, Card, Cover, Screen, Stars, Txt, sheet, Skeleton } from '@/ui/components';
-import { fontFamilies, radius, space, useTheme } from '@/ui/tokens';
+import { Cover, Screen, Stars, Txt, sheet, Skeleton } from '@/ui/components';
+import { radius, space, useTheme } from '@/ui/tokens';
 
 export default function ReviewDetailScreen() {
   const c = useTheme();
@@ -185,20 +185,19 @@ export default function ReviewDetailScreen() {
           accessibilityRole="button"
           accessibilityLabel="Go back"
           hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+          style={{ minWidth: 44, minHeight: 44, justifyContent: 'center' }}
         >
           <Ionicons name="chevron-back" size={24} color={c.ink} />
         </Pressable>
 
-        <Txt variant="body" style={{ fontWeight: '500' }}>
-          Review
-        </Txt>
+        <Txt variant="title">Review</Txt>
 
-        <View style={{ flexDirection: 'row', gap: space[3], alignItems: 'center' }}>
+        <View style={{ flexDirection: 'row', alignItems: 'center' }}>
           <Pressable
             onPress={handleShare}
             accessibilityRole="button"
             accessibilityLabel="Share review"
-            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+            style={{ minWidth: 44, minHeight: 44, alignItems: 'center', justifyContent: 'center' }}
           >
             <Ionicons name="share-outline" size={22} color={c.ink} />
           </Pressable>
@@ -207,7 +206,7 @@ export default function ReviewDetailScreen() {
               onPress={() => setReportTarget({ type: 'review', id: review.id })}
               accessibilityRole="button"
               accessibilityLabel="Report review"
-              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+              style={{ minWidth: 44, minHeight: 44, alignItems: 'center', justifyContent: 'center' }}
             >
               <Ionicons name="flag-outline" size={20} color={c.ink} />
             </Pressable>
@@ -217,7 +216,7 @@ export default function ReviewDetailScreen() {
               onPress={handleDelete}
               accessibilityRole="button"
               accessibilityLabel="Delete review"
-              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+              style={{ minWidth: 44, minHeight: 44, alignItems: 'center', justifyContent: 'center' }}
             >
               <Ionicons name="trash-outline" size={20} color={c.critical} />
             </Pressable>
@@ -263,41 +262,44 @@ export default function ReviewDetailScreen() {
           </View>
         </View>
 
-        {/* 2. Book Context Strip (tap opens work detail) */}
+        {/* 2. Book Context Strip (tap opens work detail): a ruled row, not a card */}
         <Pressable
           onPress={() => router.push(`/work/${review.work_id}` as any)}
           accessibilityRole="button"
           accessibilityLabel={`Go to book ${review.work_title ?? ''}`}
-        >
-          <Card
-            style={{
-              flexDirection: 'row',
-              alignItems: 'center',
+          style={({ pressed }) => [
+            sheet.row,
+            {
               gap: space[3],
-            }}
-          >
-            <Cover
-              coverId={review.work_cover_id}
-              title={review.work_title ?? 'Book'}
-              author={review.work_author ?? ''}
-              size="s"
-            />
-            <View style={{ flex: 1, gap: space[1] }}>
-              <Txt variant="title" style={{ fontFamily: fontFamilies.displayMedium }} numberOfLines={2}>
-                {review.work_title ?? 'Book'}
+              paddingVertical: space[3],
+              borderTopWidth: 1,
+              borderBottomWidth: 1,
+              borderColor: c.line,
+              backgroundColor: pressed ? c.surface2 : 'transparent',
+            },
+          ]}
+        >
+          <Cover
+            coverId={review.work_cover_id}
+            title={review.work_title ?? 'Book'}
+            author={review.work_author ?? ''}
+            size="s"
+          />
+          <View style={{ flex: 1, gap: space[1] }}>
+            <Txt variant="title" numberOfLines={2}>
+              {review.work_title ?? 'Book'}
+            </Txt>
+            {review.work_author ? (
+              <Txt variant="caption" color="muted">
+                {review.work_author}
               </Txt>
-              {review.work_author ? (
-                <Txt variant="caption" color="muted">
-                  {review.work_author}
-                </Txt>
-              ) : null}
-            </View>
-            <Ionicons name="chevron-forward" size={18} color={c.muted} />
-          </Card>
+            ) : null}
+          </View>
+          <Ionicons name="chevron-forward" size={18} color={c.muted} />
         </Pressable>
 
         {/* 3. Rating & Affection Header */}
-        <View style={[sheet.row, { justifyContent: 'space-between' }]}>
+        <View style={[sheet.row, { justifyContent: 'space-between', flexWrap: 'wrap' }]}>
           <View style={[sheet.row, { gap: space[2] }]}>
             <Stars value={review.rating ?? null} size={22} />
           </View>
@@ -320,6 +322,7 @@ export default function ReviewDetailScreen() {
                 setSpoilerRevealed(true);
               }}
               style={{
+                minHeight: 44,
                 paddingVertical: space[6],
                 alignItems: 'center',
                 justifyContent: 'center',
@@ -329,7 +332,7 @@ export default function ReviewDetailScreen() {
               accessibilityLabel="Reveal spoiler review content"
             >
               <Ionicons name="alert-circle-outline" size={24} color={c.ink2} />
-              <Txt variant="body" style={{ fontWeight: '500', textAlign: 'center' }}>
+              <Txt variant="title" style={{ textAlign: 'center' }}>
                 This review contains spoilers
               </Txt>
               {review.spoiler_after_page ? (
@@ -348,53 +351,65 @@ export default function ReviewDetailScreen() {
           )}
         </View>
 
-        {/* 5. Like Button & Social Footer */}
-        <View style={[sheet.row, { justifyContent: 'space-between', marginTop: space[2] }]}>
-          <Pressable
-            onPress={handleToggleLike}
-            accessibilityRole="button"
-            accessibilityLabel={liked ? 'Unlike review' : 'Like review'}
-            style={[
-              sheet.row,
-              {
-                paddingHorizontal: space[3],
-                minHeight: 44,
-                borderRadius: radius.md,
-                borderWidth: 1,
-                borderColor: c.line,
-                backgroundColor: c.surface,
-                gap: space[2],
-              },
-            ]}
-          >
-            <Ionicons name={liked ? 'heart' : 'heart-outline'} size={18} color={liked ? c.heart : c.ink2} />
-            <Txt variant="caption" style={{ fontWeight: '500' }} tabular>
-              {likeCount > 0 ? likeCount.toLocaleString() : 'Like'}
-            </Txt>
-          </Pressable>
+        {/* 5. Like, comments and visibility, above a rule */}
+        <View
+          style={[
+            sheet.row,
+            {
+              justifyContent: 'space-between',
+              flexWrap: 'wrap',
+              gap: space[2],
+              paddingTop: space[3],
+              borderTopWidth: 1,
+              borderTopColor: c.line,
+            },
+          ]}
+        >
+          <View style={[sheet.row, { gap: space[2], flexWrap: 'wrap' }]}>
+            <Pressable
+              onPress={handleToggleLike}
+              accessibilityRole="button"
+              accessibilityLabel={liked ? 'Unlike review' : 'Like review'}
+              style={[
+                sheet.row,
+                {
+                  paddingHorizontal: space[4],
+                  minHeight: 44,
+                  borderRadius: radius.pill,
+                  borderWidth: 1,
+                  borderColor: c.lineStrong,
+                  gap: space[2],
+                },
+              ]}
+            >
+              <Ionicons name={liked ? 'heart' : 'heart-outline'} size={18} color={liked ? c.heart : c.ink2} />
+              <Txt variant="caption" color="ink" style={{ fontWeight: '500' }} tabular>
+                {likeCount > 0 ? likeCount.toLocaleString() : 'Like'}
+              </Txt>
+            </Pressable>
 
-          <Pressable
-            onPress={() => router.push(`/read/${review.read_id}/comments` as any)}
-            accessibilityRole="button"
-            accessibilityLabel={`Comments, ${review.comment_count ?? 0}`}
-            style={[
-              sheet.row,
-              {
-                paddingHorizontal: space[3],
-                minHeight: 44,
-                borderRadius: radius.md,
-                borderWidth: 1,
-                borderColor: c.line,
-                backgroundColor: c.surface,
-                gap: space[2],
-              },
-            ]}
-          >
-            <Ionicons name="chatbubble-outline" size={18} color={c.ink2} />
-            <Txt variant="caption" style={{ fontWeight: '500' }} tabular>
-              {(review.comment_count ?? 0) > 0 ? (review.comment_count ?? 0).toLocaleString() : 'Comment'}
-            </Txt>
-          </Pressable>
+            <Pressable
+              onPress={() => router.push(`/read/${review.read_id}/comments` as any)}
+              accessibilityRole="button"
+              accessibilityLabel={`Comments, ${review.comment_count ?? 0}`}
+              style={[
+                sheet.row,
+                {
+                  paddingHorizontal: space[4],
+                  minHeight: 44,
+                  borderRadius: radius.pill,
+                  borderWidth: 1,
+                  borderColor: c.lineStrong,
+                  gap: space[2],
+                },
+              ]}
+            >
+              <Ionicons name="chatbubble-outline" size={18} color={c.ink2} />
+              <Txt variant="caption" color="ink" style={{ fontWeight: '500' }} tabular>
+                {(review.comment_count ?? 0) > 0 ? (review.comment_count ?? 0).toLocaleString() : 'Comment'}
+              </Txt>
+            </Pressable>
+          </View>
 
           <Txt variant="micro" color="muted" style={{ textTransform: 'capitalize' }}>
             {review.visibility}

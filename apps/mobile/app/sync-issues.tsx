@@ -11,7 +11,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useOfflineSync } from '@/offline/sync';
 import { describeSyncIssue, type SyncIssue } from '@/offline/syncIssues';
-import { Button, Card, EmptyState, Screen, Txt, sheet } from '@/ui/components';
+import { Button, EmptyState, Screen, Txt, sheet } from '@/ui/components';
 import { space, useTheme } from '@/ui/tokens';
 
 export default function SyncIssuesScreen() {
@@ -77,35 +77,42 @@ export default function SyncIssuesScreen() {
             accessibilityLabel="Back"
             style={{ minWidth: 44, minHeight: 44, justifyContent: 'center' }}
           >
-            <Ionicons name="arrow-back" size={24} color={c.ink} />
+            <Ionicons name="chevron-back" size={24} color={c.ink} />
           </Pressable>
           <Txt variant="title">Couldn't sync</Txt>
           <View style={{ minWidth: 44 }} />
         </View>
       </View>
 
-      <ScrollView contentContainerStyle={{ padding: space[4], gap: space[3] }}>
+      <ScrollView contentContainerStyle={{ paddingHorizontal: space[4], paddingBottom: space[12] }}>
         {issues.length === 0 ? (
           <EmptyState title="Everything is synced" subtitle="Updates you make offline are sent when you are back online." />
         ) : (
-          issues.map((issue) => (
-            <Card key={issue.id} style={{ padding: space[4] }}>
+          issues.map((issue, index) => (
+            <View
+              key={issue.id}
+              style={{
+                paddingVertical: space[4],
+                borderTopWidth: index ? 1 : 0,
+                borderTopColor: c.line,
+              }}
+            >
               <View style={{ gap: space[2] }}>
                 <Txt variant="micro" color="muted">
                   {issue.label}
                 </Txt>
-                {issue.title ? <Txt variant="bodyL" style={{ fontWeight: '500' }}>{issue.title}</Txt> : null}
+                {issue.title ? <Txt variant="title">{issue.title}</Txt> : null}
                 <Txt variant="body" color="ink2">
                   {issue.reason}
                 </Txt>
-                <View style={[sheet.row, { gap: space[2], marginTop: space[1] }]}>
+                <View style={[sheet.row, { gap: space[2], marginTop: space[1], flexWrap: 'wrap' }]}>
                   {issue.canRetry ? (
-                    <Button label="Retry" size="sm" variant="primary" onPress={() => void retry(issue.id)} />
+                    <Button label="Try again" size="sm" variant="secondary" onPress={() => void retry(issue.id)} />
                   ) : null}
                   <Button label="Discard" size="sm" variant="tertiary" onPress={() => discard(issue)} />
                 </View>
               </View>
-            </Card>
+            </View>
           ))
         )}
       </ScrollView>

@@ -1,30 +1,31 @@
 // The only place colour literals are permitted. See design.md §2.
 //
-// Graphite surfaces on purpose: book covers are wildly varied and saturated,
-// and an interface with its own strong colour fights every one of them.
-// The colour in this product comes from the books. One ink-blue accent for
-// interaction; gold belongs to the star row and nothing else.
+// Paper and ink: the app is a printed page. Warm paper grounds, warm near-black
+// ink, hairline rules where other apps draw boxes. One accent, oxblood, for
+// the primary action, selection and progress. Ratings are set in ink with a
+// numeral; the heart takes the accent. One grey family, and it is warm.
 
 import { TextStyle } from 'react-native';
 
 export const palette = {
-  ground:     { light: '#FAFAFA', dark: '#141415' },
-  surface:    { light: '#FFFFFF', dark: '#19191B' },
-  surface2:   { light: '#F4F4F5', dark: '#232325' },
-  ink:        { light: '#171717', dark: '#EDEDED' },
-  ink2:       { light: '#525252', dark: '#A1A1A6' },
-  muted:      { light: '#737373', dark: '#85858B' },
-  line:       { light: 'rgba(23,23,23,0.08)', dark: 'rgba(237,237,237,0.08)' },
-  lineStrong: { light: 'rgba(23,23,23,0.16)', dark: 'rgba(237,237,237,0.16)' },
-  accent:     { light: '#3355C4', dark: '#8DA6EE' },
+  ground:     { light: '#F4EEE2', dark: '#17130F' },
+  surface:    { light: '#FBF6EC', dark: '#1E1A15' },
+  surface2:   { light: '#EBE3D3', dark: '#2A251E' },
+  ink:        { light: '#211C16', dark: '#EDE6D8' },
+  ink2:       { light: '#5C5347', dark: '#B3A998' },
+  muted:      { light: '#6B6155', dark: '#948A7A' },
+  line:       { light: 'rgba(33,28,22,0.12)', dark: 'rgba(237,230,216,0.12)' },
+  lineStrong: { light: 'rgba(33,28,22,0.24)', dark: 'rgba(237,230,216,0.24)' },
+  accent:     { light: '#8C2F2A', dark: '#E08A7E' },
   // Text and icons drawn on an accent fill.
-  onAccent:   { light: '#FFFFFF', dark: '#141415' },
-  accentSoft: { light: '#EEF2FC', dark: '#1B2133' },
-  star:       { light: '#B07F14', dark: '#E0AF45' },
-  heart:      { light: '#B4423A', dark: '#E5726A' },
-  positive:   { light: '#16A34A', dark: '#4CC38A' },
-  critical:   { light: '#DC2626', dark: '#E5484D' },
-  overlay:    { light: 'rgba(0,0,0,0.4)', dark: 'rgba(0,0,0,0.6)' },
+  onAccent:   { light: '#FBF6EC', dark: '#17130F' },
+  accentSoft: { light: '#F0DDD6', dark: '#33201C' },
+  // Stars are ink, not a second accent. A numeral always sits beside them.
+  star:       { light: '#211C16', dark: '#EDE6D8' },
+  heart:      { light: '#8C2F2A', dark: '#E08A7E' },
+  positive:   { light: '#2F6B3F', dark: '#7FBF8B' },
+  critical:   { light: '#B3261E', dark: '#F0796E' },
+  overlay:    { light: 'rgba(23,19,15,0.4)', dark: 'rgba(0,0,0,0.6)' },
   // Scrim over cover art (wall and diary badges), the same in both themes.
   scrim:      { light: 'rgba(0,0,0,0.64)', dark: 'rgba(0,0,0,0.64)' },
 } as const;
@@ -46,12 +47,13 @@ export const space = {
   16: 64,
 } as const;
 
-// Controls 10, cards 14, sheets 20. Nested: inner = outer - padding, never < 4.
+// The shape rule: covers 2 (books have corners), inputs and chips 8,
+// cards 12, sheets 20, and every action is a pill.
 export const radius = {
-  xs: 4,
-  sm: 6,
-  md: 10,
-  lg: 14,
+  xs: 2,
+  sm: 2,
+  md: 8,
+  lg: 12,
   xl: 20,
   pill: 999,
 } as const;
@@ -66,11 +68,12 @@ export const cover = {
 } as const;
 
 // Font families (design.md §3):
-// Interface: Instrument Sans. Book titles, screen titles, review body: Newsreader.
-// Weights stop at 600; hierarchy comes from size and colour.
+// Headings, book titles and card titles: Figtree, set firm (500/600) so a
+// sans heading still stands apart from the sans body. Everything else,
+// review body included: Instrument Sans. Weights stop at 600.
 export const fontFamilies = {
-  displayRegular: 'Newsreader_400Regular',
-  displayMedium: 'Newsreader_500Medium',
+  displayRegular: 'Figtree_500Medium',
+  displayMedium: 'Figtree_600SemiBold',
   uiRegular: 'InstrumentSans_400Regular',
   uiMedium: 'InstrumentSans_500Medium',
   uiSemiBold: 'InstrumentSans_600SemiBold',
@@ -78,36 +81,45 @@ export const fontFamilies = {
 
 // Custom fonts ignore fontWeight on Android, so a weight is a family.
 // Anything heavier than 600 is clamped: there are no bold headings.
-export function familyFor(serif: boolean, weight: TextStyle['fontWeight']): string {
+// `display` picks the heading face (Figtree): 600 and up is SemiBold, anything
+// lighter is Medium, so a heading is never set thin.
+export function familyFor(display: boolean, weight: TextStyle['fontWeight']): string {
   const w = Number(weight === 'bold' ? 700 : weight === 'normal' || weight == null ? 400 : weight) || 400;
-  if (serif) return w >= 500 ? fontFamilies.displayMedium : fontFamilies.displayRegular;
+  if (display) return w >= 600 ? fontFamilies.displayMedium : fontFamilies.displayRegular;
   if (w >= 600) return fontFamilies.uiSemiBold;
   if (w >= 500) return fontFamilies.uiMedium;
   return fontFamilies.uiRegular;
 }
 
 export const type = {
+  // Headings are tightened a little: Figtree at display sizes reads loose
+  // with default spacing.
   displayL: {
-    fontFamily: fontFamilies.displayRegular,
+    fontFamily: fontFamilies.displayMedium,
     fontSize: 32,
     lineHeight: 38,
-    fontWeight: '400' as const,
+    fontWeight: '600' as const,
+    letterSpacing: -0.6,
   },
   displayM: {
     fontFamily: fontFamilies.displayMedium,
-    fontSize: 24,
-    lineHeight: 30,
-    fontWeight: '500' as const,
+    fontSize: 22,
+    lineHeight: 28,
+    fontWeight: '600' as const,
+    letterSpacing: -0.3,
   },
+  // Titles share the heading face: a card or sheet title reads like a
+  // heading, not a label on a control.
   title: {
-    fontFamily: fontFamilies.uiMedium,
+    fontFamily: fontFamilies.displayMedium,
     fontSize: 17,
-    lineHeight: 24,
-    fontWeight: '500' as const,
+    lineHeight: 23,
+    fontWeight: '600' as const,
+    letterSpacing: -0.2,
   },
   bodyL: {
-    // Review body: serif, because reading a review should feel like reading
-    fontFamily: fontFamilies.displayRegular,
+    // Review body: the reading face at a reading size and leading.
+    fontFamily: fontFamilies.uiRegular,
     fontSize: 17,
     lineHeight: 26,
     fontWeight: '400' as const,
@@ -144,7 +156,10 @@ export const motion = {
   press: 140,
   menu: 180,
   push: 280,
-  sheet: { damping: 0.8 },
+  // A damping *ratio* with a perceptual duration. Reanimated's plain `damping`
+  // is a physical coefficient (default 10): `damping: 0.8` there bounced every
+  // sheet for about ten seconds.
+  sheet: { duration: 300, dampingRatio: 0.8 },
   progress: 400,
   star: 150,
   like: 200,

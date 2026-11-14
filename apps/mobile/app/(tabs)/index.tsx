@@ -47,7 +47,7 @@ import {
   type FeedTab,
   type WantToReadOutcome,
 } from '@/lib/homeFeed';
-import { Card, EmptyState, Screen, SegmentedControl, Txt, sheet, Skeleton } from '@/ui/components';
+import { Button, Card, EmptyState, Screen, SegmentedControl, Txt, sheet, Skeleton } from '@/ui/components';
 import { cover, radius, space, useTheme } from '@/ui/tokens';
 
 const DISMISSED_IMPORTS_KEY = 'home_dismissed_imports';
@@ -104,6 +104,11 @@ export default function HomeScreen() {
   // Signing in or out resets the feeds: they are per account.
   useEffect(() => {
     generation.current++;
+    // A request already in flight is now stale and will not clear these itself
+    // (its result is dropped), so they are cleared here, as selectTab does.
+    // Without this a session restored mid-request left the skeleton up forever.
+    setLoad('idle');
+    setFailure(null);
     setTab(defaultFeedTab(signedIn));
     setFeeds({ friends: EMPTY_FEED, popular: EMPTY_FEED });
   }, [signedIn, user?.id]);
@@ -255,8 +260,9 @@ export default function HomeScreen() {
   const banner = feed.coldStart;
   const gated = !canShowTab(tab, signedIn);
 
+  const hasHeader = Boolean(activeImport) || failure === 'refresh' || Boolean(banner);
   const header = (
-    <View style={{ gap: space[3] }}>
+    <View style={{ gap: space[3], paddingHorizontal: space[4], paddingTop: space[4] }}>
       {activeImport && (
         <ImportProgressBanner
           importId={activeImport.id}
@@ -304,17 +310,12 @@ export default function HomeScreen() {
     }
     if (failure === 'more') {
       return (
-        <Pressable
-          onPress={() => void fetchPage(tab, 'append', feed.cursor)}
-          accessibilityRole="button"
-          accessibilityLabel="Could not load more. Try again"
-          style={[styles.retryRow, { borderColor: c.line }]}
-        >
-          <Ionicons name="refresh" size={18} color={c.accent} />
-          <Txt variant="caption" color="accent" style={{ fontWeight: '500' }}>
-            Could not load more. Tap to try again.
+        <View style={[styles.retryRow, { borderTopColor: c.line }]} accessibilityRole="alert">
+          <Txt variant="caption" color="ink2" style={{ flex: 1 }}>
+            Could not load more.
           </Txt>
-        </Pressable>
+          <Button label="Try again" variant="secondary" size="sm" onPress={() => void fetchPage(tab, 'append', feed.cursor)} />
+        </View>
       );
     }
     if (isCaughtUp(feed)) {
@@ -332,47 +333,36 @@ export default function HomeScreen() {
 
   const empty = (() => {
     if (load === 'loading') {
-      // Skeleton cards on first load (§6.13).
+      // Skeleton entries on first load (§6.13), shaped like the entries that replace them.
       return (
-        <View
-          style={{ gap: space[4] }}
-          accessible
-          accessibilityLabel="Loading your feed"
-          accessibilityState={{ busy: true }}
-        >
+        <View accessible accessibilityLabel="Loading your feed" accessibilityState={{ busy: true }}>
           {[0, 1, 2].map((k) => (
-            <Card key={k}>
+            <View key={k} style={[styles.skeletonEntry, { borderBottomColor: c.line }]}>
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: space[3] }}>
-                <Skeleton width={32} height={32} borderRadius={16} />
+                <Skeleton width={32} height={32} borderRadius={radius.pill} />
                 <Skeleton width="45%" height={12} />
               </View>
-              <View style={{ flexDirection: 'row', gap: space[3], marginTop: space[3] }}>
-                <Skeleton width={cover.s.width} height={cover.s.height} borderRadius={radius.xs} />
+              <View style={{ flexDirection: 'row', gap: space[4] }}>
+                <Skeleton width={cover.m.width} height={cover.m.height} borderRadius={radius.xs} />
                 <View style={{ flex: 1, gap: space[2] }}>
-                  <Skeleton width="75%" height={16} />
+                  <Skeleton width="75%" height={24} />
                   <Skeleton width="50%" height={12} />
-                  <Skeleton width="90%" height={12} style={{ marginTop: space[2] }} />
-                  <Skeleton width="70%" height={12} />
+                  <Skeleton width="90%" height={16} style={{ marginTop: space[2] }} />
+                  <Skeleton width="70%" height={16} />
                 </View>
               </View>
-            </Card>
+            </View>
           ))}
         </View>
       );
     }
     if (failure === 'first') {
       return (
-        <Pressable
-          onPress={() => void fetchPage(tab, 'replace', null)}
-          accessibilityRole="button"
-          accessibilityLabel="Could not load the feed. Try again"
-          style={[styles.retryRow, { borderColor: c.line }]}
-        >
-          <Ionicons name="refresh" size={18} color={c.accent} />
-          <Txt variant="caption" color="accent" style={{ fontWeight: '500' }}>
-            Could not load the feed. Tap to try again.
-          </Txt>
-        </Pressable>
+        <EmptyState
+          title="We couldn't load the feed"
+          subtitle="Check your connection and try again."
+          action={<Button label="Try again" variant="secondary" onPress={() => void fetchPage(tab, 'replace', null)} />}
+        />
       );
     }
     // Nobody to show yet: offer readers to follow (SO-52).
@@ -382,11 +372,7 @@ export default function HomeScreen() {
           title="Your feed is quiet"
           subtitle="Follow a few readers and their finishes and reviews show up here."
           action={
-            <Pressable onPress={() => router.push('/onboarding/follow' as any)} accessibilityRole="button" style={styles.link}>
-              <Txt variant="body" color="accent" style={{ fontWeight: '500' }}>
-                Find readers to follow
-              </Txt>
-            </Pressable>
+            <Button label="Find readers to follow" variant="secondary" onPress={() => router.push('/onboarding/follow' as any)} />
           }
         />
       );
@@ -406,7 +392,6 @@ export default function HomeScreen() {
               top: insets.top + space[2],
               // Inverted neutral; the icon carries the tone, critical keeps its colour
               backgroundColor: toast.tone === 'error' ? c.critical : c.ink,
-              shadowColor: c.ink,
             },
           ]}
         >
@@ -455,7 +440,7 @@ export default function HomeScreen() {
             onPress={dismissMigrationMessage}
             accessibilityRole="button"
             accessibilityLabel="Dismiss confirmation"
-            hitSlop={8}
+            hitSlop={12}
           >
             <Ionicons name="close" size={20} color={c.muted} />
           </Pressable>
@@ -467,10 +452,7 @@ export default function HomeScreen() {
         style={{
           paddingTop: Math.max(insets.top, space[4]),
           paddingHorizontal: space[4],
-          paddingBottom: space[3],
           backgroundColor: c.ground,
-          borderBottomWidth: 1,
-          borderBottomColor: c.line,
         }}
       >
         <View style={[sheet.row, { justifyContent: 'space-between' }]}>
@@ -511,7 +493,7 @@ export default function HomeScreen() {
         </View>
 
         {/* Segmented feed switcher */}
-        <View style={{ marginTop: space[3] }}>
+        <View style={{ marginTop: space[2] }}>
           <SegmentedControl
             values={['friends', 'popular'] as const}
             selected={tab}
@@ -529,11 +511,7 @@ export default function HomeScreen() {
           title="Follow readers to see their activity"
           subtitle="Sign in to follow friends and see what they finish and review."
           action={
-            <Pressable onPress={() => router.push('/auth')} accessibilityRole="button" style={styles.link}>
-              <Txt variant="body" color="accent" style={{ fontWeight: '500' }}>
-                Sign in
-              </Txt>
-            </Pressable>
+            <Button label="Sign in" variant="primary" onPress={() => router.push('/auth')} />
           }
         />
       ) : (
@@ -547,7 +525,7 @@ export default function HomeScreen() {
               onRateAndReview={handleRateAndReview}
             />
           )}
-          ListHeaderComponent={header}
+          ListHeaderComponent={hasHeader ? header : null}
           ListFooterComponent={footer}
           ListEmptyComponent={empty}
           onEndReached={onEndReached}
@@ -555,11 +533,7 @@ export default function HomeScreen() {
           refreshControl={
             <RefreshControl refreshing={load === 'refreshing'} onRefresh={onRefresh} tintColor={c.accent} />
           }
-          contentContainerStyle={{
-            padding: space[4],
-            paddingBottom: space[12],
-            gap: space[4],
-          }}
+          contentContainerStyle={{ paddingBottom: space[12] }}
         />
       )}
     </Screen>
@@ -580,7 +554,7 @@ const styles = StyleSheet.create({
     minWidth: 16,
     height: 16,
     paddingHorizontal: 4,
-    borderRadius: 8,
+    borderRadius: radius.md,
     borderWidth: 2,
     alignItems: 'center',
     justifyContent: 'center',
@@ -596,11 +570,6 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: space[2],
-    // Floating: one soft neutral shadow, nothing coloured
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.08,
-    shadowRadius: 24,
-    elevation: 3,
   },
   toastButton: {
     minWidth: 44,
@@ -623,11 +592,16 @@ const styles = StyleSheet.create({
     minHeight: 44,
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
     gap: space[2],
-    borderWidth: 1,
-    borderRadius: radius.md,
-    marginVertical: space[2],
+    borderTopWidth: 1,
+    paddingHorizontal: space[4],
+    paddingVertical: space[3],
+  },
+  skeletonEntry: {
+    gap: space[3],
+    paddingHorizontal: space[4],
+    paddingVertical: space[4],
+    borderBottomWidth: 1,
   },
   end: {
     alignItems: 'center',

@@ -91,10 +91,11 @@ export function MilestoneBridge() {
         accessibilityRole="alert"
         style={{
           position: 'absolute', left: space[4], right: space[4], bottom: space[16], padding: space[3],
-          borderRadius: radius.md, backgroundColor: c.surface, borderWidth: 1, borderColor: c.accent,
+          minHeight: 44, borderRadius: radius.lg, backgroundColor: c.surface, borderWidth: 1, borderColor: c.lineStrong,
+          gap: space[1],
         }}
       >
-        <Txt variant="body" style={{ fontWeight: '500' }}>
+        <Txt variant="title">
           {current.title}
         </Txt>
         <Txt variant="caption" color="ink2">
@@ -111,7 +112,7 @@ export function MilestoneBridge() {
           <Txt variant="bodyL" color="ink2">
             {current.body}
           </Txt>
-          <View style={{ flexDirection: 'row', gap: space[3], marginTop: space[3] }}>
+          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: space[3], marginTop: space[3] }}>
             {current.share && (
               <Button
                 label="Share"
@@ -122,7 +123,7 @@ export function MilestoneBridge() {
                 }}
               />
             )}
-            <Button label="Close" variant="secondary" onPress={next} />
+            <Button label="Done" variant="secondary" onPress={next} />
           </View>
         </View>
       </View>

@@ -20,12 +20,11 @@ import { useOfflineSync } from '@/offline/sync';
 import { FOLLOW_PAGE_SIZE, appendFollowPage, hasMoreFollows } from '@/lib/socialValidation';
 import {
   Button,
-  Card,
   EmptyState,
   Screen,
   Txt,
   sheet, SkeletonList} from '@/ui/components';
-import { radius, space, useTheme } from '@/ui/tokens';
+import { space, useTheme } from '@/ui/tokens';
 import { Ionicons } from '@expo/vector-icons';
 
 export default function FollowingScreen() {
@@ -42,6 +41,7 @@ export default function FollowingScreen() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [notFound, setNotFound] = useState(false);
+  const [failed, setFailed] = useState(false);
   const [processingId, setProcessingId] = useState<string | null>(null);
   const [more, setMore] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
@@ -51,6 +51,7 @@ export default function FollowingScreen() {
     try {
       setLoading(true);
       setNotFound(false);
+      setFailed(false);
       const res = await api.getFollowing(id, { limit: FOLLOW_PAGE_SIZE, offset: 0 });
       setUsers(res.users);
       setTotal(res.total);
@@ -58,6 +59,8 @@ export default function FollowingScreen() {
     } catch (err: any) {
       if (err?.status === 404 || err?.code === 'not_found') {
         setNotFound(true);
+      } else {
+        setFailed(true);
       }
     } finally {
       setLoading(false);
@@ -165,7 +168,6 @@ export default function FollowingScreen() {
         contentContainerStyle={{
           padding: space[4],
           paddingBottom: insets.bottom + space[8],
-          gap: space[3],
         }}
         refreshControl={
           <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={c.accent} />
@@ -181,72 +183,87 @@ export default function FollowingScreen() {
               <Button label="Go back" variant="primary" onPress={() => router.back()} />
             }
           />
+        ) : failed && users.length === 0 ? (
+          <EmptyState
+            title="We couldn't load this list"
+            subtitle="Check your connection and try again"
+            action={<Button label="Try again" variant="secondary" onPress={() => void fetchFollowing()} />}
+          />
         ) : users.length === 0 ? (
           <EmptyState
             title="Not following anyone yet"
             subtitle="Accounts followed by this user will appear here"
           />
         ) : (
-          users.map((item) => (
-            <Card
-              key={item.id}
-              style={{
-                flexDirection: 'row',
-                alignItems: 'center',
-                justifyContent: 'space-between',
-                padding: space[3],
-                gap: space[3],
-              }}
-            >
-              <Pressable
-                onPress={() => router.push(`/user/${item.id}` as any)}
-                style={{ flexDirection: 'row', alignItems: 'center', flex: 1, gap: space[3] }}
+          <View>
+            {users.map((item, index) => (
+              <View
+                key={item.id}
+                style={[
+                  sheet.row,
+                  {
+                    gap: space[3],
+                    paddingVertical: space[3],
+                    borderTopWidth: index ? 1 : 0,
+                    borderTopColor: c.line,
+                  },
+                ]}
               >
-                <View
-                  style={[
-                    styles.avatar,
-                    {
-                      backgroundColor: c.surface2,
-                      borderColor: c.line,
-                    },
-                  ]}
+                <Pressable
+                  onPress={() => router.push(`/user/${item.id}` as any)}
+                  accessibilityRole="button"
+                  style={{ flexDirection: 'row', alignItems: 'center', flex: 1, gap: space[3], minHeight: 44 }}
                 >
-                  <Txt variant="body" style={{ fontWeight: '500', color: c.ink2 }}>
-                    {(item.displayName || item.username).charAt(0).toUpperCase()}
-                  </Txt>
-                </View>
-
-                <View style={{ flex: 1 }}>
-                  <View style={sheet.row}>
-                    <Txt variant="body" style={{ fontWeight: '500' }} numberOfLines={1}>
-                      {item.displayName || item.username}
+                  <View
+                    style={[
+                      styles.avatar,
+                      {
+                        backgroundColor: c.surface2,
+                        borderColor: c.line,
+                      },
+                    ]}
+                  >
+                    <Txt variant="title" color="ink2">
+                      {(item.displayName || item.username).charAt(0).toUpperCase()}
                     </Txt>
-                    {item.isPrivate && (
-                      <Ionicons name="lock-closed-outline" size={14} color={c.muted} style={{ marginLeft: space[1] }} accessibilityLabel="Private account" />
-                    )}
                   </View>
-                  <Txt variant="caption" color="muted" numberOfLines={1}>
-                    @{item.username}
-                  </Txt>
-                </View>
-              </Pressable>
 
-              <Button
-                label={item.followedByViewer ? 'Following' : 'Follow'}
-                variant={item.followedByViewer ? 'outline' : 'primary'}
-                size="sm"
-                onPress={() => handleToggleFollow(item)}
-                disabled={processingId === item.id}
-              />
-            </Card>
-          ))
+                  <View style={{ flex: 1, gap: space[1] }}>
+                    <View style={[sheet.row, { gap: space[1] }]}>
+                      <View style={{ flexShrink: 1 }}>
+                        <Txt variant="title" numberOfLines={2}>
+                          {item.displayName || item.username}
+                        </Txt>
+                      </View>
+                      {item.isPrivate && (
+                        <Ionicons name="lock-closed-outline" size={14} color={c.muted} accessibilityLabel="Private account" />
+                      )}
+                    </View>
+                    <Txt variant="caption" color="muted" numberOfLines={1}>
+                      @{item.username}
+                    </Txt>
+                  </View>
+                </Pressable>
+
+                {/* Quiet buttons: a list of filled accents would drown the page. */}
+                <Button
+                  label={item.followedByViewer ? 'Following' : 'Follow'}
+                  variant={item.followedByViewer ? 'tertiary' : 'secondary'}
+                  size="sm"
+                  onPress={() => handleToggleFollow(item)}
+                  disabled={processingId === item.id}
+                />
+              </View>
+            ))}
+          </View>
         )}
         {!loading && !notFound && more ? (
           <Button
             label={loadingMore ? 'Loading…' : 'Show more'}
-            variant="outline"
+            variant="secondary"
             onPress={loadMore}
             disabled={loadingMore}
+            style={{ marginTop: space[4] }}
           />
         ) : null}
       </ScrollView>

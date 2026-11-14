@@ -73,16 +73,16 @@ export function clearAdminSession(reply: FastifyReply, req: FastifyRequest) {
 }
 
 // ---------------------------------------------------------------- Look
-// One stylesheet for every console page: graphite surfaces, hairlines, one
+// One stylesheet for every console page: dark paper surfaces, hairlines, one
 // accent, Instrument Sans with a mono for ids and timestamps. The CSP has no
 // font-src, so the faces come from the reader's machine or the fallbacks.
 
 export const ADMIN_CSS = `
   :root {
     color-scheme: dark;
-    --deep: #0f0f10; --bg: #141415; --card: #19191B; --raised: #232325;
-    --ink: #EDEDED; --ink2: #A1A1A6; --muted: #85858B; --line: rgba(237, 237, 237, .08);
-    --accent: #8DA6EE; --on-accent: #141415; --positive: #4CC38A; --warning: #E0AF45; --critical: #E5484D;
+    --deep: #17130F; --bg: #17130F; --card: #1E1A15; --raised: #2A251E;
+    --ink: #EDE6D8; --ink2: #B3A998; --muted: #948A7A; --line: rgba(237, 230, 216, .12); --line-strong: rgba(237, 230, 216, .24);
+    --accent: #E08A7E; --on-accent: #17130F; --positive: #7FBF8B; --warning: #E0AF45; --critical: #F0796E;
     --ease: cubic-bezier(0.22, 1, 0.36, 1);
   }
   * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -128,7 +128,7 @@ export const ADMIN_CSS = `
   th { text-align: left; font-weight: 400; color: var(--muted); padding: 8px 12px; border-bottom: 1px solid var(--line); white-space: nowrap; }
   td { padding: 12px; border-bottom: 1px solid var(--line); vertical-align: top; }
   tbody tr:last-child td { border-bottom: 0; }
-  tbody tr:hover td { background: rgba(237, 237, 237, .02); }
+  tbody tr:hover td { background: rgba(237, 230, 216, .02); }
   th.num, td.num { text-align: right; font-variant-numeric: tabular-nums; }
   td.nowrap { white-space: nowrap; }
   .empty { text-align: center; color: var(--muted); padding: 40px 12px; }
@@ -137,9 +137,9 @@ export const ADMIN_CSS = `
   dt { color: var(--muted); }
   dd { white-space: pre-wrap; word-break: break-word; }
 
-  button, .btn { display: inline-flex; align-items: center; justify-content: center; gap: 8px; height: 36px; padding: 0 16px; border: 1px solid var(--line); border-radius: 8px; background: var(--raised); color: var(--ink); font: 500 13px/1 "Instrument Sans", system-ui, sans-serif; cursor: pointer; white-space: nowrap; transition: color 140ms var(--ease), background-color 140ms var(--ease), border-color 140ms var(--ease), opacity 140ms var(--ease); }
-  button:hover:not(:disabled), .btn:hover { border-color: rgba(237, 237, 237, .16); text-decoration: none; }
-  button.primary { background: var(--ink); color: var(--bg); border-color: transparent; }
+  button, .btn { display: inline-flex; align-items: center; justify-content: center; gap: 8px; height: 36px; padding: 0 16px; border: 1px solid var(--line); border-radius: 999px; background: var(--raised); color: var(--ink); font: 500 13px/1 "Instrument Sans", system-ui, sans-serif; cursor: pointer; white-space: nowrap; transition: color 140ms var(--ease), background-color 140ms var(--ease), border-color 140ms var(--ease), opacity 140ms var(--ease); }
+  button:hover:not(:disabled), .btn:hover { border-color: var(--line-strong); text-decoration: none; }
+  button.primary { background: var(--accent); color: var(--on-accent); border-color: transparent; }
   button.primary:hover:not(:disabled) { opacity: .9; }
   button.danger { background: transparent; color: var(--critical); }
   button.danger:hover:not(:disabled) { border-color: var(--critical); }
@@ -166,8 +166,8 @@ export const ADMIN_CSS = `
   .status.critical::before { background: var(--critical); }
   .status.accent::before { background: var(--accent); }
   .tag { font-size: 12px; color: var(--muted); }
-  .notice { padding: 12px 16px; border: 1px solid var(--line); border-radius: 8px; background: var(--card); color: var(--ink2); font-size: 13px; }
-  .notice.critical { color: var(--critical); border-color: rgba(229, 72, 77, .32); }
+  .notice { padding: 12px 16px; border: 1px solid var(--line); border-radius: 12px; background: var(--card); color: var(--ink2); font-size: 13px; }
+  .notice.critical { color: var(--critical); border-color: rgba(240, 121, 110, .32); }
 
   .kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; }
   .kpi .label { font-size: 13px; color: var(--muted); }
@@ -175,7 +175,7 @@ export const ADMIN_CSS = `
   .kpi .note { margin-top: 8px; font-size: 12px; color: var(--muted); }
 
   .modal { position: fixed; inset: 0; z-index: 100; align-items: center; justify-content: center; padding: 16px; background: rgba(0, 0, 0, .6); }
-  .modal-panel { width: 100%; max-width: 480px; display: flex; flex-direction: column; gap: 16px; padding: 24px; background: var(--card); border: 1px solid var(--line); border-radius: 16px; box-shadow: 0 8px 24px rgba(0, 0, 0, .4); }
+  .modal-panel { width: 100%; max-width: 480px; display: flex; flex-direction: column; gap: 16px; padding: 24px; background: var(--card); border: 1px solid var(--line); border-radius: 20px; }
 
   @media (max-width: 800px) {
     .shell { grid-template-columns: 1fr; }

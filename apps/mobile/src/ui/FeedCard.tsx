@@ -1,4 +1,7 @@
 // FeedCard component supporting all activity card types and swipe actions (SO-15, PRD §12.2, §46.2).
+//
+// An entry on a printed page: no box, a hairline rule beneath. Reviewed and
+// finished entries are the largest (design.md §10, Feed).
 
 import React, { useRef, useState } from 'react';
 import { View, Pressable, StyleSheet, Animated as RNAnimated } from 'react-native';
@@ -7,13 +10,12 @@ import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import { useRouter } from 'expo-router';
 import {
-  Card,
   Cover,
   Stars,
   Txt,
   sheet,
 } from './components';
-import { fontFamilies, radius, space, useTheme } from './tokens';
+import { radius, space, useTheme } from './tokens';
 import {
   type FeedActivityItem,
   getCardType,
@@ -68,7 +70,9 @@ export function FeedCard({
   const liked = likeState.liked;
   const likeCount = likeState.count;
 
+  // Reviewed and finished entries are the largest: a bigger cover and title.
   const cardType = getCardType(item);
+  const large = cardType === 'review' || cardType === 'finish';
   const headline = formatActivityHeadline(item);
   const badge = getCardBadgeLabel(item);
   const rightActionConfig = getSwipeRightAction(item); // Swipe left -> reveals Rate & Review on right
@@ -149,15 +153,13 @@ export function FeedCard({
           backgroundColor: c.accent,
           justifyContent: 'center',
           alignItems: 'center',
-          borderRadius: radius.lg,
-          marginVertical: space[1],
         }}
         accessibilityRole="button"
         accessibilityLabel="Rate and Review book"
       >
         <RNAnimated.View style={{ transform: [{ translateX: trans }], alignItems: 'center', gap: space[1] }}>
           <Ionicons name="star-outline" size={20} color={c.onAccent} />
-          <Txt variant="caption" color="onAccent" style={{ fontWeight: '500' }}>
+          <Txt variant="caption" color="onAccent" style={{ fontWeight: '500', textAlign: 'center' }}>
             Rate and review
           </Txt>
         </RNAnimated.View>
@@ -185,15 +187,13 @@ export function FeedCard({
           backgroundColor: c.ink,
           justifyContent: 'center',
           alignItems: 'center',
-          borderRadius: radius.lg,
-          marginVertical: space[1],
         }}
         accessibilityRole="button"
         accessibilityLabel="Save book to Want to Read"
       >
         <RNAnimated.View style={{ transform: [{ translateX: trans }], alignItems: 'center', gap: space[1] }}>
           <Ionicons name="bookmark-outline" size={20} color={c.ground} />
-          <Txt variant="caption" color="ground" style={{ fontWeight: '500' }}>
+          <Txt variant="caption" color="ground" style={{ fontWeight: '500', textAlign: 'center' }}>
             Want to read
           </Txt>
         </RNAnimated.View>
@@ -210,38 +210,30 @@ export function FeedCard({
       leftThreshold={40}
       rightThreshold={40}
     >
-      <Card
+      {/* The ground fill keeps the swipe actions hidden until they are revealed. */}
+      <Pressable
         onPress={() => {
           if (workId) {
+            void Haptics.selectionAsync();
             if (onPressWork) onPressWork(workId);
             else router.push(`/work/${workId}`);
           }
         }}
+        accessibilityRole="button"
+        style={({ pressed }) => [
+          styles.entry,
+          { borderBottomColor: c.line, backgroundColor: pressed ? c.surface2 : c.ground },
+        ]}
       >
-        {/* Cold Start / Blended Badge Banner */}
+        {/* Cold start / blended label */}
         {badge && (
-          <View
-            style={{
-              alignSelf: 'flex-start',
-              backgroundColor: badge.variant === 'popular' ? c.accentSoft : c.surface2,
-              paddingHorizontal: space[2],
-              paddingVertical: space[1] / 2,
-              borderRadius: radius.sm,
-              marginBottom: space[2],
-            }}
-          >
-            <Txt
-              variant="caption"
-              color={badge.variant === 'popular' ? 'accent' : 'ink2'}
-              style={{ fontWeight: '500' }}
-            >
-              {badge.text}
-            </Txt>
-          </View>
+          <Txt variant="micro" color={badge.variant === 'popular' ? 'accent' : 'ink2'}>
+            {badge.text}
+          </Txt>
         )}
 
-        {/* Card Header: Actor Avatar, Handle, Action Headline */}
-        <View style={[sheet.row, { justifyContent: 'space-between', marginBottom: space[2] }]}>
+        {/* Who did what */}
+        <View style={[sheet.row, { justifyContent: 'space-between' }]}>
           <Pressable
             // The editorial card has no author: its nil actor id is not a profile (audit 14, A-14-012).
             disabled={editorial}
@@ -250,7 +242,7 @@ export function FeedCard({
               if (item.actor_id && onPressActor) onPressActor(item.actor_id);
               else if (item.actor_id) router.push(`/user/${item.actor_id}`);
             }}
-            style={[sheet.row, { minHeight: 44 }]}
+            style={[sheet.row, { minHeight: 44, flex: 1 }]}
             accessibilityRole={editorial ? 'text' : 'button'}
             accessibilityLabel={editorial ? 'Flyleaf' : `User ${item.actor.username}`}
           >
@@ -268,30 +260,31 @@ export function FeedCard({
                 {(item.actor.display_name || item.actor.username).substring(0, 1).toUpperCase()}
               </Txt>
             </View>
-            <View>
-              <Txt variant="body" color="ink" style={{ fontWeight: '500' }}>
+            <View style={{ flex: 1 }}>
+              <Txt variant="body" color="ink" style={{ fontWeight: '500' }} numberOfLines={1}>
                 {item.actor.display_name || item.actor.username}
               </Txt>
-              <Txt variant="caption" color="muted">
+              <Txt variant="caption" color="muted" numberOfLines={2}>
                 {headline}
               </Txt>
             </View>
           </Pressable>
 
-          {meta.rating ? <Stars value={meta.rating} size={16} /> : null}
+          {/* With a book on the entry the rating sits under its title instead. */}
+          {!item.work && meta.rating ? <Stars value={meta.rating} size={16} /> : null}
         </View>
 
-        {/* Work Preview Section (for Book-related Cards) */}
+        {/* The book: cover, serif title, author, rating */}
         {item.work && (
-          <View style={[sheet.rowTop, { marginBottom: space[2] }]}>
+          <View style={[sheet.rowTop, { gap: space[4] }]}>
             <Cover
               coverId={item.work.cover_id}
               title={item.work.title}
               author={item.work.author_name || undefined}
-              size="s"
+              size={large ? 'm' : 's'}
             />
             <View style={{ flex: 1, gap: space[1] }}>
-              <Txt variant="title" numberOfLines={2} style={{ fontFamily: fontFamilies.displayMedium }}>
+              <Txt variant={large ? 'displayM' : 'title'} numberOfLines={large ? 3 : 2}>
                 {item.work.title}
               </Txt>
               {item.work.author_name && (
@@ -299,9 +292,10 @@ export function FeedCard({
                   {item.work.author_name}
                 </Txt>
               )}
+              {meta.rating ? <Stars value={meta.rating} size={16} /> : null}
               {meta.read_count && meta.read_count > 1 ? (
                 <Txt variant="caption" color="muted" tabular>
-                  Re-read #{meta.read_count}
+                  Re-read {meta.read_count}
                 </Txt>
               ) : null}
             </View>
@@ -310,7 +304,7 @@ export function FeedCard({
 
         {/* Aggregated Collection Previews (Shelved / Followed / Started) */}
         {meta.is_aggregated && Array.isArray(meta.works) && (
-          <View style={{ flexDirection: 'row', gap: space[2], marginVertical: space[2] }}>
+          <View style={{ flexDirection: 'row', gap: space[2] }}>
             {meta.works.slice(0, 4).map((w: any, idx: number) => (
               <View key={w.id || idx} style={{ width: 48, alignItems: 'center' }}>
                 <Cover coverId={w.cover_id} title={w.title} size="s" />
@@ -319,23 +313,26 @@ export function FeedCard({
           </View>
         )}
 
-        {/* Review / Quote Text Content */}
+        {/* Review / quote excerpt: serif, three lines */}
         {text && (
-          <View style={{ marginVertical: space[2] }}>
+          <View>
             {cardHasSpoilers(item) && !showSpoilers ? (
               <Pressable
                 onPress={() => setShowSpoilers(true)}
                 style={{
+                  minHeight: 44,
                   backgroundColor: c.surface2,
                   padding: space[3],
                   borderRadius: radius.md,
                   alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: space[1],
                 }}
                 accessibilityRole="button"
                 accessibilityLabel="Show spoilers"
               >
                 <Ionicons name="eye-off-outline" size={18} color={c.muted} />
-                <Txt variant="caption" color="ink2" style={{ marginTop: space[1] }}>
+                <Txt variant="caption" color="ink2">
                   Contains spoilers · tap to show
                 </Txt>
               </Pressable>
@@ -347,57 +344,44 @@ export function FeedCard({
           </View>
         )}
 
-        {/* Card Footer Action Bar (Like, Comment, Quick Actions for accessibility) */}
+        {/* Like, comment, and the tappable twins of the swipe actions */}
         {!meta.is_editorial && (
-          <View
-            style={[
-              sheet.row,
-              {
-                justifyContent: 'space-between',
-                borderTopWidth: 1,
-                borderTopColor: c.line,
-                paddingTop: space[2],
-                marginTop: space[2],
-              },
-            ]}
-          >
+          <View style={[sheet.row, { justifyContent: 'space-between' }]}>
             <View style={sheet.row}>
               {/* Like & comment exist only on social objects: a finished or DNF read,
                   with or without a review (PRD §10.3). Never on "started" or shelf cards. */}
               {interaction && (
-              <>
-              {/* Like Button */}
-              <Pressable
-                onPress={handleLikePress}
-                style={[sheet.row, styles.actionButton]}
-                accessibilityRole="button"
-                accessibilityLabel={liked ? 'Unlike post' : 'Like post'}
-                hitSlop={8}
-              >
-                <Ionicons
-                  name={liked ? 'heart' : 'heart-outline'}
-                  size={18}
-                  color={liked ? c.heart : c.muted}
-                />
-                <Txt variant="caption" color={liked ? 'ink' : 'muted'} tabular>
-                  {likeCount}
-                </Txt>
-              </Pressable>
+                <>
+                  <Pressable
+                    onPress={handleLikePress}
+                    style={[sheet.row, styles.actionButton]}
+                    accessibilityRole="button"
+                    accessibilityLabel={liked ? 'Unlike post' : 'Like post'}
+                    hitSlop={8}
+                  >
+                    <Ionicons
+                      name={liked ? 'heart' : 'heart-outline'}
+                      size={18}
+                      color={liked ? c.heart : c.muted}
+                    />
+                    <Txt variant="caption" color={liked ? 'ink' : 'muted'} tabular>
+                      {likeCount}
+                    </Txt>
+                  </Pressable>
 
-              {/* Comment Button */}
-              <Pressable
-                onPress={handleCommentPress}
-                style={[sheet.row, styles.actionButton]}
-                accessibilityRole="button"
-                accessibilityLabel="Comment on post"
-                hitSlop={8}
-              >
-                <Ionicons name="chatbubble-outline" size={18} color={c.muted} />
-                <Txt variant="caption" color="muted" tabular>
-                  {interaction.commentCount}
-                </Txt>
-              </Pressable>
-              </>
+                  <Pressable
+                    onPress={handleCommentPress}
+                    style={[sheet.row, styles.actionButton]}
+                    accessibilityRole="button"
+                    accessibilityLabel="Comment on post"
+                    hitSlop={8}
+                  >
+                    <Ionicons name="chatbubble-outline" size={18} color={c.muted} />
+                    <Txt variant="caption" color="muted" tabular>
+                      {interaction.commentCount}
+                    </Txt>
+                  </Pressable>
+                </>
               )}
             </View>
 
@@ -426,12 +410,18 @@ export function FeedCard({
             )}
           </View>
         )}
-      </Card>
+      </Pressable>
     </Swipeable>
   );
 }
 
 const styles = StyleSheet.create({
+  entry: {
+    gap: space[3],
+    paddingHorizontal: space[4],
+    paddingVertical: space[4],
+    borderBottomWidth: 1,
+  },
   // 44 dp targets (design accessibility rule; audit 14, A-14-014).
   actionButton: {
     minWidth: 44,

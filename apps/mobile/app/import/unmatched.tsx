@@ -27,7 +27,6 @@ import {
 } from '@/lib/api';
 import {
   Button,
-  Card,
   Cover,
   EmptyState,
   Screen,
@@ -222,7 +221,7 @@ export default function UnmatchedReviewScreen() {
         </View>
       </View>
 
-      <ScrollView contentContainerStyle={{ padding: space[4], gap: space[4] }}>
+      <ScrollView contentContainerStyle={{ padding: space[4], paddingBottom: insets.bottom + space[8] }}>
         {loading ? (
           <SkeletonList lead="cover" rows={4} style={{ paddingHorizontal: 0, paddingTop: 0 }} />
         ) : rows.length === 0 ? (
@@ -250,7 +249,7 @@ export default function UnmatchedReviewScreen() {
             const sState = searchStates[row.row_no] || { query: rawTitle, results: [], loading: false };
 
             return (
-              <Card key={row.row_no} style={[styles.rowCard, { borderColor: c.line }]}>
+              <View key={row.row_no} style={[styles.rowEntry, { borderTopColor: c.line }]}>
                 {/* Row Header & Reason */}
                 <View style={sheet.rowBetween}>
                   <Txt variant="micro" color="muted" tabular>
@@ -264,9 +263,7 @@ export default function UnmatchedReviewScreen() {
 
                 {/* Raw Book Metadata */}
                 <View style={{ gap: space[1] }}>
-                  <Txt variant="bodyL" style={{ fontWeight: '500' }}>
-                    {rawTitle}
-                  </Txt>
+                  <Txt variant="title">{rawTitle}</Txt>
                   <Txt variant="caption" color="muted">
                     by {rawAuthor}
                     {rawRating && rawRating !== '0' ? ` · Rated ${rawRating} of 5` : ''}
@@ -275,14 +272,15 @@ export default function UnmatchedReviewScreen() {
                 </View>
 
                 {/* Search in Catalog Input */}
-                <View style={{ gap: space[2], marginTop: space[2] }}>
-                  <View style={[styles.searchInputWrapper, { backgroundColor: c.surface2, borderColor: c.line }]}>
+                <View style={{ gap: space[2] }}>
+                  <View style={[styles.searchInputWrapper, { backgroundColor: c.surface, borderColor: c.lineStrong }]}>
                     <Ionicons name="search-outline" size={16} color={c.muted} style={{ marginLeft: space[3] }} />
                     <TextInput
                       value={sState.query}
                       onChangeText={(text) => handleSearch(row.row_no, text)}
                       placeholder="Search the catalog"
                       placeholderTextColor={c.muted}
+                      accessibilityLabel="Search the catalog"
                       style={[styles.searchInput, { color: c.ink }]}
                     />
                     {sState.loading && (
@@ -292,8 +290,8 @@ export default function UnmatchedReviewScreen() {
 
                   {/* Catalog Candidates List */}
                   {sState.results.length > 0 && (
-                    <View style={{ gap: space[2], marginTop: space[1] }}>
-                      <Txt variant="micro" color="muted">
+                    <View style={{ gap: space[1] }}>
+                      <Txt variant="micro" color="ink2">
                         Possible matches
                       </Txt>
 
@@ -302,10 +300,7 @@ export default function UnmatchedReviewScreen() {
                           key={candidate.id}
                           onPress={() => handleResolve(row.row_no, candidate)}
                           disabled={isResolving}
-                          style={[
-                            styles.candidateRow,
-                            { backgroundColor: c.surface, borderColor: c.line },
-                          ]}
+                          style={styles.candidateRow}
                         >
                           <Cover
                             coverId={candidate.cover_id}
@@ -325,7 +320,7 @@ export default function UnmatchedReviewScreen() {
                           <Button
                             label="Match"
                             size="sm"
-                            variant="primary"
+                            variant="secondary"
                             loading={isResolving}
                             disabled={isResolving}
                             onPress={() => handleResolve(row.row_no, candidate)}
@@ -337,7 +332,7 @@ export default function UnmatchedReviewScreen() {
                 </View>
 
                 {/* Footer Action: Skip */}
-                <View style={[sheet.rowBetween, { marginTop: space[2], paddingTop: space[3], borderTopWidth: 1, borderTopColor: c.line }]}>
+                <View style={sheet.rowBetween}>
                   <Txt variant="caption" color="muted" style={{ flex: 1 }}>
                     Not in the catalog? Skip it
                   </Txt>
@@ -345,13 +340,13 @@ export default function UnmatchedReviewScreen() {
                   <Button
                     label="Skip book"
                     size="sm"
-                    variant="text"
+                    variant="tertiary"
                     loading={isSkipping}
                     disabled={isSkipping || isResolving}
                     onPress={() => handleSkip(row.row_no)}
                   />
                 </View>
-              </Card>
+              </View>
             );
           })
         )}
@@ -361,21 +356,22 @@ export default function UnmatchedReviewScreen() {
 }
 
 const styles = StyleSheet.create({
-  rowCard: {
-    padding: space[4],
-    borderRadius: radius.lg,
+  // Entries are separated by a hairline rule, not boxed.
+  rowEntry: {
+    paddingVertical: space[4],
+    borderTopWidth: 1,
     gap: space[3],
   },
   searchInputWrapper: {
     flexDirection: 'row',
     alignItems: 'center',
-    height: 44,
+    minHeight: 48,
     borderRadius: radius.md,
     borderWidth: 1,
   },
   searchInput: {
     flex: 1,
-    height: 44,
+    minHeight: 48,
     paddingHorizontal: space[2],
     fontSize: 15,
     fontFamily: fontFamilies.uiRegular,
@@ -384,8 +380,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: space[2],
-    padding: space[2],
-    borderRadius: radius.md,
-    borderWidth: 1,
+    minHeight: 56,
+    paddingVertical: space[1],
   },
 });

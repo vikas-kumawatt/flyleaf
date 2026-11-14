@@ -11,14 +11,13 @@
 //   - Re-read attempt tracking badge (SL-56).
 //   - Want-to-read queue with sort, filter, grid/list toggle, and bulk actions (SL-57).
 
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useCallback, useMemo } from 'react';
 import {
   View,
   ScrollView,
   Pressable,
   RefreshControl,
   Alert,
-  Text,
 } from 'react-native';
 import { useRouter, useFocusEffect } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -36,6 +35,7 @@ import { DiaryView } from '@/ui/DiaryView';
 import {
   Button,
   Card,
+  Chip,
   Cover,
   EmptyState,
   ProgressBar,
@@ -102,9 +102,13 @@ export default function ReadingScreen() {
     }
   }, [user, db]);
 
-  useEffect(() => {
-    loadReads();
-  }, [loadReads]);
+  // On every focus, not only on mount: a book finished, stopped or started on
+  // another screen has to have left (or joined) these lists on the way back.
+  useFocusEffect(
+    useCallback(() => {
+      void loadReads();
+    }, [loadReads]),
+  );
 
   const onRefresh = async () => {
     setRefreshing(true);
@@ -141,11 +145,6 @@ export default function ReadingScreen() {
       return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
     });
   }, [reads, formatFilter, sortBy]);
-
-  const finishedReads = useMemo(
-    () => reads.filter((r) => r.status === 'finished'),
-    [reads],
-  );
 
   // Handlers for active reading
   const handleSliderRelease = async (read: LocalRead, newPage: number, newPercent: number) => {
@@ -309,7 +308,7 @@ export default function ReadingScreen() {
         >
           {/* Upsell Header & Value Prop */}
           <View style={{ gap: space[2], marginTop: space[2] }}>
-            <Txt variant="title">Your quiet reading sanctuary</Txt>
+            <Txt variant="displayM">Keep your place in every book</Txt>
             <Txt variant="body" color="muted" style={{ lineHeight: 22 }}>
               Log pages as you go, see when you will finish, and keep private notes and a diary
               of every book.
@@ -341,7 +340,7 @@ export default function ReadingScreen() {
                   </View>
 
                   <View style={{ gap: space[2] }}>
-                    <View style={[sheet.row, { justifyContent: 'space-between' }]}>
+                    <View style={[sheet.row, { justifyContent: 'space-between', flexWrap: 'wrap' }]}>
                       <Txt variant="caption" color="ink2" tabular>
                         Page 168 of 245
                       </Txt>
@@ -350,8 +349,8 @@ export default function ReadingScreen() {
                       </Txt>
                     </View>
                     <ProgressBar percent={68} />
-                    <Txt variant="micro" color="muted">
-                      Estimated finish: in 2 days
+                    <Txt variant="caption" color="muted">
+                      Done in about 2 days
                     </Txt>
                   </View>
                 </View>
@@ -368,14 +367,14 @@ export default function ReadingScreen() {
                   variant="secondary"
                   disabled
                   onPress={() => {}}
-                  style={{ minHeight: 36, paddingHorizontal: space[3], opacity: 0.7 }}
+                  size="sm"
                 />
                 <Button
                   label="Update"
                   variant="primary"
                   disabled
                   onPress={() => {}}
-                  style={{ minHeight: 36, paddingHorizontal: space[3], opacity: 0.7 }}
+                  size="sm"
                 />
               </View>
             </Card>
@@ -384,7 +383,7 @@ export default function ReadingScreen() {
           {/* Call to action */}
           <View style={{ gap: space[3], marginTop: space[3] }}>
             <Button
-              label="Create an account to start tracking"
+              label="Create account"
               variant="primary"
               onPress={() => router.push('/auth')}
             />
@@ -412,11 +411,8 @@ export default function ReadingScreen() {
         style={{
           paddingTop: Math.max(insets.top, space[4]),
           paddingHorizontal: space[4],
-          paddingBottom: space[3],
           backgroundColor: c.ground,
-          borderBottomWidth: 1,
-          borderBottomColor: c.line,
-          gap: space[3],
+          gap: space[2],
         }}
       >
         <View style={[sheet.row, { justifyContent: 'space-between' }]}>
@@ -425,10 +421,10 @@ export default function ReadingScreen() {
             onPress={() => router.push('/discover')}
             accessibilityRole="button"
             accessibilityLabel="Find and add books"
-            style={{ padding: space[2] }}
+            style={{ minHeight: 44, justifyContent: 'center', paddingLeft: space[2] }}
           >
             <Txt variant="body" color="accent" style={{ fontWeight: '500' }}>
-              + Add
+              Add a book
             </Txt>
           </Pressable>
         </View>
@@ -438,9 +434,9 @@ export default function ReadingScreen() {
           selected={section}
           onSelect={setSection}
           labels={{
-            reading: `Reading (${currentlyReading.length})`,
-            want_to_read: `Want to read (${wantToRead.length})`,
-            diary: `Diary (${finishedReads.length})`,
+            reading: 'Now',
+            want_to_read: 'Want to read',
+            diary: 'Diary',
           }}
         />
       </View>
@@ -476,35 +472,46 @@ export default function ReadingScreen() {
                 {wantToRead.length > 0 && (
                   <View style={{ gap: space[3] }}>
                     <Txt variant="micro" color="muted">
-                      OR START FROM YOUR WANT TO READ LIST:
+                      Or start one from Want to read
                     </Txt>
                     {wantToRead.slice(0, 3).map((item) => (
-                      <Card key={item.id} onPress={() => router.push(`/work/${item.work_id}` as any)}>
-                        <View style={sheet.rowTop}>
-                          <Cover coverId={item.cover_id} title={item.title ?? ''} size="s" />
-                          <View style={{ flex: 1, gap: 2 }}>
-                            <Txt variant="title" numberOfLines={1}>
-                              {item.title}
-                            </Txt>
-                            <Txt variant="caption" color="muted">
-                              {item.author_name}
-                            </Txt>
-                          </View>
-                          <Button
-                            label="Start"
-                            variant="secondary"
-                            onPress={() => handleStartReading(item)}
-                            style={{ minHeight: 32, paddingHorizontal: space[3] }}
-                          />
+                      <Pressable
+                        key={item.id}
+                        onPress={() => router.push(`/work/${item.work_id}` as any)}
+                        accessibilityRole="button"
+                        style={({ pressed }) => [
+                          sheet.row,
+                          {
+                            paddingVertical: space[3],
+                            borderTopWidth: 1,
+                            borderTopColor: c.line,
+                            backgroundColor: pressed ? c.surface2 : 'transparent',
+                          },
+                        ]}
+                      >
+                        <Cover coverId={item.cover_id} title={item.title ?? ''} size="s" />
+                        <View style={{ flex: 1, gap: 2 }}>
+                          <Txt variant="title" numberOfLines={1}>
+                            {item.title}
+                          </Txt>
+                          <Txt variant="caption" color="muted">
+                            {item.author_name}
+                          </Txt>
                         </View>
-                      </Card>
+                        <Button
+                          label="Start reading"
+                          variant="secondary"
+                          size="sm"
+                          onPress={() => handleStartReading(item)}
+                        />
+                      </Pressable>
                     ))}
                   </View>
                 )}
               </View>
             ) : (
-              <View style={{ gap: space[4] }}>
-                {currentlyReading.map((read) => {
+              <View>
+                {currentlyReading.map((read, index) => {
                   const page = read.page ?? 0;
                   const total = read.page_count ?? null;
                   const percent = total ? Math.min(100, Math.round((page / total) * 100)) : read.percent ?? 0;
@@ -517,25 +524,42 @@ export default function ReadingScreen() {
                   const isComplete = (total && page >= total) || percent >= 100;
 
                   return (
-                    <Card
+                    <View
                       key={read.id}
-                      style={{ gap: space[3] }}
-                      onPress={() => router.push(`/work/${read.work_id}` as any)}
+                      style={{
+                        gap: space[3],
+                        paddingTop: index ? space[6] : space[2],
+                        paddingBottom: space[6],
+                        borderTopWidth: index ? 1 : 0,
+                        borderTopColor: c.line,
+                      }}
                     >
                       {/* Book header */}
-                      <View style={sheet.rowTop}>
-                        <Cover
-                          coverId={read.cover_id}
-                          title={read.title ?? 'Book'}
-                          author={read.author_name ?? ''}
-                          size="l"
-                        />
-                        <View style={{ flex: 1, gap: space[2], justifyContent: 'space-between' }}>
+                      <View style={[sheet.rowTop, { gap: space[4] }]}>
+                        <Pressable
+                          onPress={() => router.push(`/work/${read.work_id}` as any)}
+                          accessibilityRole="button"
+                          accessibilityLabel={`Open ${read.title ?? 'book'}`}
+                        >
+                          <Cover
+                            coverId={read.cover_id}
+                            title={read.title ?? 'Book'}
+                            author={read.author_name ?? ''}
+                            size="l"
+                          />
+                        </Pressable>
+                        <View style={{ flex: 1, minHeight: 180, justifyContent: 'space-between' }}>
                           <View style={{ gap: 2 }}>
-                            <View style={[sheet.row, { justifyContent: 'space-between' }]}>
-                              <Txt variant="title" numberOfLines={2} style={{ flex: 1 }}>
-                                {read.title}
-                              </Txt>
+                            <View style={sheet.rowTop}>
+                              <Pressable
+                                onPress={() => router.push(`/work/${read.work_id}` as any)}
+                                accessibilityRole="link"
+                                style={{ flex: 1 }}
+                              >
+                                <Txt variant="displayM" numberOfLines={3}>
+                                  {read.title}
+                                </Txt>
+                              </Pressable>
                               <Pressable
                                 onPress={() => {
                                   void Haptics.selectionAsync();
@@ -543,45 +567,33 @@ export default function ReadingScreen() {
                                 }}
                                 accessibilityRole="button"
                                 accessibilityLabel="Reading actions"
-                                style={{ padding: 4 }}
+                                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                                style={{ minWidth: 32, minHeight: 32, alignItems: 'flex-end', justifyContent: 'center' }}
                               >
-                                <Txt variant="body" color="muted" style={{ fontWeight: '500' }}>
-                                  •••
-                                </Txt>
+                                <Ionicons name="ellipsis-horizontal" size={18} color={c.muted} />
                               </Pressable>
                             </View>
 
-                            <Txt variant="caption" color="muted" numberOfLines={1}>
+                            <Txt variant="body" color="ink2" numberOfLines={1}>
                               {read.author_name}
                             </Txt>
 
                             {read.attempt_no > 1 && (
-                              <View
-                                style={{
-                                  alignSelf: 'flex-start',
-                                  marginTop: 2,
-                                }}
-                              >
-                                <Txt variant="micro" color="muted" tabular>
-                                  Re-read #{read.attempt_no}
-                                </Txt>
-                              </View>
+                              <Txt variant="micro" color="muted" tabular style={{ marginTop: 2 }}>
+                                Re-read {read.attempt_no}
+                              </Txt>
                             )}
                           </View>
 
-                          {/* Progress summary label */}
+                          {/* Progress summary */}
                           <View style={{ gap: 2 }}>
-                            <View style={[sheet.row, { justifyContent: 'space-between' }]}>
-                              <Txt variant="caption" color="ink" tabular style={{ fontWeight: '500' }}>
-                                {total ? `Page ${page} of ${total}` : `Page ${page}`}
-                              </Txt>
-                              <Txt variant="caption" color="muted" tabular>
-                                {percent}%
-                              </Txt>
-                            </View>
-
-                            {/* Velocity predicted finish date */}
-                            <Txt variant="micro" color="muted">
+                            <Txt variant="displayM" tabular>
+                              {percent}%
+                            </Txt>
+                            <Txt variant="caption" color="ink2" tabular>
+                              {total ? `Page ${page} of ${total}` : `Page ${page}`}
+                            </Txt>
+                            <Txt variant="caption" color="muted">
                               {prediction}
                             </Txt>
                           </View>
@@ -589,76 +601,61 @@ export default function ReadingScreen() {
                       </View>
 
                       {/* Auto-saving Progress Slider (SL-52) */}
-                      <View style={{ paddingHorizontal: 2 }}>
-                        <ProgressSlider
-                          currentPage={page}
-                          pageCount={total || 100}
-                          onRelease={(newPage, newPercent) =>
-                            handleSliderRelease(read, newPage, newPercent)
-                          }
-                        />
-                      </View>
+                      <ProgressSlider
+                        currentPage={page}
+                        pageCount={total || 100}
+                        onRelease={(newPage, newPercent) =>
+                          handleSliderRelease(read, newPage, newPercent)
+                        }
+                      />
 
-                      {/* 100% Celebration Prompt */}
-                      {isComplete && (
-                        <Pressable
-                          onPress={() => router.push(`/finish/${read.id}` as any)}
-                          style={{
-                            backgroundColor: c.accentSoft,
-                            paddingHorizontal: space[4],
-                            paddingVertical: space[3],
-                            borderRadius: radius.md,
-                            flexDirection: 'row',
-                            alignItems: 'center',
-                            justifyContent: 'space-between',
-                          }}
-                        >
-                          <Txt variant="caption" color="accent" style={{ fontWeight: '500' }}>
-                            You've reached the end · Rate and finish
-                          </Txt>
-                          <Ionicons name="chevron-forward" size={16} color={c.accent} />
-                        </Pressable>
-                      )}
-
-                      {/* Action Bar */}
-                      <View
-                        style={[
-                          sheet.row,
-                          {
-                            justifyContent: 'space-between',
-                            borderTopWidth: 1,
-                            borderTopColor: c.line,
-                            paddingTop: space[3],
-                            marginTop: space[1],
-                          },
-                        ]}
-                      >
-                        <Button
-                          label="+10 pages"
-                          variant="secondary"
-                          onPress={() => handleAddTenPages(read)}
-                          style={{ minHeight: 36, paddingHorizontal: space[3] }}
-                        />
-
-                        <View style={[sheet.row, { gap: space[2] }]}>
+                      {/* One primary action per entry: update while reading, finish at the end. */}
+                      <View style={[sheet.row, { gap: space[2], flexWrap: 'wrap' }]}>
+                        {isComplete ? (
                           <Button
-                            label="Update"
-                            variant="secondary"
+                            label="Rate and finish"
+                            variant="primary"
+                            size="sm"
+                            onPress={() => router.push(`/finish/${read.id}` as any)}
+                          />
+                        ) : (
+                          <Button
+                            label="Update progress"
+                            variant="primary"
+                            size="sm"
                             onPress={() => {
                               void Haptics.selectionAsync();
                               setSheetRead(read);
                             }}
-                            style={{ minHeight: 36, paddingHorizontal: space[3] }}
                           />
+                        )}
+                        <Button
+                          label="+10 pages"
+                          variant="secondary"
+                          size="sm"
+                          onPress={() => handleAddTenPages(read)}
+                        />
+                        <View style={{ flex: 1 }} />
+                        {isComplete ? (
+                          <Button
+                            label="Update"
+                            variant="tertiary"
+                            size="sm"
+                            onPress={() => {
+                              void Haptics.selectionAsync();
+                              setSheetRead(read);
+                            }}
+                          />
+                        ) : (
                           <Button
                             label="Finish"
-                            variant="primary"
+                            variant="tertiary"
+                            size="sm"
                             onPress={() => router.push(`/finish/${read.id}` as any)}
-                            style={{ minHeight: 36, paddingHorizontal: space[4] }}
                           />
-                        </View>
+                        )}
                       </View>
-                    </Card>
+                    </View>
                   );
                 })}
               </View>
@@ -672,34 +669,17 @@ export default function ReadingScreen() {
         {section === 'want_to_read' && (
           <View style={{ gap: space[4] }}>
             {/* Filter & Sort Strip */}
-            <View style={[sheet.row, { justifyContent: 'space-between', flexWrap: 'wrap' }]}>
-              {/* Format Filter Chips */}
-              <View style={[sheet.row, { gap: 2, padding: 2, borderRadius: radius.md, backgroundColor: c.surface2 }]}>
-                {(['all', 'print', 'ebook', 'audiobook'] as const).map((fmt) => {
-                  const selected = formatFilter === fmt;
-                  const label = fmt === 'audiobook' ? 'Audio' : fmt.charAt(0).toUpperCase() + fmt.slice(1);
-                  return (
-                    <Pressable
-                      key={fmt}
-                      onPress={() => {
-                        void Haptics.selectionAsync();
-                        setFormatFilter(fmt);
-                      }}
-                      style={{
-                        paddingHorizontal: space[3],
-                        paddingVertical: space[1],
-                        borderRadius: radius.sm,
-                        backgroundColor: selected ? c.surface : 'transparent',
-                        borderWidth: 1,
-                        borderColor: selected ? c.lineStrong : 'transparent',
-                      }}
-                    >
-                      <Txt variant="micro" color={selected ? 'ink' : 'muted'}>
-                        {label}
-                      </Txt>
-                    </Pressable>
-                  );
-                })}
+            <View style={[sheet.row, { justifyContent: 'space-between', flexWrap: 'wrap', rowGap: space[2] }]}>
+              {/* Format filter */}
+              <View style={[sheet.row, { gap: space[2], flexWrap: 'wrap' }]}>
+                {(['all', 'print', 'ebook', 'audiobook'] as const).map((fmt) => (
+                  <Chip
+                    key={fmt}
+                    label={fmt === 'audiobook' ? 'Audio' : fmt.charAt(0).toUpperCase() + fmt.slice(1)}
+                    selected={formatFilter === fmt}
+                    onPress={() => setFormatFilter(fmt)}
+                  />
+                ))}
               </View>
 
               {/* View Mode & Bulk Toggle */}
@@ -708,7 +688,7 @@ export default function ReadingScreen() {
                   onPress={() => setViewMode(viewMode === 'list' ? 'grid' : 'list')}
                   accessibilityRole="button"
                   accessibilityLabel="Toggle grid or list view"
-                  style={[sheet.row, { gap: space[1], padding: space[1] }]}
+                  style={[sheet.row, { gap: space[1], minHeight: 44, paddingHorizontal: space[1] }]}
                 >
                   <Ionicons name={viewMode === 'list' ? 'grid-outline' : 'list-outline'} size={16} color={c.ink2} />
                   <Txt variant="caption" color="ink2">
@@ -724,7 +704,7 @@ export default function ReadingScreen() {
                   }}
                   accessibilityRole="button"
                   accessibilityLabel="Bulk selection mode"
-                  style={{ padding: 4 }}
+                  style={{ minHeight: 44, justifyContent: 'center', paddingHorizontal: space[1] }}
                 >
                   <Txt variant="caption" color={bulkMode ? 'accent' : 'muted'}>
                     {bulkMode ? 'Cancel' : 'Select'}
@@ -739,9 +719,10 @@ export default function ReadingScreen() {
                 style={[
                   sheet.row,
                   {
-                    backgroundColor: c.surface2,
-                    padding: space[3],
-                    borderRadius: radius.md,
+                    backgroundColor: c.surface,
+                    paddingVertical: space[2],
+                    paddingHorizontal: space[4],
+                    borderRadius: radius.lg,
                     justifyContent: 'space-between',
                   },
                 ]}
@@ -750,10 +731,10 @@ export default function ReadingScreen() {
                   {selectedIds.size} selected
                 </Txt>
                 <Button
-                  label="Remove selected"
+                  label="Remove"
                   variant="destructive"
+                  size="sm"
                   onPress={handleBulkDelete}
-                  style={{ minHeight: 32, paddingHorizontal: space[3] }}
                 />
               </View>
             )}
@@ -771,51 +752,69 @@ export default function ReadingScreen() {
                 }
               />
             ) : viewMode === 'list' ? (
-              // List View
-              <View style={{ gap: space[3] }}>
-                {wantToRead.map((item) => {
+              // List view: ruled rows
+              <View>
+                {wantToRead.map((item, index) => {
                   const isSelected = selectedIds.has(item.id);
                   return (
-                    <Card
+                    <Pressable
                       key={item.id}
                       onPress={() => {
                         if (bulkMode) toggleSelectBook(item.id);
                         else router.push(`/work/${item.work_id}` as any);
                       }}
-                      style={[
-                        bulkMode && isSelected ? { borderColor: c.accent, borderWidth: 2 } : null,
+                      accessibilityRole="button"
+                      accessibilityState={bulkMode ? { selected: isSelected } : undefined}
+                      style={({ pressed }) => [
+                        sheet.rowTop,
+                        {
+                          gap: space[4],
+                          paddingVertical: space[4],
+                          borderTopWidth: index ? 1 : 0,
+                          borderTopColor: c.line,
+                          backgroundColor: pressed ? c.surface2 : 'transparent',
+                        },
                       ]}
                     >
-                      <View style={sheet.rowTop}>
-                        <Cover coverId={item.cover_id} title={item.title ?? ''} size="m" />
-                        <View style={{ flex: 1, gap: space[1], justifyContent: 'space-between' }}>
-                          <View style={{ gap: 2 }}>
-                            <Txt variant="title" numberOfLines={1}>
-                              {item.title}
+                      <Cover coverId={item.cover_id} title={item.title ?? ''} size="m" />
+                      <View style={{ flex: 1, minHeight: 132, justifyContent: 'space-between' }}>
+                        <View style={{ gap: 2 }}>
+                          <Txt variant="title" numberOfLines={2}>
+                            {item.title}
+                          </Txt>
+                          <Txt variant="caption" color="ink2" numberOfLines={1}>
+                            {item.author_name}
+                          </Txt>
+                          {item.page_count ? (
+                            <Txt variant="caption" color="muted" tabular>
+                              {item.page_count} pages
                             </Txt>
-                            <Txt variant="caption" color="muted">
-                              {item.author_name}
-                            </Txt>
-                            {item.page_count ? (
-                              <Txt variant="micro" color="muted">
-                                {item.page_count} pages
-                              </Txt>
-                            ) : null}
-                          </View>
-
-                          {!bulkMode && (
-                            <View style={{ alignSelf: 'flex-start', marginTop: space[2] }}>
-                              <Button
-                                label="Start reading"
-                                variant="primary"
-                                onPress={() => handleStartReading(item)}
-                                style={{ minHeight: 32, paddingHorizontal: space[3] }}
-                              />
-                            </View>
-                          )}
+                          ) : null}
                         </View>
+
+                        {bulkMode ? (
+                          <View style={[sheet.row, { gap: space[2] }]}>
+                            <Ionicons
+                              name={isSelected ? 'checkmark-circle' : 'ellipse-outline'}
+                              size={22}
+                              color={isSelected ? c.accent : c.muted}
+                            />
+                            <Txt variant="caption" color={isSelected ? 'ink' : 'muted'}>
+                              {isSelected ? 'Selected' : 'Tap to select'}
+                            </Txt>
+                          </View>
+                        ) : (
+                          <View style={{ alignSelf: 'flex-start' }}>
+                            <Button
+                              label="Start reading"
+                              variant="secondary"
+                              size="sm"
+                              onPress={() => handleStartReading(item)}
+                            />
+                          </View>
+                        )}
                       </View>
-                    </Card>
+                    </Pressable>
                   );
                 })}
               </View>

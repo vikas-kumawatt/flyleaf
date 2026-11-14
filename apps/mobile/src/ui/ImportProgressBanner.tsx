@@ -13,7 +13,7 @@ import { api, type ImportResponse } from '@/lib/api';
 import { startImportPolling } from '@/lib/importPolling';
 import { formatEta, importEtaSeconds, type ProgressSample } from '@/lib/homeFeed';
 import { Card, Txt, ProgressBar, Button, sheet } from '@/ui/components';
-import { space, radius, useTheme } from '@/ui/tokens';
+import { space, useTheme } from '@/ui/tokens';
 
 export interface ImportProgressBannerProps {
   importId: string;
@@ -61,11 +61,11 @@ export function ImportProgressBanner({
 
   if (!job) {
     return (
-      <Card style={[styles.container, { borderColor: c.line }]}>
+      <Card style={styles.container}>
         <View style={sheet.row}>
           <ActivityIndicator size="small" color={c.muted} style={{ marginRight: space[2] }} />
           <Txt variant="caption" color="muted">
-            Connecting to import service...
+            Connecting to the import service…
           </Txt>
         </View>
       </Card>
@@ -102,7 +102,7 @@ export function ImportProgressBanner({
   };
 
   return (
-    <Card style={[styles.container, { borderColor: c.line }]}>
+    <Card style={styles.container}>
       {/* Header Row */}
       <View style={sheet.rowBetween}>
         <View style={[sheet.row, { gap: space[2], flex: 1 }]}>
@@ -142,19 +142,19 @@ export function ImportProgressBanner({
         <View style={{ gap: space[1], marginTop: space[2] }}>
           <ProgressBar percent={progressPercent} />
           <View style={sheet.rowBetween}>
-            <Txt variant="caption" color="muted" tabular style={{ fontSize: 12 }}>
+            <Txt variant="micro" color="muted" tabular>
               {isCompleted
                 ? `${total} books processed (100%)`
                 : `${processedCount} of ${total} books processed (${progressPercent}%)`}
             </Txt>
-            <Txt variant="caption" color="muted" tabular style={{ fontSize: 12 }}>
+            <Txt variant="micro" color="muted" tabular>
               {job.matched} matched · {job.unmatched} unmatched
             </Txt>
           </View>
           {isProcessing && (() => {
             const eta = importEtaSeconds(samples, total);
             return eta === null ? null : (
-              <Txt variant="caption" color="muted" style={{ fontSize: 12 }}>
+              <Txt variant="micro" color="muted">
                 {formatEta(eta)}
               </Txt>
             );
@@ -165,7 +165,7 @@ export function ImportProgressBanner({
       {/* Queued Message */}
       {isQueued && (
         <Txt variant="caption" color="muted" style={{ marginTop: space[2] }}>
-          Your import is in the queue. Processing will begin shortly...
+          Your import is in the queue. Processing will begin shortly…
         </Txt>
       )}
 
@@ -178,13 +178,13 @@ export function ImportProgressBanner({
 
       {/* Unmatched Review CTA */}
       {job.unmatched > 0 && (
-        <View style={{ marginTop: space[3], paddingTop: space[2], borderTopWidth: 1, borderTopColor: c.line }}>
+        <View style={{ marginTop: space[3], paddingTop: space[3], borderTopWidth: 1, borderTopColor: c.line }}>
           <View style={sheet.rowBetween}>
-            <View style={{ flex: 1, marginRight: space[2] }}>
-              <Txt variant="body" style={{ fontSize: 13, fontWeight: '500' }}>
+            <View style={{ flex: 1, marginRight: space[2], gap: space[1] }}>
+              <Txt variant="caption" style={{ fontWeight: '500' }}>
                 {job.unmatched} {job.unmatched === 1 ? 'book needs' : 'books need'} review
               </Txt>
-              <Txt variant="caption" color="muted" style={{ fontSize: 11 }}>
+              <Txt variant="micro" color="muted">
                 Ambiguous or missing matches are never guessed.
               </Txt>
             </View>
@@ -211,7 +211,5 @@ export function ImportProgressBanner({
 const styles = StyleSheet.create({
   container: {
     padding: space[3],
-    borderRadius: radius.md,
-    marginVertical: space[2],
   },
 });

@@ -20,8 +20,11 @@ import {
   WHAT_IS_LOST,
   WHAT_STAYS,
 } from '@/lib/accountDeletion';
-import { Button, Card, EmptyState, Field, Screen, Txt, sheet } from '@/ui/components';
+import { Button, EmptyState, Field, Screen, Txt, sheet } from '@/ui/components';
 import { space, useTheme } from '@/ui/tokens';
+
+// A section of the page: a hairline rule above, then its own heading and text.
+const ruled = (line: string) => ({ borderTopWidth: 1, borderTopColor: line, paddingTop: space[4], gap: space[2] }) as const;
 
 export default function DeleteAccountScreen() {
   const c = useTheme();
@@ -68,52 +71,50 @@ export default function DeleteAccountScreen() {
         <View style={sheet.rowBetween}>
           <Button label="Back" variant="tertiary" onPress={() => router.back()} />
           <Txt variant="title">Delete account</Txt>
-          <View style={{ width: 48 }} />
+          <View style={{ width: space[12] }} />
         </View>
       </View>
-      <ScrollView contentContainerStyle={{ padding: space[4], paddingBottom: insets.bottom + space[8], gap: space[3] }}>
+      <ScrollView contentContainerStyle={{ padding: space[4], paddingBottom: insets.bottom + space[8], gap: space[4] }}>
         {!user ? (
           <EmptyState title="Not signed in" subtitle="Sign in to delete your account" />
         ) : step === 'consequences' ? (
           <>
-            <Card style={{ padding: space[4], gap: space[2] }}>
-              <Txt variant="body" style={{ fontWeight: '500' }}>
-                What will be deleted
-              </Txt>
+            <Txt variant="displayM">Before you delete</Txt>
+
+            <View style={ruled(c.line)}>
+              <Txt variant="title">What will be deleted</Txt>
               {WHAT_IS_LOST.map((line) => (
                 <Txt key={line} variant="body">
-                  {`• ${line}`}
+                  {line}
                 </Txt>
               ))}
               <Txt variant="caption" color="muted">
                 {WHAT_STAYS}
               </Txt>
-            </Card>
+            </View>
 
-            <Card style={{ padding: space[4], gap: space[2] }}>
-              <Txt variant="body" style={{ fontWeight: '500' }}>
-                30 days to change your mind
-              </Txt>
+            <View style={ruled(c.line)}>
+              <Txt variant="title">30 days to change your mind</Txt>
               <Txt variant="body">{GRACE_PROMISE} After that it is permanent.</Txt>
-            </Card>
+            </View>
 
             {/* PRD §25.4 step 7: the export is offered before deletion. */}
-            <Card style={{ padding: space[4], gap: space[2] }}>
-              <Txt variant="body" style={{ fontWeight: '500' }}>
-                Keep a copy first
-              </Txt>
+            <View style={ruled(c.line)}>
+              <Txt variant="title">Keep a copy first</Txt>
               <Txt variant="body">
                 Export your library as CSV or JSON. The link is emailed to you and still works after you delete your account.
               </Txt>
-              <Button
-                label="Export my library"
-                variant="secondary"
-                onPress={() => {
-                  void Haptics.selectionAsync();
-                  router.push('/import' as any);
-                }}
-              />
-            </Card>
+              <View style={{ alignItems: 'flex-start' }}>
+                <Button
+                  label="Export my library"
+                  variant="tertiary"
+                  onPress={() => {
+                    void Haptics.selectionAsync();
+                    router.push('/import' as any);
+                  }}
+                />
+              </View>
+            </View>
 
             <Button
               label="Continue"
@@ -125,7 +126,8 @@ export default function DeleteAccountScreen() {
             />
           </>
         ) : (
-          <Card style={{ padding: space[4], gap: space[3] }}>
+          <View style={{ gap: space[4] }}>
+            <Txt variant="displayM">Confirm with your password</Txt>
             <Txt variant="body">
               Enter your password to delete <Txt variant="body" style={{ fontWeight: '500' }}>@{user.username}</Txt>. Your
               profile, reads, reviews and shelves disappear for everyone straight away, and you are signed out on every device.
@@ -147,7 +149,7 @@ export default function DeleteAccountScreen() {
               onPress={confirm}
             />
             <Button label="Keep my account" variant="tertiary" disabled={deleting} onPress={() => router.back()} />
-          </Card>
+          </View>
         )}
       </ScrollView>
     </Screen>

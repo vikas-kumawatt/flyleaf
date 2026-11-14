@@ -54,22 +54,22 @@ export function sendPage(reply: FastifyReply, status: number, title: string, bod
 <meta name="referrer" content="no-referrer">
 <title>${escapeHtml(title)} · Flyleaf</title>
 <style>
-  :root { color-scheme: light dark; --ground: #FAFAFA; --raised: #F4F4F5; --ink: #171717; --muted: #737373; --accent: #3355C4; --on-accent: #FFFFFF; --critical: #DC2626; --line: rgba(23,23,23,.08); }
-  @media (prefers-color-scheme: dark) { :root { --ground: #141415; --raised: #232325; --ink: #EDEDED; --muted: #85858B; --accent: #8DA6EE; --on-accent: #141415; --critical: #E5484D; --line: rgba(237,237,237,.08); } }
+  :root { color-scheme: light dark; --ground: #F4EEE2; --raised: #EBE3D3; --ink: #211C16; --muted: #6B6155; --accent: #8C2F2A; --on-accent: #FBF6EC; --critical: #B3261E; --line: rgba(33,28,22,.12); --line-strong: rgba(33,28,22,.24); }
+  @media (prefers-color-scheme: dark) { :root { --ground: #17130F; --raised: #2A251E; --ink: #EDE6D8; --muted: #948A7A; --accent: #E08A7E; --on-accent: #17130F; --critical: #F0796E; --line: rgba(237,230,216,.12); --line-strong: rgba(237,230,216,.24); } }
   body { margin: 0; background: var(--ground); color: var(--ink); font: 15px/1.5 "Instrument Sans", system-ui, sans-serif; }
   main { max-width: 26rem; margin: 0 auto; padding: 48px 16px; }
-  h1 { font: 400 28px/1.2 Newsreader, Georgia, serif; margin: 0 0 12px; }
+  h1 { font: 600 28px/1.2 Figtree, system-ui, sans-serif; letter-spacing: -0.02em; margin: 0 0 12px; }
   p { margin: 0 0 16px; }
   .muted { color: var(--muted); font-size: 13px; }
   .error { color: var(--critical); }
   label { display: block; margin: 0 0 4px; font-size: 13px; color: var(--muted); }
-  input { box-sizing: border-box; width: 100%; height: 44px; padding: 0 12px; margin: 0 0 16px; font: inherit; color: var(--ink); background: var(--raised); border: 1px solid var(--line); border-radius: 10px; }
+  input { box-sizing: border-box; width: 100%; height: 44px; padding: 0 12px; margin: 0 0 16px; font: inherit; color: var(--ink); background: var(--raised); border: 1px solid var(--line); border-radius: 8px; }
   input:focus-visible, button:focus-visible, .app:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
-  button, .app { display: flex; align-items: center; justify-content: center; box-sizing: border-box; width: 100%; height: 44px; padding: 0 16px; margin: 0 0 12px; border-radius: 10px; font: 500 15px "Instrument Sans", system-ui, sans-serif; text-decoration: none; cursor: pointer; transition: opacity 140ms cubic-bezier(0.22, 1, 0.36, 1); }
+  button, .app { display: flex; align-items: center; justify-content: center; box-sizing: border-box; width: 100%; height: 44px; padding: 0 16px; margin: 0 0 12px; border-radius: 999px; font: 500 15px "Instrument Sans", system-ui, sans-serif; text-decoration: none; cursor: pointer; transition: opacity 140ms cubic-bezier(0.22, 1, 0.36, 1); }
   button { border: 0; background: var(--accent); color: var(--on-accent); }
   button:hover { opacity: .9; }
   button[disabled] { opacity: .6; }
-  .app { border: 1px solid var(--line); background: var(--raised); color: var(--ink); }
+  .app { border: 1px solid var(--line-strong); background: transparent; color: var(--ink); }
 </style>
 </head>
 <body><main>

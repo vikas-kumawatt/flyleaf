@@ -24,7 +24,7 @@ import { api, FlyleafApiError, type ReadComment } from '@/lib/api';
 import { useSession } from '@/lib/session';
 import { ReportSheet, type ReportTarget } from '@/ui/ReportSheet';
 import { useActionGate } from '@/ui/ActionGate';
-import { EmptyState, Screen, Txt, sheet, SkeletonList } from '@/ui/components';
+import { Card, EmptyState, Screen, Txt, sheet, SkeletonList } from '@/ui/components';
 import { radius, space, type, useTheme } from '@/ui/tokens';
 import { Ionicons } from '@expo/vector-icons';
 import {
@@ -185,8 +185,8 @@ export default function CommentThreadScreen() {
 
       <KeyboardAvoidingView
         style={{ flex: 1 }}
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-        keyboardVerticalOffset={insets.top}
+        behavior="padding"
+        keyboardVerticalOffset={Platform.OS === 'ios' ? insets.top : 0}
       >
         {loading ? (
           <SkeletonList lead="avatar" rows={4} />
@@ -196,18 +196,17 @@ export default function CommentThreadScreen() {
           <FlatList
             data={comments}
             keyExtractor={(item) => item.id}
-            contentContainerStyle={{ padding: space[4], gap: space[3], flexGrow: 1 }}
+            contentContainerStyle={{ paddingHorizontal: space[4], paddingBottom: space[4], flexGrow: 1 }}
             onEndReached={loadMore}
             onEndReachedThreshold={0.4}
             ListHeaderComponent={
               locked ? (
-                <View
-                  style={{ padding: space[3], borderRadius: radius.md, backgroundColor: c.surface2 }}
-                  accessibilityRole="text"
-                >
-                  <Txt variant="caption" color="muted">
-                    This review was removed. Comments are closed.
-                  </Txt>
+                <View style={{ paddingTop: space[4] }} accessibilityRole="text">
+                  <Card>
+                    <Txt variant="caption" color="ink2">
+                      This review was removed. Comments are closed.
+                    </Txt>
+                  </Card>
                 </View>
               ) : null
             }
@@ -220,8 +219,15 @@ export default function CommentThreadScreen() {
             ListFooterComponent={
               loadingMore ? <ActivityIndicator color={c.muted} style={{ marginVertical: space[3] }} /> : null
             }
-            renderItem={({ item }) => (
-              <View style={{ gap: space[1] }}>
+            renderItem={({ item, index }) => (
+              <View
+                style={{
+                  gap: space[1],
+                  paddingVertical: space[3],
+                  borderTopWidth: index || locked ? 1 : 0,
+                  borderTopColor: c.line,
+                }}
+              >
                 <View style={sheet.rowBetween}>
                   <Pressable
                     onPress={() => router.push(`/user/${item.author.id}` as any)}
@@ -229,7 +235,7 @@ export default function CommentThreadScreen() {
                     accessibilityLabel={`@${item.author.username}`}
                     style={[sheet.row, { gap: space[2], minHeight: 44 }]}
                   >
-                    <Txt variant="caption" style={{ fontWeight: '500' }}>
+                    <Txt variant="body" style={{ fontWeight: '500' }}>
                       {item.author.display_name ?? item.author.username}
                     </Txt>
                     <Txt variant="micro" color="muted">
@@ -307,7 +313,7 @@ export default function CommentThreadScreen() {
                   paddingVertical: space[2],
                   borderRadius: radius.md,
                   borderWidth: 1,
-                  borderColor: c.line,
+                  borderColor: c.lineStrong,
                   backgroundColor: c.surface,
                   color: c.ink,
                   ...type.body,
@@ -321,8 +327,8 @@ export default function CommentThreadScreen() {
                 style={{
                   minHeight: 44,
                   minWidth: 64,
-                  paddingHorizontal: space[3],
-                  borderRadius: radius.md,
+                  paddingHorizontal: space[4],
+                  borderRadius: radius.pill,
                   backgroundColor: c.accent,
                   alignItems: 'center',
                   justifyContent: 'center',
@@ -332,7 +338,7 @@ export default function CommentThreadScreen() {
                 {posting ? (
                   <ActivityIndicator color={c.onAccent} />
                 ) : (
-                  <Txt variant="caption" color="onAccent" style={{ fontWeight: '500' }}>
+                  <Txt variant="body" color="onAccent" style={{ fontWeight: '500' }}>
                     Post
                   </Txt>
                 )}

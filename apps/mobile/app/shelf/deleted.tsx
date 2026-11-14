@@ -10,8 +10,9 @@ import { useFocusEffect, useRouter } from 'expo-router';
 import * as Haptics from 'expo-haptics';
 import { api } from '@/lib/api';
 import { track } from '@/lib/events';
-import { Button, Card, EmptyState, Screen, Txt, SkeletonList } from '@/ui/components';
+import { Button, EmptyState, Screen, Txt, SkeletonList } from '@/ui/components';
 import { space, useTheme } from '@/ui/tokens';
+import { ScreenHeader } from '@/ui/ScreenHeader';
 
 type DeletedShelf = Awaited<ReturnType<typeof api.getDeletedShelves>>['shelves'][number];
 
@@ -68,7 +69,8 @@ export default function DeletedShelvesScreen() {
 
   return (
     <Screen>
-      <ScrollView contentContainerStyle={{ padding: space[4], gap: space[3] }}>
+      <ScreenHeader title="Recently deleted" />
+      <ScrollView contentContainerStyle={{ padding: space[4] }}>
         {loading && shelves.length === 0 ? (
           <SkeletonList rows={3} lead="cover" style={{ paddingHorizontal: 0, paddingTop: 0 }} />
         ) : shelves.length === 0 ? (
@@ -77,24 +79,36 @@ export default function DeletedShelvesScreen() {
             subtitle="Shelves you delete can be restored here for 30 days"
           />
         ) : (
-          shelves.map((shelf) => {
+          // Ruled rows, not a card each: a page of entries
+          shelves.map((shelf, index) => {
             const left = daysLeft(shelf.purge_after);
             return (
-              <Card key={shelf.id} style={{ gap: space[2] }}>
-                <Txt variant="title" numberOfLines={1}>{shelf.name}</Txt>
-                <Txt variant="caption" color="muted">
-                  {shelf.item_count} {shelf.item_count === 1 ? 'book' : 'books'} · {left}{' '}
-                  {left === 1 ? 'day' : 'days'} left to restore
-                </Txt>
-                <View style={{ flexDirection: 'row' }}>
-                  <Button
-                    label={restoring === shelf.id ? 'Restoring…' : 'Restore'}
-                    onPress={() => void restore(shelf)}
-                    disabled={restoring !== null}
-                    variant="secondary"
-                  />
+              <View
+                key={shelf.id}
+                style={{
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  gap: space[3],
+                  paddingVertical: space[3],
+                  borderTopWidth: index ? 1 : 0,
+                  borderTopColor: c.line,
+                }}
+              >
+                <View style={{ flex: 1, gap: space[1] }}>
+                  <Txt variant="title" numberOfLines={2}>{shelf.name}</Txt>
+                  <Txt variant="caption" color="muted" tabular>
+                    {shelf.item_count} {shelf.item_count === 1 ? 'book' : 'books'} · {left}{' '}
+                    {left === 1 ? 'day' : 'days'} left to restore
+                  </Txt>
                 </View>
-              </Card>
+                <Button
+                  label={restoring === shelf.id ? 'Restoring…' : 'Restore'}
+                  onPress={() => void restore(shelf)}
+                  disabled={restoring !== null}
+                  variant="secondary"
+                  size="sm"
+                />
+              </View>
             );
           })
         )}

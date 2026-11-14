@@ -17,7 +17,6 @@ import * as Haptics from 'expo-haptics';
 import { api, type BlockedUserItem } from '@/lib/api';
 import {
   Button,
-  Card,
   EmptyState,
   Screen,
   Txt,
@@ -32,6 +31,7 @@ export default function BlockedUsersScreen() {
 
   const [blocks, setBlocks] = useState<BlockedUserItem[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadFailed, setLoadFailed] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [processingId, setProcessingId] = useState<string | null>(null);
 
@@ -40,8 +40,10 @@ export default function BlockedUsersScreen() {
       setLoading(true);
       const res = await api.getBlockedUsers();
       setBlocks(res.blocks);
+      setLoadFailed(false);
     } catch {
-      // Ignore network errors on pull
+      // Network errors keep the list as it was; the error state below offers a retry when it is empty.
+      setLoadFailed(true);
     } finally {
       setLoading(false);
     }
@@ -132,17 +134,34 @@ export default function BlockedUsersScreen() {
       >
         {loading && blocks.length === 0 ? (
           <SkeletonList lead="avatar" style={{ paddingHorizontal: 0, paddingTop: 0 }} />
+        ) : blocks.length === 0 && loadFailed ? (
+          <EmptyState
+            title="Could not load blocked accounts"
+            subtitle="Check your connection and try again."
+            action={<Button label="Try again" variant="primary" onPress={() => void fetchBlocks()} />}
+          />
         ) : blocks.length === 0 ? (
           <EmptyState
             title="No blocked accounts"
             subtitle="Accounts you block will appear here. Blocked users cannot see your profile, content, or activity."
           />
         ) : (
-          blocks.map((item) => {
-            const isBusy = processingId === item.id;
-            return (
-              <Card key={item.id} style={{ padding: space[4] }}>
-                <View style={sheet.rowBetween}>
+          <View>
+            {blocks.map((item, index) => {
+              const isBusy = processingId === item.id;
+              return (
+                <View
+                  key={item.id}
+                  style={[
+                    sheet.rowBetween,
+                    {
+                      minHeight: 56,
+                      paddingVertical: space[3],
+                      borderTopWidth: index ? 1 : 0,
+                      borderTopColor: c.line,
+                    },
+                  ]}
+                >
                   <View style={[sheet.row, { gap: space[3], flex: 1 }]}>
                     {/* Avatar */}
                     <View
@@ -180,9 +199,9 @@ export default function BlockedUsersScreen() {
                     onPress={() => handleUnblock(item.id, item.username)}
                   />
                 </View>
-              </Card>
-            );
-          })
+              );
+            })}
+          </View>
         )}
       </ScrollView>
     </Screen>
@@ -193,7 +212,7 @@ const styles = StyleSheet.create({
   avatar: {
     width: 44,
     height: 44,
-    borderRadius: 22,
+    borderRadius: radius.pill,
     borderWidth: 1,
     alignItems: 'center',
     justifyContent: 'center',

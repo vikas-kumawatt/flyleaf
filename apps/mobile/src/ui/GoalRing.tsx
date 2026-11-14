@@ -7,15 +7,15 @@
 // circle whose top and right borders form a half arc, rotated into place.
 
 import React from 'react';
-import { Pressable, View } from 'react-native';
+import { Pressable, View, useWindowDimensions } from 'react-native';
 import { Txt } from './components';
 import { useTheme } from './tokens';
 import type { GoalRingModel } from '@/lib/statsView';
 
 export function GoalRing({
   model,
-  size = 56,
-  stroke = 6,
+  size: baseSize = 56,
+  stroke = 4,
   onPress,
   emptyLabel,
 }: {
@@ -27,6 +27,9 @@ export function GoalRing({
   emptyLabel?: string;
 }) {
   const c = useTheme();
+  // The ring grows with the reader's text size so its label always fits inside.
+  const { fontScale } = useWindowDimensions();
+  const size = Math.round(baseSize * Math.min(Math.max(fontScale, 1), 2));
   const p = model?.progress ?? 0;
   const half = size / 2;
   const circle = { width: size, height: size, borderRadius: half, borderWidth: stroke } as const;
@@ -65,7 +68,7 @@ export function GoalRing({
           {arc(45 + (p - 1) * 360, 'left')}
         </View>
       )}
-      <Txt variant="micro" tabular>
+      <Txt variant="micro" tabular style={{ textAlign: 'center' }}>
         {model ? model.label : emptyLabel ?? ''}
       </Txt>
     </View>

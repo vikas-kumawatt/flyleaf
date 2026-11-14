@@ -17,7 +17,6 @@ import * as Haptics from 'expo-haptics';
 import { api, type MutedUserItem, type MutedWorkItem } from '@/lib/api';
 import {
   Button,
-  Card,
   Cover,
   EmptyState,
   Screen,
@@ -36,6 +35,7 @@ export default function MutedItemsScreen() {
   const [mutedUsers, setMutedUsers] = useState<MutedUserItem[]>([]);
   const [mutedWorks, setMutedWorks] = useState<MutedWorkItem[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadFailed, setLoadFailed] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [processingId, setProcessingId] = useState<string | null>(null);
 
@@ -45,8 +45,10 @@ export default function MutedItemsScreen() {
       const res = await api.getMutes();
       setMutedUsers(res.users);
       setMutedWorks(res.works);
+      setLoadFailed(false);
     } catch {
-      // Ignore network errors on pull
+      // Network errors keep the lists as they were; the error state below offers a retry when both are empty.
+      setLoadFailed(true);
     } finally {
       setLoading(false);
     }
@@ -100,8 +102,6 @@ export default function MutedItemsScreen() {
           paddingHorizontal: space[4],
           paddingBottom: space[3],
           backgroundColor: c.ground,
-          borderBottomWidth: 1,
-          borderBottomColor: c.line,
           gap: space[3],
         }}
       >
@@ -153,16 +153,35 @@ export default function MutedItemsScreen() {
           <SkeletonList lead={activeTab === 'users' ? 'avatar' : 'cover'} style={{ paddingHorizontal: 0, paddingTop: 0 }} />
         ) : activeTab === 'users' ? (
           mutedUsers.length === 0 ? (
-            <EmptyState
-              title="No muted people"
-              subtitle="Users you mute will be hidden from your feed without unfollowing them"
-            />
+            loadFailed ? (
+              <EmptyState
+                title="Could not load muted people"
+                subtitle="Check your connection and try again."
+                action={<Button label="Try again" variant="primary" onPress={() => void fetchMutes()} />}
+              />
+            ) : (
+              <EmptyState
+                title="No muted people"
+                subtitle="Users you mute will be hidden from your feed without unfollowing them"
+              />
+            )
           ) : (
-            mutedUsers.map((item) => {
-              const isBusy = processingId === item.id;
-              return (
-                <Card key={item.id} style={{ padding: space[4] }}>
-                  <View style={sheet.rowBetween}>
+            <View>
+              {mutedUsers.map((item, index) => {
+                const isBusy = processingId === item.id;
+                return (
+                  <View
+                    key={item.id}
+                    style={[
+                      sheet.rowBetween,
+                      {
+                        minHeight: 56,
+                        paddingVertical: space[3],
+                        borderTopWidth: index ? 1 : 0,
+                        borderTopColor: c.line,
+                      },
+                    ]}
+                  >
                     <View style={[sheet.row, { gap: space[3], flex: 1 }]}>
                       {/* Avatar */}
                       <View
@@ -199,21 +218,40 @@ export default function MutedItemsScreen() {
                       onPress={() => handleUnmuteUser(item.id, item.username)}
                     />
                   </View>
-                </Card>
-              );
-            })
+                );
+              })}
+            </View>
           )
         ) : mutedWorks.length === 0 ? (
-          <EmptyState
-            title="No muted books"
-            subtitle="Muted books stop appearing in your activity feeds and recommendations"
-          />
+          loadFailed ? (
+            <EmptyState
+              title="Could not load muted books"
+              subtitle="Check your connection and try again."
+              action={<Button label="Try again" variant="primary" onPress={() => void fetchMutes()} />}
+            />
+          ) : (
+            <EmptyState
+              title="No muted books"
+              subtitle="Muted books stop appearing in your activity feeds and recommendations"
+            />
+          )
         ) : (
-          mutedWorks.map((item) => {
-            const isBusy = processingId === item.id;
-            return (
-              <Card key={item.id} style={{ padding: space[4] }}>
-                <View style={sheet.rowBetween}>
+          <View>
+            {mutedWorks.map((item, index) => {
+              const isBusy = processingId === item.id;
+              return (
+                <View
+                  key={item.id}
+                  style={[
+                    sheet.rowBetween,
+                    {
+                      minHeight: 56,
+                      paddingVertical: space[3],
+                      borderTopWidth: index ? 1 : 0,
+                      borderTopColor: c.line,
+                    },
+                  ]}
+                >
                   <View style={[sheet.row, { gap: space[3], flex: 1 }]}>
                     <Cover coverId={item.cover_id} size="s" />
                     <View style={{ flex: 1, gap: 2 }}>
@@ -235,9 +273,9 @@ export default function MutedItemsScreen() {
                     onPress={() => handleUnmuteWork(item.id, item.title)}
                   />
                 </View>
-              </Card>
-            );
-          })
+              );
+            })}
+          </View>
         )}
       </ScrollView>
     </Screen>
@@ -248,7 +286,7 @@ const styles = StyleSheet.create({
   avatar: {
     width: 44,
     height: 44,
-    borderRadius: 22,
+    borderRadius: radius.pill,
     borderWidth: 1,
     alignItems: 'center',
     justifyContent: 'center',

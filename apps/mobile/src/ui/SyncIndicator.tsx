@@ -46,7 +46,7 @@ export function SyncIndicator() {
             { backgroundColor: deadLetterCount > 0 ? c.critical : isOnline ? c.accent : c.muted },
           ]}
         />
-        <Txt variant="caption" color="ink2">
+        <Txt variant="caption" color="ink2" style={{ flexShrink: 1 }}>
           {label}
         </Txt>
         {deadLetterCount > 0 ? <Ionicons name="chevron-forward" size={14} color={c.muted} /> : null}
@@ -81,10 +81,11 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingHorizontal: space[4],
-    paddingVertical: space[2],
     borderBottomWidth: 1,
   },
   content: {
+    flex: 1,
+    minHeight: 44,
     flexDirection: 'row',
     alignItems: 'center',
     gap: space[2],
@@ -97,8 +98,8 @@ const styles = StyleSheet.create({
   actionButton: {
     flexDirection: 'row',
     alignItems: 'center',
+    minHeight: 44,
     gap: space[1],
-    paddingVertical: space[1],
     paddingHorizontal: space[2],
   },
 });

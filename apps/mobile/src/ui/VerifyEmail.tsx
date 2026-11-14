@@ -83,21 +83,20 @@ export function VerifyEmailProvider({ children }: { children: React.ReactNode })
             accessibilityRole="alert"
             style={{
               backgroundColor: c.surface,
-              borderTopLeftRadius: radius.lg,
-              borderTopRightRadius: radius.lg,
-              borderTopWidth: 1,
-              borderColor: c.line,
+              borderTopLeftRadius: radius.xl,
+              borderTopRightRadius: radius.xl,
+              borderCurve: 'continuous',
               padding: space[4],
               paddingBottom: space[8],
               gap: space[3],
             }}
           >
             <Txt variant="displayM">Verify your email first</Txt>
-            <Txt variant="body" color="muted">
+            <Txt variant="body" color="ink2">
               Reviews and comments need a verified email address. Tap the link we sent to {user?.email ?? 'your email'}.
             </Txt>
             {notice || checkNotice ? (
-              <Txt variant="caption" color="accent">
+              <Txt variant="caption" color="ink2">
                 {checkNotice ?? notice}
               </Txt>
             ) : null}
@@ -107,7 +106,7 @@ export function VerifyEmailProvider({ children }: { children: React.ReactNode })
               disabled={cooldown > 0}
               onPress={() => void resend()}
             />
-            <Button label="I've verified" variant="secondary" onPress={() => void checkAgain()} />
+            <Button label="I've verified" variant="tertiary" onPress={() => void checkAgain()} />
             <Button label="Not now" variant="tertiary" onPress={() => setVisible(false)} />
           </Pressable>
         </Pressable>

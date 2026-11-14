@@ -18,7 +18,7 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 
-import { BottomSheet, Txt, Button, Cover, Skeleton } from './components';
+import { BottomSheet, Txt, Button, Cover, Field, Skeleton } from './components';
 import { useTheme, space, radius, fontFamilies } from './tokens';
 import { api, type ShelfWithWorkState } from '../lib/api';
 import { validateShelfNote, validateShelfName, isAlreadyOnShelf } from '../lib/shelfValidation';
@@ -218,13 +218,13 @@ export function AddToShelfSheet({
   if (!work) return null;
 
   return (
-    <BottomSheet visible={visible} onClose={onClose} title="Add to Shelf">
+    <BottomSheet visible={visible} onClose={onClose} title="Add to shelf">
       <View style={{ gap: space[4] }}>
         {/* Book Preview Header */}
         <View style={styles.bookHeader}>
           <Cover coverId={work.cover_id} title={work.title} size="s" />
-          <View style={{ flex: 1, gap: space[1] / 2 }}>
-            <Txt variant="title" numberOfLines={2} style={{ fontFamily: fontFamilies.displayMedium }}>
+          <View style={{ flex: 1, gap: space[1] }}>
+            <Txt variant="title" numberOfLines={2}>
               {work.title}
             </Txt>
             <Txt variant="caption" color="muted" numberOfLines={1}>
@@ -235,50 +235,31 @@ export function AddToShelfSheet({
 
         {/* Quick Inline Shelf Creator Trigger */}
         {!showCreateInline ? (
-          <Pressable
-            onPress={() => {
-              void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-              setShowCreateInline(true);
-            }}
-            accessibilityRole="button"
-            accessibilityLabel="Create new shelf"
-            style={[styles.createTrigger, { borderColor: c.line, backgroundColor: c.surface2 }]}
-          >
-            <Ionicons name="add-circle-outline" size={20} color={c.accent} />
-            <Txt variant="body" color="accent" style={{ fontWeight: '500' }}>
-              Create new shelf
-            </Txt>
-          </Pressable>
+          <View style={{ alignItems: 'flex-start' }}>
+            <Button
+              label="Create new shelf"
+              variant="tertiary"
+              onPress={() => {
+                void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                setShowCreateInline(true);
+              }}
+            />
+          </View>
         ) : (
-          <View style={[styles.inlineCreateBox, { backgroundColor: c.surface2, borderColor: c.line }]}>
-            <Txt variant="micro" color="muted">
-              NEW SHELF NAME
-            </Txt>
-            <TextInput
+          <View style={{ gap: space[3] }}>
+            <Field
+              label="New shelf name"
               value={newShelfName}
               onChangeText={(text) => {
                 setNewShelfName(text);
                 if (createError) setCreateError(null);
               }}
-              placeholder="e.g. Best Sci-Fi of 2026"
-              placeholderTextColor={c.muted}
+              autoCapitalize="sentences"
+              placeholder="Best sci-fi of 2026"
               maxLength={60}
               autoFocus
-              style={[
-                styles.input,
-                {
-                  fontFamily: fontFamilies.uiRegular,
-                  color: c.ink,
-                  backgroundColor: c.surface2,
-                  borderColor: createError ? c.critical : c.line,
-                },
-              ]}
+              error={createError ?? undefined}
             />
-            {createError ? (
-              <Txt variant="micro" color="critical">
-                {createError}
-              </Txt>
-            ) : null}
             <View style={styles.createActions}>
               <Button
                 label="Cancel"
@@ -292,7 +273,7 @@ export function AddToShelfSheet({
               />
               <Button
                 label="Create and add"
-                variant="primary"
+                variant="secondary"
                 size="sm"
                 loading={creatingShelf}
                 disabled={!newShelfName.trim() || creatingShelf}
@@ -302,24 +283,41 @@ export function AddToShelfSheet({
           </View>
         )}
 
-        {/* Shelves List */}
+        {/* Shelves List: ruled rows */}
         {loading ? (
-          <View style={{ gap: space[3], paddingVertical: space[2] }}>
-            <Skeleton height={52} width="100%" />
-            <Skeleton height={52} width="100%" />
-            <Skeleton height={52} width="100%" />
+          <View
+            accessible
+            accessibilityLabel="Loading your shelves"
+            accessibilityState={{ busy: true }}
+            style={{ paddingVertical: space[2] }}
+          >
+            {[0, 1, 2].map((k) => (
+              <View
+                key={k}
+                style={[
+                  styles.shelfRow,
+                  { borderTopWidth: k ? 1 : 0, borderTopColor: c.line },
+                ]}
+              >
+                <View style={{ flex: 1, gap: space[2] }}>
+                  <Skeleton width={k % 2 ? '45%' : '60%'} height={16} />
+                  <Skeleton width="25%" height={12} />
+                </View>
+                <Skeleton width={24} height={24} borderRadius={radius.sm} />
+              </View>
+            ))}
           </View>
         ) : error ? (
           <View style={styles.errorBox}>
-            <Txt variant="body" color="critical">
+            <Txt variant="body" color="critical" style={{ textAlign: 'center' }}>
               {error}
             </Txt>
-            <Button label="Retry" variant="secondary" size="sm" onPress={loadShelves} />
+            <Button label="Try again" variant="secondary" size="sm" onPress={loadShelves} />
           </View>
         ) : shelves.length === 0 ? (
           <View style={styles.emptyShelves}>
             <Txt variant="body" color="muted" style={{ textAlign: 'center' }}>
-              You don’t have any shelves yet. Create your first shelf above to organize your reading!
+              You have no shelves yet. Create one above to start organising your reading.
             </Txt>
           </View>
         ) : (
@@ -328,37 +326,36 @@ export function AddToShelfSheet({
             keyboardShouldPersistTaps="handled"
             showsVerticalScrollIndicator={false}
           >
-            <View style={{ gap: space[2] }}>
-              {shelves.map((shelf) => {
+            <View>
+              {shelves.map((shelf, index) => {
                 const isSelected = shelf.contains_work;
                 const isEditingThisNote = activeNoteShelfId === shelf.id;
 
                 return (
                   <View
                     key={shelf.id}
-                    style={[
-                      styles.shelfCard,
-                      {
-                        backgroundColor: isSelected ? c.accentSoft : c.surface,
-                        borderColor: isSelected ? c.accent : c.line,
-                      },
-                    ]}
+                    style={{
+                      borderTopWidth: index ? 1 : 0,
+                      borderTopColor: c.line,
+                    }}
                   >
                     <Pressable
                       onPress={() => handleToggleShelf(shelf)}
                       accessibilityRole="checkbox"
                       accessibilityState={{ checked: isSelected }}
                       accessibilityLabel={`${shelf.name}, ${isSelected ? 'Selected' : 'Unselected'}`}
-                      style={styles.shelfRow}
+                      style={({ pressed }) => [
+                        styles.shelfRow,
+                        { backgroundColor: pressed ? c.surface2 : 'transparent' },
+                      ]}
                     >
-                      <View style={{ flex: 1, gap: space[1] / 2 }}>
-                        <View style={styles.shelfNameRow}>
-                          <Txt
-                            variant="body"
-                            style={{ fontWeight: isSelected ? '500' : '500' }}
-                            numberOfLines={1}
-                          >
-                            {shelf.name}
+                      <View style={{ flex: 1, gap: space[1] }}>
+                        <Txt variant="title" numberOfLines={1}>
+                          {shelf.name}
+                        </Txt>
+                        <View style={styles.shelfMetaRow}>
+                          <Txt variant="micro" color="muted" tabular>
+                            {shelf.item_count} {shelf.item_count === 1 ? 'book' : 'books'}
                           </Txt>
                           {shelf.privacy !== 'public' && (
                             <Ionicons
@@ -373,27 +370,24 @@ export function AddToShelfSheet({
                             </Txt>
                           )}
                         </View>
-                        <Txt variant="micro" color="muted">
-                          {shelf.item_count} {shelf.item_count === 1 ? 'book' : 'books'}
-                        </Txt>
                       </View>
 
                       {/* Checkbox Icon */}
                       <Ionicons
                         name={isSelected ? 'checkbox' : 'square-outline'}
                         size={24}
-                        color={isSelected ? c.accent : c.lineStrong}
+                        color={isSelected ? c.accent : c.muted}
                       />
                     </Pressable>
 
                     {/* Per-Entry Note Display / Trigger */}
                     {isSelected && (
-                      <View style={[styles.noteSection, { borderTopColor: c.line }]}>
+                      <View style={styles.noteSection}>
                         {isEditingThisNote ? (
                           <View style={{ gap: space[2] }}>
                             <View style={styles.noteHeader}>
-                              <Txt variant="micro" color="muted">
-                                NOTE FOR THIS BOOK (OPTIONAL)
+                              <Txt variant="micro" color="ink2">
+                                Note for this book (optional)
                               </Txt>
                               <Txt
                                 variant="micro"
@@ -409,7 +403,8 @@ export function AddToShelfSheet({
                                 setNoteDraft(t);
                                 if (noteError) setNoteError(null);
                               }}
-                              placeholder="e.g. Read this one first, stunning ending"
+                              accessibilityLabel="Note for this book"
+                              placeholder="Read this one first, stunning ending"
                               placeholderTextColor={c.muted}
                               maxLength={280}
                               multiline
@@ -418,13 +413,13 @@ export function AddToShelfSheet({
                                 {
                                   fontFamily: fontFamilies.uiRegular,
                                   color: c.ink,
-                                  backgroundColor: c.surface2,
-                                  borderColor: noteError ? c.critical : c.line,
+                                  backgroundColor: c.surface,
+                                  borderColor: noteError ? c.critical : c.lineStrong,
                                 },
                               ]}
                             />
                             {noteError ? (
-                              <Txt variant="micro" color="critical">
+                              <Txt variant="caption" color="critical">
                                 {noteError}
                               </Txt>
                             ) : null}
@@ -436,8 +431,8 @@ export function AddToShelfSheet({
                                 onPress={() => setActiveNoteShelfId(null)}
                               />
                               <Button
-                                label="Save note"
-                                variant="primary"
+                                label="Save"
+                                variant="secondary"
                                 size="sm"
                                 loading={savingNote}
                                 onPress={() => handleSaveNote(shelf.id)}
@@ -451,16 +446,19 @@ export function AddToShelfSheet({
                             accessibilityLabel={shelf.item_note ? 'Edit note' : 'Add note'}
                             style={styles.noteTriggerRow}
                           >
-                            <Ionicons name="chatbox-ellipses-outline" size={16} color={c.accent} />
+                            <Ionicons
+                              name="create-outline"
+                              size={16}
+                              color={shelf.item_note ? c.muted : c.accent}
+                            />
                             <Txt
                               variant="caption"
-                              color={shelf.item_note ? 'ink' : 'accent'}
+                              color={shelf.item_note ? 'ink2' : 'accent'}
                               numberOfLines={1}
-                              style={{ flex: 1, fontStyle: shelf.item_note ? 'italic' : 'normal' }}
+                              style={{ flex: 1 }}
                             >
-                              {shelf.item_note ? `"${shelf.item_note}"` : '+ Add note for this book'}
+                              {shelf.item_note ? `"${shelf.item_note}"` : 'Add a note for this book'}
                             </Txt>
-                            <Ionicons name="pencil-outline" size={14} color={c.muted} />
                           </Pressable>
                         )}
                       </View>
@@ -472,8 +470,8 @@ export function AddToShelfSheet({
           </ScrollView>
         )}
 
-        {/* Done Button */}
-        <Button label="Done" variant="primary" onPress={onClose} style={{ marginTop: space[2] }} />
+        {/* The one primary action */}
+        <Button label="Done" variant="primary" onPress={onClose} />
       </View>
     </BottomSheet>
   );
@@ -484,35 +482,11 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: space[3],
-    paddingBottom: space[2],
-  },
-  createTrigger: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: space[2],
-    paddingVertical: space[3],
-    paddingHorizontal: space[3],
-    borderRadius: radius.md,
-    borderWidth: 1,
-    borderStyle: 'dashed',
-    justifyContent: 'center',
-  },
-  inlineCreateBox: {
-    padding: space[3],
-    borderRadius: radius.md,
-    borderWidth: 1,
-    gap: space[2],
-  },
-  input: {
-    minHeight: 44,
-    paddingHorizontal: space[3],
-    borderRadius: radius.md,
-    borderWidth: 1,
-    fontSize: 15,
   },
   createActions: {
     flexDirection: 'row',
     justifyContent: 'flex-end',
+    alignItems: 'center',
     gap: space[2],
   },
   errorBox: {
@@ -524,26 +498,20 @@ const styles = StyleSheet.create({
     paddingVertical: space[4],
     alignItems: 'center',
   },
-  shelfCard: {
-    borderRadius: radius.lg,
-    borderWidth: 1,
-    overflow: 'hidden',
-  },
   shelfRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    padding: space[3],
+    minHeight: 56,
+    paddingVertical: space[3],
     gap: space[3],
   },
-  shelfNameRow: {
+  shelfMetaRow: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: space[2],
   },
   noteSection: {
-    borderTopWidth: 1,
-    padding: space[3],
-    paddingTop: space[2],
+    paddingBottom: space[3],
   },
   noteHeader: {
     flexDirection: 'row',
@@ -562,6 +530,6 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: space[2],
-    paddingVertical: space[1] / 2,
+    minHeight: 44,
   },
 });

@@ -4,10 +4,11 @@
 // list is generated from package-lock.json.
 
 import React, { useMemo } from 'react';
-import { Linking, SectionList, View } from 'react-native';
+import { Linking, Pressable, SectionList, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import * as Haptics from 'expo-haptics';
 import { ASSET_CREDITS, licenceGroups } from '@/lib/licences';
-import { Card, Screen, Txt } from '@/ui/components';
+import { Screen, Txt } from '@/ui/components';
 import { ScreenHeader } from '@/ui/ScreenHeader';
 import { space, useTheme } from '@/ui/tokens';
 
@@ -32,8 +33,24 @@ export default function LicencesScreen() {
               Flyleaf is built on the work of others. These are the fonts, icons, emoji, data and card-drawing software it uses, and the open-source
               packages inside the app, with their licences.
             </Txt>
-            {ASSET_CREDITS.map((a) => (
-              <Card key={a.name} onPress={() => void Linking.openURL(a.url)} style={{ padding: space[4], gap: space[1] }}>
+            {ASSET_CREDITS.map((a, i) => (
+              <Pressable
+                key={a.name}
+                onPress={() => {
+                  void Haptics.selectionAsync();
+                  void Linking.openURL(a.url);
+                }}
+                accessibilityRole="button"
+                style={({ pressed }) => [
+                  {
+                    paddingVertical: space[3],
+                    gap: space[1],
+                    borderTopWidth: i ? 1 : 0,
+                    borderTopColor: c.line,
+                    backgroundColor: pressed ? c.surface2 : 'transparent',
+                  },
+                ]}
+              >
                 <Txt variant="body" style={{ fontWeight: '500' }}>
                   {a.name}
                 </Txt>
@@ -44,7 +61,7 @@ export default function LicencesScreen() {
                 <Txt variant="caption" color="accent">
                   {a.licence}
                 </Txt>
-              </Card>
+              </Pressable>
             ))}
             <Txt variant="title" style={{ marginTop: space[4] }}>
               Open-source packages

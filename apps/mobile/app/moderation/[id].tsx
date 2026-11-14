@@ -76,22 +76,23 @@ export default function ModerationNoticeScreen() {
         ) : (
           <>
             <Card style={{ padding: space[4], gap: space[2] }}>
-              <Txt variant="micro" color="muted">Rule applied</Txt>
+              <Txt variant="micro" color="ink2">Rule applied</Txt>
               <Txt variant="title">{notice.rule_label}</Txt>
               {notice.consequences.map((line) => (
                 <Txt key={line} variant="body">{line}</Txt>
               ))}
-              <Txt variant="caption" color="muted" tabular>{new Date(notice.created_at).toLocaleDateString()}</Txt>
+              <Txt variant="caption" color="muted" tabular>{new Date(notice.created_at).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}</Txt>
             </Card>
             <Txt variant="body" color="ink2">{appealStatus(notice)}</Txt>
             {notice.appeal && (
-              <Card style={{ padding: space[4], gap: space[2] }}>
-                <Txt variant="micro" color="muted">Your appeal</Txt>
+              <View style={{ gap: space[2], paddingTop: space[4], borderTopWidth: 1, borderTopColor: c.line }}>
+                <Txt variant="title">Your appeal</Txt>
                 <Txt variant="body">{notice.appeal.body}</Txt>
-              </Card>
+              </View>
             )}
             {notice.can_appeal && (
-              <View style={{ gap: space[2] }}>
+              <View style={{ gap: space[2], paddingTop: space[4], borderTopWidth: 1, borderTopColor: c.line }}>
+                <Txt variant="title">Appeal this decision</Txt>
                 <TextInput
                   value={draft}
                   onChangeText={(t) => setDraft(t.slice(0, APPEAL_MAX))}
@@ -99,7 +100,7 @@ export default function ModerationNoticeScreen() {
                   placeholderTextColor={c.muted}
                   multiline
                   accessibilityLabel="Appeal"
-                  style={{ minHeight: 120, borderRadius: radius.md, borderWidth: 1, borderColor: c.line, padding: space[3], color: c.ink, backgroundColor: c.surface2, fontSize: 15, fontFamily: fontFamilies.uiRegular, textAlignVertical: 'top' }}
+                  style={{ minHeight: 120, borderRadius: radius.md, borderWidth: 1, borderColor: error ? c.critical : c.lineStrong, padding: space[3], color: c.ink, backgroundColor: c.surface, fontSize: 15, fontFamily: fontFamilies.uiRegular, textAlignVertical: 'top' }}
                 />
                 {error && <Txt variant="caption" color="critical">{error}</Txt>}
                 <Button label="Send appeal" onPress={appeal} disabled={!draft.trim()} loading={sending} />

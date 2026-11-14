@@ -60,17 +60,16 @@ export function ConfirmDobPrompt() {
           accessibilityRole="alert"
           style={{
             backgroundColor: c.surface,
-            borderTopLeftRadius: radius.lg,
-            borderTopRightRadius: radius.lg,
-            borderTopWidth: 1,
-            borderColor: c.line,
+            borderTopLeftRadius: radius.xl,
+            borderTopRightRadius: radius.xl,
+            borderCurve: 'continuous',
             padding: space[4],
             paddingBottom: space[8],
             gap: space[3],
           }}
         >
           <Txt variant="displayM">Confirm your date of birth</Txt>
-          <Txt variant="body" color="muted">
+          <Txt variant="body" color="ink2">
             An earlier version of the app did not save the date you entered at signup. Until you confirm it, some
             content settings stay at their most restricted.
           </Txt>
