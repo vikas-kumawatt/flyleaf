@@ -33,8 +33,13 @@ let deps: DeliveryDeps;
 /** 14:00 UTC: outside the default quiet hours in UTC. */
 const AFTERNOON = new Date('2026-10-12T14:00:00Z');
 
+// Aged against the test clock, not the wall clock: the tests pin `clock` to
+// fixed October 2026 dates, so "30 days before today" stopped being older
+// than the clock once the real date passed mid-November, and every aged user
+// fell into the new-account grace window.
 async function aged(userId: string, days = 30) {
-  await db.update(users).set({ createdAt: new Date(Date.now() - days * 86_400_000) }).where(eq(users.id, userId));
+  const base = clock ? Math.min(clock.getTime(), Date.now()) : Date.now();
+  await db.update(users).set({ createdAt: new Date(base - days * 86_400_000) }).where(eq(users.id, userId));
 }
 
 async function device(userId: string, token = `ExponentPushToken[${userId.slice(0, 8)}]`, lastSeen?: Date) {
